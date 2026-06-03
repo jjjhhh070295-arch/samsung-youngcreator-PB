@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS 변수 기반 테마 토큰 ── */
+:root {
+  --bg: 238 242 248;          /* 밝은 배경 */
+  --surface: 255 255 255;
+  --surface-2: 244 247 251;
+  --border: 214 224 239;
+  --fg: 10 37 64;             /* 네이비 텍스트 */
+  --fg-muted: 90 110 140;
+  --font-sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic";
+}
+
+.dark {
+  --bg: 4 16 31;             /* 짙은 네이비 배경 */
+  --surface: 10 37 64;
+  --surface-2: 12 36 68;
+  --border: 23 56 107;
+  --fg: 238 242 248;         /* 밝은 텍스트 */
+  --fg-muted: 158 178 205;
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--fg));
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* 공용 컴포넌트 클래스 */
+@layer components {
+  .card {
+    @apply rounded-xl border bg-surface shadow-card;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-navy-800 text-white hover:bg-navy-700 dark:bg-navy-600 dark:hover:bg-navy-500;
+  }
+  .btn-gold {
+    @apply btn bg-gold-500 text-navy-900 hover:bg-gold-400 font-semibold;
+  }
+  .btn-outline {
+    @apply btn border border-border bg-transparent text-fg hover:bg-surface-2;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-fg-muted hover:bg-surface-2 hover:text-fg;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .input {
+    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition-shadow placeholder:text-fg-muted/60 focus:ring-2 focus:ring-gold-400/60 disabled:bg-surface-2 disabled:opacity-70;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-fg-muted;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-gold {
+    @apply badge bg-gold-100 text-gold-800 dark:bg-gold-900/40 dark:text-gold-200;
+  }
+  .badge-navy {
+    @apply badge bg-navy-100 text-navy-800 dark:bg-navy-700 dark:text-navy-100;
+  }
+  .badge-muted {
+    @apply badge bg-surface-2 text-fg-muted;
+  }
+}
+
+/* 스크롤바 (다크 모드 대응) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 5px;
+}
