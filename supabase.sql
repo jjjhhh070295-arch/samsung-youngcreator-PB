@@ -20,8 +20,12 @@ create table if not exists clients (
   ips jsonb default '{}',             -- 최신 RRTTLLU 7요인
   cash_flows jsonb default '[]',      -- 고객 현금흐름 목록
   portfolios jsonb default '[]',      -- 포트폴리오 후보 3개
+  stages jsonb default '{}',          -- 단계별 PB 확정 상태
   created_at timestamptz default now()
 );
+
+-- 기존 프로젝트에 stages 칸이 없으면 추가 (이미 있으면 무시됨)
+alter table clients add column if not exists stages jsonb default '{}';
 
 -- 상담 1건 = 1행 (이력 누적 + 타이머 + 성향 스냅샷)
 create table if not exists consultations (

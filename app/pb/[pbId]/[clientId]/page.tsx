@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import type { Client, Consultation, CashFlow, PB } from "@/lib/types";
+import type { Client, Consultation, CashFlow, PB, Stages } from "@/lib/types";
 import {
   getClient,
   listConsultations,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/store";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
+import StageTracker from "@/components/StageTracker";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import IPSResultTabs from "@/components/IPSResultTabs";
@@ -63,6 +64,12 @@ export default function ClientDetailPage() {
     if (!client) return;
     await updateClient(client.id, { cashFlows: flows });
     setClient({ ...client, cashFlows: flows });
+  };
+
+  const saveStages = async (stages: Stages) => {
+    if (!client) return;
+    await updateClient(client.id, { stages });
+    setClient({ ...client, stages });
   };
 
   const submitEdit = async (v: ClientFormValue) => {
@@ -123,6 +130,12 @@ export default function ClientDetailPage() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
+            <button
+              className="btn-primary text-sm"
+              onClick={() => router.push(`/client/${client.id}`)}
+            >
+              고객 화면 →
+            </button>
             <div className="flex gap-2">
               <button className="btn-outline text-sm" onClick={() => setEditOpen(true)}>
                 정보 수정
@@ -134,12 +147,6 @@ export default function ClientDetailPage() {
                 삭제
               </button>
             </div>
-            <button
-              className="btn-outline text-sm"
-              onClick={() => router.push(`/client/${client.id}`)}
-            >
-              고객 화면으로 전환
-            </button>
           </div>
         </div>
       </div>
@@ -161,6 +168,9 @@ export default function ClientDetailPage() {
           + 새 상담 시작
         </button>
       </section>
+
+      {/* 단계별 확정 패널 */}
+      <StageTracker client={client} onChange={saveStages} />
 
       {/* 7요인 분석 결과 (탭: 7요인 / 플래그 / 추가질문 / 포트폴리오) */}
       <section>

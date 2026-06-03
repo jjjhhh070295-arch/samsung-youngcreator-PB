@@ -58,8 +58,23 @@ export interface Client {
   ips: IPS; // 최신 RRTTLLU
   cashFlows: CashFlow[]; // 현금흐름 (포트폴리오 입력)
   portfolios: Portfolio[]; // 포트폴리오 후보 (팀원 더미 → 실구현)
+  stages: Stages; // 단계별 PB 확정 상태
   createdAt: string;
 }
+
+// ── 상담 단계 (PB가 단계별로 확정) ──
+export type StageKey = "basic" | "factors" | "cashflow" | "portfolio" | "stress" | "ips";
+
+export type Stages = Partial<Record<StageKey, boolean>>;
+
+export const STAGE_META: { key: StageKey; label: string; desc: string }[] = [
+  { key: "basic", label: "기본 정보", desc: "고객 기본사항 입력" },
+  { key: "factors", label: "7요인 분석", desc: "RRTTLLU 7요인 정리·검토" },
+  { key: "cashflow", label: "현금흐름", desc: "예상 유입/유출 입력" },
+  { key: "portfolio", label: "포트폴리오", desc: "후보 구성 (더미)" },
+  { key: "stress", label: "스트레스 테스트", desc: "시나리오 검정 (더미)" },
+  { key: "ips", label: "IPS 문서", desc: "투자정책서 출력 (더미)" },
+];
 
 // ── 현금흐름 (포트폴리오 입력 데이터) ──
 export interface CashFlow {

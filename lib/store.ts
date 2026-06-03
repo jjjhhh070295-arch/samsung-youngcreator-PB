@@ -36,6 +36,7 @@ function rowToClient(r: any): Client {
     ips: (r.ips && Object.keys(r.ips).length ? r.ips : emptyIPS()) as IPS,
     cashFlows: (r.cash_flows ?? []) as CashFlow[],
     portfolios: (r.portfolios ?? []) as Portfolio[],
+    stages: (r.stages ?? {}) as Client["stages"],
     createdAt: r.created_at,
   };
 }
@@ -52,6 +53,7 @@ function clientToRow(c: Partial<Client>): any {
   if (c.ips !== undefined) row.ips = c.ips;
   if (c.cashFlows !== undefined) row.cash_flows = c.cashFlows;
   if (c.portfolios !== undefined) row.portfolios = c.portfolios;
+  if (c.stages !== undefined) row.stages = c.stages;
   return row;
 }
 
@@ -249,6 +251,7 @@ export async function createClient(input: NewClientInput): Promise<Client> {
       ips: emptyIPS(),
       cashFlows: [],
       portfolios: [],
+      stages: {},
       createdAt: new Date().toISOString(),
     };
     db.clients.push(client);
