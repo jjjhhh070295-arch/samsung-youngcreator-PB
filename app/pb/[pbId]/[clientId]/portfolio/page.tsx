@@ -43,6 +43,14 @@ export default function PortfolioPage() {
     setClient({ ...client, portfolios });
   };
 
+  // 스트레스/IPS 단계 완료 표시 (더미 — 수동 확정)
+  const toggleStage = async (key: "stress" | "ips") => {
+    if (!client) return;
+    const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
+    await updateClient(client.id, { stages });
+    setClient({ ...client, stages });
+  };
+
   if (status === "loading") return <LoadingView />;
   if (status === "error" || !client)
     return <ErrorView message="고객 정보를 불러올 수 없습니다." onRetry={load} />;
@@ -137,8 +145,36 @@ export default function PortfolioPage() {
 
       {/* 스트레스 테스트 */}
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-fg-muted">스트레스 테스트</h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-fg-muted">스트레스 테스트</h2>
+          <button
+            className={client.stages?.stress ? "btn-outline text-xs" : "btn-gold text-xs"}
+            onClick={() => toggleStage("stress")}
+          >
+            {client.stages?.stress ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
+          </button>
+        </div>
         <StressTestPanel portfolios={client.portfolios} />
+      </section>
+
+      {/* IPS 문서 (더미) */}
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-fg-muted">IPS 문서 (투자정책서)</h2>
+          <button
+            className={client.stages?.ips ? "btn-outline text-xs" : "btn-gold text-xs"}
+            onClick={() => toggleStage("ips")}
+          >
+            {client.stages?.ips ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
+          </button>
+        </div>
+        <div className="card flex flex-col items-center gap-3 p-6 text-center">
+          <span className="text-3xl">📄</span>
+          <p className="text-sm text-fg-muted">
+            7요인·포트폴리오를 반영한 투자정책서(IPS) 출력 — <b>PDF 출력은 추후 제공(더미)</b>.
+            완료로 표시하면 고객 화면 진행 현황에 반영됩니다.
+          </p>
+        </div>
       </section>
     </div>
   );

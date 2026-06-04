@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { emptyIPS, FACTOR_KEYS, type IPS, type IPSFactor } from "@/lib/types";
+import { rubricForPrompt } from "@/lib/scoring";
 
 export const runtime = "nodejs";
 
@@ -23,7 +24,11 @@ const SYSTEM_PROMPT = `당신은 PB(프라이빗뱅커)의 상담 기록을 분�
 2) "inferred" (추론 단서만 있음): 직접 언급은 없으나 정황 단서가 있을 때. score는 반드시 null로 두고(점수 금지), 단서 설명을 inferenceHint에 적는다. (추론을 점수로 반영하지 말 것)
 3) "empty" (근거·단서 없음): 아무 정보 없음. value/evidence/inferenceHint 모두 빈 문자열, score는 null.
 
+[채점 기준표 — explicit일 때 반드시 이 기준으로 점수 부여]
+${rubricForPrompt()}
+
 [채점 원칙]
+- explicit이면 위 기준표에 맞춰 점수(1~5)를 정한다. 상담에 나온 수치/표현을 기준표 구간에 대입한다. (예: 목표수익률 "연 6~8%" → 3점)
 - 애매하면 낮게, 명시적 근거가 강할 때만 높게(보수적).
 - 추정값을 점수로 박지 말 것. 공백을 허용하고 임의값으로 채우지 말 것.
 - 점수 1~5: 높을수록 해당 요인 수준이 큼(위험 허용도↑, 투자기간↑, 세금 민감도↑ 등).

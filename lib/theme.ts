@@ -24,15 +24,15 @@ export const CHART_COLORS = {
   primary: COLORS.navy.mid,
   accent: COLORS.gold.bright,
   muted: COLORS.neutral.grayLine,
-  // 추세 그래프에서 요인별로 구분할 7색
+  // 추세 그래프에서 요인별로 구분할 7색 (서로 뚜렷이 구분되도록)
   series: [
-    "#16386b", // return
-    "#D4AF37", // risk
-    "#4f72a8", // timeHorizon
-    "#a8841d", // tax
-    "#7e9bc6", // liquidity
-    "#c9a227", // legal
-    "#0a2540", // unique
+    "#16386b", // return — 네이비
+    "#D4AF37", // risk — 골드
+    "#2a9d8f", // timeHorizon — 틸
+    "#e76f51", // tax — 코랄
+    "#6a4c93", // liquidity — 퍼플
+    "#43936c", // legal — 그린
+    "#e98a1e", // unique — 오렌지
   ],
 } as const;
 

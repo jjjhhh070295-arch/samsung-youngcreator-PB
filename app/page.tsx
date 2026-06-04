@@ -15,7 +15,7 @@ import {
   usingLocalFallback,
 } from "@/lib/store";
 import PBCard from "@/components/PBCard";
-import PBForm from "@/components/PBForm";
+import PBManageModal from "@/components/PBManageModal";
 import ClientTable from "@/components/ClientTable";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ViewToggle from "@/components/ViewToggle";
@@ -30,10 +30,8 @@ export default function HomePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
 
-  // PB 폼/삭제 상태
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<PB | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<PB | null>(null);
+  // PB 관리 모달
+  const [pbManageOpen, setPbManageOpen] = useState(false);
 
   // 고객 폼/삭제 상태
   const [clientFormOpen, setClientFormOpen] = useState(false);
@@ -60,16 +58,16 @@ export default function HomePage() {
   const clientCount = (pbId: string) =>
     clients.filter((c) => c.assignedPbId === pbId).length;
 
-  const submitPb = async (name: string) => {
-    if (editing) await updatePb(editing.id, name);
-    else await createPb(name);
+  const handleCreatePb = async (name: string) => {
+    await createPb(name);
     await load();
   };
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    await deletePb(deleteTarget.id);
-    setDeleteTarget(null);
+  const handleRenamePb = async (id: string, name: string) => {
+    await updatePb(id, name);
+    await load();
+  };
+  const handleDeletePb = async (id: string) => {
+    await deletePb(id);
     await load();
   };
 
@@ -99,7 +97,7 @@ export default function HomePage() {
   return (
     <div>
       {/* 히어로 배너 */}
-      <div className="mb-6 overflow-hidden rounded-2xl bg-gradient-to-br from-navy-900 via-navy-800 to-navy-700 p-6 text-white shadow-card sm:p-8">
+      <div className="mb-6 overflow-hidden rounded-2xl bg-gradient-to-br from-navy-900 via-navy-800 to-navy-700 p-6 text-white shadow-card sm:p-10">
         <p className="flex items-center gap-2 text-xs font-medium text-gold-300">
           <span className="h-px w-6 bg-gold-400" />
           SAMSUNG SECURITIES · PRIVATE BANKING
@@ -149,34 +147,24 @@ export default function HomePage() {
         <>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-fg-muted">PB 폴더</h2>
-            <button
-              className="btn-gold text-sm"
-              onClick={() => {
-                setEditing(null);
-                setFormOpen(true);
-              }}
-            >
-              + PB 추가
+            <button className="btn-gold text-sm" onClick={() => setPbManageOpen(true)}>
+              PB 정보 수정
             </button>
           </div>
           {pbs.length === 0 ? (
             <EmptyView
               title="아직 등록된 PB가 없어요"
-              hint="오른쪽 위 '+ PB 추가' 버튼으로 PB를 등록하세요."
+              hint="오른쪽 위 'PB 정보 수정' 버튼에서 PB를 추가하세요."
+              action={
+                <button className="btn-gold text-sm" onClick={() => setPbManageOpen(true)}>
+                  PB 정보 수정
+                </button>
+              }
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {pbs.map((pb) => (
-                <PBCard
-                  key={pb.id}
-                  pb={pb}
-                  clientCount={clientCount(pb.id)}
-                  onEdit={() => {
-                    setEditing(pb);
-                    setFormOpen(true);
-                  }}
-                  onDelete={() => setDeleteTarget(pb)}
-                />
+                <PBCard key={pb.id} pb={pb} clientCount={clientCount(pb.id)} />
               ))}
             </div>
           )}
@@ -235,28 +223,14 @@ export default function HomePage() {
         </>
       )}
 
-      <PBForm
-        open={formOpen}
-        initial={editing}
-        onSubmit={submitPb}
-        onClose={() => setFormOpen(false)}
-      />
-
-      <ConfirmModal
-        open={!!deleteTarget}
-        title="PB를 삭제할까요?"
-        danger
-        confirmLabel="삭제"
-        description={
-          <>
-            <b>{deleteTarget?.name}</b> ({deleteTarget?.code})를 삭제합니다.
-            <br />
-            담당 고객 {deleteTarget ? clientCount(deleteTarget.id) : 0}명은 삭제되지 않고
-            <b> 담당 PB가 미지정</b>으로 바뀝니다.
-          </>
-        }
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteTarget(null)}
+      <PBManageModal
+        open={pbManageOpen}
+        pbs={pbs}
+        clientCountOf={clientCount}
+        onCreate={handleCreatePb}
+        onRename={handleRenamePb}
+        onDelete={handleDeletePb}
+        onClose={() => setPbManageOpen(false)}
       />
 
       <ClientForm

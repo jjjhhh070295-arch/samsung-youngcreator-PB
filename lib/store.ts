@@ -371,6 +371,27 @@ export async function createConsultation(input: NewConsultationInput): Promise<C
   return rowToConsultation(data);
 }
 
+export async function updateConsultation(
+  id: string,
+  patch: { notes?: string; ipsSnapshot?: IPS },
+): Promise<void> {
+  if (usingLocalFallback) {
+    const db = loadLocal();
+    const cs = db.consultations.find((c) => c.id === id);
+    if (cs) {
+      if (patch.notes !== undefined) cs.notes = patch.notes;
+      if (patch.ipsSnapshot !== undefined) cs.ipsSnapshot = patch.ipsSnapshot;
+    }
+    saveLocal(db);
+    return;
+  }
+  const row: any = {};
+  if (patch.notes !== undefined) row.notes = patch.notes;
+  if (patch.ipsSnapshot !== undefined) row.ips_snapshot = patch.ipsSnapshot;
+  const { error } = await supabase!.from("consultations").update(row).eq("id", id);
+  if (error) throw error;
+}
+
 // ───────────────────────── Seed / Reset ─────────────────────────
 
 export async function clearAllData(): Promise<void> {

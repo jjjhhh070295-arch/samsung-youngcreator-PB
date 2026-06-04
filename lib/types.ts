@@ -67,14 +67,32 @@ export type StageKey = "basic" | "factors" | "cashflow" | "portfolio" | "stress"
 
 export type Stages = Partial<Record<StageKey, boolean>>;
 
-export const STAGE_META: { key: StageKey; label: string; desc: string }[] = [
-  { key: "basic", label: "기본 정보", desc: "고객 기본사항 입력" },
-  { key: "factors", label: "7요인 분석", desc: "RRTTLLU 7요인 정리·검토" },
-  { key: "cashflow", label: "현금흐름", desc: "예상 유입/유출 입력" },
-  { key: "portfolio", label: "포트폴리오", desc: "후보 구성 (더미)" },
-  { key: "stress", label: "스트레스 테스트", desc: "시나리오 검정 (더미)" },
-  { key: "ips", label: "IPS 문서", desc: "투자정책서 출력 (더미)" },
+export const STAGE_META: {
+  key: StageKey;
+  label: string;
+  desc: string;
+  auto: boolean; // true=데이터로 자동 판정 / false=수동 확정(더미)
+}[] = [
+  { key: "basic", label: "기본 정보", desc: "고객 기본사항 입력", auto: true },
+  { key: "factors", label: "7요인 분석", desc: "RRTTLLU 7요인 검토 확정", auto: true },
+  { key: "cashflow", label: "현금흐름", desc: "예상 유입/유출 입력", auto: true },
+  { key: "portfolio", label: "포트폴리오", desc: "후보 구성 (더미)", auto: true },
+  { key: "stress", label: "스트레스 테스트", desc: "시나리오 검정 (더미)", auto: false },
+  { key: "ips", label: "IPS 문서", desc: "투자정책서 출력 (더미)", auto: false },
 ];
+
+// 단계별 완료 여부 — 자동(데이터 기반) + 수동(stress/ips) 통합 판정
+export function computeStages(client: Client): Record<StageKey, boolean> {
+  const s = client.stages ?? {};
+  return {
+    basic: !!client.name,
+    factors: FACTOR_KEYS.some((k) => client.ips[k].reviewed),
+    cashflow: client.cashFlows.length > 0,
+    portfolio: client.portfolios.length > 0,
+    stress: !!s.stress,
+    ips: !!s.ips,
+  };
+}
 
 // ── 현금흐름 (포트폴리오 입력 데이터) ──
 export interface CashFlow {
@@ -128,14 +146,20 @@ export interface Consultation {
 }
 
 // ── 7요인 메타 (라벨·설명·순서) ──
-export const FACTOR_META: { key: FactorKey; letter: string; label: string; desc: string }[] = [
-  { key: "return", letter: "R", label: "목표 수익률", desc: "Return — 기대/목표 수익률" },
-  { key: "risk", letter: "R", label: "위험 허용도", desc: "Risk — 감내 가능한 위험 수준" },
-  { key: "timeHorizon", letter: "T", label: "투자 기간", desc: "Time horizon — 투자 시계" },
-  { key: "tax", letter: "T", label: "세금 요인", desc: "Tax — 세금 관련 고려사항" },
-  { key: "liquidity", letter: "L", label: "유동성", desc: "Liquidity — 자금 필요 시기" },
-  { key: "legal", letter: "L", label: "법적/규제", desc: "Legal — 법적·규제 제약" },
-  { key: "unique", letter: "U", label: "고유 상황", desc: "Unique circumstances — 고객 고유 상황" },
+export const FACTOR_META: {
+  key: FactorKey;
+  letter: string;
+  label: string;
+  labelEn: string;
+  desc: string;
+}[] = [
+  { key: "return", letter: "R", label: "목표 수익률", labelEn: "Target Return", desc: "Return — 기대/목표 수익률" },
+  { key: "risk", letter: "R", label: "위험 허용도", labelEn: "Risk Tolerance", desc: "Risk — 감내 가능한 위험 수준" },
+  { key: "timeHorizon", letter: "T", label: "투자 기간", labelEn: "Time Horizon", desc: "Time horizon — 투자 시계" },
+  { key: "tax", letter: "T", label: "세금 요인", labelEn: "Tax", desc: "Tax — 세금 관련 고려사항" },
+  { key: "liquidity", letter: "L", label: "유동성", labelEn: "Liquidity", desc: "Liquidity — 자금 필요 시기" },
+  { key: "legal", letter: "L", label: "법적/규제", labelEn: "Legal / Regulatory", desc: "Legal — 법적·규제 제약" },
+  { key: "unique", letter: "U", label: "고유 상황", labelEn: "Unique Circumstances", desc: "Unique circumstances — 고객 고유 상황" },
 ];
 
 export const FACTOR_KEYS = FACTOR_META.map((f) => f.key);

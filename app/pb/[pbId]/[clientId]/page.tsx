@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import type { Client, Consultation, CashFlow, PB, Stages } from "@/lib/types";
+import type { Client, Consultation, CashFlow, PB, Portfolio, StageKey } from "@/lib/types";
 import {
   getClient,
   listConsultations,
@@ -12,14 +12,12 @@ import {
 } from "@/lib/store";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
-import StageTracker from "@/components/StageTracker";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import IPSResultTabs from "@/components/IPSResultTabs";
 import IPSRadar from "@/components/IPSRadar";
 import TrendChart from "@/components/TrendChart";
 import ConsultationHistory from "@/components/ConsultationHistory";
-import CashFlowEditor from "@/components/CashFlowEditor";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 
 export default function ClientDetailPage() {
@@ -33,6 +31,7 @@ export default function ClientDetailPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -66,8 +65,15 @@ export default function ClientDetailPage() {
     setClient({ ...client, cashFlows: flows });
   };
 
-  const saveStages = async (stages: Stages) => {
+  const savePortfolios = async (portfolios: Portfolio[]) => {
     if (!client) return;
+    await updateClient(client.id, { portfolios });
+    setClient({ ...client, portfolios });
+  };
+
+  const toggleStage = async (key: StageKey) => {
+    if (!client) return;
+    const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
     await updateClient(client.id, { stages });
     setClient({ ...client, stages });
   };
@@ -151,34 +157,51 @@ export default function ClientDetailPage() {
         </div>
       </div>
 
-      {/* ── 새 상담 시작 (모달 진입) ── */}
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-gold-400/60 bg-gradient-to-r from-surface to-gold-50/40 p-5 shadow-card dark:to-gold-900/10">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">📝</span>
-          <div>
-            <h2 className="text-base font-bold text-fg">상담 진행</h2>
-            <p className="text-xs text-fg-muted">
-              {lastConsultedAt
-                ? `최근 상담: ${formatDateTime(lastConsultedAt)} · 총 ${consultations.length}건`
-                : "아직 진행한 상담이 없습니다. 첫 상담을 시작해 보세요."}
-            </p>
+      {/* ── 상담 진행 + 이력 조회 ── */}
+      <section className="rounded-xl border-2 border-gold-400/60 bg-gradient-to-r from-surface to-gold-50/40 p-5 shadow-card dark:to-gold-900/10">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📝</span>
+            <div>
+              <h2 className="text-base font-bold text-fg">상담 진행</h2>
+              <p className="text-xs text-fg-muted">
+                {lastConsultedAt
+                  ? `최근 상담: ${formatDateTime(lastConsultedAt)} · 총 ${consultations.length}건`
+                  : "아직 진행한 상담이 없습니다. 첫 상담을 시작해 보세요."}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              className="btn-outline text-sm"
+              onClick={() => setHistoryOpen((v) => !v)}
+              disabled={consultations.length === 0}
+            >
+              상담 이력 {consultations.length}건 {historyOpen ? "▲" : "▼"}
+            </button>
+            <button className="btn-gold px-5 py-2.5 text-sm" onClick={() => setModalOpen(true)}>
+              + 새 상담 시작
+            </button>
           </div>
         </div>
-        <button className="btn-gold px-5 py-2.5 text-sm" onClick={() => setModalOpen(true)}>
-          + 새 상담 시작
-        </button>
+
+        {/* 상담 이력 (펼침) */}
+        {historyOpen && (
+          <div className="mt-4 border-t border-border pt-4">
+            <ConsultationHistory consultations={consultations} client={client} onSaved={load} />
+          </div>
+        )}
       </section>
 
-      {/* 단계별 확정 패널 */}
-      <StageTracker client={client} onChange={saveStages} />
-
-      {/* 7요인 분석 결과 (탭: 7요인 / 플래그 / 추가질문 / 포트폴리오) */}
+      {/* 상담 전 과정 탭 (7요인·플래그·추가질문·현금흐름·포트폴리오·스트레스·IPS) */}
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-fg-muted">RRTTLLU 7요인 분석 결과</h2>
+        <h2 className="mb-2 text-sm font-semibold text-fg-muted">상담 과정</h2>
         <IPSResultTabs
-          ips={client.ips}
+          client={client}
           onEdit={() => setModalOpen(true)}
-          onGoPortfolio={() => router.push(`/pb/${pbId}/${client.id}/portfolio`)}
+          onSaveCashFlows={saveCashFlows}
+          onSavePortfolios={savePortfolios}
+          onToggleStage={toggleStage}
         />
       </section>
 
@@ -196,20 +219,6 @@ export default function ClientDetailPage() {
             <TrendChart consultations={consultations} />
           </div>
         </div>
-      </section>
-
-      {/* 상담 이력 */}
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-fg-muted">상담 이력</h2>
-        <ConsultationHistory consultations={consultations} />
-      </section>
-
-      {/* 현금흐름 */}
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-fg-muted">
-          현금흐름 (포트폴리오 입력값)
-        </h2>
-        <CashFlowEditor cashFlows={client.cashFlows} onSave={saveCashFlows} />
       </section>
 
       {/* 상담 모달 */}

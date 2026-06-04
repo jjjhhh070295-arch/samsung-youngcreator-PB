@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Header from "@/components/Header";
+import SplashScreen from "@/components/SplashScreen";
 
 export const metadata: Metadata = {
   title: "삼성증권 PB센터 · 상담 지원",
@@ -18,6 +19,7 @@ export default function RootLayout({
     <html lang="ko" suppressHydrationWarning>
       <body>
         <ThemeProvider>
+          <SplashScreen />
           <Header />
           <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
         </ThemeProvider>

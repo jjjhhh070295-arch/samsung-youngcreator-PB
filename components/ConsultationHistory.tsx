@@ -1,80 +1,81 @@
 "use client";
 
 import { useState } from "react";
-import type { Consultation } from "@/lib/types";
+import type { Consultation, Client } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
 import { formatDateTime, formatDurationKo } from "@/lib/format";
 import { EmptyView } from "./StateViews";
+import ConsultationDetailModal from "./ConsultationDetailModal";
 
 interface Props {
   consultations: Consultation[];
+  client?: Client | null; // 현재 현금흐름·포트폴리오 참고 표시용
+  onSaved?: () => void; // 상담 수정 저장 후 새로고침
 }
 
-// 상담 이력 목록 (날짜·소요시간 + 펼쳐서 그 시점 7요인 스냅샷 확인)
-export default function ConsultationHistory({ consultations }: Props) {
-  const [openId, setOpenId] = useState<string | null>(null);
+// 상담 이력 목록 — 각 상담을 [상세 보기]로 열어 조회·수정·확정.
+export default function ConsultationHistory({ consultations, client, onSaved }: Props) {
+  const [selected, setSelected] = useState<Consultation | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState<number | undefined>();
 
   if (consultations.length === 0) {
     return <EmptyView title="상담 이력이 없어요" hint="상담을 시작하고 종료하면 이력이 쌓입니다." />;
   }
 
-  const sorted = consultations
+  // 오래된→최신 순으로 회차 부여, 표시는 최신순
+  const ordered = consultations
     .slice()
-    .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1)); // 최신순
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  const indexOf = new Map(ordered.map((c, i) => [c.id, i + 1]));
+  const sorted = ordered.slice().reverse(); // 최신순
+
+  // 한 줄 요약: 확정된 점수 개수
+  const scoreCount = (c: Consultation) =>
+    FACTOR_META.filter((m) => {
+      const f = c.ipsSnapshot?.[m.key];
+      return f && f.status === "explicit" && f.score != null;
+    }).length;
 
   return (
-    <ul className="space-y-2">
-      {sorted.map((c) => {
-        const open = openId === c.id;
-        return (
-          <li key={c.id} className="card overflow-hidden">
-            <button
-              className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-surface-2"
-              onClick={() => setOpenId(open ? null : c.id)}
-            >
+    <>
+      <ul className="space-y-2">
+        {sorted.map((c) => (
+          <li
+            key={c.id}
+            className="card flex items-center justify-between gap-3 px-4 py-3"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-100 text-sm font-bold text-navy-800 dark:bg-navy-700 dark:text-navy-100">
+                #{indexOf.get(c.id)}
+              </span>
               <div>
                 <p className="text-sm font-medium text-fg">{formatDateTime(c.createdAt)}</p>
                 <p className="text-xs text-fg-muted">
-                  소요시간 {formatDurationKo(c.durationSeconds)}
+                  소요 {formatDurationKo(c.durationSeconds)} · 점수 확정 {scoreCount(c)}개
+                  {c.notes ? " · 메모 있음" : ""}
                 </p>
               </div>
-              <span className="text-fg-muted">{open ? "▲" : "▼"}</span>
+            </div>
+            <button
+              className="btn-gold shrink-0 text-xs"
+              onClick={() => {
+                setSelected(c);
+                setSelectedIdx(indexOf.get(c.id));
+              }}
+            >
+              상세 보기
             </button>
-            {open && (
-              <div className="border-t border-border px-4 py-3">
-                {c.notes && (
-                  <p className="mb-3 whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-xs text-fg-muted">
-                    {c.notes}
-                  </p>
-                )}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {FACTOR_META.map((m) => {
-                    const f = c.ipsSnapshot?.[m.key];
-                    const score = f?.status === "explicit" ? f?.score : null;
-                    return (
-                      <div key={m.key} className="rounded-lg border border-border p-2">
-                        <p className="text-[11px] text-fg-muted">{m.label}</p>
-                        <p className="text-sm font-semibold text-fg">
-                          {score != null ? (
-                            <span className="text-gold-600 dark:text-gold-300">{score}점</span>
-                          ) : (
-                            <span className="text-fg-muted">—</span>
-                          )}
-                        </p>
-                        {f?.value && (
-                          <p className="mt-0.5 truncate text-[11px] text-fg-muted" title={f.value}>
-                            {f.value}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+
+      <ConsultationDetailModal
+        consultation={selected}
+        client={client}
+        index={selectedIdx}
+        onClose={() => setSelected(null)}
+        onSaved={() => onSaved?.()}
+      />
+    </>
   );
 }
