@@ -16,6 +16,7 @@ interface Props {
 }
 
 type Tab =
+  | "basic"
   | "factors"
   | "flags"
   | "questions"
@@ -76,6 +77,7 @@ export default function IPSResultTabs({
   }, [ips]);
 
   const tabs: { key: Tab; label: string; badge?: number; done?: boolean }[] = [
+    { key: "basic", label: "기본정보", done: done.basic },
     { key: "factors", label: "7요인", done: done.factors },
     { key: "flags", label: "플래그", badge: flags.length },
     { key: "questions", label: "추가질문", badge: questions.length },
@@ -85,7 +87,7 @@ export default function IPSResultTabs({
     { key: "ips", label: "IPS", done: done.ips },
   ];
 
-  // 스트레스/IPS 단계 완료 토글 버튼
+  // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
     <button
       className={client.stages?.[k] ? "btn-outline text-xs" : "btn-gold text-xs"}
@@ -130,9 +132,46 @@ export default function IPSResultTabs({
         )}
       </div>
 
+      {/* 기본정보 */}
+      {tab === "basic" && (
+        <div>
+          <div className="mb-3 flex items-center justify-end">
+            <StageToggle k="basic" />
+          </div>
+          <div className="card grid grid-cols-2 gap-4 p-5 sm:grid-cols-4">
+            <div>
+              <p className="text-xs text-fg-muted">식별코드</p>
+              <p className="font-mono text-sm font-semibold text-gold-600 dark:text-gold-300">
+                {client.code}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-muted">구분</p>
+              <p className="text-sm font-semibold text-fg">
+                {client.clientType === "corporate" ? "법인" : "개인"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-muted">이름</p>
+              <p className="text-sm font-semibold text-fg">{client.name}</p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-muted">자산규모</p>
+              <p className="text-sm font-semibold text-fg">
+                {(client.assetSize / 1_0000_0000).toLocaleString("ko-KR")}억
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 7요인 */}
       {tab === "factors" && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <div className="mb-3 flex items-center justify-end">
+            <StageToggle k="factors" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {FACTOR_META.map((m) => {
             const f = ips[m.key];
             const band = scoreBand(f.score);
@@ -174,6 +213,7 @@ export default function IPSResultTabs({
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -225,15 +265,23 @@ export default function IPSResultTabs({
 
       {/* 현금흐름 */}
       {tab === "cashflow" && (
-        <CashFlowEditor cashFlows={client.cashFlows} onSave={onSaveCashFlows} />
+        <div>
+          <div className="mb-3 flex items-center justify-end">
+            <StageToggle k="cashflow" />
+          </div>
+          <CashFlowEditor cashFlows={client.cashFlows} onSave={onSaveCashFlows} />
+        </div>
       )}
 
       {/* 포트폴리오 — 탭 안에서 직접 생성·편집 */}
       {tab === "portfolio" && (
         <div>
-          <p className="mb-3 rounded-lg border border-gold-400/60 bg-gold-50 px-3 py-2 text-[11px] text-gold-800 dark:bg-gold-900/20 dark:text-gold-200">
-            참고용 · 투자권유 아님 · PB 검토 전제. 산출값은 현재 더미입니다.
-          </p>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="rounded-lg border border-gold-400/60 bg-gold-50 px-3 py-2 text-[11px] text-gold-800 dark:bg-gold-900/20 dark:text-gold-200">
+              참고용 · 투자권유 아님 · PB 검토 전제. 산출값은 현재 더미입니다.
+            </p>
+            <StageToggle k="portfolio" />
+          </div>
           <PortfolioPanel client={client} onSave={onSavePortfolios} />
         </div>
       )}

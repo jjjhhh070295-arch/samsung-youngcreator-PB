@@ -81,14 +81,14 @@ export const STAGE_META: {
   { key: "ips", label: "IPS 문서", desc: "투자정책서 출력 (더미)", auto: false },
 ];
 
-// 단계별 완료 여부 — 자동(데이터 기반) + 수동(stress/ips) 통합 판정
+// 단계별 완료 여부 — 6단계 모두 PB가 직접 확정(수동). client.stages 플래그 기반.
 export function computeStages(client: Client): Record<StageKey, boolean> {
   const s = client.stages ?? {};
   return {
-    basic: !!client.name,
-    factors: FACTOR_KEYS.some((k) => client.ips[k].reviewed),
-    cashflow: client.cashFlows.length > 0,
-    portfolio: client.portfolios.length > 0,
+    basic: !!s.basic,
+    factors: !!s.factors,
+    cashflow: !!s.cashflow,
+    portfolio: !!s.portfolio,
     stress: !!s.stress,
     ips: !!s.ips,
   };
