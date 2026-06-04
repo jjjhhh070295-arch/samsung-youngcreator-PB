@@ -210,7 +210,7 @@ export default function ClientTable({
                             go(c);
                           }}
                         >
-                          상담·7요인 →
+                          상담 →
                         </button>
                       )}
                       {onEdit && (

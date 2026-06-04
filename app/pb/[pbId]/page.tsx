@@ -123,7 +123,7 @@ export default function PBPage() {
         </div>
         <p className="mb-3 text-xs text-fg-muted">
           이름·식별코드로 검색할 수 있습니다. 고객 행의{" "}
-          <b className="text-gold-600 dark:text-gold-300">[상담·7요인 →]</b> 버튼으로
+          <b className="text-gold-600 dark:text-gold-300">[상담 →]</b> 버튼으로
           <b> 조회</b>하면, 그 안에서 상담 진행과 고객 정보 <b>수정·삭제</b>를 할 수 있습니다.
         </p>
         {myClients.length === 0 ? (
