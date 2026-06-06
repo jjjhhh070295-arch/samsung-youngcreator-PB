@@ -71,9 +71,9 @@ export default function PortfolioPage() {
 
       {/* 디스클레이머 배너 */}
       <div className="rounded-lg border border-gold-400 bg-gold-50 px-4 py-3 text-sm text-gold-800 dark:border-gold-600 dark:bg-gold-900/30 dark:text-gold-200">
-        ⚠️ <b>참고용 · 투자권유 아님 · PB 검토 전제.</b> 아래 포트폴리오·스트레스 결과는
-        현재 <b>더미(스캐폴드)</b>이며 실제 산출 로직은 팀원이 구현 예정입니다. 실서비스
-        전 법적 검토가 필요합니다.
+        ⚠️ <b>참고용 · 투자권유 아님 · PB 검토 전제.</b> 스트레스 테스트는 최근 약 10년(2015~2024)
+        월간 데이터 다중회귀로 추정한 자산군×매크로 요인 민감도에 기반한 <b>통계 추정치</b>입니다(미래
+        수익 비보장). 포트폴리오 후보는 아직 더미(스캐폴드)이며, 실서비스 전 법적 검토가 필요합니다.
       </div>
 
       <div>

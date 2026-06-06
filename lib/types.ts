@@ -119,18 +119,74 @@ export interface Portfolio {
   editedByPb: boolean; // PB가 수정했는지
 }
 
-// ── 스트레스 테스트 (★팀원 구현 영역 — 더미) ──
-export interface StressScenario {
-  id: string;
-  name: string; // 예: "금리 +2%p", "주식 -30%", "인플레 급등"
-  params: Record<string, number>;
+// ── 스트레스 테스트 (데이터 기반 요인 민감도 모델) ──
+//
+// 5개 매크로 요인을 강도 슬라이더로 조정 → 자산군별 민감도(베타)로
+// 충격을 전이 → 포트폴리오 예상수익·낙폭·기여도·비중변화·조정제안 산출.
+// 민감도 계수는 최근 ~10년(2015~2024) 월간 데이터 다중회귀로 추정. (lib/sensitivities.ts)
+
+// 5개 매크로 요인 키
+export type MacroFactorId =
+  | "d_fed" // 미국 기준금리 변화 (%p)
+  | "d_ust" // 미국 10년물 시장금리 변화 (%p)
+  | "infl" // 인플레이션(월간 CPI 변화율, %)
+  | "ret_krw" // 원달러 환율 변동 (%, +는 원화 약세)
+  | "ret_cmd"; // 원자재 물가 변동 (%)
+
+// 요인 메타 (라벨·단위·슬라이더 범위·기본 충격)
+export interface MacroFactorMeta {
+  id: MacroFactorId;
+  label: string; // 한글 라벨
+  labelEn: string;
+  unit: string; // 표시 단위 ("%p", "%")
+  min: number; // 슬라이더 최소
+  max: number; // 슬라이더 최대
+  step: number;
+  hint: string; // PB 설명
 }
+
+// 사용자가 슬라이더로 설정한 요인별 충격 (단위는 MacroFactorMeta.unit 기준)
+export type ScenarioShock = Record<MacroFactorId, number>;
+
+// 자산군 단위 충격 기여도
+export interface AssetContribution {
+  assetClass: string; // "국내주식" 등
+  weight: number; // 현재 비중 %
+  assetReturn: number; // 이 자산군의 시나리오 예상수익률 % (충격 적용 후)
+  contribution: number; // 포트폴리오 수익률 기여 = weight/100 * assetReturn
+  byFactor: Record<MacroFactorId, number>; // 요인별 자산군 수익 영향 %
+}
+
+// 충격 후 비중 변화 (가격 변동에 따른 드리프트)
+export interface WeightShift {
+  assetClass: string;
+  before: number; // 충격 전 비중 %
+  after: number; // 충격 후(가치 변동 반영) 비중 %
+  delta: number; // after - before
+}
+
 export interface StressTestResult {
   portfolioId: string;
-  scenarioId: string;
-  projectedReturn: number; // 더미
-  projectedDrawdown: number; // 더미 (최대 낙폭 %)
-  note: string; // 더미 코멘트
+  label: string; // 포트폴리오 라벨
+  baseReturn: number; // 충격 전 기대수익률 %
+  projectedReturn: number; // 충격 후 예상수익률 %
+  projectedDrawdown: number; // 시나리오 예상 낙폭 % (양수 = 손실폭)
+  shockImpact: number; // projectedReturn - baseReturn (요인 충격분 %)
+  contributions: AssetContribution[]; // 자산군별 기여도 분해
+  weightShifts: WeightShift[]; // 충격 후 비중 변화
+  confidence: number; // 0~1, 모델 신뢰도 (가중평균 R²)
+  note: string;
+}
+
+// 스트레스 후 조정 포트폴리오 제안
+export interface RebalanceProposal {
+  basePortfolioId: string;
+  label: string; // "스트레스 대응 조정안"
+  allocations: AssetAllocation[]; // 조정된 비중
+  rationale: string; // 조정 근거
+  projectedReturn: number; // 조정안의 시나리오 예상수익 %
+  projectedDrawdown: number; // 조정안의 예상 낙폭 %
+  improvementDrawdown: number; // 원안 대비 낙폭 개선폭 %p (양수=개선)
 }
 
 export interface Consultation {

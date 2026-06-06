@@ -1,8 +1,17 @@
 "use client";
 
-// ★팀원 인계 영역 — 스트레스 테스트 (더미 스캐폴드)
+// 스트레스 테스트 — 5개 매크로 요인 슬라이더 + 백테스트 기반 민감도 검정
+//
+//  현재 포트폴리오(allocations)를 기준으로:
+//   1) 요인별 강도(슬라이더)를 설정 → 충격 시나리오 구성
+//   2) 자산군별 충격 수익·기여도 분해
+//   3) 충격 후 비중 변화(드리프트)
+//   4) 스트레스 대응 조정 포트폴리오 제안
+//   5) 각 자산군·요인의 통계 신뢰도(R²·t값) 표기
+//
+//  민감도 계수는 최근 ~10년 월간 데이터 다중회귀(OLS) 추정치. (lib/sensitivities.ts)
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -10,11 +19,27 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
+  ReferenceLine,
+  Cell,
   ResponsiveContainer,
 } from "recharts";
-import type { Portfolio, StressScenario, StressTestResult } from "@/lib/types";
-import { DEFAULT_SCENARIOS, runStressTest } from "@/lib/stresstest";
+import type {
+  Portfolio,
+  ScenarioShock,
+  MacroFactorId,
+  StressTestResult,
+  RebalanceProposal,
+} from "@/lib/types";
+import {
+  FACTOR_META,
+  SAMPLE_INFO,
+  ASSET_SENSITIVITIES,
+  FACTOR_IDS,
+  zeroShock,
+  PRESET_SCENARIOS,
+  runStressTest,
+  proposeRebalance,
+} from "@/lib/stresstest";
 import { CHART_COLORS } from "@/lib/theme";
 import { EmptyView } from "./StateViews";
 
@@ -22,108 +47,480 @@ interface Props {
   portfolios: Portfolio[];
 }
 
+// 숫자 포맷
+const fmt = (n: number, d = 1) =>
+  (n >= 0 ? "+" : "") + n.toFixed(d);
+const fmtAbs = (n: number, d = 1) => n.toFixed(d);
+
+// 신뢰도(R²) → 한글 등급
+function confidenceLabel(r2: number): { txt: string; cls: string } {
+  if (r2 >= 0.5) return { txt: "높음", cls: "text-emerald-600 dark:text-emerald-300" };
+  if (r2 >= 0.2) return { txt: "보통", cls: "text-amber-600 dark:text-amber-300" };
+  return { txt: "낮음", cls: "text-red-500" };
+}
+
 export default function StressTestPanel({ portfolios }: Props) {
-  const [scenarioId, setScenarioId] = useState<string>(DEFAULT_SCENARIOS[0].id);
-  const [results, setResults] = useState<StressTestResult[] | null>(null);
+  const [shock, setShock] = useState<ScenarioShock>(zeroShock());
+  const [presetId, setPresetId] = useState<string>("none");
+  // 어떤 포트폴리오를 대상으로 조정안을 만들지 (기본: 첫 번째)
+  const [targetId, setTargetId] = useState<string>(portfolios[0]?.id ?? "");
 
-  const scenario: StressScenario =
-    DEFAULT_SCENARIOS.find((s) => s.id === scenarioId) ?? DEFAULT_SCENARIOS[0];
+  // 충격이 하나라도 설정됐는지
+  const anyShock = useMemo(
+    () => FACTOR_IDS.some((id) => shock[id] !== 0),
+    [shock],
+  );
 
-  const run = () => {
-    // TODO(팀원): runStressTest 를 실제 검정 로직으로 교체
-    setResults(runStressTest(portfolios, scenario));
-  };
+  // 결과 계산 (슬라이더 변화에 즉시 반응)
+  const results: StressTestResult[] = useMemo(
+    () => (portfolios.length ? runStressTest(portfolios, shock) : []),
+    [portfolios, shock],
+  );
 
-  const labelOf = (pfId: string) =>
-    portfolios.find((p) => p.id === pfId)?.label ?? pfId;
+  const target = portfolios.find((p) => p.id === targetId) ?? portfolios[0];
+  const targetResult = results.find((r) => r.portfolioId === target?.id);
+  const proposal: RebalanceProposal | null = useMemo(
+    () => (target ? proposeRebalance(target, shock) : null),
+    [target, shock],
+  );
 
   if (portfolios.length === 0) {
     return (
       <EmptyView
         title="포트폴리오를 먼저 생성하세요"
-        hint="스트레스 테스트는 생성된 포트폴리오 후보를 대상으로 실행합니다."
+        hint="스트레스 테스트는 생성된 포트폴리오를 대상으로 실행합니다."
       />
     );
   }
 
-  const chartData =
-    results?.map((r) => ({
-      name: labelOf(r.portfolioId),
-      "예상수익(%)": r.projectedReturn,
-      "최대낙폭(%)": r.projectedDrawdown,
-    })) ?? [];
+  const onSlider = (id: MacroFactorId, v: number) => {
+    setShock((prev) => ({ ...prev, [id]: v }));
+    setPresetId("custom");
+  };
+  const applyPreset = (id: string) => {
+    setPresetId(id);
+    const p = PRESET_SCENARIOS.find((s) => s.id === id);
+    if (p) setShock({ ...p.shock });
+  };
+  const reset = () => {
+    setShock(zeroShock());
+    setPresetId("none");
+  };
 
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select
-          className="input h-9 w-auto"
-          value={scenarioId}
-          onChange={(e) => setScenarioId(e.target.value)}
-        >
-          {DEFAULT_SCENARIOS.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <button className="btn-gold text-sm" onClick={run}>
-          스트레스 실행 (더미)
-        </button>
+    <div className="space-y-4">
+      {/* ── 컨트롤: 프리셋 + 슬라이더 ── */}
+      <div className="card p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-fg-muted">시나리오 프리셋</span>
+            <select
+              className="input h-9 w-auto"
+              value={presetId}
+              onChange={(e) => applyPreset(e.target.value)}
+            >
+              {presetId === "custom" && <option value="custom">사용자 설정</option>}
+              {PRESET_SCENARIOS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button className="btn-ghost text-xs" onClick={reset}>
+            초기화
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
+          {FACTOR_META.map((f) => {
+            const v = shock[f.id];
+            return (
+              <div key={f.id}>
+                <div className="mb-1 flex items-baseline justify-between">
+                  <label className="text-sm font-medium text-fg">
+                    {f.label}
+                    <span className="ml-1 text-[11px] font-normal text-fg-muted">
+                      {f.labelEn}
+                    </span>
+                  </label>
+                  <span
+                    className={`tabular-nums text-sm font-semibold ${
+                      v === 0
+                        ? "text-fg-muted"
+                        : v > 0
+                          ? "text-gold-600 dark:text-gold-300"
+                          : "text-sky-600 dark:text-sky-300"
+                    }`}
+                  >
+                    {fmt(v, f.step < 1 ? 2 : 0)}
+                    {f.unit}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={f.min}
+                  max={f.max}
+                  step={f.step}
+                  value={v}
+                  onChange={(e) => onSlider(f.id, Number(e.target.value))}
+                  className="w-full accent-gold-500"
+                />
+                <div className="mt-0.5 flex justify-between text-[10px] text-fg-muted/70">
+                  <span>
+                    {f.min}
+                    {f.unit}
+                  </span>
+                  <span>
+                    +{f.max}
+                    {f.unit}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-tight text-fg-muted">{f.hint}</p>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {!results ? (
+      {!anyShock ? (
         <EmptyView
-          title="시나리오를 선택하고 실행하세요"
-          hint="금리·주가·인플레 등 시나리오별 예상수익·최대낙폭을 더미로 보여줍니다."
+          title="요인 강도를 조정하세요"
+          hint="위 슬라이더로 금리·인플레·환율·원자재 충격을 설정하거나 프리셋을 선택하면 결과가 즉시 갱신됩니다."
         />
       ) : (
         <>
-          <div className="card p-4">
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={chartData} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.muted} strokeOpacity={0.25} />
-                <XAxis dataKey="name" tick={{ fill: "currentColor", fontSize: 12 }} />
-                <YAxis tick={{ fill: "currentColor", fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{
-                    background: "rgb(var(--surface))",
-                    border: "1px solid rgb(var(--border))",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="예상수익(%)" fill={CHART_COLORS.primary} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="최대낙폭(%)" fill={CHART_COLORS.accent} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="card mt-3 overflow-x-auto">
+          {/* ── 포트폴리오별 충격 후 예상수익·낙폭 요약 ── */}
+          <div className="card overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-border bg-surface-2 text-xs text-fg-muted">
                 <tr>
                   <th className="px-3 py-2 text-left">포트폴리오</th>
-                  <th className="px-3 py-2 text-right">예상 수익 (%)</th>
-                  <th className="px-3 py-2 text-right">최대 낙폭 (%)</th>
-                  <th className="px-3 py-2 text-left">비고</th>
+                  <th className="px-3 py-2 text-right">기존 기대수익</th>
+                  <th className="px-3 py-2 text-right">충격분</th>
+                  <th className="px-3 py-2 text-right">충격 후 예상수익</th>
+                  <th className="px-3 py-2 text-right">예상 낙폭</th>
+                  <th className="px-3 py-2 text-center">신뢰도</th>
                 </tr>
               </thead>
               <tbody>
-                {results.map((r) => (
-                  <tr key={r.portfolioId} className="border-b border-border/60 last:border-0">
-                    <td className="px-3 py-2 font-medium text-fg">{labelOf(r.portfolioId)}</td>
-                    <td className="px-3 py-2 text-right text-gold-600 dark:text-gold-300">
-                      {r.projectedReturn}
-                    </td>
-                    <td className="px-3 py-2 text-right text-red-500">-{r.projectedDrawdown}</td>
-                    <td className="px-3 py-2 text-xs text-fg-muted">{r.note}</td>
-                  </tr>
-                ))}
+                {results.map((r) => {
+                  const c = confidenceLabel(r.confidence);
+                  return (
+                    <tr
+                      key={r.portfolioId}
+                      className={`border-b border-border/60 last:border-0 ${
+                        r.portfolioId === target?.id ? "bg-gold-50/50 dark:bg-gold-900/10" : ""
+                      }`}
+                    >
+                      <td className="px-3 py-2 font-medium text-fg">{r.label}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
+                        {fmtAbs(r.baseReturn)}%
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-right tabular-nums ${
+                          r.shockImpact >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-500"
+                        }`}
+                      >
+                        {fmt(r.shockImpact)}%
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums text-fg">
+                        {fmtAbs(r.projectedReturn)}%
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-red-500">
+                        −{fmtAbs(r.projectedDrawdown)}%
+                      </td>
+                      <td className={`px-3 py-2 text-center text-xs font-medium ${c.cls}`}>
+                        {c.txt}
+                        <span className="ml-1 text-[10px] text-fg-muted">
+                          R²{(r.confidence).toFixed(2)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+            <p className="px-3 py-2 text-[11px] text-fg-muted">
+              충격분은 설정한 요인 시나리오가 1회 발생했을 때의 단기 수익 영향(%)이며, 예상 낙폭은 충격 손실에 2σ 변동성 버퍼를 더한
+              근사치입니다. 신뢰도는 자산군별 회귀모델 설명력(R²)의 비중가중 평균입니다.
+            </p>
           </div>
+
+          {/* ── 대상 포트폴리오 선택 ── */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-fg-muted">상세 분석 대상</span>
+            <select
+              className="input h-9 w-auto"
+              value={target?.id}
+              onChange={(e) => setTargetId(e.target.value)}
+            >
+              {portfolios.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {targetResult && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* ── 자산군별 기여도 분해 ── */}
+              <div className="card p-4">
+                <h4 className="mb-1 text-sm font-semibold text-fg">자산군별 충격 기여도</h4>
+                <p className="mb-3 text-[11px] text-fg-muted">
+                  각 자산군의 충격 수익(%) × 비중 = 포트폴리오 수익 기여(%p)
+                </p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart
+                    layout="vertical"
+                    data={targetResult.contributions.map((c) => ({
+                      name: c.assetClass,
+                      기여: c.contribution,
+                    }))}
+                    margin={{ top: 4, right: 24, left: 8, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.muted} strokeOpacity={0.25} />
+                    <XAxis type="number" tick={{ fill: "currentColor", fontSize: 11 }} unit="%" />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={64}
+                      tick={{ fill: "currentColor", fontSize: 12 }}
+                    />
+                    <Tooltip
+                      formatter={(v: number) => [`${fmt(v, 2)}%p`, "기여도"]}
+                      contentStyle={{
+                        background: "rgb(var(--surface))",
+                        border: "1px solid rgb(var(--border))",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                    <ReferenceLine x={0} stroke={CHART_COLORS.muted} />
+                    <Bar dataKey="기여" radius={[0, 4, 4, 0]}>
+                      {targetResult.contributions.map((c, i) => (
+                        <Cell
+                          key={i}
+                          fill={c.contribution >= 0 ? CHART_COLORS.primary : "#dc2626"}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-fg-muted">
+                      <tr>
+                        <th className="px-2 py-1 text-left">자산군</th>
+                        <th className="px-2 py-1 text-right">비중</th>
+                        <th className="px-2 py-1 text-right">충격 수익</th>
+                        <th className="px-2 py-1 text-right">기여(%p)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targetResult.contributions.map((c) => (
+                        <tr key={c.assetClass} className="border-t border-border/50">
+                          <td className="px-2 py-1 text-fg">{c.assetClass}</td>
+                          <td className="px-2 py-1 text-right tabular-nums text-fg-muted">
+                            {fmtAbs(c.weight)}%
+                          </td>
+                          <td
+                            className={`px-2 py-1 text-right tabular-nums ${
+                              c.assetReturn >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-500"
+                            }`}
+                          >
+                            {fmt(c.assetReturn)}%
+                          </td>
+                          <td
+                            className={`px-2 py-1 text-right tabular-nums font-medium ${
+                              c.contribution >= 0 ? "text-fg" : "text-red-500"
+                            }`}
+                          >
+                            {fmt(c.contribution, 2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* ── 충격 후 비중 변화 ── */}
+              <div className="card p-4">
+                <h4 className="mb-1 text-sm font-semibold text-fg">충격 후 비중 변화</h4>
+                <p className="mb-3 text-[11px] text-fg-muted">
+                  자산군 가격 변동에 따른 비중 드리프트(리밸런싱 전)
+                </p>
+                <div className="space-y-2.5">
+                  {targetResult.weightShifts.map((w) => (
+                    <div key={w.assetClass}>
+                      <div className="mb-0.5 flex items-baseline justify-between text-xs">
+                        <span className="text-fg">{w.assetClass}</span>
+                        <span className="tabular-nums text-fg-muted">
+                          {fmtAbs(w.before)}% → {fmtAbs(w.after)}%
+                          <span
+                            className={`ml-1.5 font-medium ${
+                              w.delta > 0
+                                ? "text-emerald-600 dark:text-emerald-300"
+                                : w.delta < 0
+                                  ? "text-red-500"
+                                  : "text-fg-muted"
+                            }`}
+                          >
+                            ({fmt(w.delta)}%p)
+                          </span>
+                        </span>
+                      </div>
+                      <div className="relative h-2 w-full overflow-hidden rounded-full bg-surface-2">
+                        <div
+                          className="absolute left-0 top-0 h-full rounded-full bg-navy-light/40"
+                          style={{ width: `${Math.min(100, w.before)}%` }}
+                        />
+                        <div
+                          className={`absolute left-0 top-0 h-full rounded-full ${
+                            w.delta >= 0 ? "bg-gold-500" : "bg-red-400"
+                          }`}
+                          style={{ width: `${Math.min(100, w.after)}%`, opacity: 0.85 }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── 스트레스 대응 조정 제안 ── */}
+          {proposal && target && (
+            <div className="card border-gold-300/60 p-4 dark:border-gold-700/40">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold text-fg">
+                  스트레스 대응 조정안 — {target.label}
+                </h4>
+                {proposal.improvementDrawdown > 0 && (
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    예상 낙폭 {fmtAbs(proposal.improvementDrawdown)}%p 개선
+                  </span>
+                )}
+              </div>
+              <p className="mb-3 text-xs leading-relaxed text-fg-muted">{proposal.rationale}</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-border text-xs text-fg-muted">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left">자산군</th>
+                      <th className="px-3 py-1.5 text-right">현재 비중</th>
+                      <th className="px-3 py-1.5 text-right">조정 비중</th>
+                      <th className="px-3 py-1.5 text-right">변화</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {target.allocations.map((a) => {
+                      const adj = proposal.allocations.find((x) => x.assetClass === a.assetClass);
+                      const after = adj?.weight ?? a.weight;
+                      const delta = Math.round((after - a.weight) * 10) / 10;
+                      return (
+                        <tr key={a.assetClass} className="border-b border-border/50 last:border-0">
+                          <td className="px-3 py-1.5 text-fg">{a.assetClass}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-fg-muted">
+                            {fmtAbs(a.weight)}%
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-medium tabular-nums text-fg">
+                            {fmtAbs(after)}%
+                          </td>
+                          <td
+                            className={`px-3 py-1.5 text-right tabular-nums ${
+                              delta > 0
+                                ? "text-emerald-600 dark:text-emerald-300"
+                                : delta < 0
+                                  ? "text-red-500"
+                                  : "text-fg-muted"
+                            }`}
+                          >
+                            {delta === 0 ? "—" : `${fmt(delta)}%p`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border text-xs">
+                      <td className="px-3 py-1.5 text-fg-muted">시나리오 예상수익 / 낙폭</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-fg-muted" colSpan={1}>
+                        {targetResult && `${fmtAbs(targetResult.projectedReturn)}% / −${fmtAbs(targetResult.projectedDrawdown)}%`}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-medium tabular-nums text-fg" colSpan={2}>
+                        {fmtAbs(proposal.projectedReturn)}% / −{fmtAbs(proposal.projectedDrawdown)}%
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── 모델 신뢰도 상세 (자산군 × 요인 t-통계량) ── */}
+          <details className="card p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-fg">
+              모델 신뢰도 상세 (회귀 추정 계수·t값)
+            </summary>
+            <p className="mb-3 mt-2 text-[11px] text-fg-muted">
+              표본 {SAMPLE_INFO.start}~{SAMPLE_INFO.end} (월간 n={SAMPLE_INFO.n}). 각 칸은 요인 1단위 충격당 자산군 월수익 반응(%),
+              괄호는 t-통계량. |t|≥1.96 (★)이면 5% 유의. R²는 모델 설명력. {SAMPLE_INFO.note}
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="border-b border-border text-fg-muted">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left">자산군</th>
+                    {FACTOR_META.map((f) => (
+                      <th key={f.id} className="px-2 py-1.5 text-right">
+                        {f.label}
+                      </th>
+                    ))}
+                    <th className="px-2 py-1.5 text-right">R²</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ASSET_SENSITIVITIES.map((s) => (
+                    <tr key={s.key} className="border-b border-border/40 last:border-0">
+                      <td className="px-2 py-1.5 font-medium text-fg">{s.label}</td>
+                      {FACTOR_META.map((f) => {
+                        const b = s.betas[f.id];
+                        const t = s.tvals[f.id];
+                        const sig = Math.abs(t) >= 1.96;
+                        return (
+                          <td
+                            key={f.id}
+                            className={`px-2 py-1.5 text-right tabular-nums ${
+                              sig ? "text-fg" : "text-fg-muted/60"
+                            }`}
+                          >
+                            {b.toFixed(2)}
+                            <span className="ml-0.5 text-[10px]">
+                              ({t.toFixed(1)}
+                              {sig ? "★" : ""})
+                            </span>
+                          </td>
+                        );
+                      })}
+                      <td
+                        className={`px-2 py-1.5 text-right font-medium tabular-nums ${confidenceLabel(s.r2).cls}`}
+                      >
+                        {s.r2.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+
+          <p className="text-[11px] leading-relaxed text-fg-muted">
+            ⚠ 본 결과는 과거 데이터 기반 통계 추정치로 미래 수익을 보장하지 않으며, PB의 정성적 판단을 보조하는 참고 지표입니다.
+            요인 간 상관·비선형 효과는 단순화되어 있습니다.
+          </p>
         </>
       )}
     </div>
