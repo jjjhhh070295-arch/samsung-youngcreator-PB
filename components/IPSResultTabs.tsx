@@ -9,9 +9,13 @@ import StressTestPanel from "./StressTestPanel";
 
 interface Props {
   client: Client;
+  pbId: string;
+  clientId: string;
   onEdit: () => void; // 7요인 수정 (상담 모달)
   onSaveCashFlows: (flows: CashFlow[]) => Promise<void> | void;
   onSavePortfolios: (portfolios: Portfolio[]) => Promise<void> | void;
+  onFinalizePortfolio: (portfolio: Portfolio) => Promise<void> | void; // 최종 확정(저장+단계)
+  onUnfinalizePortfolio: () => Promise<void> | void; // 확정 해제
   onToggleStage: (key: StageKey) => Promise<void> | void; // 스트레스/IPS 완료 토글
 }
 
@@ -42,14 +46,35 @@ function StatusBadge({ f }: { f: IPSFactor }) {
 // 상담 전 과정을 하나의 탭 바로 — 7요인/플래그/추가질문/현금흐름/포트폴리오/스트레스/IPS
 export default function IPSResultTabs({
   client,
+  pbId,
+  clientId,
   onEdit,
   onSaveCashFlows,
   onSavePortfolios,
+  onFinalizePortfolio,
+  onUnfinalizePortfolio,
   onToggleStage,
 }: Props) {
   const ips = client.ips;
   const [tab, setTab] = useState<Tab>("factors");
   const done = computeStages(client);
+
+  // 포트폴리오 패널에서 현재 선택·편집 중인 포트폴리오 (최종 확정 저장용)
+  const [chosen, setChosen] = useState<Portfolio | null>(null);
+
+  const finalizePortfolio = async () => {
+    if (!chosen) {
+      alert("포트폴리오를 선택·편집한 뒤 확정하세요.");
+      return;
+    }
+    if (!confirm(`'${chosen.label}'(으)로 최종 확정할까요?`)) return;
+    await onFinalizePortfolio(chosen); // 저장+단계확정 원자적 처리
+  };
+
+  const unconfirmPortfolio = async () => {
+    if (!confirm("최종 확정을 해제하고 다시 편집할까요?")) return;
+    await onUnfinalizePortfolio();
+  };
 
   const flags = useMemo(() => {
     const list: { code: string; factor: string; text: string }[] = [];
@@ -273,26 +298,89 @@ export default function IPSResultTabs({
         </div>
       )}
 
-      {/* 포트폴리오 — 탭 안에서 직접 생성·편집 */}
+      {/* 포트폴리오 — 패널 편집 + 최종 확정 */}
       {tab === "portfolio" && (
         <div>
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <p className="rounded-lg border border-gold-400/60 bg-gold-50 px-3 py-2 text-[11px] text-gold-800 dark:bg-gold-900/20 dark:text-gold-200">
-              참고용 · 투자권유 아님 · PB 검토 전제. 산출값은 현재 더미입니다.
-            </p>
-            <StageToggle k="portfolio" />
+          <PortfolioPanel pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
+
+          {/* 최종 확정 단계 */}
+          <div
+            className={`mt-4 rounded-xl border-2 p-5 shadow-card ${
+              done.portfolio
+                ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20"
+                : "border-gold-400/60 bg-gradient-to-r from-surface to-gold-50/40 dark:to-gold-900/10"
+            }`}
+          >
+            {done.portfolio ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-500 text-navy-900">
+                    ✓
+                  </span>
+                  <div>
+                    <p className="text-base font-bold text-fg">
+                      최종 확정: {client.portfolios[0]?.label ?? "포트폴리오"}
+                    </p>
+                    <p className="text-xs text-fg-muted">
+                      {client.portfolios[0]
+                        ? `예상수익 ${client.portfolios[0].expectedReturn}% · 변동성 ${client.portfolios[0].expectedRisk}% · `
+                        : ""}
+                      고객 화면·스트레스 테스트에 이 포트폴리오가 사용됩니다.
+                    </p>
+                  </div>
+                </div>
+                <button className="btn-outline text-sm" onClick={unconfirmPortfolio}>
+                  확정 해제 (재편집)
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">📌</span>
+                  <div>
+                    <p className="text-base font-bold text-fg">포트폴리오 최종 확정</p>
+                    <p className="text-xs text-fg-muted">
+                      위에서 후보를 선택·편집했다면 <b>최종 결정</b>으로 확정하세요. 확정하면 그 구성이
+                      저장되어 <b>고객 화면 출력</b>과 <b>스트레스 테스트</b>에 사용됩니다.
+                      {chosen && (
+                        <span className="text-gold-600 dark:text-gold-300">
+                          {" "}(현재 선택: {chosen.label})
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <button className="btn-gold px-5 py-2.5 text-sm" onClick={finalizePortfolio}>
+                  포트폴리오 최종 확정 →
+                </button>
+              </div>
+            )}
           </div>
-          <PortfolioPanel client={client} onSave={onSavePortfolios} />
         </div>
       )}
 
-      {/* 스트레스 — 탭 안에서 직접 실행 + 단계 확정 */}
+      {/* 스트레스 — 포트폴리오 최종 확정 후 진행 */}
       {tab === "stress" && (
         <div>
-          <div className="mb-3 flex items-center justify-end">
-            <StageToggle k="stress" />
-          </div>
-          <StressTestPanel portfolios={client.portfolios} />
+          {done.portfolio ? (
+            <>
+              <div className="mb-3 flex items-center justify-end">
+                <StageToggle k="stress" />
+              </div>
+              <StressTestPanel portfolios={client.portfolios} />
+            </>
+          ) : (
+            <div className="card flex flex-col items-center gap-2 p-8 text-center">
+              <span className="text-2xl">🔒</span>
+              <p className="text-sm font-medium text-fg">포트폴리오를 먼저 최종 확정하세요</p>
+              <p className="text-xs text-fg-muted">
+                포트폴리오 탭에서 최종 확정해야 그 구성으로 스트레스 테스트를 진행할 수 있습니다.
+              </p>
+              <button className="btn-outline mt-1 text-xs" onClick={() => setTab("portfolio")}>
+                포트폴리오 탭으로
+              </button>
+            </div>
+          )}
         </div>
       )}
 

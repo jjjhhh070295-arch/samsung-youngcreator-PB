@@ -71,6 +71,22 @@ export default function ClientDetailPage() {
     setClient({ ...client, portfolios });
   };
 
+  // 포트폴리오 최종 확정 — 선택 포트폴리오 저장 + 단계확정을 한 번에(원자적)
+  const finalizePortfolio = async (portfolio: Portfolio) => {
+    if (!client) return;
+    const stages = { ...(client.stages ?? {}), portfolio: true };
+    await updateClient(client.id, { portfolios: [portfolio], stages });
+    setClient({ ...client, portfolios: [portfolio], stages });
+  };
+
+  // 확정 해제 — 포트폴리오·스트레스 단계 동시 해제
+  const unfinalizePortfolio = async () => {
+    if (!client) return;
+    const stages = { ...(client.stages ?? {}), portfolio: false, stress: false };
+    await updateClient(client.id, { stages });
+    setClient({ ...client, stages });
+  };
+
   const toggleStage = async (key: StageKey) => {
     if (!client) return;
     const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
@@ -198,9 +214,13 @@ export default function ClientDetailPage() {
         <h2 className="mb-2 text-sm font-semibold text-fg-muted">상담 과정</h2>
         <IPSResultTabs
           client={client}
+          pbId={pbId}
+          clientId={clientId}
           onEdit={() => setModalOpen(true)}
           onSaveCashFlows={saveCashFlows}
           onSavePortfolios={savePortfolios}
+          onFinalizePortfolio={finalizePortfolio}
+          onUnfinalizePortfolio={unfinalizePortfolio}
           onToggleStage={toggleStage}
         />
       </section>

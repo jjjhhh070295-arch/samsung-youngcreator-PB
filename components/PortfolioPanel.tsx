@@ -9,13 +9,28 @@ mockAssetSuitability,
 calculateSimulatedMetrics,
 PortfolioOption
 } from '@/lib/portfolio';
+import type { Portfolio } from '@/lib/types';
 
 interface PortfolioPanelProps {
 pbId: string;
 clientId: string;
+// 현재 PB가 선택·편집 중인 포트폴리오를 상위로 보고 (최종 확정 저장용)
+onSelectionChange?: (portfolio: Portfolio) => void;
 }
 
-export default function PortfolioPanel({ pbId, clientId }: PortfolioPanelProps) {
+// 패널 내부 자산키 → 스트레스 엔진이 인식하는 자산군 (국내주식/해외주식/채권/대체투자/현금)
+// (lib/sensitivities.ts 의 ASSET_SENSITIVITIES 라벨과 매칭되도록 합산)
+const STRESS_ASSET_MAP: Record<string, string> = {
+etf: '해외주식', // ETF(지수·테마) → 주식
+bond: '채권',
+els: '대체투자', // 지수연계증권 → 대체
+mmf: '현금',
+gold: '대체투자', // 금 → 대체(Gold)
+dollar: '현금', // 달러 예치 → 현금성
+raw: '대체투자', // 원자재 → 대체
+};
+
+export default function PortfolioPanel({ pbId, clientId, onSelectionChange }: PortfolioPanelProps) {
 const [selectedBase, setSelectedBase] = useState<'stable' | 'balanced' | 'growth'>('balanced');
 const [weights, setWeights] = useState<PortfolioOption['weights']>(mockPortfolioOptions[1].weights);
 const [elsIncluded, setElsIncluded] = useState(true);
@@ -52,6 +67,37 @@ if (!elsIncluded) adjustedWeights.els = 0;
 const nextMetrics = calculateSimulatedMetrics(adjustedWeights);
 setMetrics(nextMetrics);
 }, [weights, elsIncluded]);
+
+// 현재 선택·편집 중인 포트폴리오를 상위로 보고 (최종 확정 저장용)
+useEffect(() => {
+if (!onSelectionChange) return;
+const adjustedWeights = { ...weights };
+if (!elsIncluded) adjustedWeights.els = 0;
+const name = mockPortfolioOptions.find(p => p.id === selectedBase)?.name || selectedBase;
+// 스트레스 엔진 자산군으로 매핑·합산 (ETF→해외주식, 금/ELS/원자재→대체투자, MMF/달러→현금 등)
+const agg: Record<string, number> = {};
+for (const [k, v] of Object.entries(adjustedWeights)) {
+const w = v as number;
+if (w <= 0) continue;
+const cls = STRESS_ASSET_MAP[k] || k;
+agg[cls] = (agg[cls] || 0) + w;
+}
+const allocations = Object.entries(agg).map(([assetClass, weight]) => ({
+assetClass,
+weight: Math.round(weight * 10) / 10,
+}));
+const portfolio: Portfolio = {
+id: selectedBase,
+label: name,
+allocations,
+expectedReturn: metrics.expectedReturn,
+expectedRisk: metrics.volatility,
+taxNote: `세후 예상수익률 ${metrics.taxReturn}%`,
+rationale: `${name} 기반 PB 조정안`,
+editedByPb: true,
+};
+onSelectionChange(portfolio);
+}, [selectedBase, weights, elsIncluded, metrics, onSelectionChange]);
 
 const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0) - (elsIncluded ? 0 : weights.els);
 const weightDiff = 100 - totalWeight;

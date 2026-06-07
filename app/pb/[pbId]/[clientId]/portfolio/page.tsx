@@ -19,6 +19,8 @@ export default function PortfolioPage() {
   const router = useRouter();
   const [client, setClient] = useState<Client | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
+  // 패널에서 현재 선택·편집 중인 포트폴리오 (최종 확정 시 저장)
+  const [chosen, setChosen] = useState<Portfolio | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -37,14 +39,29 @@ export default function PortfolioPage() {
     load();
   }, [load]);
 
-  const savePortfolios = async (portfolios: Portfolio[]) => {
+  // 포트폴리오 최종 확정 — 현재 선택한 포트폴리오를 저장 + 단계 확정
+  const finalizePortfolio = async () => {
     if (!client) return;
-    await updateClient(client.id, { portfolios });
-    setClient({ ...client, portfolios });
+    if (!chosen) {
+      alert("포트폴리오를 선택·편집한 뒤 확정하세요.");
+      return;
+    }
+    if (!confirm(`'${chosen.label}'(으)로 최종 확정할까요?`)) return;
+    const stages = { ...(client.stages ?? {}), portfolio: true };
+    await updateClient(client.id, { portfolios: [chosen], stages });
+    setClient({ ...client, portfolios: [chosen], stages });
   };
 
-  // 포트폴리오/스트레스/IPS 단계 완료 표시 (수동 확정)
-  const toggleStage = async (key: "portfolio" | "stress" | "ips") => {
+  const unconfirmPortfolio = async () => {
+    if (!client) return;
+    if (!confirm("최종 확정을 해제하고 다시 편집할까요?")) return;
+    const stages = { ...(client.stages ?? {}), portfolio: false, stress: false };
+    await updateClient(client.id, { stages });
+    setClient({ ...client, stages });
+  };
+
+  // 스트레스/IPS 단계 완료 표시 (수동 확정)
+  const toggleStage = async (key: "stress" | "ips") => {
     if (!client) return;
     const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
     await updateClient(client.id, { stages });
@@ -139,30 +156,90 @@ export default function PortfolioPage() {
 
       {/* 포트폴리오 후보 */}
       <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-fg-muted">포트폴리오 후보 3개</h2>
-          <button
-            className={client.stages?.portfolio ? "btn-outline text-xs" : "btn-gold text-xs"}
-            onClick={() => toggleStage("portfolio")}
-          >
-            {client.stages?.portfolio ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
-          </button>
-        </div>
-        <PortfolioPanel client={client} onSave={savePortfolios} />
+        <h2 className="mb-2 text-sm font-semibold text-fg-muted">포트폴리오 후보 3개</h2>
+        <PortfolioPanel pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
       </section>
 
-      {/* 스트레스 테스트 */}
+      {/* 포트폴리오 최종 확정 단계 */}
+      <section
+        className={`rounded-xl border-2 p-5 shadow-card ${
+          client.stages?.portfolio
+            ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20"
+            : "border-gold-400/60 bg-gradient-to-r from-surface to-gold-50/40 dark:to-gold-900/10"
+        }`}
+      >
+        {client.stages?.portfolio ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-500 text-navy-900">
+                ✓
+              </span>
+              <div>
+                <p className="text-base font-bold text-fg">
+                  최종 확정: {client.portfolios[0]?.label ?? "포트폴리오"}
+                </p>
+                <p className="text-xs text-fg-muted">
+                  {client.portfolios[0]
+                    ? `예상수익 ${client.portfolios[0].expectedReturn}% · 변동성 ${client.portfolios[0].expectedRisk}% · `
+                    : ""}
+                  고객 화면·스트레스 테스트에 이 포트폴리오가 반영됩니다.
+                </p>
+              </div>
+            </div>
+            <button className="btn-outline text-sm" onClick={unconfirmPortfolio}>
+              확정 해제 (재편집)
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">📌</span>
+              <div>
+                <p className="text-base font-bold text-fg">포트폴리오 최종 확정</p>
+                <p className="text-xs text-fg-muted">
+                  위에서 후보를 선택·편집했다면, 이 포트폴리오를 <b>최종 결정</b>으로 확정하세요.
+                  확정하면 그 구성이 저장되어 <b>고객 화면 출력</b>과 <b>스트레스 테스트</b>에 사용됩니다.
+                  {chosen && (
+                    <span className="text-gold-600 dark:text-gold-300">
+                      {" "}(현재 선택: {chosen.label})
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <button className="btn-gold px-5 py-2.5 text-sm" onClick={finalizePortfolio}>
+              포트폴리오 최종 확정 →
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* 스트레스 테스트 — 포트폴리오 최종 확정 후 진행 */}
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-fg-muted">스트레스 테스트</h2>
-          <button
-            className={client.stages?.stress ? "btn-outline text-xs" : "btn-gold text-xs"}
-            onClick={() => toggleStage("stress")}
-          >
-            {client.stages?.stress ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
-          </button>
+          {client.stages?.portfolio && (
+            <button
+              className={client.stages?.stress ? "btn-outline text-xs" : "btn-gold text-xs"}
+              onClick={() => toggleStage("stress")}
+            >
+              {client.stages?.stress ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
+            </button>
+          )}
         </div>
-        <StressTestPanel portfolios={client.portfolios} />
+        {client.stages?.portfolio ? (
+          <StressTestPanel portfolios={client.portfolios} />
+        ) : (
+          <div className="card flex flex-col items-center gap-2 p-8 text-center">
+            <span className="text-2xl">🔒</span>
+            <p className="text-sm font-medium text-fg">
+              포트폴리오를 먼저 최종 확정하세요
+            </p>
+            <p className="text-xs text-fg-muted">
+              포트폴리오가 확정되어야 그 구성으로 스트레스 테스트를 진행할 수 있습니다.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* IPS 문서 (더미) */}
