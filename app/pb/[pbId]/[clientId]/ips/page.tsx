@@ -4,30 +4,54 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import type { Client } from "@/lib/types";
+import type { Client, PB } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
-import { getClient } from "@/lib/store";
+import { getClient, listPbs } from "@/lib/store";
 import { formatKRW, formatDate } from "@/lib/format";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 
-const STATUS_LABEL: Record<string, string> = {
-  explicit: "직접 근거",
-  inferred: "추론 단서",
-  empty: "미언급",
-};
+// 7요인 값을 엮어 PB 종합 분석 문장 생성
+function buildSummary(client: Client): string {
+  const ips = client.ips;
+  const t = client.clientType === "corporate" ? "법인" : "개인";
+  const seg: string[] = [];
+  seg.push(
+    `${client.name} 고객은 ${t} 고객으로, 자산규모 ${formatKRW(client.assetSize)} 수준입니다.`,
+  );
+
+  const profile: string[] = [];
+  if (ips.timeHorizon.value) profile.push(`투자 기간 ${ips.timeHorizon.value}`);
+  if (ips.risk.value) profile.push(`위험 허용도 ${ips.risk.value}`);
+  if (ips.return.value) profile.push(`목표 수익률 ${ips.return.value}`);
+  if (profile.length) seg.push(`${profile.join(", ")} 수준으로 파악됩니다.`);
+
+  const extra: string[] = [];
+  if (ips.liquidity.value) extra.push(`유동성은 ${ips.liquidity.value}`);
+  if (ips.tax.value) extra.push(`세금 측면은 ${ips.tax.value}`);
+  if (ips.legal.value) extra.push(`법적 제약은 ${ips.legal.value}`);
+  if (ips.unique.value) extra.push(`특이사항으로 ${ips.unique.value}`);
+  if (extra.length) seg.push(`${extra.join(", ")} 등이 고려됩니다.`);
+
+  seg.push(
+    "이를 종합해 위험 분산과 목표 수익·세금·유동성을 균형 있게 반영한 자산배분을 권고합니다.",
+  );
+  return seg.join(" ");
+}
 
 export default function IPSDocumentPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
   const [client, setClient] = useState<Client | null>(null);
+  const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
 
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      const c = await getClient(clientId);
+      const [c, allPbs] = await Promise.all([getClient(clientId), listPbs()]);
       if (!c) return setStatus("error");
       setClient(c);
+      setPbs(allPbs);
       setStatus("ready");
     } catch (e) {
       console.error(e);
@@ -46,6 +70,10 @@ export default function IPSDocumentPage() {
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
   const pf = client.portfolios[0];
+
+  // 담당 PB 이름 (ID → 이름)
+  const assignedPb = pbs.find((p) => p.id === client.assignedPbId);
+  const pbDisplay = assignedPb ? `${assignedPb.name} (${assignedPb.code})` : "미지정";
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -96,26 +124,29 @@ export default function IPSDocumentPage() {
                 formatDate(client.birthDate),
               ],
               ["자산규모", formatKRW(client.assetSize)],
-              ["담당 PB", client.assignedPbId || pbId || "-"],
+              ["담당 PB", pbDisplay],
             ]}
           />
         </Section>
 
         {/* 2. 투자성향 분석 (RRTTLLU 7요인) */}
         <Section title="2. 투자성향 분석 (RRTTLLU 7요인)">
+          {/* PB 종합 분석 의견 */}
+          <div className="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
+            <p className="mb-1 font-semibold text-gray-800">PB 종합 분석</p>
+            {buildSummary(client)}
+          </div>
+
           <table className="w-full border-collapse text-xs">
             <thead>
               <tr className="border-b border-gray-300 text-left text-gray-500">
-                <th className="py-1.5 pr-2">요인</th>
+                <th className="w-28 py-1.5 pr-2">요인</th>
                 <th className="py-1.5 pr-2">값 / 설명</th>
-                <th className="py-1.5 pr-2 text-center">점수</th>
-                <th className="py-1.5 pr-2 text-center">근거</th>
               </tr>
             </thead>
             <tbody>
               {FACTOR_META.map((m) => {
                 const f = client.ips[m.key];
-                const score = f.status === "explicit" ? f.score : null;
                 return (
                   <tr key={m.key} className="border-b border-gray-100 align-top">
                     <td className="py-1.5 pr-2 font-semibold">{m.label}</td>
@@ -126,12 +157,6 @@ export default function IPSDocumentPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-1.5 pr-2 text-center font-bold">
-                      {score != null ? `${score}/5` : "—"}
-                    </td>
-                    <td className="py-1.5 pr-2 text-center text-gray-500">
-                      {STATUS_LABEL[f.status]}
-                    </td>
                   </tr>
                 );
               })}
@@ -139,39 +164,56 @@ export default function IPSDocumentPage() {
           </table>
         </Section>
 
-        {/* 3. 예상 현금흐름 */}
+        {/* 3. 예상 현금흐름 (재무제표 형식: 수익/비용) */}
         <Section title="3. 예상 현금흐름">
           {client.cashFlows.length === 0 ? (
             <p className="text-xs text-gray-400">등록된 현금흐름이 없습니다.</p>
           ) : (
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-gray-300 text-left text-gray-500">
-                  <th className="py-1.5">항목</th>
-                  <th className="py-1.5">시점</th>
-                  <th className="py-1.5 text-right">금액</th>
-                </tr>
-              </thead>
-              <tbody>
-                {client.cashFlows.map((cf) => (
-                  <tr key={cf.id} className="border-b border-gray-100">
-                    <td className="py-1.5">
-                      {cf.label || "(항목)"}
-                      {cf.recurring && " (정기)"}
-                    </td>
-                    <td className="py-1.5">{cf.date || "시점 미정"}</td>
-                    <td
-                      className={`py-1.5 text-right font-medium ${
-                        cf.amount < 0 ? "text-red-600" : "text-gray-900"
-                      }`}
-                    >
-                      {cf.amount < 0 ? "−" : "+"}
-                      {formatKRW(Math.abs(cf.amount))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            (() => {
+              const inflows = client.cashFlows.filter((c) => c.amount >= 0);
+              const outflows = client.cashFlows.filter((c) => c.amount < 0);
+              const sumIn = inflows.reduce((s, c) => s + c.amount, 0);
+              const sumOut = outflows.reduce((s, c) => s + Math.abs(c.amount), 0);
+              const net = sumIn - sumOut;
+              return (
+                <div className="text-xs">
+                  {/* 수익 (유입) */}
+                  <CfGroup
+                    title="Ⅰ. 수익 (현금 유입)"
+                    items={inflows.map((c) => ({
+                      label: (c.label || "(항목)") + (c.recurring ? " (정기)" : ""),
+                      date: c.date || "시점 미정",
+                      amount: c.amount,
+                    }))}
+                    subtotalLabel="수익 소계"
+                    subtotal={sumIn}
+                    positive
+                  />
+                  {/* 비용 (유출) */}
+                  <CfGroup
+                    title="Ⅱ. 비용 (현금 유출)"
+                    items={outflows.map((c) => ({
+                      label: (c.label || "(항목)") + (c.recurring ? " (정기)" : ""),
+                      date: c.date || "시점 미정",
+                      amount: Math.abs(c.amount),
+                    }))}
+                    subtotalLabel="비용 소계"
+                    subtotal={sumOut}
+                  />
+                  {/* 순현금흐름 */}
+                  <div className="mt-2 flex items-center justify-between border-t-2 border-gray-800 py-2 font-bold">
+                    <span>Ⅲ. 순현금흐름 (수익 − 비용)</span>
+                    <span className={net < 0 ? "text-red-600" : "text-gray-900"}>
+                      {net < 0 ? "−" : "+"}
+                      {formatKRW(Math.abs(net))}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-gray-400">
+                    ※ 정기 항목은 월 단위 기준이며, 시점이 명시된 일회성 항목과 함께 표기.
+                  </p>
+                </div>
+              );
+            })()
           )}
         </Section>
 
@@ -244,6 +286,50 @@ export default function IPSDocumentPage() {
         <p className="mt-6 text-center text-[10px] text-gray-400">
           삼성증권 PB센터 · {dateStr} 생성
         </p>
+      </div>
+    </div>
+  );
+}
+
+// 현금흐름 그룹(수익/비용) — 항목 + 소계
+function CfGroup({
+  title,
+  items,
+  subtotalLabel,
+  subtotal,
+  positive = false,
+}: {
+  title: string;
+  items: { label: string; date: string; amount: number }[];
+  subtotalLabel: string;
+  subtotal: number;
+  positive?: boolean;
+}) {
+  return (
+    <div className="mb-2">
+      <p className="border-b border-gray-300 py-1 font-semibold text-gray-700">{title}</p>
+      {items.length === 0 ? (
+        <p className="py-1 pl-3 text-gray-400">해당 없음</p>
+      ) : (
+        items.map((it, i) => (
+          <div key={i} className="flex items-center justify-between py-1 pl-3">
+            <span className="text-gray-700">
+              {it.label}
+              <span className="ml-2 text-gray-400">{it.date}</span>
+            </span>
+            <span className="text-gray-900">
+              {positive ? "+" : "−"}
+              {formatKRW(it.amount)}
+            </span>
+          </div>
+        ))
+      )}
+      <div className="flex items-center justify-between border-t border-gray-200 py-1 font-semibold">
+        <span className="text-gray-600">{subtotalLabel}</span>
+        <span className={positive ? "text-gray-900" : "text-red-600"}>
+          {positive ? "+" : "−"}
+          {formatKRW(subtotal)}
+        </span>
       </div>
     </div>
   );
