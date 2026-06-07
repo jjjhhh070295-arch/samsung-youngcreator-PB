@@ -301,7 +301,7 @@ export default function IPSResultTabs({
       {/* 포트폴리오 — 패널 편집 + 최종 확정 */}
       {tab === "portfolio" && (
         <div>
-          <PortfolioPanel pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
+          <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
 
           {/* 최종 확정 단계 */}
           <div

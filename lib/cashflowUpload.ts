@@ -70,8 +70,11 @@ const toDateInput = (date: Date) =>
 const toMonthInput = (dateInput: string) => dateInput.slice(0, 7);
 const startOfDay = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate());
-const addMonths = (date: Date, months: number) =>
-  new Date(date.getFullYear(), date.getMonth() + months, date.getDate());
+const addMonths = (date: Date, months: number) => {
+  const targetMonth = date.getMonth() + months;
+  const lastTargetDay = new Date(date.getFullYear(), targetMonth + 1, 0).getDate();
+  return new Date(date.getFullYear(), targetMonth, Math.min(date.getDate(), lastTargetDay));
+};
 const lastDayOfMonth = (date: Date) =>
   new Date(date.getFullYear(), date.getMonth() + 1, 0);
 
@@ -211,9 +214,9 @@ const scheduleAliases: Array<{ key: ScheduleKey; aliases: string[] }> = [
   { key: "businessYearEnd", aliases: ["법인사업연도종료일", "사업연도종료일", "결산일"] },
   { key: "corporateTax", aliases: ["법인세예상액", "예상법인세"] },
   { key: "realEstateSaleDate", aliases: ["부동산매각일", "부동산양도일", "매각일"] },
-  { key: "realEstateTax", aliases: ["부동산양도세예상액", "양도세예상액"] },
   { key: "overseasStockSaleYear", aliases: ["해외주식매도연도", "해외주식양도연도"] },
   { key: "overseasStockTax", aliases: ["해외주식양도세예상액", "해외주식양도세"] },
+  { key: "realEstateTax", aliases: ["부동산양도세예상액", "양도세예상액"] },
   { key: "giftDate", aliases: ["증여예정일", "증여일"] },
   { key: "giftAmount", aliases: ["증여실행금액", "증여금액"] },
   { key: "giftTax", aliases: ["증여세예상액", "예상증여세"] },
