@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Client, IPSFactor, CashFlow, Portfolio, StageKey } from "@/lib/types";
 import { FACTOR_META, computeStages } from "@/lib/types";
 import CashFlowEditor from "./CashFlowEditor";
@@ -55,6 +56,7 @@ export default function IPSResultTabs({
   onUnfinalizePortfolio,
   onToggleStage,
 }: Props) {
+  const router = useRouter();
   const ips = client.ips;
   const [tab, setTab] = useState<Tab>("factors");
   const done = computeStages(client);
@@ -384,19 +386,32 @@ export default function IPSResultTabs({
         </div>
       )}
 
-      {/* IPS — 더미 + 단계 확정 */}
+      {/* IPS — 투자정책서 문서 생성 + 단계 확정 */}
       {tab === "ips" && (
         <div>
           <div className="mb-3 flex items-center justify-end">
             <StageToggle k="ips" />
           </div>
-          <div className="card flex flex-col items-center gap-3 p-8 text-center">
+          <div className="card flex flex-col items-center gap-4 p-8 text-center">
             <span className="text-3xl">📄</span>
-            <p className="text-base font-bold text-fg">IPS 문서 (투자정책서)</p>
-            <p className="max-w-md text-sm text-fg-muted">
-              7요인·포트폴리오를 반영한 투자정책서를 정리합니다. PDF 출력은 추후 제공(더미).
-              완료로 표시하면 고객 화면 진행 현황에 반영됩니다.
-            </p>
+            <div>
+              <p className="text-base font-bold text-fg">투자정책서 (IPS) 문서</p>
+              <p className="mt-1 max-w-md text-sm text-fg-muted">
+                고객 기본정보 · RRTTLLU 7요인 · 현금흐름 · 확정 포트폴리오를 모아 정식 투자정책서로
+                생성합니다. 문서 화면에서 <b>인쇄 / PDF 저장</b>이 가능합니다.
+              </p>
+            </div>
+            {!done.portfolio && (
+              <p className="text-xs text-fg-muted">
+                💡 포트폴리오를 최종 확정하면 문서에 포트폴리오 내역도 함께 채워집니다.
+              </p>
+            )}
+            <button
+              className="btn-gold px-6 py-2.5"
+              onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}
+            >
+              IPS 문서 생성 / 인쇄 →
+            </button>
           </div>
         </div>
       )}
