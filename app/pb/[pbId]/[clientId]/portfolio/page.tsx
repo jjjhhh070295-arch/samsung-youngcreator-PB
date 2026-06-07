@@ -43,8 +43,8 @@ export default function PortfolioPage() {
     setClient({ ...client, portfolios });
   };
 
-  // 스트레스/IPS 단계 완료 표시 (더미 — 수동 확정)
-  const toggleStage = async (key: "stress" | "ips") => {
+  // 포트폴리오/스트레스/IPS 단계 완료 표시 (수동 확정)
+  const toggleStage = async (key: "portfolio" | "stress" | "ips") => {
     if (!client) return;
     const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
     await updateClient(client.id, { stages });
@@ -139,7 +139,15 @@ export default function PortfolioPage() {
 
       {/* 포트폴리오 후보 */}
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-fg-muted">포트폴리오 후보 3개</h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-fg-muted">포트폴리오 후보 3개</h2>
+          <button
+            className={client.stages?.portfolio ? "btn-outline text-xs" : "btn-gold text-xs"}
+            onClick={() => toggleStage("portfolio")}
+          >
+            {client.stages?.portfolio ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
+          </button>
+        </div>
         <PortfolioPanel client={client} onSave={savePortfolios} />
       </section>
 
