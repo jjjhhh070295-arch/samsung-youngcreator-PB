@@ -10,6 +10,7 @@ import {
 import {
   FALLBACK_MARKET_RESEARCH,
   type MarketResearchItem,
+  type ResearchSignal,
 } from '@/lib/portfolioResearch';
 
 interface PortfolioPanelProps {
@@ -49,6 +50,35 @@ const barColors: Record<WeightKey, string> = {
   gold: 'bg-yellow-500',
   dollar: 'bg-slate-600',
   raw: 'bg-stone-500',
+};
+
+const optionProfiles: Record<
+  PortfolioOption['id'],
+  {
+    emphasis: string;
+    signals: ResearchSignal[];
+    allocationLogic: string;
+    clientMessage: string;
+  }
+> = {
+  stable: {
+    emphasis: '세금 납부일과 단기 현금화 가능성을 먼저 방어하는 안정형 안입니다.',
+    signals: ['bond', 'liquidity', 'risk', 'dollar', 'gold'],
+    allocationLogic: '채권·MMF/RP·달러성 현금 버킷을 우선 배치하고 주식/ETF는 변동성 관리 범위 안에서 제한했습니다.',
+    clientMessage: '세금 납부와 대규모 유출 가능성을 먼저 막아 두고, 잔여 자금으로 낮은 변동성의 인컴을 쌓는 구조입니다.',
+  },
+  balanced: {
+    emphasis: '성장 기회와 유동성 방어를 함께 가져가는 균형형 안입니다.',
+    signals: ['equity', 'bond', 'liquidity', 'risk'],
+    allocationLogic: '주식/ETF 신호를 반영하되 채권과 MMF/RP를 함께 둬 고객 현금흐름의 흔들림을 줄였습니다.',
+    clientMessage: '시장 참여 기회는 확보하되 세금·현금흐름 일정 때문에 한쪽으로 과하게 치우치지 않게 설계했습니다.',
+  },
+  growth: {
+    emphasis: 'AI·반도체·글로벌 주식 신호를 더 적극적으로 반영하는 수익추구형 안입니다.',
+    signals: ['equity', 'risk', 'dollar', 'gold'],
+    allocationLogic: 'ETF 성장자산 비중을 높이고, 변동성 확대 리포트를 감안해 달러·금 헤지를 최소 완충 장치로 남겼습니다.',
+    clientMessage: '고객이 더 높은 변동성을 감내할 수 있을 때 성장 테마 참여도를 높이되, 현금화 재원은 별도 분리합니다.',
+  },
 };
 
 const formatWonShort = (won: number) => {
@@ -148,11 +178,29 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const metrics = useMemo(() => calculateSimulatedMetrics(adjustedWeights), [adjustedWeights]);
   const totalWeight = Object.values(adjustedWeights).reduce((a, b) => a + b, 0);
   const weightDiff = 100 - totalWeight;
-  const currentPortfolioName = portfolioOptions.find((option) => option.id === selectedBase)?.name || '';
+  const selectedOption = portfolioOptions.find((option) => option.id === selectedBase) ?? portfolioOptions[1];
+  const currentPortfolioName = selectedOption?.name || '';
+  const selectedProfile = optionProfiles[selectedBase];
+  const selectedResearchItems = useMemo(() => {
+    const focused = model.researchItems.filter((item) =>
+      item.signals.some((signal) => selectedProfile.signals.includes(signal)),
+    );
+    const fallback = model.researchItems.filter((item) => !focused.some((focusedItem) => focusedItem.id === item.id));
+    return [...focused, ...fallback].slice(0, 6);
+  }, [model.researchItems, selectedProfile.signals]);
+  const selectedSignalScores = useMemo(() => {
+    const focused = model.researchSignals.filter((signal) => selectedProfile.signals.includes(signal.signal));
+    return focused.length > 0 ? focused : model.researchSignals.slice(0, 4);
+  }, [model.researchSignals, selectedProfile.signals]);
+  const selectedSourceSummary = selectedResearchItems
+    .slice(0, 3)
+    .map((item) => `${item.source} '${item.title}'`)
+    .join(', ');
+  const selectedMarketRationale = `${currentPortfolioName}은 ${selectedProfile.emphasis} ${selectedSourceSummary || '최신 리서치'}를 근거로 ${selectedProfile.allocationLogic}`;
+  const selectedExecutiveConclusion = `${currentPortfolioName} 조율안입니다. ${selectedProfile.clientMessage} 최신 리서치와 고객 현금흐름을 같이 반영해 현재 비중을 산출했습니다.`;
 
   useEffect(() => {
     if (!onSelectionChange) return;
-    const selected = portfolioOptions.find((option) => option.id === selectedBase) ?? portfolioOptions[1];
     const aggregated: Record<string, number> = {};
 
     (Object.entries(adjustedWeights) as Array<[WeightKey, number]>).forEach(([asset, weight]) => {
@@ -168,20 +216,28 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
     onSelectionChange({
       id: selectedBase,
-      label: selected.name,
+      label: selectedOption.name,
       allocations,
       expectedReturn: metrics.expectedReturn,
       expectedRisk: metrics.volatility,
       taxNote: model.rationale.tax,
       rationale: [
-        model.rationale.market,
+        selectedMarketRationale,
         model.rationale.client,
         model.rationale.cashflow,
         model.rationale.unique,
       ].join(' '),
       editedByPb: true,
     });
-  }, [adjustedWeights, metrics, model.rationale, onSelectionChange, portfolioOptions, selectedBase]);
+  }, [
+    adjustedWeights,
+    metrics,
+    model.rationale,
+    onSelectionChange,
+    selectedBase,
+    selectedMarketRationale,
+    selectedOption.name,
+  ]);
 
   const handleBaseChange = (type: PortfolioOption['id']) => {
     const target = portfolioOptions.find((option) => option.id === type);
@@ -232,7 +288,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </span>
               <h2 className="mt-2 text-2xl font-black">{currentPortfolioName} 조율안</h2>
               <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-300">
-                {model.executiveConclusion}
+                {selectedExecutiveConclusion}
               </p>
             </div>
             <div className="flex flex-wrap gap-1.5 md:max-w-xs md:justify-end">
@@ -293,7 +349,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-indigo-600"></span>
-              <h3 className="text-base font-bold text-slate-800">최신 리서치 반영 상태</h3>
+              <h3 className="text-base font-bold text-slate-800">선택안별 리서치 반영 상태</h3>
             </div>
             <span className="text-[11px] font-medium text-slate-400">
               {researchStatus === 'loading'
@@ -304,8 +360,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             </span>
           </div>
 
+          <p className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs leading-relaxed text-indigo-900">
+            {currentPortfolioName} 기준: {selectedProfile.emphasis}
+          </p>
+
           <div className="grid grid-cols-2 gap-2">
-            {model.researchSignals.slice(0, 4).map((signal) => (
+            {selectedSignalScores.slice(0, 4).map((signal) => (
               <div key={signal.signal} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <span className="block text-[11px] font-semibold text-slate-500">{signal.label}</span>
                 <span className="mt-1 block text-lg font-black text-slate-800">{signal.score}</span>
@@ -314,7 +374,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
 
           <div className="mt-4 space-y-2">
-            {model.researchItems.slice(0, 6).map((item) => (
+            {selectedResearchItems.map((item) => (
               <a
                 key={item.id}
                 href={item.url}
@@ -396,7 +456,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <h3 className="text-base font-bold text-slate-800">포트폴리오 산출 근거</h3>
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <ReasonBlock title="시장 리포트 근거" body={model.rationale.market} />
+          <ReasonBlock title="시장 리포트 근거" body={selectedMarketRationale} />
           <ReasonBlock title="고객 정보 반영" body={model.rationale.client} />
           <ReasonBlock title="현금흐름 반영" body={model.rationale.cashflow} />
           <ReasonBlock title="세금 납부일 반영" body={model.rationale.tax} />
@@ -534,8 +594,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             <div className="max-h-[360px] space-y-3 overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-800/40 p-4 text-xs leading-relaxed text-slate-300">
               <p className="text-[11px] font-bold uppercase tracking-wide text-orange-300">Client Presentation Script</p>
               <p>
-                최신 리서치에서는 {model.researchSignals[0]?.label} 신호가 가장 강합니다. 그래서 {currentPortfolioName}은
-                해당 자산군을 반영하되, 고객님의 세금 납부와 현금화 일정을 먼저 커버하도록 설계했습니다.
+                {currentPortfolioName}은 {selectedSignalScores[0]?.label} 관련 리포트를 우선 참고했습니다.
+                {selectedProfile.clientMessage}
               </p>
               <p>
                 고객님의 월 순현금흐름은 {formatWonShort(model.cashflowSummary.monthlyNet)}이고, 세금성 예정 유출은
@@ -546,7 +606,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 {model.rationale.unique}
               </p>
               <p className="border-t border-slate-800 pt-2 text-[11px] text-slate-400">
-                출처: {model.researchItems.slice(0, 3).map((item) => item.source).join(', ')} 등 최신 리포트/기사 최대 20개
+                출처: {selectedResearchItems.slice(0, 3).map((item) => `${item.source} - ${item.title}`).join(' / ')} 등 최신 리포트/기사 최대 20개
               </p>
             </div>
           </div>
