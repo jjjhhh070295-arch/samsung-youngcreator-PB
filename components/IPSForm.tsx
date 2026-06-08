@@ -36,6 +36,12 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
     <div className="space-y-3">
       {FACTOR_META.map((m) => {
         const f = ips[m.key];
+        const valuePlaceholder =
+          m.key === "unique"
+            ? "예: 해외주식 단일종목만 편입, 기대수익률 20% 이상 희망"
+            : m.key === "tax"
+              ? "예: 연금저축/IRP 세액공제, 법인세·증여세 납부일 고려"
+              : "예: 연 6~8%";
         return (
           <div key={m.key} className="card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -94,7 +100,7 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
                   <input
                     className="input"
                     value={f.value}
-                    placeholder={f.status === "empty" ? "(공백 허용)" : "예: 연 6~8%"}
+                    placeholder={f.status === "empty" ? "(공백 허용)" : valuePlaceholder}
                     disabled={f.status === "empty"}
                     onChange={(e) => update(m.key, { value: e.target.value, source: "manual" })}
                   />
