@@ -44,16 +44,27 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "분석할 리포트가 없습니다." }, { status: 200 });
     }
 
-    // ?force=1 이면 캐시 무시하고 전체 재분석 (quota 리셋 후 사용)
-    const force = new URL(req.url).searchParams.get("force") === "1";
+    const params = new URL(req.url).searchParams;
+    const force = params.get("force") === "1"; // 전체 재분석
+    const retryFailed = params.get("retryFailed") === "1"; // 실패(더미)만 재분석
 
-    // 2) 캐시 조회 → 새 것만 분석 (force면 전부)
-    const cached = force
+    // 2) 캐시 조회
+    //    - force: 캐시 전부 무시(전체 재분석)
+    //    - retryFailed: 더미(분석 실패)는 캐시에서 빼서 다시 분석 / 성공분은 유지
+    //    - 기본: 캐시에 없는 새 것만
+    const allCached = force
       ? new Map<string, ReportAnalysis>()
       : await getCachedAnalyses(items.map((it) => it.id));
+    const cached = new Map(allCached);
+    if (retryFailed) {
+      for (const [id, a] of allCached) {
+        if (a.model === "dummy") cached.delete(id); // 더미는 다시 분석 대상으로
+      }
+    }
     const newItems = items.filter((it) => !cached.has(it.id));
 
-    const freshAnalyses = await mapWithConcurrency(newItems, 2, async (it) => {
+    // 무료 티어 RPM 한도가 낮아 동시 호출을 1로 제한(429 폭주 방지). 느려도 백그라운드 잡이라 OK.
+    const freshAnalyses = await mapWithConcurrency(newItems, 1, async (it) => {
       const content = await fetchReportContent(it.url); // 본문(PDF/HTML) 추출
       const a = await analyzeReport(it, content);
       // 결과 캐시(더미 포함 — 구조가 비지 않게). 실제 분석은 ?force=1 로 재분석.

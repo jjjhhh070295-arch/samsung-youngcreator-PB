@@ -75,20 +75,23 @@ export default function ResearchPage() {
     load();
   }, [load]);
 
-  const refresh = async (force = false) => {
+  const refresh = async (mode: "new" | "force" | "retryFailed" = "new") => {
     setRefreshing(true);
     setMsg(
-      force
+      mode === "force"
         ? "전체 리포트 재분석 중… (본문까지 분석, 다소 걸립니다)"
-        : "최신 리포트 분석 중… (새 리포트만 분석하므로 보통 빠릅니다)",
+        : mode === "retryFailed"
+          ? "실패(미분석)한 리포트만 다시 분석 중…"
+          : "최신 리포트 분석 중… (새 리포트만 분석하므로 보통 빠릅니다)",
     );
+    const q = mode === "force" ? "?force=1" : mode === "retryFailed" ? "?retryFailed=1" : "";
     try {
-      const res = await fetch(`/api/research/ingest${force ? "?force=1" : ""}`, { cache: "no-store" });
+      const res = await fetch(`/api/research/ingest${q}`, { cache: "no-store" });
       const data = await res.json();
       if (data.ok) {
         setMsg(
           `완료 — 총 ${data.total}건 중 새로 분석 ${data.analyzedNow}건, 캐시 ${data.fromCache}건` +
-            (data.usedLLM ? " (Gemini 분석)" : " (키 없음 → 키워드 추정)"),
+            (data.usedLLM ? " (LLM 분석)" : " (키 없음/한도 → 키워드 추정)"),
         );
         await load();
       } else {
@@ -114,11 +117,14 @@ export default function ResearchPage() {
             {lastAt && ` · 마지막 분석 ${formatDateTime(lastAt)}`}
           </p>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-outline text-sm" onClick={() => refresh(true)} disabled={refreshing}>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-outline text-sm" onClick={() => refresh("retryFailed")} disabled={refreshing}>
+            실패만 재분석
+          </button>
+          <button className="btn-outline text-sm" onClick={() => refresh("force")} disabled={refreshing}>
             전체 재분석
           </button>
-          <button className="btn-gold text-sm" onClick={() => refresh(false)} disabled={refreshing}>
+          <button className="btn-gold text-sm" onClick={() => refresh("new")} disabled={refreshing}>
             {refreshing ? "분석 중…" : "🔄 리서치 갱신"}
           </button>
         </div>
@@ -162,54 +168,89 @@ export default function ResearchPage() {
           title="아직 분석된 리포트가 없어요"
           hint="오른쪽 위 '리서치 갱신'을 누르면 최신 리포트를 가져와 분석합니다."
           action={
-            <button className="btn-gold text-sm" onClick={() => refresh(false)} disabled={refreshing}>
+            <button className="btn-gold text-sm" onClick={() => refresh("new")} disabled={refreshing}>
               🔄 리서치 갱신
             </button>
           }
         />
       )}
 
-      {/* 리포트별 요약 */}
+      {/* 리포트별 요약 — 주차별 그룹 */}
       {status === "ready" && reports.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-fg-muted">리포트별 요약 ({reports.length})</h2>
-          {reports.map((r) => (
-            <div key={r.id} className="card p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-medium text-gold-600 dark:text-gold-300">
-                  {r.source}
-                  {r.date && <span className="ml-2 text-fg-muted">{r.date}</span>}
+        <div className="space-y-5">
+          <h2 className="text-sm font-semibold text-fg-muted">리포트 (주차별 · 총 {reports.length})</h2>
+          {groupByWeek(reports).map((g) => (
+            <div key={g.key}>
+              <div className="mb-2 flex items-center gap-2">
+                <span className="rounded-md bg-navy-800 px-2.5 py-1 text-xs font-bold text-white dark:bg-navy-600">
+                  {g.label}
                 </span>
-                {r.url && (
-                  <a
-                    href={r.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-fg-muted underline hover:text-fg"
-                  >
-                    원문 ↗
-                  </a>
-                )}
+                <span className="text-xs text-fg-muted">{g.reports.length}건</span>
+                <span className="h-px flex-1 bg-border" />
               </div>
-              <p className="mt-1 text-sm font-semibold text-fg">{r.title}</p>
-              {r.summary ? (
-                <p className="mt-1 text-xs leading-relaxed text-fg-muted">{r.summary}</p>
-              ) : (
-                <p className="mt-1 text-[11px] text-fg-muted">
-                  본문 미분석 (키워드 추정) — 한도 리셋 후 [전체 재분석] 시 요약 생성
-                </p>
-              )}
-              {r.signals.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {r.signals.map((s, i) => (
-                    <DirChip key={i} s={s} />
-                  ))}
-                </div>
-              )}
+              <div className="space-y-3">
+                {g.reports.map((r) => (
+                  <div key={r.id} className="card p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-gold-600 dark:text-gold-300">
+                        {r.source}
+                        {r.date && <span className="ml-2 text-fg-muted">{r.date}</span>}
+                      </span>
+                      {r.url && (
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-fg-muted underline hover:text-fg"
+                        >
+                          원문 ↗
+                        </a>
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm font-semibold text-fg">{r.title}</p>
+                    {r.summary ? (
+                      <p className="mt-1 text-xs leading-relaxed text-fg-muted">{r.summary}</p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-fg-muted">
+                        본문 미분석 (키워드 추정) — [실패만 재분석] 시 요약 생성
+                      </p>
+                    )}
+                    {r.signals.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {r.signals.map((s, i) => (
+                          <DirChip key={i} s={s} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+// 리포트를 주차(연·월·몇째 주)별로 그룹화 (최신 주 먼저)
+function groupByWeek(reports: Report[]): { key: string; label: string; reports: Report[] }[] {
+  const map = new Map<string, { key: string; label: string; sort: string; reports: Report[] }>();
+  for (const r of reports) {
+    let key = "no-date";
+    let label = "날짜 미상";
+    let sort = "0";
+    if (r.date) {
+      const [y, m, d] = r.date.split("-").map(Number);
+      if (y && m && d) {
+        const wom = Math.ceil(d / 7); // 그 달의 몇째 주
+        key = `${y}-${m}-${wom}`;
+        label = `${y}년 ${m}월 ${wom}주차`;
+        sort = `${y}${String(m).padStart(2, "0")}${wom}`;
+      }
+    }
+    if (!map.has(key)) map.set(key, { key, label, sort, reports: [] });
+    map.get(key)!.reports.push(r);
+  }
+  return Array.from(map.values()).sort((a, b) => b.sort.localeCompare(a.sort));
 }

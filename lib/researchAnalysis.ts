@@ -133,7 +133,8 @@ async function callGemini(userText: string): Promise<string> {
       const json: any = await res.json();
       return json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     }
-    // 503(일시적 과부하)만 재시도. 429(quota 소진)는 곧 안 풀리므로 즉시 실패(멈춤 방지).
+    // 503(일시 과부하)만 재시도. 429는 무료 "일일 한도 소진"인 경우가 많아
+    // 재시도해도 안 풀리고 시간만 버리므로 즉시 실패(다음날/유료 전까지 더미 폴백).
     if (res.status === 503 && attempt < maxTries) {
       await sleep(600 * attempt + Math.random() * 300);
       continue;
@@ -149,7 +150,7 @@ async function callClaude(userText: string): Promise<string> {
   const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
     model: MODEL,
-    max_tokens: 700,
+    max_tokens: 1500,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userText }],
   });
@@ -158,7 +159,8 @@ async function callClaude(userText: string): Promise<string> {
 }
 
 // 리포트 1건 분석. content(본문)가 있으면 본문 기반, 없으면 제목·요약 기반.
-// 제공자 우선순위: Gemini(무료) → Claude → 더미(키워드)
+// 하이브리드: Gemini(무료) 우선 → 실패(429 한도/파싱)면 그 건만 Claude 폴백 → 둘 다 안 되면 더미.
+// 평소엔 거의 무료로 돌고, 무료 한도를 넘긴 건만 Claude가 메꿔 화면에 항상 요약이 차게 한다.
 export async function analyzeReport(
   item: MarketResearchItem,
   content?: string,
@@ -168,16 +170,33 @@ export async function analyzeReport(
   if (!hasGemini && !hasClaude) return dummyAnalysis(item);
 
   const userText = buildUserText(item, content);
-  const provider = hasGemini ? "gemini" : "claude";
-  try {
-    const text = hasGemini ? await callGemini(userText) : await callClaude(userText);
-    const parsed = extractJson(text);
-    if (!parsed) return dummyAnalysis(item);
-    return normalize(parsed, item.id, hasGemini ? (process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash") : MODEL);
-  } catch (e) {
-    console.error(`[researchAnalysis] ${provider} 실패, 더미 폴백:`, (e as Error)?.message);
-    return dummyAnalysis(item);
+  const geminiModel = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash-lite";
+  const short = (e: unknown) => (e as Error)?.message?.slice(0, 70);
+
+  // 1) Gemini(무료) 우선
+  if (hasGemini) {
+    try {
+      const parsed = extractJson(await callGemini(userText));
+      if (parsed) return normalize(parsed, item.id, geminiModel);
+      console.warn(`[researchAnalysis] gemini JSON 파싱 실패 → Claude 폴백: "${item.title.slice(0, 40)}"`);
+    } catch (e) {
+      console.warn(`[researchAnalysis] gemini 실패(${short(e)}) → ${hasClaude ? "Claude 폴백" : "더미"}`);
+    }
   }
+
+  // 2) Claude 폴백 (Gemini 미설정/실패 시)
+  if (hasClaude) {
+    try {
+      const parsed = extractJson(await callClaude(userText));
+      if (parsed) return normalize(parsed, item.id, MODEL);
+      console.warn(`[researchAnalysis] claude JSON 파싱 실패 → 더미: "${item.title.slice(0, 40)}"`);
+    } catch (e) {
+      console.error(`[researchAnalysis] claude 실패, 더미 폴백:`, short(e));
+    }
+  }
+
+  // 3) 최종 더미(키워드 추정)
+  return dummyAnalysis(item);
 }
 
 // 키 없음/실패 시: 기존 키워드 신호를 direction +1, strength 2 로 변환 (보수적)

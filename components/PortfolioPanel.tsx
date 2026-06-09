@@ -12,6 +12,7 @@ import {
   type MarketResearchItem,
   type ResearchSignal,
 } from '@/lib/portfolioResearch';
+import { listPbs } from '@/lib/store';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -21,6 +22,36 @@ interface PortfolioPanelProps {
 }
 
 type WeightKey = keyof PortfolioOption['weights'];
+
+// 리서치 분석 캐시(/api/research/signals)에서 읽어올 신호 형태
+type AnalyzedReportSignal = { signal: string; direction: -1 | 0 | 1; strength: number; evidence: string };
+type AnalyzedReport = { summary: string; signals: AnalyzedReportSignal[]; model?: string };
+
+const RESEARCH_SIGNAL_KO: Record<string, string> = {
+  equity: '주식',
+  bond: '채권',
+  liquidity: '현금성',
+  dollar: '달러',
+  gold: '금/원자재',
+  risk: '위험관리',
+  tax: '세금',
+};
+
+function SignalChip({ s }: { s: AnalyzedReportSignal }) {
+  const arrow = s.direction > 0 ? '▲' : s.direction < 0 ? '▼' : '·';
+  const cls =
+    s.direction > 0
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : s.direction < 0
+        ? 'bg-rose-50 text-rose-700 border-rose-200'
+        : 'bg-slate-50 text-slate-600 border-slate-200';
+  return (
+    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${cls}`} title={s.evidence}>
+      {RESEARCH_SIGNAL_KO[s.signal] ?? s.signal} {arrow}
+      {s.strength}
+    </span>
+  );
+}
 
 const STRESS_ASSET_MAP: Record<WeightKey, string> = {
   etf: '해외주식',
@@ -106,6 +137,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [researchItems, setResearchItems] = useState<MarketResearchItem[]>(FALLBACK_MARKET_RESEARCH);
   const [researchStatus, setResearchStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
   const [fallbackUsed, setFallbackUsed] = useState(false);
+  // 리포트별 LLM 분석(요약·신호) — id로 매칭해 리서치 카드에 인라인 표시
+  const [analyzedById, setAnalyzedById] = useState<Record<string, AnalyzedReport>>({});
+  const [openReportId, setOpenReportId] = useState<string | null>(null);
+  // 담당 PB 이름 (헤더에 UUID 대신 이름 표시)
+  const [pbName, setPbName] = useState<string>('');
   const [selectedBase, setSelectedBase] = useState<PortfolioOption['id']>('balanced');
   const [weights, setWeights] = useState<PortfolioOption['weights']>(FALLBACK_MARKET_RESEARCH.length ? {
     etf: 35,
@@ -160,6 +196,48 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     };
   }, []);
 
+  // 리포트별 분석(요약·신호) 캐시 로드 — 제목만 보이던 리스트에 요약을 붙인다.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/research/signals', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data.reports)) return;
+        const map: Record<string, AnalyzedReport> = {};
+        for (const r of data.reports) {
+          map[r.id] = { summary: r.summary ?? '', signals: r.signals ?? [], model: r.model };
+        }
+        setAnalyzedById(map);
+      } catch {
+        /* 분석 캐시 없으면 제목만 표시(기존 동작) */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 담당 PB 이름 조회 — 헤더에 UUID 대신 이름 표시
+  useEffect(() => {
+    const id = client.assignedPbId || pbId;
+    if (!id) return;
+    let cancelled = false;
+    listPbs()
+      .then((pbs) => {
+        if (cancelled) return;
+        const pb = pbs.find((p) => p.id === id);
+        if (pb) setPbName(pb.name);
+      })
+      .catch(() => {
+        /* 조회 실패 시 헤더는 '-'로 폴백 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client.assignedPbId, pbId]);
+
   useEffect(() => {
     if (hasManualEdit) return;
     const target = portfolioOptions.find((option) => option.id === model.recommendedId) ?? portfolioOptions[1];
@@ -197,6 +275,20 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     .map((item) => `${item.source} '${item.title}'`)
     .join(', ');
   const selectedMarketRationale = `${currentPortfolioName}은 ${selectedProfile.emphasis} ${selectedSourceSummary || '최신 리서치'}를 근거로 ${selectedProfile.allocationLogic}`;
+  // 시장 리포트 근거를 리포트별로 분리 (요약/근거를 불릿으로 표시)
+  const marketReportReasons = useMemo(
+    () =>
+      selectedResearchItems.slice(0, 4).map((item) => {
+        const a = analyzedById[item.id];
+        const reason =
+          (a?.summary && a.summary.trim()) ||
+          a?.signals?.[0]?.evidence ||
+          item.excerpt ||
+          '최신 리서치를 반영했습니다.';
+        return { id: item.id, title: item.title, source: item.source, reason };
+      }),
+    [selectedResearchItems, analyzedById],
+  );
   const selectedExecutiveConclusion = `${currentPortfolioName} 조율안입니다. ${selectedProfile.clientMessage} 최신 리서치, 고객 현금흐름${model.preferenceProfile.hasRequirement ? ', 고유 요구조건' : ''}을 같이 반영해 현재 비중을 산출했습니다.`;
 
   useEffect(() => {
@@ -272,7 +364,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-slate-300">
           <span className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5">
-            PB {client.assignedPbId || pbId || '-'}
+            담당 PB {pbName || '-'}
           </span>
           <span className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5">
             {client.code || clientId} · {client.name}
@@ -422,21 +514,58 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
 
           <div className="mt-4 space-y-2">
-            {selectedResearchItems.map((item) => (
-              <a
-                key={item.id}
-                href={item.url}
-                target="_blank"
-                rel="noreferrer"
-                className="block rounded-xl border border-slate-100 px-3 py-2 text-xs hover:border-blue-200 hover:bg-blue-50/40"
-              >
-                <span className="font-bold text-slate-700">{item.title}</span>
-                <span className="mt-0.5 block text-[11px] text-slate-400">
-                  {item.source}
-                  {item.date ? ` · ${item.date}` : ''}
-                </span>
-              </a>
-            ))}
+            {selectedResearchItems.map((item) => {
+              const analyzed = analyzedById[item.id];
+              const isOpen = openReportId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl border border-slate-100 text-xs transition hover:border-blue-200"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenReportId(isOpen ? null : item.id)}
+                    className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left hover:bg-blue-50/40"
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-bold text-slate-700">{item.title}</span>
+                      <span className="mt-0.5 block text-[11px] text-slate-400">
+                        {item.source}
+                        {item.date ? ` · ${item.date}` : ''}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 shrink-0 text-[11px] text-slate-400">{isOpen ? '▲' : '▼'}</span>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-slate-100 px-3 py-2.5">
+                      {analyzed?.summary ? (
+                        <p className="text-[11px] leading-relaxed text-slate-600">{analyzed.summary}</p>
+                      ) : (
+                        <p className="text-[11px] leading-relaxed text-slate-400">
+                          본문 요약 미생성 — 사이드바 ‘리서치 분석’에서 [실패만 재분석]을 누르면 요약이 채워집니다.
+                        </p>
+                      )}
+                      {analyzed?.signals && analyzed.signals.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {analyzed.signals.map((s, i) => (
+                            <SignalChip key={i} s={s} />
+                          ))}
+                        </div>
+                      )}
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-block text-[11px] font-medium text-blue-600 underline hover:text-blue-700"
+                      >
+                        원문 ↗
+                      </a>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
       </div>
@@ -504,7 +633,21 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <h3 className="text-base font-bold text-slate-800">포트폴리오 산출 근거</h3>
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <ReasonBlock title="시장 리포트 근거" body={selectedMarketRationale} />
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 lg:col-span-2">
+            <p className="text-xs font-bold text-slate-700">시장 리포트 근거</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              {currentPortfolioName}은 {selectedProfile.emphasis} 아래 리포트들을 근거로 {selectedProfile.allocationLogic}
+            </p>
+            <ul className="mt-2 space-y-2">
+              {marketReportReasons.map((r) => (
+                <li key={r.id} className="border-l-2 border-indigo-200 pl-2 text-xs leading-relaxed">
+                  <span className="font-semibold text-slate-700">{r.title}</span>
+                  <span className="text-[11px] text-slate-400"> · {r.source}</span>
+                  <span className="mt-0.5 block text-slate-600">근거: {r.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
           <ReasonBlock title="고객 정보 반영" body={model.rationale.client} />
           <ReasonBlock title="현금흐름 반영" body={model.rationale.cashflow} />
           <ReasonBlock title="세금 납부일 반영" body={model.rationale.tax} />

@@ -91,14 +91,22 @@ function decodeBuffer(buffer: ArrayBuffer, contentType: string) {
 
 function extractMiraeItems(html: string, source: ResearchSource): MarketResearchItem[] {
   const items: MarketResearchItem[] = [];
-  const rowPattern =
-    /<td[^>]*>\s*(20\d{2}[-./]\d{1,2}[-./]\d{1,2})\s*<\/td>[\s\S]{0,900}?<div class="subject">\s*<a[^>]*>([\s\S]*?)<\/a>\s*<\/div>[\s\S]{0,900}?downConfirm\('([^']+)'/gi;
-
-  for (const match of Array.from(html.matchAll(rowPattern))) {
-    const date = normalizeDate(match[1]);
-    const title = cleanText(match[2]);
-    if (title.length < 4) continue;
-    const url = absolutizeUrl(match[3], source.url);
+  // 행(<tr>) 단위로 쪼개서 한 행씩 안전하게 파싱한다.
+  // (전역 정규식은 PDF 없는 행을 만나면 제목 캡처가 다음 행까지 번져 "덩어리 제목"이 됨)
+  const rows = html.split(/<tr[\s>]/i).slice(1);
+  for (const row of rows) {
+    const subj = row.match(/<div class="subject">\s*<a[^>]*>([\s\S]*?)<\/a>/i);
+    if (!subj) continue;
+    const title = cleanText(subj[1]);
+    if (title.length < 4 || title.length > 160) continue; // 160자 초과는 비정상(덩어리) → 제외
+    const date = normalizeDate((row.match(/(20\d{2}[-./]\d{1,2}[-./]\d{1,2})/) ?? [])[0]);
+    const pdf = (row.match(/downConfirm\('([^']+)'/i) ?? [])[1];
+    const view = row.match(/view\('(\d+)','(\d+)'\)/i);
+    const url = pdf
+      ? absolutizeUrl(pdf, source.url)
+      : view
+        ? `https://securities.miraeasset.com/bbs/board/message/view.do?messageId=${view[1]}&categoryId=${view[2]}`
+        : source.url;
     const text = `${title} ${date ?? ""}`;
     items.push({
       id: itemId(source.name, title, url),
@@ -116,8 +124,12 @@ function extractMiraeItems(html: string, source: ResearchSource): MarketResearch
 
 function extractNaverFinanceItems(html: string, source: ResearchSource): MarketResearchItem[] {
   const items: MarketResearchItem[] = [];
+  // 네이버 금융 리포트 목록의 한 행:
+  //  <td ...><a href="..._read.naver?...">제목</a><img NEW></td><td>증권사</td>
+  //  <td class="file"><a href="...pdf">…</a></td><td class="date">날짜</td>
+  // 제목 </a> 뒤에 NEW 아이콘 <img>가 붙을 수 있어 [\s\S]*?</td> 로 흡수한다.
   const rowPattern =
-    /<tr>\s*<td[^>]*>\s*<a href="([^"]+)">([\s\S]*?)<\/a>\s*<\/td>\s*<td>([\s\S]*?)<\/td>\s*<td class="file">([\s\S]*?)<\/td>\s*<td class="date"[^>]*>([\s\S]*?)<\/td>/gi;
+    /<td[^>]*>\s*<a href="([^"]*_read\.naver[^"]*)">([\s\S]*?)<\/a>[\s\S]*?<\/td>\s*<td>([\s\S]*?)<\/td>\s*<td class="file">([\s\S]*?)<\/td>\s*<td class="date"[^>]*>([\s\S]*?)<\/td>/gi;
 
   for (const match of Array.from(html.matchAll(rowPattern))) {
     const title = cleanText(match[2]);
