@@ -17,7 +17,7 @@ type Report = {
   date: string | null;
   summary: string;
   signals: Signal[];
-  model: string;
+  model?: string;
 };
 type Aggregated = { signal: string; score: number; absStrength: number };
 
@@ -75,11 +75,15 @@ export default function ResearchPage() {
     load();
   }, [load]);
 
-  const refresh = async () => {
+  const refresh = async (force = false) => {
     setRefreshing(true);
-    setMsg("최신 리포트 분석 중… (새 리포트만 분석하므로 보통 빠릅니다)");
+    setMsg(
+      force
+        ? "전체 리포트 재분석 중… (본문까지 분석, 다소 걸립니다)"
+        : "최신 리포트 분석 중… (새 리포트만 분석하므로 보통 빠릅니다)",
+    );
     try {
-      const res = await fetch("/api/research/ingest", { cache: "no-store" });
+      const res = await fetch(`/api/research/ingest${force ? "?force=1" : ""}`, { cache: "no-store" });
       const data = await res.json();
       if (data.ok) {
         setMsg(
@@ -110,9 +114,14 @@ export default function ResearchPage() {
             {lastAt && ` · 마지막 분석 ${formatDateTime(lastAt)}`}
           </p>
         </div>
-        <button className="btn-gold text-sm" onClick={refresh} disabled={refreshing}>
-          {refreshing ? "분석 중…" : "🔄 리서치 갱신"}
-        </button>
+        <div className="flex gap-2">
+          <button className="btn-outline text-sm" onClick={() => refresh(true)} disabled={refreshing}>
+            전체 재분석
+          </button>
+          <button className="btn-gold text-sm" onClick={() => refresh(false)} disabled={refreshing}>
+            {refreshing ? "분석 중…" : "🔄 리서치 갱신"}
+          </button>
+        </div>
       </div>
 
       {msg && (
@@ -153,7 +162,7 @@ export default function ResearchPage() {
           title="아직 분석된 리포트가 없어요"
           hint="오른쪽 위 '리서치 갱신'을 누르면 최신 리포트를 가져와 분석합니다."
           action={
-            <button className="btn-gold text-sm" onClick={refresh} disabled={refreshing}>
+            <button className="btn-gold text-sm" onClick={() => refresh(false)} disabled={refreshing}>
               🔄 리서치 갱신
             </button>
           }
@@ -183,8 +192,12 @@ export default function ResearchPage() {
                 )}
               </div>
               <p className="mt-1 text-sm font-semibold text-fg">{r.title}</p>
-              {r.summary && (
+              {r.summary ? (
                 <p className="mt-1 text-xs leading-relaxed text-fg-muted">{r.summary}</p>
+              ) : (
+                <p className="mt-1 text-[11px] text-fg-muted">
+                  본문 미분석 (키워드 추정) — 한도 리셋 후 [전체 재분석] 시 요약 생성
+                </p>
               )}
               {r.signals.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">

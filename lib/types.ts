@@ -108,6 +108,16 @@ export interface AssetAllocation {
   assetClass: string; // 예: "국내주식","해외주식","채권","대체투자","현금"
   weight: number; // 비중 %, 합계 100
 }
+// 포트폴리오가 참고한 리포트 스냅샷 (확정 시점에 박제)
+export interface ReferencedReport {
+  title: string;
+  source: string;
+  url: string;
+  date: string | null;
+  summary: string;
+  signals: { signal: string; direction: -1 | 0 | 1; strength: number; evidence: string }[];
+}
+
 export interface Portfolio {
   id: string;
   label: string; // "안정형" | "균형형" | "성장형"
@@ -117,6 +127,7 @@ export interface Portfolio {
   taxNote: string; // 세금 고려 메모 (더미)
   rationale: string; // 산출 근거 설명 (더미)
   editedByPb: boolean; // PB가 수정했는지
+  referencedReports?: ReferencedReport[]; // 확정 시점 참고 리포트(영향 큰 상위 N개)
 }
 
 // ── 스트레스 테스트 (데이터 기반 요인 민감도 모델) ──

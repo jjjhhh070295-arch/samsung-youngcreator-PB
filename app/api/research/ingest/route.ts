@@ -44,15 +44,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "분석할 리포트가 없습니다." }, { status: 200 });
     }
 
-    // 2) 캐시 조회 → 새 것만 분석
-    const cached = await getCachedAnalyses(items.map((it) => it.id));
+    // ?force=1 이면 캐시 무시하고 전체 재분석 (quota 리셋 후 사용)
+    const force = new URL(req.url).searchParams.get("force") === "1";
+
+    // 2) 캐시 조회 → 새 것만 분석 (force면 전부)
+    const cached = force
+      ? new Map<string, ReportAnalysis>()
+      : await getCachedAnalyses(items.map((it) => it.id));
     const newItems = items.filter((it) => !cached.has(it.id));
 
     const freshAnalyses = await mapWithConcurrency(newItems, 2, async (it) => {
       const content = await fetchReportContent(it.url); // 본문(PDF/HTML) 추출
       const a = await analyzeReport(it, content);
-      // 더미(분석 실패)는 캐시하지 않음 → 다음 갱신 때 다시 Gemini로 재시도해 점점 채워짐
-      if (a.model !== "dummy") await putCachedAnalysis(it, a);
+      // 결과 캐시(더미 포함 — 구조가 비지 않게). 실제 분석은 ?force=1 로 재분석.
+      await putCachedAnalysis(it, a);
       return a;
     });
     const freshById = new Map(freshAnalyses.map((a) => [a.id, a]));

@@ -64,13 +64,48 @@ export default function IPSResultTabs({
   // 포트폴리오 패널에서 현재 선택·편집 중인 포트폴리오 (최종 확정 저장용)
   const [chosen, setChosen] = useState<Portfolio | null>(null);
 
+  const [finalizing, setFinalizing] = useState(false);
+
+  // 확정 시점의 분석 리포트 중 "영향 큰 상위 N개"를 가져와 포트폴리오에 박제
+  async function pickTopReports(n = 5): Promise<Portfolio["referencedReports"]> {
+    try {
+      const res = await fetch("/api/research/signals", { cache: "no-store" });
+      const data = await res.json();
+      const reports: any[] = data?.reports ?? [];
+      return reports
+        .map((r) => ({
+          report: r,
+          power: (r.signals ?? []).reduce((s: number, x: any) => s + (x.strength || 0), 0),
+        }))
+        .filter((x) => x.power > 0)
+        .sort((a, b) => b.power - a.power)
+        .slice(0, n)
+        .map((x) => ({
+          title: x.report.title,
+          source: x.report.source,
+          url: x.report.url,
+          date: x.report.date ?? null,
+          summary: x.report.summary ?? "",
+          signals: x.report.signals ?? [],
+        }));
+    } catch {
+      return [];
+    }
+  }
+
   const finalizePortfolio = async () => {
     if (!chosen) {
       alert("포트폴리오를 선택·편집한 뒤 확정하세요.");
       return;
     }
     if (!confirm(`'${chosen.label}'(으)로 최종 확정할까요?`)) return;
-    await onFinalizePortfolio(chosen); // 저장+단계확정 원자적 처리
+    setFinalizing(true);
+    try {
+      const referencedReports = await pickTopReports(5);
+      await onFinalizePortfolio({ ...chosen, referencedReports }); // 참고 리포트 박제 + 저장
+    } finally {
+      setFinalizing(false);
+    }
   };
 
   const unconfirmPortfolio = async () => {
@@ -314,26 +349,31 @@ export default function IPSResultTabs({
             }`}
           >
             {done.portfolio ? (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-500 text-navy-900">
-                    ✓
-                  </span>
-                  <div>
-                    <p className="text-base font-bold text-fg">
-                      최종 확정: {client.portfolios[0]?.label ?? "포트폴리오"}
-                    </p>
-                    <p className="text-xs text-fg-muted">
-                      {client.portfolios[0]
-                        ? `예상수익 ${client.portfolios[0].expectedReturn}% · 변동성 ${client.portfolios[0].expectedRisk}% · `
-                        : ""}
-                      고객 화면·스트레스 테스트에 이 포트폴리오가 사용됩니다.
-                    </p>
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-500 text-navy-900">
+                      ✓
+                    </span>
+                    <div>
+                      <p className="text-base font-bold text-fg">
+                        최종 확정: {client.portfolios[0]?.label ?? "포트폴리오"}
+                      </p>
+                      <p className="text-xs text-fg-muted">
+                        {client.portfolios[0]
+                          ? `예상수익 ${client.portfolios[0].expectedReturn}% · 변동성 ${client.portfolios[0].expectedRisk}% · `
+                          : ""}
+                        고객 화면·스트레스 테스트에 이 포트폴리오가 사용됩니다.
+                      </p>
+                    </div>
                   </div>
+                  <button className="btn-outline text-sm" onClick={unconfirmPortfolio}>
+                    확정 해제 (재편집)
+                  </button>
                 </div>
-                <button className="btn-outline text-sm" onClick={unconfirmPortfolio}>
-                  확정 해제 (재편집)
-                </button>
+
+                {/* 참고 리포트 (확정 시점 박제) */}
+                <ReferencedReports reports={client.portfolios[0]?.referencedReports} />
               </div>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -352,8 +392,12 @@ export default function IPSResultTabs({
                     </p>
                   </div>
                 </div>
-                <button className="btn-gold px-5 py-2.5 text-sm" onClick={finalizePortfolio}>
-                  포트폴리오 최종 확정 →
+                <button
+                  className="btn-gold px-5 py-2.5 text-sm"
+                  onClick={finalizePortfolio}
+                  disabled={finalizing}
+                >
+                  {finalizing ? "확정 중…" : "포트폴리오 최종 확정 →"}
                 </button>
               </div>
             )}
@@ -414,6 +458,85 @@ export default function IPSResultTabs({
             </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+const SIGNAL_KO_REF: Record<string, string> = {
+  equity: "주식",
+  bond: "채권",
+  liquidity: "현금성",
+  dollar: "달러",
+  gold: "금/원자재",
+  risk: "위험관리",
+  tax: "세금",
+};
+
+// 확정 포트폴리오가 참고한 리포트 — 접었다 펼치는 즉석 열람
+function ReferencedReports({ reports }: { reports?: Portfolio["referencedReports"] }) {
+  const [open, setOpen] = useState(false);
+  if (!reports || reports.length === 0) {
+    return (
+      <p className="mt-3 border-t border-border pt-3 text-[11px] text-fg-muted">
+        참고 리포트 기록 없음 (확정 시점에 분석된 리서치가 없었습니다)
+      </p>
+    );
+  }
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <button
+        className="text-sm font-medium text-gold-700 hover:underline dark:text-gold-300"
+        onClick={() => setOpen((v) => !v)}
+      >
+        📑 참고 리포트 {reports.length}건 {open ? "▲" : "▼"}
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-2">
+          {reports.map((r, i) => (
+            <li key={i} className="rounded-lg border border-border bg-surface p-3">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <span className="text-xs font-medium text-fg">
+                  {r.source}
+                  {r.date && <span className="ml-2 text-fg-muted">{r.date}</span>}
+                </span>
+                {r.url && (
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-fg-muted underline hover:text-fg"
+                  >
+                    원문 ↗
+                  </a>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs font-semibold text-fg">{r.title}</p>
+              {r.summary && <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">{r.summary}</p>}
+              {r.signals?.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {r.signals.map((s, j) => (
+                    <span
+                      key={j}
+                      className={`badge text-[10px] ${
+                        s.direction > 0
+                          ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                          : s.direction < 0
+                            ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                            : "badge-muted"
+                      }`}
+                      title={s.evidence}
+                    >
+                      {SIGNAL_KO_REF[s.signal] ?? s.signal}
+                      {s.direction > 0 ? "▲" : s.direction < 0 ? "▼" : "·"}
+                      {s.strength}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

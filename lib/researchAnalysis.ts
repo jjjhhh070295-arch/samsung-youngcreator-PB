@@ -133,9 +133,9 @@ async function callGemini(userText: string): Promise<string> {
       const json: any = await res.json();
       return json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     }
-    // 과부하/혼잡 → 잠시 후 재시도 (지수 백오프)
-    if ((res.status === 503 || res.status === 429) && attempt < maxTries) {
-      await sleep(800 * attempt + Math.random() * 400);
+    // 503(일시적 과부하)만 재시도. 429(quota 소진)는 곧 안 풀리므로 즉시 실패(멈춤 방지).
+    if (res.status === 503 && attempt < maxTries) {
+      await sleep(600 * attempt + Math.random() * 300);
       continue;
     }
     throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 160)}`);
@@ -190,7 +190,8 @@ function dummyAnalysis(item: MarketResearchItem): ReportAnalysis {
       strength: 2,
       evidence: "(키워드 기반 추정 — LLM 미적용)",
     }));
-  return { id: item.id, summary: item.title, signals, model: "dummy" };
+  // 더미는 요약을 비워둠(제목 반복 방지). 본문 요약은 LLM 분석(재분석) 후 채워짐.
+  return { id: item.id, summary: "", signals, model: "dummy" };
 }
 
 // 여러 리포트 분석을 신호별 점수로 집계 (방향×강도, 최신 가중)
