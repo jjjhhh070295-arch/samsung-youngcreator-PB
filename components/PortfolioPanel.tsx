@@ -197,7 +197,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     .map((item) => `${item.source} '${item.title}'`)
     .join(', ');
   const selectedMarketRationale = `${currentPortfolioName}은 ${selectedProfile.emphasis} ${selectedSourceSummary || '최신 리서치'}를 근거로 ${selectedProfile.allocationLogic}`;
-  const selectedExecutiveConclusion = `${currentPortfolioName} 조율안입니다. ${selectedProfile.clientMessage} 최신 리서치와 고객 현금흐름을 같이 반영해 현재 비중을 산출했습니다.`;
+  const selectedExecutiveConclusion = `${currentPortfolioName} 조율안입니다. ${selectedProfile.clientMessage} 최신 리서치, 고객 현금흐름${model.preferenceProfile.hasRequirement ? ', 고유 요구조건' : ''}을 같이 반영해 현재 비중을 산출했습니다.`;
 
   useEffect(() => {
     if (!onSelectionChange) return;
@@ -225,6 +225,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         selectedMarketRationale,
         model.rationale.client,
         model.rationale.cashflow,
+        model.rationale.preference,
         model.rationale.unique,
       ].join(' '),
       editedByPb: true,
@@ -315,6 +316,53 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
         </div>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-500"></span>
+            <h3 className="text-base font-bold text-slate-800">고객 고유 요구조건 반영</h3>
+          </div>
+          <span className="text-[11px] font-medium text-slate-400">
+            고유상황 입력값 자동 해석
+          </span>
+        </div>
+
+        {model.preferenceProfile.hasRequirement ? (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 lg:col-span-2">
+              <p className="text-xs font-bold text-rose-800">감지된 요구조건</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {model.preferenceProfile.tags.map((tag) => (
+                  <span key={tag} className="rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-rose-900">{model.rationale.preference}</p>
+              {model.preferenceProfile.rawText && (
+                <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+                  입력 문장: {model.preferenceProfile.rawText}
+                </p>
+              )}
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
+              <p className="text-xs font-bold text-amber-800">PB 확인 필요</p>
+              <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-amber-900">
+                {model.preferenceProfile.warnings.length > 0 ? (
+                  model.preferenceProfile.warnings.map((warning) => <li key={warning}>• {warning}</li>)
+                ) : (
+                  <li>• 요구조건과 적합성·현금화 일정의 충돌 여부를 상담에서 최종 확인하세요.</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-xs leading-relaxed text-slate-500">
+            고유상황에 “해외주식 단일종목만”, “기대수익률 20% 이상”처럼 명시된 요구가 있으면 이 영역에 자동 표시되고 포트폴리오 비중과 근거에 반영됩니다.
+          </p>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -460,6 +508,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <ReasonBlock title="고객 정보 반영" body={model.rationale.client} />
           <ReasonBlock title="현금흐름 반영" body={model.rationale.cashflow} />
           <ReasonBlock title="세금 납부일 반영" body={model.rationale.tax} />
+          <ReasonBlock title="요구조건 반영" body={model.rationale.preference} />
           <ReasonBlock title="고유상황 반영" body={model.rationale.unique} wide />
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <p className="text-xs font-bold text-slate-700">현금흐름 핵심 숫자</p>
@@ -472,6 +521,99 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <span className="text-right font-bold text-rose-600">{formatWonShort(model.cashflowSummary.taxOutflow)}</span>
               <span className="text-slate-500">단기 분리 제안액</span>
               <span className="text-right font-bold text-indigo-600">{liquidityAmount.toLocaleString()}만원</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-green-600"></span>
+            <h3 className="text-base font-bold text-slate-800">KODEX 연금저축·IRP 절세 포트폴리오</h3>
+          </div>
+          <span className="text-[11px] font-medium text-slate-400">
+            삼성자산운용 KODEX 상품 기준
+          </span>
+        </div>
+
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+          <div className="rounded-xl border border-green-100 bg-green-50 p-3">
+            <p className="text-[11px] font-semibold text-green-700">세액공제 배분</p>
+            <p className="mt-1 text-sm font-black text-green-900">
+              연금저축 {formatWonShort(model.taxSavingPlan.pensionSavingContribution)} + IRP {formatWonShort(model.taxSavingPlan.irpContribution)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="text-[11px] font-semibold text-slate-500">세액공제 대상</p>
+            <p className="mt-1 text-sm font-black text-slate-800">{formatWonShort(model.taxSavingPlan.taxCreditBase)}</p>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="text-[11px] font-semibold text-slate-500">가정 공제율</p>
+            <p className="mt-1 text-sm font-black text-slate-800">{Math.round(model.taxSavingPlan.creditRate * 1000) / 10}%</p>
+          </div>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+            <p className="text-[11px] font-semibold text-blue-700">예상 환급액</p>
+            <p className="mt-1 text-sm font-black text-blue-900">{formatWonShort(model.taxSavingPlan.estimatedCredit)}</p>
+          </div>
+        </div>
+
+        <p className="mb-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+          {model.taxSavingPlan.clientFit}
+        </p>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {model.taxSavingPlan.portfolios.map((portfolio) => (
+            <div key={portfolio.accountType} className="rounded-2xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">{portfolio.accountType} KODEX 추천안</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-500">{portfolio.note}</p>
+                </div>
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">
+                  위험자산 {portfolio.riskAssetWeight}%
+                </span>
+              </div>
+              <div className="space-y-2">
+                {portfolio.holdings.map((holding) => (
+                  <a
+                    key={`${portfolio.accountType}-${holding.product.name}`}
+                    href={holding.product.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2 text-xs hover:border-green-200 hover:bg-green-50/40"
+                  >
+                    <span>
+                      <b className="block text-slate-700">{holding.product.name}</b>
+                      <span className="text-[11px] text-slate-400">
+                        {holding.product.role} · {holding.product.retirementLimit}
+                      </span>
+                    </span>
+                    <span className="font-black text-green-700">{holding.weight}%</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-green-100 bg-green-50 p-3">
+            <p className="text-xs font-bold text-green-800">절세 솔루션</p>
+            <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-green-900">
+              {model.taxSavingPlan.solutions.map((solution) => (
+                <li key={solution}>• {solution}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="text-xs font-bold text-slate-700">참고 출처</p>
+            <div className="mt-2 flex flex-col gap-1.5 text-xs">
+              {model.taxSavingPlan.sources.map((source) => (
+                <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                  {source.label}
+                </a>
+              ))}
             </div>
           </div>
         </div>

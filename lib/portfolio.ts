@@ -279,6 +279,55 @@ export interface PortfolioRationale {
   cashflow: string;
   tax: string;
   unique: string;
+  preference: string;
+}
+
+export interface ClientPreferenceProfile {
+  rawText: string;
+  hasRequirement: boolean;
+  overseasSingleStock: boolean;
+  stockOnly: boolean;
+  rejectsOtherProducts: boolean;
+  highRiskAccepted: boolean;
+  targetReturn?: number;
+  tags: string[];
+  warnings: string[];
+  actions: string[];
+}
+
+export interface KodexProduct {
+  name: string;
+  role: string;
+  assetClass: "해외주식" | "국내주식" | "테마주식" | "채권/현금성" | "혼합자산";
+  retirementLimit: "개인연금" | "IRP 70%" | "IRP 100%";
+  url: string;
+}
+
+export interface PensionHolding {
+  product: KodexProduct;
+  weight: number;
+}
+
+export interface PensionPortfolio {
+  accountType: "연금저축펀드" | "IRP";
+  riskAssetWeight: number;
+  safeAssetWeight: number;
+  holdings: PensionHolding[];
+  note: string;
+}
+
+export interface TaxSavingPlan {
+  enabled: boolean;
+  clientFit: string;
+  annualContributionLimit: number;
+  taxCreditBase: number;
+  pensionSavingContribution: number;
+  irpContribution: number;
+  creditRate: number;
+  estimatedCredit: number;
+  portfolios: PensionPortfolio[];
+  solutions: string[];
+  sources: { label: string; url: string }[];
 }
 
 export interface PortfolioViewModel {
@@ -290,6 +339,8 @@ export interface PortfolioViewModel {
   researchItems: MarketResearchItem[];
   researchSignals: ReturnType<typeof scoreResearchSignals>;
   rationale: PortfolioRationale;
+  preferenceProfile: ClientPreferenceProfile;
+  taxSavingPlan: TaxSavingPlan;
   executiveConclusion: string;
   recommendedId: PortfolioOption["id"];
   liquidityReserveManwon: number;
@@ -314,6 +365,160 @@ const formatKRWShortLocal = (won: number) => {
   }
   return `${sign}${abs.toLocaleString()}원`;
 };
+
+const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
+const KODEX_PRODUCTS: Record<
+  | "sp500"
+  | "sp500Active"
+  | "aiSemi"
+  | "india"
+  | "msciKorea"
+  | "shortBond"
+  | "kofr"
+  | "aggregateBond"
+  | "financialBond",
+  KodexProduct
+> = {
+  sp500: {
+    name: "KODEX 미국S&P500",
+    role: "미국 대표지수 장기 핵심",
+    assetClass: "해외주식",
+    retirementLimit: "IRP 70%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETFE4",
+  },
+  sp500Active: {
+    name: "KODEX 미국S&P500액티브",
+    role: "S&P500 상위 종목 압축 성장",
+    assetClass: "해외주식",
+    retirementLimit: "IRP 70%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETFQ9",
+  },
+  aiSemi: {
+    name: "KODEX AI반도체핵심장비",
+    role: "AI·반도체 테마 알파",
+    assetClass: "테마주식",
+    retirementLimit: "IRP 70%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETFL7",
+  },
+  india: {
+    name: "KODEX 인도Nifty50",
+    role: "신흥국 성장 분산",
+    assetClass: "해외주식",
+    retirementLimit: "IRP 70%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETFJ1",
+  },
+  msciKorea: {
+    name: "KODEX MSCI KOREA TR",
+    role: "국내 대표주식 TR 분산",
+    assetClass: "국내주식",
+    retirementLimit: "IRP 70%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETF93",
+  },
+  shortBond: {
+    name: "KODEX 단기채권",
+    role: "IRP 안전자산·현금성 완충",
+    assetClass: "채권/현금성",
+    retirementLimit: "IRP 100%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETF35",
+  },
+  kofr: {
+    name: "KODEX KOFR금리 액티브(합성)",
+    role: "금리형 대기자금",
+    assetClass: "채권/현금성",
+    retirementLimit: "IRP 70%",
+    url: "https://m.samsungfund.com/etf/product/view.do?id=2ETFG6",
+  },
+  aggregateBond: {
+    name: "KODEX 종합채권(AA-이상) 액티브",
+    role: "우량채권 중장기 코어",
+    assetClass: "채권/현금성",
+    retirementLimit: "IRP 100%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETF88",
+  },
+  financialBond: {
+    name: "KODEX 26-12 금융채(AA-이상)액티브",
+    role: "만기매칭형 우량 금융채",
+    assetClass: "채권/현금성",
+    retirementLimit: "IRP 100%",
+    url: "https://www.samsungfund.com/etf/product/view.do?id=2ETFS7",
+  },
+};
+
+function parseTargetReturn(text: string): number | undefined {
+  const patterns = [
+    /(?:기대수익률|목표수익률|수익률)[^\d]{0,12}(\d{1,2}(?:\.\d+)?)\s*%?\s*(?:이상|넘|초과)?/i,
+    /(\d{1,2}(?:\.\d+)?)\s*%\s*(?:이상|넘|초과|나왔)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (match) {
+      const value = Number(match[1]);
+      if (!Number.isNaN(value) && value > 0) return value;
+    }
+  }
+  return undefined;
+}
+
+function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
+  const rawText = [
+    client.ips.unique.value,
+    client.ips.unique.inferenceHint,
+    client.ips.unique.notes,
+    client.ips.return.value,
+    client.ips.return.notes,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const lower = rawText.toLowerCase();
+  const overseasSingleStock = /해외주식|미국주식|미장|나스닥|해외 주식|foreign|us stock/.test(lower)
+    && /단일종목|개별종목|개별주|여러개|종목 여러|single/.test(lower);
+  const stockOnly = overseasSingleStock || /주식형|주식만|주식 100|전부 주식|올인|몰빵|equity only/.test(lower);
+  const rejectsOtherProducts = /다른 상품.*싫|다른상품.*싫|채권.*싫|els.*싫|펀드.*싫|현금.*싫|싫어요|제외|빼고|only/.test(lower);
+  const highRiskAccepted = /아무리 위험|위험해도|고위험|공격적|공격형|적극|손실.*감수|리스크.*감수/.test(lower);
+  const targetReturn = parseTargetReturn(rawText);
+
+  const tags: string[] = [];
+  const warnings: string[] = [];
+  const actions: string[] = [];
+
+  if (overseasSingleStock) {
+    tags.push("해외 단일종목 선호");
+    actions.push("주식/ETF 버킷을 해외 단일종목 집중 바스켓으로 해석했습니다.");
+  }
+  if (stockOnly) {
+    tags.push("주식형 자산 중심");
+    actions.push("채권·ELS·원자재 비중을 낮추고 성장자산 비중을 우선 배정했습니다.");
+  }
+  if (rejectsOtherProducts) {
+    tags.push("비주식 상품 배제 요청");
+    warnings.push("비주식 상품 배제 요청은 세금 납부일·현금화 일정과 충돌할 수 있어 PB 확인이 필요합니다.");
+  }
+  if (highRiskAccepted) {
+    tags.push("고위험 감수");
+    warnings.push("고위험 감수 의사는 손실 가능성 확인 절차와 투자자성향 적합성 검토가 필요합니다.");
+  }
+  if (targetReturn) {
+    tags.push(`목표 기대수익률 ${targetReturn}%`);
+    actions.push(`목표 기대수익률 ${targetReturn}%를 별도 요구조건으로 기록했습니다.`);
+    if (targetReturn >= 15) {
+      warnings.push(`${targetReturn}% 목표수익률은 일반 분산 포트폴리오보다 매우 공격적인 가정이므로 보장 수익률이 아니라 요구조건으로만 표시합니다.`);
+    }
+  }
+
+  return {
+    rawText,
+    hasRequirement: tags.length > 0,
+    overseasSingleStock,
+    stockOnly,
+    rejectsOtherProducts,
+    highRiskAccepted,
+    targetReturn,
+    tags,
+    warnings,
+    actions,
+  };
+}
 
 function normalizeOptionWeights(weights: PortfolioOption["weights"]): PortfolioOption["weights"] {
   const clamped: PortfolioOption["weights"] = {
@@ -365,6 +570,7 @@ function adjustedWeights(
   client: Client,
   cashflow: CashflowPortfolioSummary,
   signals: ReturnType<typeof scoreResearchSignals>,
+  preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
 ): PortfolioOption["weights"] {
   const riskScore = factorScore(client, "risk");
@@ -406,11 +612,47 @@ function adjustedWeights(
     weights.mmf += 4;
   }
 
+  if (preference.stockOnly) {
+    weights.etf += preference.overseasSingleStock ? 35 : 22;
+    weights.bond -= 20;
+    weights.els -= 10;
+    weights.gold -= 4;
+    weights.raw = 0;
+    weights.dollar = preference.overseasSingleStock ? Math.max(weights.dollar, 4) : weights.dollar;
+  }
+
+  if (preference.rejectsOtherProducts) {
+    weights.bond = 0;
+    weights.els = 0;
+    weights.gold = 0;
+    weights.raw = 0;
+    weights.dollar = 0;
+    weights.mmf = 0;
+    weights.etf = 100 - weights.dollar - weights.mmf;
+  }
+
+  if (preference.targetReturn && preference.targetReturn >= 15) {
+    weights.etf += Math.min(18, Math.round(preference.targetReturn - 10));
+    weights.bond -= 8;
+    weights.mmf -= preference.rejectsOtherProducts ? 0 : 4;
+  }
+
   return normalizeOptionWeights(weights);
 }
 
-function productsFor(weights: PortfolioOption["weights"], signals: ReturnType<typeof scoreResearchSignals>) {
+function productsFor(
+  weights: PortfolioOption["weights"],
+  signals: ReturnType<typeof scoreResearchSignals>,
+  preference: ClientPreferenceProfile,
+) {
   const products: string[] = [];
+  if (preference.overseasSingleStock) {
+    products.push("해외 단일종목 8~12개 집중 바스켓");
+    products.push("미국 대형 성장주·AI 반도체 개별주");
+  }
+  if (preference.targetReturn && preference.targetReturn >= 15) {
+    products.push(`목표수익률 ${preference.targetReturn}% 요구 반영형`);
+  }
   if (weights.etf >= 25) {
     products.push(topSignalScore(signals, "equity") >= 5 ? "AI·반도체 핵심 ETF 바스켓" : "글로벌 대표지수 ETF");
   }
@@ -422,15 +664,37 @@ function productsFor(weights: PortfolioOption["weights"], signals: ReturnType<ty
   return products.slice(0, 4);
 }
 
+function preferenceAdjustedMetrics(
+  weights: PortfolioOption["weights"],
+  preference: ClientPreferenceProfile,
+  riskTilt: -1 | 0 | 1,
+) {
+  const metrics = calculateSimulatedMetrics(weights);
+  if (preference.overseasSingleStock) {
+    metrics.expectedReturn = Math.max(metrics.expectedReturn, 15 + riskTilt * 2);
+    metrics.volatility = Math.max(metrics.volatility, 22 + riskTilt * 4);
+    metrics.mdd = Math.min(metrics.mdd, -26 - riskTilt * 5);
+    metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
+  }
+  if (preference.targetReturn && preference.targetReturn >= 15) {
+    metrics.expectedReturn = Math.max(metrics.expectedReturn, Math.min(24, preference.targetReturn));
+    metrics.volatility = Math.max(metrics.volatility, Math.min(36, preference.targetReturn * 1.35));
+    metrics.mdd = Math.min(metrics.mdd, -Math.min(42, preference.targetReturn * 1.6));
+    metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
+  }
+  return metrics;
+}
+
 function optionFromBase(
   base: PortfolioOption,
   client: Client,
   cashflow: CashflowPortfolioSummary,
   signals: ReturnType<typeof scoreResearchSignals>,
+  preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
 ): PortfolioOption {
-  const weights = adjustedWeights(base.weights, client, cashflow, signals, riskTilt);
-  const metrics = calculateSimulatedMetrics(weights);
+  const weights = adjustedWeights(base.weights, client, cashflow, signals, preference, riskTilt);
+  const metrics = preferenceAdjustedMetrics(weights, preference, riskTilt);
   return {
     ...base,
     weights,
@@ -438,7 +702,7 @@ function optionFromBase(
     volatility: metrics.volatility,
     mdd: metrics.mdd,
     taxReturn: metrics.taxReturn,
-    mainProducts: productsFor(weights, signals),
+    mainProducts: productsFor(weights, signals, preference),
   };
 }
 
@@ -547,6 +811,132 @@ function suitabilityFrom(client: Client, cashflow: CashflowPortfolioSummary, sig
   ];
 }
 
+function holding(product: KodexProduct, weight: number): PensionHolding {
+  return { product, weight };
+}
+
+function riskAssetWeight(holdings: PensionHolding[]) {
+  return holdings
+    .filter((item) => item.product.assetClass !== "채권/현금성")
+    .reduce((sum, item) => sum + item.weight, 0);
+}
+
+function pensionPortfolio(
+  accountType: PensionPortfolio["accountType"],
+  holdings: PensionHolding[],
+  note: string,
+): PensionPortfolio {
+  const riskWeight = riskAssetWeight(holdings);
+  return {
+    accountType,
+    riskAssetWeight: riskWeight,
+    safeAssetWeight: 100 - riskWeight,
+    holdings,
+    note,
+  };
+}
+
+function buildKodexTaxSavingPlan(
+  client: Client,
+  cashflow: CashflowPortfolioSummary,
+  preference: ClientPreferenceProfile,
+): TaxSavingPlan {
+  const riskScore = factorScore(client, "risk");
+  const aggressive = riskScore >= 4 || preference.stockOnly || (preference.targetReturn ?? 0) >= 15;
+  const stable = riskScore <= 2 || cashflow.taxOutflow > client.assetSize * 0.03;
+  const taxText = `${factorValue(client, "tax", "")} ${client.ips.tax.notes} ${preference.rawText}`;
+  const lowerIncomeHint = /5500|5,500|4500|4,500|저소득|총급여.*이하|종합소득.*이하/.test(taxText);
+  const creditRate = lowerIncomeHint ? 0.165 : 0.132;
+
+  const pensionHoldings = aggressive
+    ? [
+        holding(KODEX_PRODUCTS.sp500, 45),
+        holding(KODEX_PRODUCTS.sp500Active, 20),
+        holding(KODEX_PRODUCTS.aiSemi, 15),
+        holding(KODEX_PRODUCTS.india, 10),
+        holding(KODEX_PRODUCTS.shortBond, 10),
+      ]
+    : stable
+      ? [
+          holding(KODEX_PRODUCTS.aggregateBond, 35),
+          holding(KODEX_PRODUCTS.shortBond, 25),
+          holding(KODEX_PRODUCTS.sp500, 25),
+          holding(KODEX_PRODUCTS.msciKorea, 10),
+          holding(KODEX_PRODUCTS.kofr, 5),
+        ]
+      : [
+          holding(KODEX_PRODUCTS.sp500, 35),
+          holding(KODEX_PRODUCTS.msciKorea, 15),
+          holding(KODEX_PRODUCTS.aiSemi, 10),
+          holding(KODEX_PRODUCTS.aggregateBond, 25),
+          holding(KODEX_PRODUCTS.shortBond, 15),
+        ];
+
+  const irpHoldings = aggressive
+    ? [
+        holding(KODEX_PRODUCTS.sp500, 40),
+        holding(KODEX_PRODUCTS.sp500Active, 20),
+        holding(KODEX_PRODUCTS.aiSemi, 10),
+        holding(KODEX_PRODUCTS.shortBond, 15),
+        holding(KODEX_PRODUCTS.aggregateBond, 15),
+      ]
+    : stable
+      ? [
+          holding(KODEX_PRODUCTS.aggregateBond, 40),
+          holding(KODEX_PRODUCTS.shortBond, 25),
+          holding(KODEX_PRODUCTS.financialBond, 10),
+          holding(KODEX_PRODUCTS.sp500, 20),
+          holding(KODEX_PRODUCTS.msciKorea, 5),
+        ]
+      : [
+          holding(KODEX_PRODUCTS.sp500, 35),
+          holding(KODEX_PRODUCTS.msciKorea, 15),
+          holding(KODEX_PRODUCTS.aiSemi, 10),
+          holding(KODEX_PRODUCTS.aggregateBond, 25),
+          holding(KODEX_PRODUCTS.shortBond, 15),
+        ];
+
+  const clientFit = client.clientType === "corporate"
+    ? "법인 자체 세액공제 계좌가 아니라 대표·임원 개인 소득 기준의 연금저축/IRP 검토안입니다."
+    : "개인 고객의 연금저축/IRP 세액공제와 과세이연을 함께 활용하는 검토안입니다.";
+  const taxCreditBase = 9_000_000;
+
+  return {
+    enabled: true,
+    clientFit,
+    annualContributionLimit: 18_000_000,
+    taxCreditBase,
+    pensionSavingContribution: 6_000_000,
+    irpContribution: 3_000_000,
+    creditRate,
+    estimatedCredit: Math.round(taxCreditBase * creditRate),
+    portfolios: [
+      pensionPortfolio(
+        "연금저축펀드",
+        pensionHoldings,
+        aggressive
+          ? "연금저축은 위험자산 한도 제한이 없어 성장형 KODEX 비중을 높인 안입니다."
+          : "연금저축에서 주식형과 채권형 KODEX를 함께 담아 장기 과세이연 효과를 노립니다.",
+      ),
+      pensionPortfolio(
+        "IRP",
+        irpHoldings,
+        "IRP는 위험자산 70% 한도를 넘지 않도록 채권/현금성 KODEX를 30% 이상 배치했습니다.",
+      ),
+    ],
+    solutions: [
+      "세액공제 한도 활용 순서는 연금저축 600만원을 먼저 채우고 IRP 300만원을 추가해 합산 900만원을 맞추는 방식으로 제안합니다.",
+      `예상 세액공제액은 소득구간 확인 전 기본 ${Math.round(creditRate * 1000) / 10}% 가정 기준 ${formatKRWShortLocal(Math.round(taxCreditBase * creditRate))}입니다.`,
+      "연금저축+IRP 합산 납입한도는 연 1,800만원이지만 세액공제 대상은 기본 합산 900만원으로 분리해 안내합니다.",
+      "ISA 만기자금이 있으면 만기 후 60일 이내 연금계좌 이전 시 이체금액의 10%, 최대 300만원 추가 세액공제 가능성을 별도 확인합니다.",
+    ],
+    sources: [
+      { label: "KODEX 연금투자 가능 ETF 목록", url: "https://www.samsungfund.com/etf/product/pensionlist.do" },
+      { label: "삼성 KODEX 연금 세액공제 가이드", url: "https://m.samsungfund.com/upload/kodex/newsroom/20260427141121713.pdf" },
+    ],
+  };
+}
+
 export function buildPortfolioViewModel(
   client: Client,
   researchItems: MarketResearchItem[] = FALLBACK_MARKET_RESEARCH,
@@ -554,13 +944,16 @@ export function buildPortfolioViewModel(
   const items = researchItems.length > 0 ? researchItems.slice(0, 20) : FALLBACK_MARKET_RESEARCH;
   const researchSignals = scoreResearchSignals(items);
   const cashflowSummary = summarizeCashflows(client.cashFlows);
+  const preferenceProfile = parsePreferenceProfile(client);
   const portfolioOptions = [
-    optionFromBase(mockPortfolioOptions[0], client, cashflowSummary, researchSignals, -1),
-    optionFromBase(mockPortfolioOptions[1], client, cashflowSummary, researchSignals, 0),
-    optionFromBase(mockPortfolioOptions[2], client, cashflowSummary, researchSignals, 1),
+    optionFromBase(mockPortfolioOptions[0], client, cashflowSummary, researchSignals, preferenceProfile, -1),
+    optionFromBase(mockPortfolioOptions[1], client, cashflowSummary, researchSignals, preferenceProfile, 0),
+    optionFromBase(mockPortfolioOptions[2], client, cashflowSummary, researchSignals, preferenceProfile, 1),
   ];
   const recommendedId =
-    factorScore(client, "risk") >= 4 && cashflowSummary.taxOutflow < client.assetSize * 0.03
+    preferenceProfile.stockOnly || (preferenceProfile.targetReturn ?? 0) >= 15
+      ? "growth"
+      : factorScore(client, "risk") >= 4 && cashflowSummary.taxOutflow < client.assetSize * 0.03
       ? "growth"
       : cashflowSummary.taxOutflow > client.assetSize * 0.05 || factorScore(client, "liquidity") >= 4
         ? "stable"
@@ -569,6 +962,10 @@ export function buildPortfolioViewModel(
   const highSignal = researchSignals[0];
   const clientSummary = clientSummaryFrom(client, cashflowSummary);
   const macroReport = macroReportFrom(items, researchSignals);
+  const taxSavingPlan = buildKodexTaxSavingPlan(client, cashflowSummary, preferenceProfile);
+  const preferenceText = preferenceProfile.hasRequirement
+    ? `${preferenceProfile.tags.join(", ")} 요구를 감지했습니다. ${preferenceProfile.actions.join(" ")} ${preferenceProfile.warnings.join(" ")}`
+    : "고유상황에 별도 상품 제약이나 목표수익률 요구가 없어 표준 고액자산가 유동성 버킷을 적용했습니다.";
 
   const rationale: PortfolioRationale = {
     market: `${topResearch} 등 최신 ${items.length}개 리포트/기사에서 ${highSignal.label} 신호가 가장 강하게 관찰되어 해당 자산군을 기준 비중보다 보강했습니다.`,
@@ -578,6 +975,7 @@ export function buildPortfolioViewModel(
       ? `법인세·증여세·양도세 등 세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 우선 커버하도록 MMF/RP와 채권 비중을 높였습니다.`
       : "명시된 대형 세금 납부 이벤트가 없어 시장 신호와 위험성향 중심으로 배분했습니다.",
     unique: factorValue(client, "unique", "고유상황 입력값이 없어 표준 고액자산가 유동성 버킷을 적용했습니다."),
+    preference: preferenceText,
   };
 
   const recommendedOption = portfolioOptions.find((option) => option.id === recommendedId) ?? portfolioOptions[1];
@@ -595,7 +993,9 @@ export function buildPortfolioViewModel(
     researchItems: items,
     researchSignals,
     rationale,
-    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 최신 리서치의 ${highSignal.label} 신호를 반영하되, ${client.name} 고객의 세금·현금화 일정을 우선 커버하도록 MMF/RP와 채권 버킷을 별도 확보했습니다.`,
+    preferenceProfile,
+    taxSavingPlan,
+    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 최신 리서치의 ${highSignal.label} 신호와 ${preferenceProfile.hasRequirement ? "고객 고유 요구조건" : "고객 7요인"}을 함께 반영하되, ${client.name} 고객의 세금·현금화 일정을 우선 점검했습니다.`,
     recommendedId,
     liquidityReserveManwon,
   };
