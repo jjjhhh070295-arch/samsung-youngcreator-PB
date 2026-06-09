@@ -76,6 +76,13 @@ export default function Sidebar({ open, onClose }: Props) {
           >
             🏠 홈 (대시보드)
           </Link>
+          <Link
+            href="/research"
+            onClick={onClose}
+            className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-fg hover:bg-surface-2"
+          >
+            📊 리서치 분석
+          </Link>
 
           {/* 외부 링크 */}
           <p className="px-2 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
