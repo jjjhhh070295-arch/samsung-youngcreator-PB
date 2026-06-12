@@ -733,8 +733,8 @@ export function preferenceAdjustedMetrics(
       preference.highRiskAccepted ? [42, 68, 95][tier] : [24, 38, 56][tier],
       Math.min(180, metrics.expectedReturn * (preference.highRiskAccepted ? 0.75 : 0.5)),
     );
-    const tierMdd = preference.highRiskAccepted ? [-70, -105, -140][tier] : [-35, -60, -90][tier];
-    const volatilityMddCap = preference.highRiskAccepted ? [80, 115, 150][tier] : [45, 70, 100][tier];
+    const tierMdd = preference.highRiskAccepted ? [-55, -75, -95][tier] : [-35, -55, -80][tier];
+    const volatilityMddCap = preference.highRiskAccepted ? [60, 82, 95][tier] : [42, 62, 85][tier];
     metrics.mdd = Math.min(
       metrics.mdd,
       tierMdd,
@@ -744,7 +744,7 @@ export function preferenceAdjustedMetrics(
   }
   metrics.expectedReturn = Math.round(metrics.expectedReturn * 10) / 10;
   metrics.volatility = Math.round(metrics.volatility * 10) / 10;
-  metrics.mdd = Math.round(metrics.mdd * 10) / 10;
+  metrics.mdd = Math.round(Math.max(metrics.mdd, -95) * 10) / 10;
   metrics.taxReturn = Math.round(metrics.taxReturn * 10) / 10;
   return metrics;
 }
