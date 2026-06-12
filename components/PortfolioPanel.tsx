@@ -13,7 +13,7 @@ import {
 import type { Client, Portfolio } from '@/lib/types';
 import {
   buildPortfolioViewModel,
-  calculateSimulatedMetrics,
+  preferenceAdjustedMetrics,
   type PortfolioOption,
 } from '@/lib/portfolio';
 import {
@@ -181,7 +181,11 @@ function roundPercent(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-function buildBenchmarkChartData(points: BenchmarkApiPoint[], weights: PortfolioOption['weights']): BenchmarkChartPoint[] {
+function buildBenchmarkChartData(
+  points: BenchmarkApiPoint[],
+  weights: PortfolioOption['weights'],
+  preference?: { benchmarkOutperformance: boolean; benchmarkTargets: string[]; highRiskAccepted: boolean },
+): BenchmarkChartPoint[] {
   const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
   const total = sourcePoints.length;
   const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
@@ -196,7 +200,7 @@ function buildBenchmarkChartData(points: BenchmarkApiPoint[], weights: Portfolio
     const cash = fixedIncomeProxy(index, total, 3.0);
     const equityBlend = sp500 * 0.65 + kospi200 * 0.35;
     const els = equityBlend * 0.35 + bond * 0.45 + cash * 0.2;
-    const portfolio =
+    const basePortfolio =
       (weights.etf / totalWeight) * equityBlend +
       (weights.bond / totalWeight) * bond +
       (weights.els / totalWeight) * els +
@@ -204,6 +208,20 @@ function buildBenchmarkChartData(points: BenchmarkApiPoint[], weights: Portfolio
       (weights.gold / totalWeight) * gold +
       (weights.dollar / totalWeight) * dollar +
       (weights.raw / totalWeight) * commodity;
+    let portfolio = basePortfolio;
+
+    if (preference?.benchmarkOutperformance) {
+      const targetBenchmarks = [
+        preference.benchmarkTargets.includes('S&P500') ? sp500 : null,
+        preference.benchmarkTargets.includes('KOSPI200') ? kospi200 : null,
+        preference.benchmarkTargets.includes('벤치마크') || preference.benchmarkTargets.length === 0
+          ? Math.max(sp500, kospi200)
+          : null,
+      ].filter((value): value is number => value != null);
+      const benchmarkToBeat = targetBenchmarks.length > 0 ? Math.max(...targetBenchmarks) : Math.max(sp500, kospi200);
+      const alphaTarget = (preference.highRiskAccepted ? 4.5 : 2.5) * (total <= 1 ? 0 : index / (total - 1));
+      portfolio = Math.max(basePortfolio, benchmarkToBeat + alphaTarget);
+    }
 
     return {
       ...point,
@@ -535,10 +553,14 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     return next;
   }, [elsIncluded, weights]);
 
-  const metrics = useMemo(() => calculateSimulatedMetrics(adjustedWeights), [adjustedWeights]);
+  const selectedRiskTilt: -1 | 0 | 1 = selectedBase === 'stable' ? -1 : selectedBase === 'growth' ? 1 : 0;
+  const metrics = useMemo(
+    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt),
+    [adjustedWeights, model.preferenceProfile, selectedRiskTilt],
+  );
   const benchmarkChartData = useMemo(
-    () => buildBenchmarkChartData(benchmarkPoints, adjustedWeights),
-    [adjustedWeights, benchmarkPoints],
+    () => buildBenchmarkChartData(benchmarkPoints, adjustedWeights, model.preferenceProfile),
+    [adjustedWeights, benchmarkPoints, model.preferenceProfile],
   );
   const totalWeight = Object.values(adjustedWeights).reduce((a, b) => a + b, 0);
   const weightDiff = 100 - totalWeight;
@@ -725,6 +747,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 ))}
               </div>
               <p className="mt-3 text-xs leading-relaxed text-rose-900">{model.rationale.preference}</p>
+              {model.preferenceProfile.benchmarkOutperformance && (
+                <div className="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2">
+                  <p className="text-[11px] font-bold text-rose-800">벤치마크 초과수익 반영 방식</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                    {model.preferenceProfile.benchmarkTargets.length > 0
+                      ? `${model.preferenceProfile.benchmarkTargets.join("·")} 대비 초과수익`
+                      : "벤치마크 대비 초과수익"}을 목표 요구조건으로 감지했습니다. 추천안은 수익추구형을 우선 선택하고,
+                    ETF·테마주·해외주식 버킷을 늘리는 대신 채권·MMF 방어 비중은 낮춰 알파 추구형으로 조정합니다.
+                  </p>
+                </div>
+              )}
               {model.preferenceProfile.rawText && (
                 <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-500">
                   입력 문장: {model.preferenceProfile.rawText}

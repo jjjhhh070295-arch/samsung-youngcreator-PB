@@ -290,6 +290,8 @@ export interface ClientPreferenceProfile {
   rejectsOtherProducts: boolean;
   highRiskAccepted: boolean;
   targetReturn?: number;
+  benchmarkOutperformance: boolean;
+  benchmarkTargets: string[];
   tags: string[];
   warnings: string[];
   actions: string[];
@@ -477,6 +479,14 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
   const rejectsOtherProducts = /다른 상품.*싫|다른상품.*싫|채권.*싫|els.*싫|펀드.*싫|현금.*싫|싫어요|제외|빼고|only/.test(lower);
   const highRiskAccepted = /아무리 위험|위험해도|고위험|공격적|공격형|적극|손실.*감수|리스크.*감수/.test(lower);
   const targetReturn = parseTargetReturn(rawText);
+  const benchmarkOutperformance = /(?:벤치마크|benchmark|kospi|코스피|kospi200|코스피200|s&p|snp|sp500|s&p500|에스앤피).{0,24}(?:보다|대비|이상|초과|상회|넘|높|이기|웃돌)|(?:보다|대비).{0,16}(?:수익률|성과).{0,12}(?:높|초과|상회|이기)|(?:알파|초과수익)/i.test(lower);
+  const specificBenchmarkTargets = [
+    /kospi|코스피|kospi200|코스피200/i.test(lower) ? "KOSPI200" : "",
+    /s&p|snp|sp500|s&p500|에스앤피/i.test(lower) ? "S&P500" : "",
+  ].filter(Boolean);
+  const benchmarkTargets = specificBenchmarkTargets.length > 0
+    ? specificBenchmarkTargets
+    : [/벤치마크|benchmark|알파|초과수익/i.test(lower) ? "벤치마크" : ""].filter(Boolean);
 
   const tags: string[] = [];
   const warnings: string[] = [];
@@ -505,6 +515,12 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
       warnings.push(`${targetReturn}% 목표수익률은 일반 분산 포트폴리오보다 매우 공격적인 가정이므로 보장 수익률이 아니라 요구조건으로만 표시합니다.`);
     }
   }
+  if (benchmarkOutperformance) {
+    const targets = benchmarkTargets.length > 0 ? benchmarkTargets : ["벤치마크"];
+    tags.push(`${targets.join("·")} 초과수익 요구`);
+    actions.push(`${targets.join("·")} 대비 높은 수익률 요구를 감지해 성장 ETF·테마주·해외주식 비중을 우선 보강했습니다.`);
+    warnings.push("벤치마크 초과수익은 보장할 수 없으며, 시장 하락 시 손실폭과 추적오차가 커질 수 있어 고위험 적합성 확인이 필요합니다.");
+  }
 
   return {
     rawText,
@@ -514,6 +530,8 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
     rejectsOtherProducts,
     highRiskAccepted,
     targetReturn,
+    benchmarkOutperformance,
+    benchmarkTargets,
     tags,
     warnings,
     actions,
@@ -637,6 +655,16 @@ function adjustedWeights(
     weights.mmf -= preference.rejectsOtherProducts ? 0 : 4;
   }
 
+  if (preference.benchmarkOutperformance) {
+    weights.etf += preference.highRiskAccepted ? 28 + riskTilt * 5 : 18 + riskTilt * 4;
+    weights.bond -= preference.highRiskAccepted ? 15 : 10;
+    weights.mmf -= preference.highRiskAccepted ? 8 : 4;
+    weights.els -= 3;
+    weights.gold -= 2;
+    weights.raw += preference.benchmarkTargets.includes("KOSPI200") ? 2 : 0;
+    weights.dollar += preference.benchmarkTargets.includes("S&P500") ? 3 : 0;
+  }
+
   return normalizeOptionWeights(weights);
 }
 
@@ -653,6 +681,11 @@ function productsFor(
   if (preference.targetReturn && preference.targetReturn >= 15) {
     products.push(`목표수익률 ${preference.targetReturn}% 요구 반영형`);
   }
+  if (preference.benchmarkOutperformance) {
+    if (preference.benchmarkTargets.includes("KOSPI200")) products.push("KOSPI200 초과수익 추구 국내 성장주·반도체 바스켓");
+    if (preference.benchmarkTargets.includes("S&P500")) products.push("S&P500 초과수익 추구 미국 성장주·테크 바스켓");
+    if (preference.benchmarkTargets.length === 0) products.push("벤치마크 알파 추구 ETF 바스켓");
+  }
   if (weights.etf >= 25) {
     products.push(topSignalScore(signals, "equity") >= 5 ? "AI·반도체 핵심 ETF 바스켓" : "글로벌 대표지수 ETF");
   }
@@ -664,7 +697,7 @@ function productsFor(
   return products.slice(0, 4);
 }
 
-function preferenceAdjustedMetrics(
+export function preferenceAdjustedMetrics(
   weights: PortfolioOption["weights"],
   preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
@@ -680,6 +713,14 @@ function preferenceAdjustedMetrics(
     metrics.expectedReturn = Math.max(metrics.expectedReturn, Math.min(24, preference.targetReturn));
     metrics.volatility = Math.max(metrics.volatility, Math.min(36, preference.targetReturn * 1.35));
     metrics.mdd = Math.min(metrics.mdd, -Math.min(42, preference.targetReturn * 1.6));
+    metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
+  }
+  if (preference.benchmarkOutperformance) {
+    const targetCount = Math.max(1, preference.benchmarkTargets.length);
+    const alphaReturn = 12 + targetCount * 2 + (preference.highRiskAccepted ? 4 : 0) + riskTilt * 2;
+    metrics.expectedReturn = Math.max(metrics.expectedReturn, Math.min(26, alphaReturn));
+    metrics.volatility = Math.max(metrics.volatility, preference.highRiskAccepted ? 24 + targetCount * 4 : 18 + targetCount * 3);
+    metrics.mdd = Math.min(metrics.mdd, preference.highRiskAccepted ? -32 - targetCount * 4 : -24 - targetCount * 3);
     metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
   }
   return metrics;
@@ -842,7 +883,7 @@ function buildKodexTaxSavingPlan(
   preference: ClientPreferenceProfile,
 ): TaxSavingPlan {
   const riskScore = factorScore(client, "risk");
-  const aggressive = riskScore >= 4 || preference.stockOnly || (preference.targetReturn ?? 0) >= 15;
+  const aggressive = riskScore >= 4 || preference.stockOnly || preference.benchmarkOutperformance || (preference.targetReturn ?? 0) >= 15;
   const stable = riskScore <= 2 || cashflow.taxOutflow > client.assetSize * 0.03;
   const taxText = `${factorValue(client, "tax", "")} ${client.ips.tax.notes} ${preference.rawText}`;
   const lowerIncomeHint = /5500|5,500|4500|4,500|저소득|총급여.*이하|종합소득.*이하/.test(taxText);
@@ -951,7 +992,7 @@ export function buildPortfolioViewModel(
     optionFromBase(mockPortfolioOptions[2], client, cashflowSummary, researchSignals, preferenceProfile, 1),
   ];
   const recommendedId =
-    preferenceProfile.stockOnly || (preferenceProfile.targetReturn ?? 0) >= 15
+    preferenceProfile.stockOnly || preferenceProfile.benchmarkOutperformance || (preferenceProfile.targetReturn ?? 0) >= 15
       ? "growth"
       : factorScore(client, "risk") >= 4 && cashflowSummary.taxOutflow < client.assetSize * 0.03
       ? "growth"
@@ -964,7 +1005,7 @@ export function buildPortfolioViewModel(
   const macroReport = macroReportFrom(items, researchSignals);
   const taxSavingPlan = buildKodexTaxSavingPlan(client, cashflowSummary, preferenceProfile);
   const preferenceText = preferenceProfile.hasRequirement
-    ? `${preferenceProfile.tags.join(", ")} 요구를 감지했습니다. ${preferenceProfile.actions.join(" ")} ${preferenceProfile.warnings.join(" ")}`
+    ? `${preferenceProfile.tags.join(", ")}를 고객 요구조건으로 감지했습니다. ${preferenceProfile.actions.join(" ")} ${preferenceProfile.warnings.join(" ")}`
     : "고유상황에 별도 상품 제약이나 목표수익률 요구가 없어 표준 고액자산가 유동성 버킷을 적용했습니다.";
 
   const rationale: PortfolioRationale = {
