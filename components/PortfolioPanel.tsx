@@ -36,6 +36,27 @@ type WeightKey = keyof PortfolioOption['weights'];
 type AnalyzedReportSignal = { signal: string; direction: -1 | 0 | 1; strength: number; evidence: string };
 type AnalyzedReport = { summary: string; signals: AnalyzedReportSignal[]; model?: string };
 
+interface BenchmarkApiPoint {
+  date: string;
+  label: string;
+  sp500?: number | null;
+  kospi200?: number | null;
+  bond?: number | null;
+  gold?: number | null;
+  dollar?: number | null;
+  commodity?: number | null;
+}
+
+interface BenchmarkApiResponse {
+  ok?: boolean;
+  source?: string;
+  fallback?: boolean;
+  updatedAt?: string;
+  points?: BenchmarkApiPoint[];
+}
+
+type BenchmarkChartPoint = BenchmarkApiPoint & { portfolio: number };
+
 const RESEARCH_SIGNAL_KO: Record<string, string> = {
   equity: '주식',
   bond: '채권',
@@ -92,10 +113,21 @@ const barColors: Record<WeightKey, string> = {
   raw: 'bg-stone-500',
 };
 
-const BENCHMARK_ASSUMPTIONS = {
-  sp500: 9.2,
-  kospi200: 6.4,
-};
+const FALLBACK_BENCHMARK_POINTS: BenchmarkApiPoint[] = [
+  { date: 'fallback-0', label: '12M 전', sp500: 0, kospi200: 0, bond: 0, gold: 0, dollar: 0, commodity: 0 },
+  { date: 'fallback-1', label: '11M 전', sp500: -1.1, kospi200: -2.0, bond: 0.2, gold: 1.6, dollar: -0.4, commodity: -1.7 },
+  { date: 'fallback-2', label: '10M 전', sp500: -0.2, kospi200: 1.8, bond: -0.3, gold: 0.7, dollar: 0.8, commodity: -0.6 },
+  { date: 'fallback-3', label: '9M 전', sp500: 2.1, kospi200: 0.9, bond: 0.1, gold: 3.9, dollar: 1.1, commodity: 1.5 },
+  { date: 'fallback-4', label: '8M 전', sp500: 3.7, kospi200: 4.4, bond: 0.8, gold: 5.4, dollar: -0.2, commodity: 0.2 },
+  { date: 'fallback-5', label: '7M 전', sp500: 1.9, kospi200: 3.1, bond: 0.4, gold: 4.8, dollar: 1.7, commodity: 2.8 },
+  { date: 'fallback-6', label: '6M 전', sp500: 5.2, kospi200: 6.8, bond: 1.1, gold: 7.2, dollar: 1.2, commodity: 1.9 },
+  { date: 'fallback-7', label: '5M 전', sp500: 4.3, kospi200: 5.3, bond: 1.0, gold: 6.1, dollar: 2.4, commodity: 4.1 },
+  { date: 'fallback-8', label: '4M 전', sp500: 7.1, kospi200: 9.5, bond: 1.7, gold: 10.4, dollar: 1.6, commodity: 3.2 },
+  { date: 'fallback-9', label: '3M 전', sp500: 6.4, kospi200: 7.7, bond: 1.4, gold: 9.2, dollar: 2.9, commodity: 5.6 },
+  { date: 'fallback-10', label: '2M 전', sp500: 8.8, kospi200: 11.1, bond: 2.0, gold: 12.7, dollar: 2.0, commodity: 4.3 },
+  { date: 'fallback-11', label: '1M 전', sp500: 7.6, kospi200: 9.4, bond: 1.8, gold: 10.8, dollar: 1.3, commodity: 3.8 },
+  { date: 'fallback-12', label: '현재', sp500: 9.2, kospi200: 6.4, bond: 2.2, gold: 11.6, dollar: 1.8, commodity: 4.9 },
+];
 
 const optionProfiles: Record<
   PortfolioOption['id'],
@@ -136,17 +168,50 @@ const formatWonShort = (won: number) => {
 
 const formatPercent = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 
-function cumulativeReturn(annualReturn: number, month: number) {
-  return (Math.pow(1 + annualReturn / 100, month / 12) - 1) * 100;
+function finiteNumber(value: number | null | undefined, fallback = 0) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
-function buildBenchmarkChartData(portfolioReturn: number) {
-  return Array.from({ length: 13 }, (_, month) => ({
-    month: month === 0 ? '현재' : `${month}M`,
-    portfolio: Math.round(cumulativeReturn(portfolioReturn, month) * 10) / 10,
-    sp500: Math.round(cumulativeReturn(BENCHMARK_ASSUMPTIONS.sp500, month) * 10) / 10,
-    kospi200: Math.round(cumulativeReturn(BENCHMARK_ASSUMPTIONS.kospi200, month) * 10) / 10,
-  }));
+function fixedIncomeProxy(index: number, total: number, annualReturn: number) {
+  if (total <= 1) return 0;
+  return (Math.pow(1 + annualReturn / 100, index / (total - 1)) - 1) * 100;
+}
+
+function roundPercent(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+function buildBenchmarkChartData(points: BenchmarkApiPoint[], weights: PortfolioOption['weights']): BenchmarkChartPoint[] {
+  const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
+  const total = sourcePoints.length;
+  const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
+
+  return sourcePoints.map((point, index) => {
+    const sp500 = finiteNumber(point.sp500);
+    const kospi200 = finiteNumber(point.kospi200, sp500);
+    const bond = finiteNumber(point.bond, fixedIncomeProxy(index, total, 3.2));
+    const gold = finiteNumber(point.gold, fixedIncomeProxy(index, total, 4.0));
+    const dollar = finiteNumber(point.dollar, fixedIncomeProxy(index, total, 2.3));
+    const commodity = finiteNumber(point.commodity, fixedIncomeProxy(index, total, 3.6));
+    const cash = fixedIncomeProxy(index, total, 3.0);
+    const equityBlend = sp500 * 0.65 + kospi200 * 0.35;
+    const els = equityBlend * 0.35 + bond * 0.45 + cash * 0.2;
+    const portfolio =
+      (weights.etf / totalWeight) * equityBlend +
+      (weights.bond / totalWeight) * bond +
+      (weights.els / totalWeight) * els +
+      (weights.mmf / totalWeight) * cash +
+      (weights.gold / totalWeight) * gold +
+      (weights.dollar / totalWeight) * dollar +
+      (weights.raw / totalWeight) * commodity;
+
+    return {
+      ...point,
+      sp500: roundPercent(sp500),
+      kospi200: roundPercent(kospi200),
+      portfolio: roundPercent(portfolio),
+    };
+  });
 }
 
 function getStatusClass(status: string) {
@@ -164,13 +229,30 @@ function getStatusClass(status: string) {
 
 function BenchmarkReturnChart({
   data,
-  portfolioReturn,
+  source,
+  fallback,
+  updatedAt,
 }: {
-  data: ReturnType<typeof buildBenchmarkChartData>;
-  portfolioReturn: number;
+  data: BenchmarkChartPoint[];
+  source: string;
+  fallback: boolean;
+  updatedAt?: string;
 }) {
-  const alphaSp500 = portfolioReturn - BENCHMARK_ASSUMPTIONS.sp500;
-  const alphaKospi200 = portfolioReturn - BENCHMARK_ASSUMPTIONS.kospi200;
+  const lastPoint = data[data.length - 1];
+  const portfolioReturn = finiteNumber(lastPoint?.portfolio);
+  const sp500Return = finiteNumber(lastPoint?.sp500);
+  const kospi200Return = finiteNumber(lastPoint?.kospi200);
+  const alphaSp500 = portfolioReturn - sp500Return;
+  const alphaKospi200 = portfolioReturn - kospi200Return;
+  const sourceLabel = fallback ? '일부 지연 · 백업 데이터 포함' : '실시간/지연 지수 데이터 · 최근 1년 월말 종가';
+  const updatedLabel = updatedAt
+    ? new Date(updatedAt).toLocaleString('ko-KR', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
@@ -179,11 +261,16 @@ function BenchmarkReturnChart({
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-slate-900 dark:bg-slate-100"></span>
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-              벤치마크 대비 예상 수익률
+              실시간 지수 기반 수익률 추정
             </h3>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            현재 조율한 포트폴리오의 1년 예상 누적수익률을 S&P500, KOSPI200과 비교합니다.
+            S&P500·KOSPI200은 최근 1년 종가 경로, 포트폴리오는 현재 비중을 지수와 채권·금·달러·원자재 프록시에 대입한 누적수익률 추정치입니다.
+          </p>
+          <p className="mt-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+            {sourceLabel}
+            {updatedLabel ? ` · 조회 ${updatedLabel}` : ''}
+            {source ? ` · ${source}` : ''}
           </p>
         </div>
 
@@ -212,7 +299,7 @@ function BenchmarkReturnChart({
           <LineChart data={data} margin={{ top: 12, right: 18, bottom: 8, left: -8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.16} />
             <XAxis
-              dataKey="month"
+              dataKey="label"
               tick={{ fill: 'currentColor', fontSize: 11 }}
               axisLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }}
               tickLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }}
@@ -225,7 +312,7 @@ function BenchmarkReturnChart({
             />
             <Tooltip
               formatter={(value: unknown, name: unknown) => [
-                `${Number(value).toFixed(1)}%`,
+                value == null ? '-' : `${Number(value).toFixed(1)}%`,
                 String(name),
               ]}
               labelFormatter={(label) => `${label} 누적수익률`}
@@ -238,31 +325,34 @@ function BenchmarkReturnChart({
               }}
             />
             <Line
-              type="monotone"
+              type="linear"
               dataKey="portfolio"
               name="포트폴리오"
               stroke="rgb(var(--fg))"
               strokeWidth={3}
               dot={{ r: 3, strokeWidth: 1 }}
               activeDot={{ r: 6 }}
+              connectNulls
             />
             <Line
-              type="monotone"
+              type="linear"
               dataKey="sp500"
               name="S&P500"
               stroke="#ef4444"
               strokeWidth={2.5}
               dot={{ r: 3, strokeWidth: 1 }}
               activeDot={{ r: 5 }}
+              connectNulls
             />
             <Line
-              type="monotone"
+              type="linear"
               dataKey="kospi200"
               name="KOSPI200"
               stroke="#2563eb"
               strokeWidth={2.5}
               dot={{ r: 3, strokeWidth: 1 }}
               activeDot={{ r: 5 }}
+              connectNulls
             />
           </LineChart>
         </ResponsiveContainer>
@@ -275,11 +365,11 @@ function BenchmarkReturnChart({
         </span>
         <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 font-semibold text-red-700 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-300">
           <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-          S&P500 {BENCHMARK_ASSUMPTIONS.sp500.toFixed(1)}%
+          S&P500 {sp500Return.toFixed(1)}%
         </span>
         <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-semibold text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-300">
           <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
-          KOSPI200 {BENCHMARK_ASSUMPTIONS.kospi200.toFixed(1)}%
+          KOSPI200 {kospi200Return.toFixed(1)}%
         </span>
       </div>
     </section>
@@ -317,6 +407,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [liquidityAmount, setLiquidityAmount] = useState(5000);
   const [isSuitabilityOpen, setIsSuitabilityOpen] = useState(false);
   const [hasManualEdit, setHasManualEdit] = useState(false);
+  const [benchmarkPoints, setBenchmarkPoints] = useState<BenchmarkApiPoint[]>(FALLBACK_BENCHMARK_POINTS);
+  const [benchmarkSource, setBenchmarkSource] = useState('로컬 예비 데이터');
+  const [benchmarkFallback, setBenchmarkFallback] = useState(true);
+  const [benchmarkUpdatedAt, setBenchmarkUpdatedAt] = useState<string | undefined>();
 
   const model = useMemo(() => buildPortfolioViewModel(client, researchItems), [client, researchItems]);
   const portfolioOptions = model.portfolioOptions;
@@ -344,6 +438,41 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     }
 
     loadResearch();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBenchmarks() {
+      try {
+        const res = await fetch('/api/benchmarks', { cache: 'no-store' });
+        if (!res.ok) throw new Error('benchmark api failed');
+        const data = (await res.json()) as BenchmarkApiResponse;
+        if (cancelled) return;
+
+        if (Array.isArray(data.points) && data.points.length > 0) {
+          setBenchmarkPoints(data.points);
+          setBenchmarkSource(data.source ?? 'Naver Finance market API');
+          setBenchmarkFallback(Boolean(data.fallback));
+          setBenchmarkUpdatedAt(data.updatedAt);
+          return;
+        }
+
+        throw new Error('benchmark points missing');
+      } catch {
+        if (!cancelled) {
+          setBenchmarkPoints(FALLBACK_BENCHMARK_POINTS);
+          setBenchmarkSource('로컬 예비 데이터');
+          setBenchmarkFallback(true);
+          setBenchmarkUpdatedAt(undefined);
+        }
+      }
+    }
+
+    loadBenchmarks();
     return () => {
       cancelled = true;
     };
@@ -408,8 +537,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
   const metrics = useMemo(() => calculateSimulatedMetrics(adjustedWeights), [adjustedWeights]);
   const benchmarkChartData = useMemo(
-    () => buildBenchmarkChartData(metrics.expectedReturn),
-    [metrics.expectedReturn],
+    () => buildBenchmarkChartData(benchmarkPoints, adjustedWeights),
+    [adjustedWeights, benchmarkPoints],
   );
   const totalWeight = Object.values(adjustedWeights).reduce((a, b) => a + b, 0);
   const weightDiff = 100 - totalWeight;
@@ -566,7 +695,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </div>
 
-      <BenchmarkReturnChart data={benchmarkChartData} portfolioReturn={metrics.expectedReturn} />
+      <BenchmarkReturnChart
+        data={benchmarkChartData}
+        source={benchmarkSource}
+        fallback={benchmarkFallback}
+        updatedAt={benchmarkUpdatedAt}
+      />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
