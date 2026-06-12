@@ -701,6 +701,7 @@ export function preferenceAdjustedMetrics(
   weights: PortfolioOption["weights"],
   preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
+  benchmarkTargetReturn?: number,
 ) {
   const metrics = calculateSimulatedMetrics(weights);
   if (preference.overseasSingleStock) {
@@ -717,12 +718,34 @@ export function preferenceAdjustedMetrics(
   }
   if (preference.benchmarkOutperformance) {
     const targetCount = Math.max(1, preference.benchmarkTargets.length);
-    const alphaReturn = 12 + targetCount * 2 + (preference.highRiskAccepted ? 4 : 0) + riskTilt * 2;
-    metrics.expectedReturn = Math.max(metrics.expectedReturn, Math.min(26, alphaReturn));
-    metrics.volatility = Math.max(metrics.volatility, preference.highRiskAccepted ? 24 + targetCount * 4 : 18 + targetCount * 3);
-    metrics.mdd = Math.min(metrics.mdd, preference.highRiskAccepted ? -32 - targetCount * 4 : -24 - targetCount * 3);
+    const tier = riskTilt + 1;
+    const internalAggressiveReturn = preference.highRiskAccepted
+      ? [35, 55, 80][tier]
+      : [18, 28, 42][tier];
+    const benchmarkFloor =
+      typeof benchmarkTargetReturn === "number" && Number.isFinite(benchmarkTargetReturn)
+        ? benchmarkTargetReturn + [4, 8, 14][tier]
+        : 0;
+    const targetReturn = Math.min(300, Math.max(internalAggressiveReturn, benchmarkFloor));
+    metrics.expectedReturn = Math.max(metrics.expectedReturn, targetReturn);
+    metrics.volatility = Math.max(
+      metrics.volatility,
+      preference.highRiskAccepted ? [42, 68, 95][tier] : [24, 38, 56][tier],
+      Math.min(180, metrics.expectedReturn * (preference.highRiskAccepted ? 0.75 : 0.5)),
+    );
+    const tierMdd = preference.highRiskAccepted ? [-70, -105, -140][tier] : [-35, -60, -90][tier];
+    const volatilityMddCap = preference.highRiskAccepted ? [80, 115, 150][tier] : [45, 70, 100][tier];
+    metrics.mdd = Math.min(
+      metrics.mdd,
+      tierMdd,
+      -Math.min(volatilityMddCap, metrics.volatility * (preference.highRiskAccepted ? 0.9 : 0.75)),
+    );
     metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
   }
+  metrics.expectedReturn = Math.round(metrics.expectedReturn * 10) / 10;
+  metrics.volatility = Math.round(metrics.volatility * 10) / 10;
+  metrics.mdd = Math.round(metrics.mdd * 10) / 10;
+  metrics.taxReturn = Math.round(metrics.taxReturn * 10) / 10;
   return metrics;
 }
 

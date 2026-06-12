@@ -185,6 +185,7 @@ function buildBenchmarkChartData(
   points: BenchmarkApiPoint[],
   weights: PortfolioOption['weights'],
   preference?: { benchmarkOutperformance: boolean; benchmarkTargets: string[]; highRiskAccepted: boolean },
+  riskTilt: -1 | 0 | 1 = 0,
 ): BenchmarkChartPoint[] {
   const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
   const total = sourcePoints.length;
@@ -219,7 +220,8 @@ function buildBenchmarkChartData(
           : null,
       ].filter((value): value is number => value != null);
       const benchmarkToBeat = targetBenchmarks.length > 0 ? Math.max(...targetBenchmarks) : Math.max(sp500, kospi200);
-      const alphaTarget = (preference.highRiskAccepted ? 4.5 : 2.5) * (total <= 1 ? 0 : index / (total - 1));
+      const finalAlpha = preference.highRiskAccepted ? [4, 8, 14][riskTilt + 1] : [2, 4, 7][riskTilt + 1];
+      const alphaTarget = finalAlpha * (total <= 1 ? 0 : index / (total - 1));
       portfolio = Math.max(basePortfolio, benchmarkToBeat + alphaTarget);
     }
 
@@ -243,6 +245,29 @@ function getStatusClass(status: string) {
     default:
       return 'bg-gray-50 text-gray-700 border-gray-200';
   }
+}
+
+function riskTiltForOption(id: PortfolioOption['id']): -1 | 0 | 1 {
+  if (id === 'stable') return -1;
+  if (id === 'growth') return 1;
+  return 0;
+}
+
+function latestBenchmarkTarget(
+  points: BenchmarkApiPoint[],
+  preference: { benchmarkOutperformance: boolean; benchmarkTargets: string[] },
+) {
+  if (!preference.benchmarkOutperformance) return undefined;
+  const lastPoint = points[points.length - 1];
+  if (!lastPoint) return undefined;
+  const targets = [
+    preference.benchmarkTargets.includes('S&P500') ? finiteNumber(lastPoint.sp500, Number.NaN) : Number.NaN,
+    preference.benchmarkTargets.includes('KOSPI200') ? finiteNumber(lastPoint.kospi200, Number.NaN) : Number.NaN,
+  ].filter(Number.isFinite);
+  const values = targets.length > 0
+    ? targets
+    : [finiteNumber(lastPoint.sp500, Number.NaN), finiteNumber(lastPoint.kospi200, Number.NaN)].filter(Number.isFinite);
+  return values.length > 0 ? Math.max(...values) : undefined;
 }
 
 function BenchmarkReturnChart({
@@ -553,18 +578,41 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     return next;
   }, [elsIncluded, weights]);
 
-  const selectedRiskTilt: -1 | 0 | 1 = selectedBase === 'stable' ? -1 : selectedBase === 'growth' ? 1 : 0;
+  const benchmarkTargetReturn = useMemo(
+    () => latestBenchmarkTarget(benchmarkPoints, model.preferenceProfile),
+    [benchmarkPoints, model.preferenceProfile],
+  );
+  const displayPortfolioOptions = useMemo(
+    () =>
+      portfolioOptions.map((option) => {
+        const optionMetrics = preferenceAdjustedMetrics(
+          option.weights,
+          model.preferenceProfile,
+          riskTiltForOption(option.id),
+          benchmarkTargetReturn,
+        );
+        return {
+          ...option,
+          expectedReturn: optionMetrics.expectedReturn,
+          volatility: optionMetrics.volatility,
+          mdd: optionMetrics.mdd,
+          taxReturn: optionMetrics.taxReturn,
+        };
+      }),
+    [benchmarkTargetReturn, model.preferenceProfile, portfolioOptions],
+  );
+  const selectedRiskTilt = riskTiltForOption(selectedBase);
   const metrics = useMemo(
-    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt),
-    [adjustedWeights, model.preferenceProfile, selectedRiskTilt],
+    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn),
+    [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedRiskTilt],
   );
   const benchmarkChartData = useMemo(
-    () => buildBenchmarkChartData(benchmarkPoints, adjustedWeights, model.preferenceProfile),
-    [adjustedWeights, benchmarkPoints, model.preferenceProfile],
+    () => buildBenchmarkChartData(benchmarkPoints, adjustedWeights, model.preferenceProfile, selectedRiskTilt),
+    [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedRiskTilt],
   );
   const totalWeight = Object.values(adjustedWeights).reduce((a, b) => a + b, 0);
   const weightDiff = 100 - totalWeight;
-  const selectedOption = portfolioOptions.find((option) => option.id === selectedBase) ?? portfolioOptions[1];
+  const selectedOption = displayPortfolioOptions.find((option) => option.id === selectedBase) ?? displayPortfolioOptions[1];
   const currentPortfolioName = selectedOption?.name || '';
   const selectedProfile = optionProfiles[selectedBase];
   const selectedResearchItems = useMemo(() => {
@@ -903,7 +951,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {portfolioOptions.map((option) => {
+          {displayPortfolioOptions.map((option) => {
             const isSelected = selectedBase === option.id;
             return (
               <button
