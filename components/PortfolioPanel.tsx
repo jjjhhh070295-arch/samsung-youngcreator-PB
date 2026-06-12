@@ -728,39 +728,122 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 p-6 text-white">
-          <div className="flex flex-col gap-4 border-b border-slate-700/60 pb-4 md:flex-row md:items-start md:justify-between">
+     <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
+        {/* 왼쪽 2열: Recommended Conclusion + KPI 카드 (Compact 디자인 적용) */}
+        <div className="xl:col-span-7 overflow-hidden rounded-xl border border-slate-200 bg-slate-900 shadow-sm">
+        <div className="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 p-5 text-white space-y-4">
             <div>
-              <span className="rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">
-                Recommended Conclusion
-              </span>
-              <h2 className="mt-2 text-2xl font-black">{currentPortfolioName} 조율안</h2>
-              <p className="mt-2 max-w-4xl text-sm leading-relaxed text-slate-300">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700/60 pb-2">
+                <div>
+                  <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
+                    Recommended Conclusion
+                  </span>
+                  <h2 className="text-xl font-black text-white mt-1">{currentPortfolioName} 조율안</h2>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-200 border border-slate-700">
+                    #{model.clientSummary.clientType}
+                  </span>
+                  <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-bold text-blue-200 border border-blue-500/30">
+                    #{model.clientSummary.riskPropensity}
+                  </span>
+                  <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-bold text-rose-200 border border-rose-500/30">
+                    #세금 {model.clientSummary.taxSensitivity}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-slate-300">
                 {selectedExecutiveConclusion}
               </p>
             </div>
-            <div className="flex flex-wrap gap-1.5 md:max-w-xs md:justify-end">
-              <span className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-200">
-                #{model.clientSummary.clientType}
-              </span>
-              <span className="rounded-md border border-blue-500/30 bg-blue-500/20 px-2 py-1 text-[11px] font-bold text-blue-200">
-                #{model.clientSummary.riskPropensity}
-              </span>
-              <span className="rounded-md border border-rose-500/30 bg-rose-500/20 px-2 py-1 text-[11px] font-bold text-rose-200">
-                #세금민감도 {model.clientSummary.taxSensitivity}
-              </span>
-              <span className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-200">
-                #유동성 {model.clientSummary.liquidityNeed}
-              </span>
+
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
+                <span className="block text-[10px] font-medium text-slate-400">예상 수익률</span>
+                <span className="mt-0.5 block text-xl font-black text-emerald-400">{metrics.expectedReturn}%</span>
+              </div>
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
+                <span className="block text-[10px] font-medium text-slate-400">세후 가상수익률</span>
+                <span className="mt-0.5 block text-xl font-black text-blue-400">{metrics.taxReturn}%</span>
+              </div>
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
+                <span className="block text-[10px] font-medium text-slate-400">포트폴리오 변동성</span>
+                <span className="mt-0.5 block text-xl font-black text-slate-200">{metrics.volatility}%</span>
+              </div>
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
+                <span className="block text-[10px] font-medium text-slate-400">시뮬레이션 MDD</span>
+                <span className="mt-0.5 block text-xl font-black text-rose-400">{metrics.mdd}%</span>
+              </div>
             </div>
           </div>
+        </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-5 md:grid-cols-4">
-            <MetricCard label="예상 수익률" value={`${metrics.expectedReturn}%`} tone="emerald" />
-            <MetricCard label="세후 가상수익률" value={`${metrics.taxReturn}%`} tone="blue" />
-            <MetricCard label="포트폴리오 변동성" value={`${metrics.volatility}%`} tone="slate" />
-            <MetricCard label="시뮬레이션 MDD" value={`${metrics.mdd}%`} tone="rose" />
+        {/* 오른쪽 1열: 도넛형 자산비중 프리뷰 카드 */}
+        <div className="xl:col-span-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 mb-3">
+              <span className="h-2 w-2 rounded-full bg-blue-600"></span>
+              <h3 className="font-bold text-slate-800 text-sm">포트폴리오 자산 배분 비중</h3>
+            </div>
+
+            <div className="flex flex-row items-center justify-between gap-6 py-3">
+              {/* SVG 원형 도넛 차트 */}
+              <div className="relative w-40 h-40 xl:w-44 xl:h-44 flex-shrink-0">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 42 42">
+                  <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#f1f5f9" strokeWidth="4" />
+                  {(() => {
+                    const total = Object.values(adjustedWeights).reduce((a, b) => a + b, 0) || 1;
+                    let currentAccum = 0;
+                    const assetSvgColors: Record<WeightKey, string> = {
+                      etf: '#2563eb', bond: '#0ea5e9', els: '#f59e0b', mmf: '#4f46e5', gold: '#eab308', dollar: '#475569', raw: '#78716c'
+                    };
+                    return (Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
+                      .filter(([, w]) => w > 0)
+                      .map(([asset, w]) => {
+                        const percentage = (w / total) * 100;
+                        const dashArray = `${percentage} ${100 - percentage}`;
+                        const dashOffset = 25 - currentAccum;
+                        currentAccum += percentage;
+                        return (
+                          <circle
+                            key={asset}
+                            cx="21"
+                            cy="21"
+                            r="15.915"
+                            fill="transparent"
+                            stroke={assetSvgColors[asset] || '#cbd5e1'}
+                            strokeWidth="4.5"
+                            strokeDasharray={dashArray}
+                            strokeDashoffset={dashOffset}
+                          />
+                        );
+                      });
+                  })()}
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">SUM</span>
+                  <span className="text-xl font-black text-slate-900">{totalWeight}%</span>
+                </div>
+              </div>
+
+              {/* 우측 인라인 자산군 범례 */}
+              <div className="grid grid-cols-1 gap-2 w-full max-w-[220px] text-sm">
+                {(Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
+                  .filter(([, weight]) => weight > 0)
+                  .map(([asset, weight]) => (
+                    <div key={asset} className="flex items-center justify-between border-b border-slate-50 pb-0.5">
+                      <div className="flex items-center space-x-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-sm ${barColors[asset]} block flex-shrink-0`}></span>
+                        <span className="text-sm font-medium text-slate-600">{weightLabels[asset]}</span>
+                      </div>
+                      <span className="text-base font-black text-slate-900">{weight}%</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+          <div className="text-[10px] text-slate-400 text-center bg-slate-50 p-1.5 rounded border border-slate-100 mt-2">
+            하단 편집기 조율 시 위 도넛 비중이 연동 갱신됩니다.
           </div>
         </div>
       </div>
@@ -830,34 +913,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         )}
       </section>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-            <h3 className="text-base font-bold text-slate-800">현재 포트폴리오 자산 비중 프리뷰</h3>
-          </div>
-          <div className="space-y-3">
-            {(Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
-              .filter(([, weight]) => weight > 0)
-              .map(([asset, weight]) => (
-                <div key={asset}>
-                  <div className="mb-1 flex justify-between text-xs font-semibold text-slate-600">
-                    <span>{weightLabels[asset]}</span>
-                    <span>{weight}%</span>
-                  </div>
-                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className={`${barColors[asset]} h-full rounded-full transition-all`}
-                      style={{ width: `${Math.min(100, weight)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-          </div>
-          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs text-slate-500">
-            현금흐름표에서 저장된 세금성 유출은 MMF/RP와 채권 버킷의 최소 비중을 높이는 근거로 사용됩니다.
-          </div>
-        </section>
+      <div className="grid grid-cols-1 gap-5">
+        
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">

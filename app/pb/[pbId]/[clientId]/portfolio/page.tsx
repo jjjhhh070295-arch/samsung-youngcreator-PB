@@ -155,10 +155,10 @@ export default function PortfolioPage() {
       </section>
 
       {/* 포트폴리오 후보 */}
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-fg-muted">포트폴리오 후보 3개</h2>
-        <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
-      </section>
+<section className="relative left-1/2 w-[calc(100vw-1.5rem)] -translate-x-1/2">
+  <h2 className="mb-2 text-sm font-semibold text-fg-muted">포트폴리오 후보 3개</h2>
+  <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
+</section>
 
       {/* 포트폴리오 최종 확정 단계 */}
       <section

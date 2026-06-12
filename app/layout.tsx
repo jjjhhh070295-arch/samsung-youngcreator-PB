@@ -21,7 +21,7 @@ export default function RootLayout({
         <ThemeProvider>
           <SplashScreen />
           <Header />
-          <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+          <main className="w-full max-w-none px-6 py-6">{children}</main>
         </ThemeProvider>
       </body>
     </html>
