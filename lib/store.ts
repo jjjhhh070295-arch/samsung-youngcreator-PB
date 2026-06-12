@@ -88,16 +88,201 @@ interface LocalDB {
 }
 
 const LS_KEY = "pb-app-local-db";
+const SAMPLE_PB_ID = "pb-demo-youngcreator";
+const SAMPLE_CLIENT_ID = "client-hanbit-cashflow-sample";
+
+function factor(
+  value: string,
+  score: number,
+  evidence: string,
+  notes = "CSV 현금흐름표와 샘플 상담을 바탕으로 검증용 확정",
+): IPS["return"] {
+  return {
+    value,
+    score,
+    notes,
+    source: "manual",
+    status: "explicit",
+    evidence,
+    inferenceHint: "",
+    reviewed: true,
+  };
+}
+
+function sampleCashFlows(): CashFlow[] {
+  const monthly = [
+    ["사업소득", 820_000_000],
+    ["금융소득(이자/배당)", 45_000_000],
+    ["부수입", 15_000_000],
+    ["월임대수입", 12_000_000],
+    ["월고정지출", -240_000_000],
+    ["월세/전세이자", -18_000_000],
+    ["관리비", -3_500_000],
+    ["공과금", -2_200_000],
+    ["보험료지출", -5_000_000],
+    ["차량비", -3_000_000],
+    ["통신비", -1_200_000],
+    ["기타지출", -23_000_000],
+    ["월원금상환", -45_000_000],
+    ["재산세", -26_000_000],
+    ["종부세", -18_000_000],
+    ["자동차세", -6_000_000],
+    ["기타세금", -7_000_000],
+    ["정기적금", -150_000_000],
+    ["법인 MMF/RP", -250_000_000],
+    ["CMA 유동성 버킷", -300_000_000],
+    ["국내채권 ETF", -120_000_000],
+    ["국내주식 ETF", -80_000_000],
+    ["해외주식 ETF", -60_000_000],
+    ["장기 단기채 래더", -100_000_000],
+    ["임원 보장성보험", -5_000_000],
+    ["비상금", -50_000_000],
+  ];
+
+  const scheduled = [
+    ["M&A 지분매각 및 IPO 해제 유동성 버킷", -300_000_000, "2026-10"],
+    ["부동산 양도세 예상액", -420_000_000, "2026-11"],
+    ["증여세 예상액", -150_000_000, "2027-02"],
+    ["법인세 예상액", -1_180_000_000, "2027-03"],
+    ["IPO 보호예수 해제 대응자금", -300_000_000, "2027-03"],
+    ["해외주식 양도세 예상액", -85_000_000, "2027-05"],
+    ["운영자금 6개월치 안정 운용", -1_800_000_000, "2026-12"],
+  ];
+
+  return [
+    ...monthly.map(([label, amount]) => ({
+      id: `sample-recurring-${String(label).replace(/[^a-zA-Z0-9가-힣]/g, "")}`,
+      label: String(label),
+      amount: Number(amount),
+      date: "2026-06",
+      recurring: true,
+    })),
+    ...scheduled.map(([label, amount, date]) => ({
+      id: `sample-scheduled-${String(label).replace(/[^a-zA-Z0-9가-힣]/g, "")}`,
+      label: String(label),
+      amount: Number(amount),
+      date: String(date),
+      recurring: false,
+    })),
+  ];
+}
+
+function sampleIps(): IPS {
+  return {
+    return: factor(
+      "연 8~12% 목표, 법인 유동성 버킷은 원금 변동성 최소화",
+      4,
+      "IPO 보호예수 해제 및 M&A 지분매각 검토와 법인세 납부재원 마련이 동시에 필요",
+    ),
+    risk: factor(
+      "중위험 이상 가능하나 세금 납부재원은 안정형으로 분리",
+      3,
+      "법인세·양도세·증여세 납부 재원 분리 필요",
+    ),
+    timeHorizon: factor(
+      "2026년 10월~2027년 5월 주요 현금화 일정, 잔여 운용자금은 3년 이상",
+      3,
+      "M&A 클로징 2026-10-31, 증여 예정일 2026-11-20, IPO 보호예수 해제일 2027-03-31",
+    ),
+    tax: factor(
+      "법인세·부동산 양도세·증여세·해외주식 양도세 납부일 우선 반영",
+      5,
+      "법인세 예상액 11.8억원, 부동산 양도세 4.2억원, 증여세 1.5억원, 해외주식 양도세 0.85억원",
+    ),
+    liquidity: factor(
+      "세금성 유출과 운영자금 6개월치를 MMF/RP·CMA·단기채로 별도 확보",
+      5,
+      "운영자금 6개월치 18억원, CMA 유동성 버킷 214억원, 법인 MMF/RP 78억원",
+    ),
+    legal: factor(
+      "법인 운용자금, 가업승계 증여, IPO 보호예수 해제 관련 내부 승인·세무 검토 필요",
+      4,
+      "오너 2세 대표, IPO 보호예수 해제 및 M&A 지분매각 검토",
+    ),
+    unique: factor(
+      "고액 법인고객으로 IPO 보호예수 해제, M&A 지분매각, 가업승계 증여 재원이 동시에 필요",
+      5,
+      "2026년 법인세·양도세·가업승계 증여세 납부 재원 분리 필요",
+    ),
+  };
+}
+
+function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
+  let changed = false;
+  const nowIso = "2026-06-10T00:00:00.000Z";
+  const pb =
+    db.pbs[0] ??
+    ({
+      id: SAMPLE_PB_ID,
+      code: "PB-001",
+      name: "데모 PB",
+      createdAt: nowIso,
+    } satisfies PB);
+
+  if (db.pbs.length === 0) {
+    db.pbs.push(pb);
+    changed = true;
+  }
+
+  const sample: Client = {
+    id: SAMPLE_CLIENT_ID,
+    code: "C-2026-0214",
+    clientType: "corporate",
+    name: "한빛에너지홀딩스(주) 샘플",
+    birthDate: "2012-04-18",
+    assignedPbId: pb.id,
+    assetSize: 21_400_000_000,
+    consultationNotes:
+      "CSV 현금흐름표 기반 샘플. 서울 강남구 소재 법인 고객이며 IPO 보호예수 해제, M&A 지분매각, 가업승계 증여, 2027년 법인세 납부재원 마련을 동시에 검토한다.",
+    ips: sampleIps(),
+    cashFlows: sampleCashFlows(),
+    portfolios: [],
+    stages: { basic: true, factors: true, cashflow: true },
+    createdAt: nowIso,
+  };
+
+  const index = db.clients.findIndex((client) => client.id === SAMPLE_CLIENT_ID);
+  if (index >= 0) {
+    db.clients[index] = { ...db.clients[index], ...sample };
+    changed = true;
+  } else if (!db.clients.some((client) => client.name === sample.name)) {
+    db.clients.push(sample);
+    changed = true;
+  }
+
+  const consultationExists = db.consultations.some(
+    (consultation) => consultation.clientId === SAMPLE_CLIENT_ID,
+  );
+  if (!consultationExists) {
+    db.consultations.push({
+      id: "consultation-hanbit-cashflow-sample",
+      clientId: SAMPLE_CLIENT_ID,
+      pbId: pb.id,
+      startedAt: nowIso,
+      endedAt: nowIso,
+      durationSeconds: 0,
+      notes: sample.consultationNotes,
+      ipsSnapshot: sample.ips,
+      createdAt: nowIso,
+    });
+    changed = true;
+  }
+
+  return { db, changed };
+}
 
 function loadLocal(): LocalDB {
   if (typeof window === "undefined") return { pbs: [], clients: [], consultations: [] };
+  let db: LocalDB = { pbs: [], clients: [], consultations: [] };
   try {
     const raw = window.localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) db = JSON.parse(raw) as LocalDB;
   } catch {
     /* ignore */
   }
-  return { pbs: [], clients: [], consultations: [] };
+  const ensured = ensureLocalSample(db);
+  if (ensured.changed) saveLocal(ensured.db);
+  return ensured.db;
 }
 
 function saveLocal(db: LocalDB) {

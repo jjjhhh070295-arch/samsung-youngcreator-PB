@@ -1,6 +1,15 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import type { Client, Portfolio } from '@/lib/types';
 import {
   buildPortfolioViewModel,
@@ -83,6 +92,11 @@ const barColors: Record<WeightKey, string> = {
   raw: 'bg-stone-500',
 };
 
+const BENCHMARK_ASSUMPTIONS = {
+  sp500: 9.2,
+  kospi200: 6.4,
+};
+
 const optionProfiles: Record<
   PortfolioOption['id'],
   {
@@ -120,6 +134,21 @@ const formatWonShort = (won: number) => {
   return `${sign}${abs.toLocaleString()}원`;
 };
 
+const formatPercent = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+
+function cumulativeReturn(annualReturn: number, month: number) {
+  return (Math.pow(1 + annualReturn / 100, month / 12) - 1) * 100;
+}
+
+function buildBenchmarkChartData(portfolioReturn: number) {
+  return Array.from({ length: 13 }, (_, month) => ({
+    month: month === 0 ? '현재' : `${month}M`,
+    portfolio: Math.round(cumulativeReturn(portfolioReturn, month) * 10) / 10,
+    sp500: Math.round(cumulativeReturn(BENCHMARK_ASSUMPTIONS.sp500, month) * 10) / 10,
+    kospi200: Math.round(cumulativeReturn(BENCHMARK_ASSUMPTIONS.kospi200, month) * 10) / 10,
+  }));
+}
+
 function getStatusClass(status: string) {
   switch (status) {
     case '적합':
@@ -131,6 +160,130 @@ function getStatusClass(status: string) {
     default:
       return 'bg-gray-50 text-gray-700 border-gray-200';
   }
+}
+
+function BenchmarkReturnChart({
+  data,
+  portfolioReturn,
+}: {
+  data: ReturnType<typeof buildBenchmarkChartData>;
+  portfolioReturn: number;
+}) {
+  const alphaSp500 = portfolioReturn - BENCHMARK_ASSUMPTIONS.sp500;
+  const alphaKospi200 = portfolioReturn - BENCHMARK_ASSUMPTIONS.kospi200;
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+      <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-3 dark:border-slate-800 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-slate-900 dark:bg-slate-100"></span>
+            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+              벤치마크 대비 예상 수익률
+            </h3>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            현재 조율한 포트폴리오의 1년 예상 누적수익률을 S&P500, KOSPI200과 비교합니다.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs sm:min-w-[280px]">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+            <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              S&P500 대비
+            </span>
+            <b className={alphaSp500 >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>
+              {formatPercent(alphaSp500)}
+            </b>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+            <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              KOSPI200 대비
+            </span>
+            <b className={alphaKospi200 >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>
+              {formatPercent(alphaKospi200)}
+            </b>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-[320px] w-full text-slate-700 dark:text-slate-200">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 12, right: 18, bottom: 8, left: -8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.16} />
+            <XAxis
+              dataKey="month"
+              tick={{ fill: 'currentColor', fontSize: 11 }}
+              axisLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }}
+              tickLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }}
+            />
+            <YAxis
+              unit="%"
+              tick={{ fill: 'currentColor', fontSize: 11 }}
+              axisLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }}
+              tickLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }}
+            />
+            <Tooltip
+              formatter={(value: unknown, name: unknown) => [
+                `${Number(value).toFixed(1)}%`,
+                String(name),
+              ]}
+              labelFormatter={(label) => `${label} 누적수익률`}
+              contentStyle={{
+                background: 'rgb(var(--surface))',
+                border: '1px solid rgb(var(--border))',
+                borderRadius: 10,
+                color: 'rgb(var(--fg))',
+                fontSize: 12,
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="portfolio"
+              name="포트폴리오"
+              stroke="rgb(var(--fg))"
+              strokeWidth={3}
+              dot={{ r: 3, strokeWidth: 1 }}
+              activeDot={{ r: 6 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="sp500"
+              name="S&P500"
+              stroke="#ef4444"
+              strokeWidth={2.5}
+              dot={{ r: 3, strokeWidth: 1 }}
+              activeDot={{ r: 5 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="kospi200"
+              name="KOSPI200"
+              stroke="#2563eb"
+              strokeWidth={2.5}
+              dot={{ r: 3, strokeWidth: 1 }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <span className="h-2.5 w-2.5 rounded-full bg-slate-950 dark:bg-slate-100" />
+          포트폴리오 {portfolioReturn.toFixed(1)}%
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 font-semibold text-red-700 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-300">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+          S&P500 {BENCHMARK_ASSUMPTIONS.sp500.toFixed(1)}%
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-semibold text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-300">
+          <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
+          KOSPI200 {BENCHMARK_ASSUMPTIONS.kospi200.toFixed(1)}%
+        </span>
+      </div>
+    </section>
+  );
 }
 
 export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange }: PortfolioPanelProps) {
@@ -254,6 +407,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   }, [elsIncluded, weights]);
 
   const metrics = useMemo(() => calculateSimulatedMetrics(adjustedWeights), [adjustedWeights]);
+  const benchmarkChartData = useMemo(
+    () => buildBenchmarkChartData(metrics.expectedReturn),
+    [metrics.expectedReturn],
+  );
   const totalWeight = Object.values(adjustedWeights).reduce((a, b) => a + b, 0);
   const weightDiff = 100 - totalWeight;
   const selectedOption = portfolioOptions.find((option) => option.id === selectedBase) ?? portfolioOptions[1];
@@ -408,6 +565,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
         </div>
       </div>
+
+      <BenchmarkReturnChart data={benchmarkChartData} portfolioReturn={metrics.expectedReturn} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">

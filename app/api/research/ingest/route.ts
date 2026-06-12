@@ -57,9 +57,9 @@ export async function GET(req: Request) {
       : await getCachedAnalyses(items.map((it) => it.id));
     const cached = new Map(allCached);
     if (retryFailed) {
-      for (const [id, a] of allCached) {
+      allCached.forEach((a, id) => {
         if (a.model === "dummy") cached.delete(id); // 더미는 다시 분석 대상으로
-      }
+      });
     }
     const newItems = items.filter((it) => !cached.has(it.id));
 
