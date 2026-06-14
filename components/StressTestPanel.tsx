@@ -101,7 +101,7 @@ export default function StressTestPanel({ portfolios }: Props) {
   if (portfolios.length === 0) {
     return (
       <div className="space-y-4">
-        <BusinessCreditStressTest />
+        <BusinessCreditStressTest portfolios={portfolios} macroShock={shock} macroPresetId={presetId} />
         <EmptyView
           title="포트폴리오를 먼저 생성하세요"
           hint="매크로 스트레스 테스트는 생성된 포트폴리오를 대상으로 실행합니다."
@@ -126,7 +126,7 @@ export default function StressTestPanel({ portfolios }: Props) {
 
   return (
     <div className="space-y-4">
-      <BusinessCreditStressTest />
+      <BusinessCreditStressTest portfolios={portfolios} macroShock={shock} macroPresetId={presetId} />
 
       {/* ── 컨트롤: 프리셋 + 슬라이더 ── */}
       <div className="card p-4">
