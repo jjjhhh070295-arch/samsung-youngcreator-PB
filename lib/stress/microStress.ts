@@ -87,6 +87,14 @@ export function calculateMicroStress(
   const stressedMargin = clamp(ebitdaMargin + Math.min(0, scenario.marginShockPp), 0, 60);
   const stressedEbitda = stressedRevenue * (stressedMargin / 100);
   const revenueLoss = Math.max(0, annualRevenue - stressedRevenue);
+  const revenueCashflowLoss = Math.max(
+    0,
+    baseEbitda - stressedRevenue * (ebitdaMargin / 100),
+  );
+  const marginCashflowLoss = Math.max(
+    0,
+    stressedRevenue * (ebitdaMargin / 100) - stressedEbitda,
+  );
   const operatingCashflowLoss = Math.max(0, baseEbitda - stressedEbitda);
 
   const currentOccupancyRate = clamp(1 - positive(input.currentVacancyRate) / 100, 0.05, 1);
@@ -186,6 +194,8 @@ export function calculateMicroStress(
 
   return {
     revenueLoss,
+    revenueCashflowLoss,
+    marginCashflowLoss,
     operatingCashflowLoss,
     rentalIncomeLoss,
     ratingSpreadShockBp,

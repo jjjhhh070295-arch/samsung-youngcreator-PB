@@ -355,6 +355,42 @@ export default function BusinessCreditStressTest({
       : "12개월 유동성 부족액은 발생하지 않지만, 추가 이자비용과 차환 부담을 고객 설명 자료에 별도로 표시하는 것이 좋습니다.",
   ].join(" ");
 
+  const contributionItems = useMemo(() => {
+    const rawItems = [
+      { label: "매출 감소", value: result.revenueCashflowLoss },
+      { label: "EBITDA margin 악화", value: result.marginCashflowLoss },
+      { label: "임대수입 감소", value: result.rentalIncomeLoss },
+      { label: "추가 이자비용", value: result.additionalInterestCost },
+      { label: "차환 부담", value: result.refinancingBurdenIncrease },
+      { label: "운전자본 부담", value: result.workingCapitalBurdenIncrease },
+    ];
+    const maxValue = Math.max(...rawItems.map((item) => item.value), 0.01);
+    return rawItems.map((item) => ({
+      ...item,
+      width: Math.max(2, (item.value / maxValue) * 100),
+    }));
+  }, [result]);
+
+  const defenseTarget = useMemo(() => {
+    const monthlyStress = Math.max(result.liquidityStressAfterPortfolio / 12, 0.01);
+    const gapBuffer = Math.max(0, result.liquidityGap);
+    return {
+      cashBuffer: input.cashBuffer + gapBuffer + monthlyStress * 3,
+      shortBondBucket: Math.max(10, gapBuffer + monthlyStress * 6),
+      floatingDebt: input.floatingDebt * 0.7,
+      refinancingDebt: input.refinancingDebtWithinYear * 0.6,
+      workingCapitalBurden: result.workingCapitalBurdenIncrease * 0.7,
+    };
+  }, [input.cashBuffer, input.floatingDebt, input.refinancingDebtWithinYear, result]);
+
+  const defenseActions = [
+    `현금버퍼를 ${formatEok(input.cashBuffer)}에서 ${formatEok(defenseTarget.cashBuffer)} 수준까지 확대합니다.`,
+    `단기채·예금·MMF/RP 등 12개월 방어 버킷을 최소 ${formatEok(defenseTarget.shortBondBucket)}로 분리합니다.`,
+    `변동금리 차입금은 ${formatEok(input.floatingDebt)} 중 약 30%의 고정금리 전환 또는 금리캡을 검토합니다.`,
+    `12개월 내 차환 필요 차입금은 만기 분산으로 ${formatEok(input.refinancingDebtWithinYear)}에서 ${formatEok(defenseTarget.refinancingDebt)} 수준의 집중도로 낮춥니다.`,
+    `매출채권 회수관리와 재고 회전 개선으로 운전자본 부담을 ${formatEok(result.workingCapitalBurdenIncrease)}에서 ${formatEok(defenseTarget.workingCapitalBurden)} 수준으로 낮추는 것을 목표로 합니다.`,
+  ];
+
   const applyPreset = (id: MicroStressPresetId) => {
     setPresetId(id);
     if (id === "custom") return;
@@ -386,7 +422,10 @@ export default function BusinessCreditStressTest({
   };
 
   return (
-    <section className="card border-gold-300/70 p-4 dark:border-gold-700/50">
+    <section
+      className="card border-gold-300/70 p-4 dark:border-gold-700/50"
+      data-testid="business-credit-stress-test"
+    >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gold-700 dark:text-gold-300">
@@ -506,6 +545,7 @@ export default function BusinessCreditStressTest({
               value={result.liquidityGap <= 0 ? "부족 없음" : formatEok(result.liquidityGap)}
               tone={result.liquidityGap <= 0 ? "safe" : result.riskLevel}
             />
+            <Metric label="유동성 runway" value={`${result.survivalMonths.toFixed(1)}개월`} tone={result.survivalMonths >= 12 ? "safe" : result.survivalMonths >= 6 ? "watch" : "danger"} />
             <Metric label="추정 조달금리 상승폭" value={`${result.fundingRateShockPct.toFixed(2)}%p`} />
             <Metric label="신용위험 경고 등급" value={creditRisk.label} tone={result.creditWarningLevel} />
             <Metric label="민감도 반영 후 현금소요" value={formatEok(result.stressUseOfCash)} />
@@ -521,6 +561,54 @@ export default function BusinessCreditStressTest({
             <MiniStat label="Debt / EBITDA" value={`${result.stressedDebtToEbitda.toFixed(1)}배`} />
             <MiniStat label="DSO / DIO" value={`${Math.round(result.stressedReceivablesDays)}일 / ${Math.round(result.stressedInventoryDays)}일`} />
           </div>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-xl border border-border/70 p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-semibold text-fg">리스크 요인별 유동성 부족 기여도</h4>
+              <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+                각 요인이 12개월 현금소요를 얼마나 키우는지 보여줍니다. 금액은 포트폴리오 민감도 적용 전 원인별 부담입니다.
+              </p>
+            </div>
+            <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-fg-muted">
+              VaR/CVaR 대신 현금흐름 기준
+            </span>
+          </div>
+          <div className="space-y-3">
+            {contributionItems.map((item) => (
+              <FactorBar key={item.label} label={item.label} value={item.value} width={item.width} />
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gold-300/60 p-4 dark:border-gold-700/40">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-semibold text-fg">유동성 방어 조정안</h4>
+              <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+                매크로 스트레스의 리밸런싱 제안을 법인오너 현금흐름 방어 조치로 변형했습니다.
+              </p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${risk.badge}`}>
+              {risk.label}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <MiniStat label="현금버퍼 목표" value={formatEok(defenseTarget.cashBuffer)} />
+            <MiniStat label="단기 방어 버킷" value={formatEok(defenseTarget.shortBondBucket)} />
+            <MiniStat label="변동금리 축소 후" value={formatEok(defenseTarget.floatingDebt)} />
+            <MiniStat label="차환 집중도 완화 후" value={formatEok(defenseTarget.refinancingDebt)} />
+          </div>
+          <ul className="mt-3 space-y-2 text-xs leading-relaxed text-fg-muted">
+            {defenseActions.map((action) => (
+              <li key={action} className="rounded-lg border border-border/70 bg-surface-2 px-3 py-2">
+                {action}
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
@@ -804,6 +892,31 @@ function MiniStat({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-border/70 bg-surface p-2.5">
       <p className="text-[10px] text-fg-muted">{label}</p>
       <p className="mt-1 text-sm font-semibold tabular-nums text-fg">{value}</p>
+    </div>
+  );
+}
+
+function FactorBar({
+  label,
+  value,
+  width,
+}: {
+  label: string;
+  value: number;
+  width: number;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+        <span className="font-medium text-fg">{label}</span>
+        <span className="tabular-nums text-fg-muted">{formatEok(value)}</span>
+      </div>
+      <div className="h-2.5 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className="h-full rounded-full bg-navy-700 dark:bg-gold-500"
+          style={{ width: `${Math.min(100, Math.max(0, width))}%` }}
+        />
+      </div>
     </div>
   );
 }
