@@ -43,6 +43,7 @@ import {
 import { runMonteCarloCvar } from "@/lib/stress/monteCarlo";
 import { CHART_COLORS } from "@/lib/theme";
 import { EmptyView } from "./StateViews";
+import BusinessCreditStressTest from "./stress/BusinessCreditStressTest";
 
 interface Props {
   portfolios: Portfolio[];
@@ -99,10 +100,13 @@ export default function StressTestPanel({ portfolios }: Props) {
 
   if (portfolios.length === 0) {
     return (
-      <EmptyView
-        title="포트폴리오를 먼저 생성하세요"
-        hint="스트레스 테스트는 생성된 포트폴리오를 대상으로 실행합니다."
-      />
+      <div className="space-y-4">
+        <BusinessCreditStressTest />
+        <EmptyView
+          title="포트폴리오를 먼저 생성하세요"
+          hint="매크로 스트레스 테스트는 생성된 포트폴리오를 대상으로 실행합니다."
+        />
+      </div>
     );
   }
 
@@ -122,6 +126,8 @@ export default function StressTestPanel({ portfolios }: Props) {
 
   return (
     <div className="space-y-4">
+      <BusinessCreditStressTest />
+
       {/* ── 컨트롤: 프리셋 + 슬라이더 ── */}
       <div className="card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
