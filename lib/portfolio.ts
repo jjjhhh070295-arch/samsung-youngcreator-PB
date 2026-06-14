@@ -333,6 +333,15 @@ export interface TaxSavingPlan {
   sources: { label: string; url: string }[];
 }
 
+export interface TaxPainPoint {
+  id: string;
+  label: string;
+  severity: "상" | "중" | "점검";
+  whyItMatters: string;
+  portfolioResponse: string;
+  source: { label: string; url: string };
+}
+
 export interface PortfolioViewModel {
   clientSummary: ClientSummary;
   macroReport: MacroReport;
@@ -344,6 +353,7 @@ export interface PortfolioViewModel {
   rationale: PortfolioRationale;
   preferenceProfile: ClientPreferenceProfile;
   taxSavingPlan: TaxSavingPlan;
+  taxPainPoints: TaxPainPoint[];
   executiveConclusion: string;
   recommendedId: PortfolioOption["id"];
   liquidityReserveManwon: number;
@@ -445,6 +455,33 @@ const KODEX_PRODUCTS: Record<
     assetClass: "채권/현금성",
     retirementLimit: "IRP 100%",
     url: "https://www.samsungfund.com/etf/product/view.do?id=2ETFS7",
+  },
+};
+
+const TAX_PAIN_SOURCES = {
+  financialIncome: {
+    label: "국세상담센터 금융소득 과세대상",
+    url: "https://call.nts.go.kr/call/qna/selectQnaInfo.do?ctgId=CTG11775&mi=1441",
+  },
+  inheritanceGift: {
+    label: "국세청 상속·증여세 세율",
+    url: "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7957&mi=6529",
+  },
+  stockGain: {
+    label: "국세청 주식 양도소득세 신고대상",
+    url: "https://s.nts.go.kr/asan/na/ntt/selectNttInfo.do?mi=2201&nttSn=1348384",
+  },
+  realEstate: {
+    label: "국세청 종합부동산세 개요",
+    url: "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7733&mi=40375",
+  },
+  pension: {
+    label: "국세청 연금계좌 세액공제",
+    url: "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7875",
+  },
+  brazilBond: {
+    label: "삼일PwC 브라질채권 비과세 검토",
+    url: "https://www.pwc.com/kr/ko/insights/issue-brief/one-point-tax-10.html",
   },
 };
 
@@ -918,6 +955,88 @@ function holding(product: KodexProduct, weight: number): PensionHolding {
   return { product, weight };
 }
 
+function buildTaxPainPoints(
+  client: Client,
+  cashflow: CashflowPortfolioSummary,
+  preference: ClientPreferenceProfile,
+): TaxPainPoint[] {
+  const uniqueText = factorValue(client, "unique", "");
+  const fullText = `${uniqueText} ${factorValue(client, "tax", "")} ${client.consultationNotes ?? ""} ${preference.rawText}`;
+  const financialIncomeAmount = client.cashFlows
+    .filter((flow) => /금융소득|이자|배당/i.test(flow.label) && flow.amount > 0)
+    .reduce((sum, flow) => sum + flow.amount, 0);
+  const points: TaxPainPoint[] = [];
+
+  const add = (point: TaxPainPoint) => {
+    if (!points.some((item) => item.id === point.id)) points.push(point);
+  };
+
+  if (financialIncomeAmount >= 20_000_000 || preference.taxPriority || client.assetSize >= 5_000_000_000) {
+    add({
+      id: "financial-income",
+      label: "금융소득종합과세와 이자·배당 집중",
+      severity: financialIncomeAmount >= 20_000_000 ? "상" : "중",
+      whyItMatters: "고액자산가는 예금·채권·배당 소득이 커지면서 종합과세 구간과 건강보험료 영향까지 함께 고민하는 경우가 많습니다.",
+      portfolioResponse: "이자·배당 과세가 커지는 상품을 줄이고, 개별채권 직접투자·만기 분산·과세이연 계좌를 우선 검토합니다.",
+      source: TAX_PAIN_SOURCES.financialIncome,
+    });
+  }
+
+  if (/증여|상속|가업승계|승계|오너|2세|자녀/i.test(fullText)) {
+    add({
+      id: "inheritance-gift",
+      label: "상속·증여세와 가업승계 재원",
+      severity: "상",
+      whyItMatters: "상속·증여는 과세표준이 커질수록 세율 부담이 급격히 커져, 납부재원과 사전 증여 설계가 핵심 고충이 됩니다.",
+      portfolioResponse: "증여세 납부월 이전 현금화 버킷을 분리하고, 잔여 운용자금은 세후 효율이 높은 채권·상장주식·연금계좌 검토안으로 나눕니다.",
+      source: TAX_PAIN_SOURCES.inheritanceGift,
+    });
+  }
+
+  if (/ipo|보호예수|상장|대주주|주식|해외주식|양도세|지분/i.test(fullText)) {
+    add({
+      id: "stock-capital-gain",
+      label: "대주주·해외주식 양도소득세",
+      severity: "상",
+      whyItMatters: "상장주식 대주주, 장외거래, 비상장주식, 해외주식은 양도세 신고·납부 일정과 가족 합산 판단이 포트폴리오 의사결정에 직접 영향을 줍니다.",
+      portfolioResponse: "국내 상장주식은 장내거래·대주주 요건을 점검하고, 해외주식은 손익통산·매도시점·세금 납부월을 반영해 리밸런싱합니다.",
+      source: TAX_PAIN_SOURCES.stockGain,
+    });
+  }
+
+  if (/부동산|종부|재산세|양도|상가|토지|주택/i.test(fullText) || cashflow.taxOutflow >= 500_000_000) {
+    add({
+      id: "real-estate-tax",
+      label: "종부세·재산세·부동산 양도세",
+      severity: /부동산|종부|재산세|양도/i.test(fullText) ? "상" : "중",
+      whyItMatters: "고가 부동산과 법인 보유 부동산은 보유세와 양도세 납부 규모가 커져 금융자산 현금화 일정까지 흔드는 경우가 많습니다.",
+      portfolioResponse: "부동산 세금 납부예정액은 MMF/RP·단기채로 먼저 잠그고, 위험자산은 납부 이후 잔여 현금흐름 기준으로 배치합니다.",
+      source: TAX_PAIN_SOURCES.realEstate,
+    });
+  }
+
+  if (preference.taxPriority) {
+    add({
+      id: "tax-exempt-products",
+      label: "비과세·분리과세·과세이연 상품 선별",
+      severity: "상",
+      whyItMatters: "세금 최소화가 최우선이면 단순 기대수익률보다 실제 세후수익률, 계좌 한도, 조세조약 요건이 더 중요합니다.",
+      portfolioResponse: "브라질 국채 비과세 요건, 국내 상장주식 장내거래, 개별채권 매매차익, 연금저축·IRP 과세이연을 우선 검토합니다.",
+      source: TAX_PAIN_SOURCES.brazilBond,
+    });
+    add({
+      id: "pension-accounts",
+      label: "연금저축·IRP 세액공제와 과세이연 한도",
+      severity: "점검",
+      whyItMatters: "개인 고액자산가나 법인 오너·임원은 세액공제 한도와 과세이연 계좌 활용 여부가 매년 반복되는 절세 의사결정입니다.",
+      portfolioResponse: "대표·임원 개인 기준으로 연금저축 600만원, IRP 포함 900만원 세액공제 대상 여부를 확인하고 KODEX 안전자산형 조합을 제안합니다.",
+      source: TAX_PAIN_SOURCES.pension,
+    });
+  }
+
+  return points.slice(0, 6);
+}
+
 function riskAssetWeight(holdings: PensionHolding[]) {
   return holdings
     .filter((item) => item.product.assetClass !== "채권/현금성")
@@ -1077,6 +1196,7 @@ export function buildPortfolioViewModel(
   const clientSummary = clientSummaryFrom(client, cashflowSummary);
   const macroReport = macroReportFrom(items, researchSignals);
   const taxSavingPlan = buildKodexTaxSavingPlan(client, cashflowSummary, preferenceProfile);
+  const taxPainPoints = buildTaxPainPoints(client, cashflowSummary, preferenceProfile);
   const preferenceText = preferenceProfile.hasRequirement
     ? `${preferenceProfile.tags.join(", ")}를 고객 요구조건으로 감지했습니다. ${preferenceProfile.actions.join(" ")} ${preferenceProfile.warnings.join(" ")}`
     : "고유상황에 별도 상품 제약이나 목표수익률 요구가 없어 표준 고액자산가 유동성 버킷을 적용했습니다.";
@@ -1111,6 +1231,7 @@ export function buildPortfolioViewModel(
     rationale,
     preferenceProfile,
     taxSavingPlan,
+    taxPainPoints,
     executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 최신 리서치의 ${highSignal.label} 신호와 ${preferenceProfile.hasRequirement ? "고객 고유 요구조건" : "고객 7요인"}을 함께 반영하되, ${preferenceProfile.taxPriority ? "세후 효율과 절세 가능성" : `${client.name} 고객의 세금·현금화 일정`}을 우선 점검했습니다.`,
     recommendedId,
     liquidityReserveManwon,

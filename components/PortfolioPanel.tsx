@@ -1111,6 +1111,58 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </section>
 
+      {model.taxPainPoints.length > 0 && (
+        <section className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-2 border-b border-emerald-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
+              <h3 className="text-base font-bold text-slate-800">고액자산가 주요 세금 고충 참고</h3>
+            </div>
+            <span className="text-[11px] font-medium text-slate-400">
+              국세청·세무전문 자료 기반 체크리스트
+            </span>
+          </div>
+
+          <p className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-900">
+            실제 고액자산가 상담에서 자주 나오는 세금 이슈를 고객의 현금흐름·고유상황과 대조했습니다.
+            확정 절세 판단이 아니라 PB와 세무전문가가 확인해야 할 우선순위입니다.
+          </p>
+
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {model.taxPainPoints.map((point) => (
+              <div key={point.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-bold text-slate-800">{point.label}</p>
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                      point.severity === "상"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : point.severity === "중"
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-slate-200 bg-white text-slate-500"
+                    }`}
+                  >
+                    {point.severity}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-600">{point.whyItMatters}</p>
+                <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-relaxed text-emerald-800">
+                  반영: {point.portfolioResponse}
+                </p>
+                <a
+                  href={point.source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-block text-[11px] font-medium text-blue-600 underline hover:text-blue-700"
+                >
+                  출처: {point.source.label}
+                </a>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
