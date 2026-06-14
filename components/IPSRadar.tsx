@@ -1,11 +1,13 @@
 "use client";
 
 import {
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Cell,
+  LabelList,
   ResponsiveContainer,
 } from "recharts";
 import type { IPS } from "@/lib/types";
@@ -18,15 +20,15 @@ interface Props {
   lang?: "ko" | "en";
 }
 
-// 현재 7요인 점수를 거미줄(레이더) 그래프로.
-// 공백·추론 요인은 0으로 두고, 아래에 "미확정" 안내를 표시한다.
+// 현재 7요인 점수를 가로 막대 그래프로.
+// 공백·추론 요인은 0(막대 없음)으로 두고, 아래에 "미확정" 안내를 표시한다.
 export default function IPSRadar({ ips, height = 280, lang = "ko" }: Props) {
   const data = FACTOR_META.map((m) => {
     const factor = ips[m.key];
     const hasScore = factor.status === "explicit" && factor.score != null;
     return {
       factor: lang === "en" ? m.labelEn : m.label,
-      score: hasScore ? factor.score : 0,
+      score: hasScore ? (factor.score as number) : 0,
       confirmed: hasScore,
     };
   });
@@ -36,28 +38,45 @@ export default function IPSRadar({ ips, height = 280, lang = "ko" }: Props) {
   return (
     <div>
       <ResponsiveContainer width="100%" height={height}>
-        <RadarChart data={data} outerRadius="72%">
-          <PolarGrid stroke={CHART_COLORS.muted} strokeOpacity={0.4} />
-          <PolarAngleAxis
-            dataKey="factor"
-            tick={{ fill: "currentColor", fontSize: 12, fontWeight: 600 }}
-          />
-          <PolarRadiusAxis
+        <BarChart
+          data={data}
+          layout="vertical"
+          margin={{ top: 4, right: 28, bottom: 4, left: 8 }}
+          barCategoryGap="22%"
+        >
+          <CartesianGrid horizontal={false} stroke={CHART_COLORS.muted} strokeOpacity={0.25} />
+          <XAxis
+            type="number"
             domain={[0, 5]}
-            tickCount={6}
-            tick={false}
+            ticks={[0, 1, 2, 3, 4, 5]}
+            tick={{ fill: "currentColor", fontSize: 11 }}
+            axisLine={{ stroke: CHART_COLORS.muted, strokeOpacity: 0.4 }}
+            tickLine={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="factor"
+            width={84}
+            tick={{ fill: "currentColor", fontSize: 12, fontWeight: 600 }}
             axisLine={false}
             tickLine={false}
           />
-          <Radar
-            name="점수"
-            dataKey="score"
-            stroke={CHART_COLORS.accent}
-            fill={CHART_COLORS.accent}
-            fillOpacity={0.35}
-            strokeWidth={2}
-          />
-        </RadarChart>
+          <Bar dataKey="score" radius={[0, 4, 4, 0]} isAnimationActive={false}>
+            {data.map((d, i) => (
+              <Cell
+                key={i}
+                fill={CHART_COLORS.accent}
+                fillOpacity={d.confirmed ? 0.85 : 0.2}
+              />
+            ))}
+            <LabelList
+              dataKey="score"
+              position="right"
+              formatter={(v: number) => (v > 0 ? v : "—")}
+              style={{ fill: "currentColor", fontSize: 11, fontWeight: 700 }}
+            />
+          </Bar>
+        </BarChart>
       </ResponsiveContainer>
       {unconfirmed.length > 0 && (
         <p className="mt-1 text-center text-xs text-fg-muted">
