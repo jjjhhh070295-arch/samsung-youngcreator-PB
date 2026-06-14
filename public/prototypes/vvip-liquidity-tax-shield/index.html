@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VVIP Liquidity & Tax Shield</title>
+  <meta name="description" content="Samsung Securities Young Creator PB Insight MVP" />
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --panel: #ffffff;
+      --panel-2: #f7f9fb;
+      --ink: #111827;
+      --muted: #667085;
+      --line: #d7dde5;
+      --line-2: #edf0f4;
+      --navy: #071326;
+      --blue: #0b4ea2;
+      --blue-soft: #e8f1ff;
+      --gold: #9a6a14;
+      --gold-soft: #fff6df;
+      --green: #167047;
+      --green-soft: #e8f6ef;
+      --red: #b42318;
+      --red-soft: #fff0ee;
+      --violet: #5b4bb7;
+      --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      --radius: 8px;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell {
+      width: min(1480px, 100%);
+      margin: 0 auto;
+      padding: 18px;
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: end;
+      border-bottom: 1px solid var(--line);
+      padding: 4px 0 18px;
+    }
+    .brand-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--navy);
+      color: #fff;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(22px, 2.3vw, 32px);
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+    .top-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--ink);
+      min-height: 42px;
+      padding: 0 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 750;
+      transition: 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn:hover { border-color: var(--blue); transform: translateY(-1px); }
+    .btn.primary {
+      background: var(--blue);
+      color: #fff;
+      border-color: var(--blue);
+    }
+    .btn.dark {
+      background: var(--navy);
+      color: #fff;
+      border-color: var(--navy);
+    }
+    .btn.ghost { background: transparent; }
+    .icon {
+      width: 16px;
+      height: 16px;
+      display: inline-block;
+      line-height: 16px;
+      text-align: center;
+      font-weight: 900;
+    }
+    .grid { display: grid; gap: 14px; }
+    .main-grid {
+      grid-template-columns: minmax(320px, 0.85fr) minmax(520px, 1.15fr);
+      margin-top: 18px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .flat-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 850;
+      letter-spacing: 0;
+    }
+    .section-sub {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .sample-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .sample {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      min-height: 58px;
+      padding: 10px;
+      text-align: left;
+      transition: 0.15s ease;
+    }
+    .sample:hover, .sample.active {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+    }
+    .sample strong { display: block; font-size: 12px; margin-bottom: 4px; }
+    .sample span { color: var(--muted); font-size: 11px; display: block; line-height: 1.35; }
+    textarea {
+      width: 100%;
+      min-height: 184px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      color: var(--ink);
+      padding: 12px;
+      outline: none;
+      line-height: 1.65;
+    }
+    textarea:focus, input:focus, select:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(11, 78, 162, 0.12);
+      background: #fff;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    label span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      margin-bottom: 5px;
+    }
+    input, select {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      padding: 0 10px;
+      color: var(--ink);
+      outline: none;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .metric {
+      border: 1px solid var(--line-2);
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 82px;
+    }
+    .metric label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      margin-bottom: 7px;
+    }
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+    .metric small { display: block; color: var(--muted); margin-top: 7px; font-size: 11px; line-height: 1.35; }
+    .tone-blue strong { color: var(--blue); }
+    .tone-green strong { color: var(--green); }
+    .tone-red strong { color: var(--red); }
+    .tone-gold strong { color: var(--gold); }
+    .rr-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(92px, 1fr));
+      gap: 8px;
+    }
+    .rr-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 10px;
+      min-height: 126px;
+    }
+    .rr-card b {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--blue);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .rr-card p { margin: 0; color: var(--ink); font-size: 12px; line-height: 1.5; }
+    .badge {
+      display: inline-flex;
+      min-height: 22px;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .badge.good { background: var(--green-soft); color: var(--green); border-color: #b8dec8; }
+    .badge.warn { background: var(--gold-soft); color: var(--gold); border-color: #e6ca84; }
+    .badge.bad { background: var(--red-soft); color: var(--red); border-color: #f3b5ad; }
+    .portfolio-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .portfolio {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px;
+      min-width: 0;
+      position: relative;
+    }
+    .portfolio.selected {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(11, 78, 162, 0.10);
+    }
+    .portfolio h3 {
+      margin: 4px 0 6px;
+      font-size: 15px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+    .portfolio p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .mini-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .mini {
+      background: var(--panel-2);
+      border: 1px solid var(--line-2);
+      border-radius: 8px;
+      padding: 9px;
+    }
+    .mini span { display: block; color: var(--muted); font-size: 10px; font-weight: 800; margin-bottom: 4px; }
+    .mini b { font-family: var(--mono); font-size: 14px; letter-spacing: 0; }
+    .bars { display: grid; gap: 6px; margin-top: 10px; }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 82px 1fr 42px;
+      gap: 8px;
+      align-items: center;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .bar {
+      height: 8px;
+      background: var(--line-2);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar i {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--blue);
+    }
+    .bar.income i { background: var(--green); }
+    .bar.alt i { background: var(--gold); }
+    .bar.cash i { background: var(--violet); }
+    .bar.risk i { background: var(--red); }
+    .two-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .stress-table, .event-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 12px;
+    }
+    .stress-table th, .event-table th {
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 11px;
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    .stress-table td, .event-table td {
+      padding: 10px;
+      border-bottom: 1px solid var(--line-2);
+      vertical-align: top;
+    }
+    .stress-table tr:last-child td, .event-table tr:last-child td { border-bottom: 0; }
+    .loss { color: var(--red); font-family: var(--mono); font-weight: 800; }
+    .gain { color: var(--green); font-family: var(--mono); font-weight: 800; }
+    .timeline {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .event {
+      display: grid;
+      grid-template-columns: 112px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 11px;
+    }
+    .event time { font-family: var(--mono); color: var(--blue); font-weight: 800; font-size: 12px; }
+    .event b { display: block; font-size: 13px; margin-bottom: 2px; }
+    .event p { margin: 0; color: var(--muted); font-size: 12px; }
+    .behavior-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .behavior {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px;
+    }
+    .behavior b { display: block; margin-bottom: 6px; font-size: 13px; }
+    .behavior p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .proposal {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 26px;
+      margin-top: 14px;
+    }
+    .proposal-head {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      border-bottom: 2px solid var(--navy);
+      padding-bottom: 16px;
+      margin-bottom: 18px;
+    }
+    .proposal h2 { margin: 0; font-size: 24px; line-height: 1.2; }
+    .proposal h3 { margin: 18px 0 8px; font-size: 15px; }
+    .proposal p { color: #344054; line-height: 1.65; }
+    .proposal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .proposal-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfe;
+    }
+    .proposal-box span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+    .proposal-box b { font-size: 18px; }
+    .notice {
+      border: 1px solid #e6ca84;
+      background: var(--gold-soft);
+      color: #6b4a08;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 12px;
+      line-height: 1.65;
+      margin-top: 14px;
+    }
+    .empty {
+      min-height: 240px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--panel-2);
+      text-align: center;
+      padding: 24px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .print-only { display: none; }
+
+    @media (max-width: 1120px) {
+      .main-grid, .two-grid { grid-template-columns: 1fr; }
+      .metric-grid { grid-template-columns: repeat(2, 1fr); }
+      .rr-grid { grid-template-columns: repeat(2, 1fr); }
+      .portfolio-grid { grid-template-columns: 1fr; }
+      .behavior-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 720px) {
+      .shell { padding: 12px; }
+      .topbar { grid-template-columns: 1fr; }
+      .top-actions { justify-content: stretch; }
+      .top-actions .btn { flex: 1; }
+      .sample-grid, .form-row, .metric-grid, .behavior-grid, .proposal-grid { grid-template-columns: 1fr; }
+      .event { grid-template-columns: 1fr; }
+      .rr-grid { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .no-print { display: none !important; }
+      .print-only { display: block; }
+      .shell { width: 100%; padding: 0; }
+      .proposal { border: 0; padding: 0; margin: 0; }
+      .proposal-head { page-break-after: avoid; }
+      .proposal-box, .stress-table, .event-table { break-inside: avoid; }
+      .notice { border-color: #999; background: #fff; color: #333; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar no-print">
+      <div class="brand-row">
+        <div class="brand-mark">PB</div>
+        <div>
+          <p class="eyebrow">Samsung Securities Young Creator MVP</p>
+          <h1>VVIP Liquidity & Tax Shield</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="btn ghost" type="button" id="loadSampleBtn"><span class="icon">↺</span>샘플 복원</button>
+        <button class="btn dark" type="button" id="printBtn"><span class="icon">▣</span>PDF 저장/인쇄</button>
+      </div>
+    </header>
+
+    <main class="grid main-grid no-print">
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">상담 메모 입력</h2>
+            <p class="section-sub">고객의 말과 숫자를 섞어 입력하면 데모 엔진이 IPS, 유동성 이벤트, 세후 제안안을 생성합니다.</p>
+          </div>
+          <span class="badge good" id="demoBadge">Demo engine</span>
+        </div>
+
+        <div class="sample-grid" aria-label="샘플 고객 유형">
+          <button class="sample active" type="button" data-scenario="owner">
+            <strong>부동산 법인 오너</strong>
+            <span>공실, 보유세, 증여, 변동금리</span>
+          </button>
+          <button class="sample" type="button" data-scenario="exit">
+            <strong>M&A 현금 유입</strong>
+            <span>매각대금, 법인세, 재창업 자금</span>
+          </button>
+          <button class="sample" type="button" data-scenario="inherit">
+            <strong>상속·증여 준비</strong>
+            <span>가문 이전, 금융소득, 안정 운용</span>
+          </button>
+        </div>
+
+        <textarea id="memo" aria-label="고객 상담 메모"></textarea>
+
+        <div class="form-row">
+          <label>
+            <span>분석 기준 금융자산</span>
+            <input id="assetInput" type="number" value="250000" />
+          </label>
+          <label>
+            <span>기존 금융소득</span>
+            <input id="incomeInput" type="number" value="1800" />
+          </label>
+          <label>
+            <span>고객 위험 허용도</span>
+            <select id="riskInput">
+              <option value="low">보수형</option>
+              <option value="mid" selected>중립형</option>
+              <option value="high">적극형</option>
+            </select>
+          </label>
+        </div>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px">
+          <button class="btn primary" type="button" id="analyzeBtn"><span class="icon">▶</span>분석 시작</button>
+          <button class="btn" type="button" id="scrollProposalBtn"><span class="icon">↓</span>제안서 보기</button>
+        </div>
+
+        <div class="notice">
+          이 MVP는 외부 API 없이 샘플 데이터로 동작합니다. 실제 버전에서는 고객 동의, 가명처리, 투자권유 적합성, 상품설명서 고지, 세무 전문가 검토 절차가 함께 필요합니다.
+        </div>
+      </section>
+
+      <section class="grid">
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">PB 즉시 판단 보드</h2>
+              <p class="section-sub">상담 후 가장 먼저 확인해야 하는 세금·유동성·손실 감내력을 한 화면에 압축합니다.</p>
+            </div>
+            <span class="badge warn" id="riskBadge">유동성 점검 필요</span>
+          </div>
+          <div class="metric-grid" id="summaryMetrics"></div>
+        </section>
+
+        <section class="flat-panel">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">RRTTLLU 투자정책서 추출</h2>
+              <p class="section-sub">단순 위험성향 설문 대신 목표, 제약, 세금, 고유 상황을 분리합니다.</p>
+            </div>
+          </div>
+          <div class="rr-grid" id="rrGrid"></div>
+        </section>
+      </section>
+    </main>
+
+    <section class="panel no-print" style="margin-top:14px">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">현재안 vs 제안 A/B 나란히 비교</h2>
+          <p class="section-sub">PB가 고객 앞에서 장단점을 바로 설명할 수 있도록 세후 성과, 위험, 세금, 유동성 커버리지를 같은 기준으로 비교합니다.</p>
+        </div>
+        <span class="badge good" id="selectedBadge">추천: A안</span>
+      </div>
+      <div class="portfolio-grid" id="portfolioGrid"></div>
+    </section>
+
+    <section class="two-grid no-print">
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">거시경제 스트레스 테스트</h2>
+            <p class="section-sub">금리, 환율, 원자재 충격 시 포트폴리오 가치 변화를 사전 설명합니다.</p>
+          </div>
+        </div>
+        <div id="stressArea"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">세금 납부 전 현금화 타임라인</h2>
+            <p class="section-sub">납부월이 아니라 전월 말 현금화 목표로 관리해 상담 실행력을 높입니다.</p>
+          </div>
+        </div>
+        <div id="timelineArea"></div>
+      </section>
+    </section>
+
+    <section class="panel no-print" style="margin-top:14px">
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">행동재무 Guardrail</h2>
+          <p class="section-sub">VVIP 고객도 과신, 손실회피, 심리적 회계, 현재편향에서 자유롭지 않습니다. PB 설명 문구에 넣을 경고를 자동 생성합니다.</p>
+        </div>
+      </div>
+      <div class="behavior-grid" id="behaviorArea"></div>
+    </section>
+
+    <section class="panel" id="proposalSection" style="margin-top:14px">
+      <div class="section-head no-print">
+        <div>
+          <h2 class="section-title">PDF 인쇄용 VVIP 제안서 미리보기</h2>
+          <p class="section-sub">상단의 PDF 저장/인쇄 버튼을 누르면 이 영역 기준으로 제안서를 저장할 수 있습니다.</p>
+        </div>
+        <button class="btn primary" type="button" id="printBtn2"><span class="icon">▣</span>제안서 PDF 저장</button>
+      </div>
+      <div id="proposalPreview"></div>
+    </section>
+  </div>
+
+  <script>
+    const scenarios = {
+      owner: {
+        title: "부동산 법인 오너",
+        memo: "고객은 62세 제조 법인 오너로 개인 금융자산 25억 원, 상가 2채와 오피스텔 1채를 보유하고 있습니다. 최근 공실률 상승과 변동금리 대출 부담으로 월 순현금흐름이 불안정합니다. 올해 종합소득세와 종부세, 내년 자녀 유학자금 2억 원, 18개월 내 자녀 증여 3억 원을 준비해야 합니다. 기존 포트폴리오는 국내 주식과 부동산 노출이 높고 현금성 자산은 1.2억 원뿐입니다. 고객은 원금 손실을 크게 싫어하지만 물가 상승보다 낮은 수익률도 걱정합니다.",
+        assets: 250000,
+        existingIncome: 1800,
+        risk: "mid",
+        events: [
+          { date: "2026-06-30", title: "종합소득세·지방세 재원", amount: 4200, note: "신고 납부 전 현금성 자산으로 분리" },
+          { date: "2026-12-31", title: "자녀 유학자금", amount: 20000, note: "12개월 내 확정 지출, 원금 변동 최소화" },
+          { date: "2027-03-31", title: "법인세·배당 재원 점검", amount: 8500, note: "법인/개인 자금 혼용 방지" },
+          { date: "2027-11-30", title: "증여 실행 예비금", amount: 30000, note: "증여세와 평가시점 변동성 동시 점검" }
+        ]
+      },
+      exit: {
+        title: "M&A 현금 유입",
+        memo: "고객은 회사를 매각해 세후 약 80억 원의 현금 유입이 예상됩니다. 6개월 내 법인세와 자문 수수료 정산, 1년 내 재창업 자금 15억 원, 3년 내 자녀 증여와 패밀리오피스 설립을 검토합니다. 투자 경험은 많지만 최근 시장 급등으로 미국 AI 성장주에 한 번에 들어가고 싶어 합니다. PB는 분할 집행, 세금 재원 분리, 환율 리스크 관리를 동시에 설명해야 합니다.",
+        assets: 800000,
+        existingIncome: 4200,
+        risk: "high",
+        events: [
+          { date: "2026-07-31", title: "거래 종결 비용·세금", amount: 120000, note: "매각대금 수령 즉시 별도 계정 보관" },
+          { date: "2026-11-30", title: "재창업 옵션 자금", amount: 150000, note: "위험자산 편입 금지 버킷" },
+          { date: "2027-05-31", title: "해외주식 양도세 예비", amount: 15000, note: "실현손익 확정 전까지 보수 추정" },
+          { date: "2028-03-31", title: "가문 이전 계획", amount: 70000, note: "증여·상속·신탁 검토" }
+        ]
+      },
+      inherit: {
+        title: "상속·증여 준비",
+        memo: "고객은 70대 초반의 초고액자산가로 금융자산 40억 원, 부동산 60억 원 규모를 보유합니다. 자녀 2명에게 단계적 증여를 원하지만 금융소득종합과세와 상속세 부담을 우려합니다. 향후 2년 동안 병원비와 가족 생활비로 5억 원의 유동성이 필요합니다. 고객은 손실을 매우 싫어해 큰 하락을 경험하면 투자 결정을 중단하는 성향이 있습니다.",
+        assets: 400000,
+        existingIncome: 2600,
+        risk: "low",
+        events: [
+          { date: "2026-08-31", title: "의료·생활 예비자금", amount: 30000, note: "즉시 유동화 가능 자산으로 관리" },
+          { date: "2027-05-31", title: "금융소득 종합과세 재원", amount: 6200, note: "이자·배당소득 누적 점검" },
+          { date: "2027-12-31", title: "1차 증여 실행", amount: 50000, note: "증여세와 평가손익 고려" },
+          { date: "2028-12-31", title: "상속 설계 리밸런싱", amount: 25000, note: "고유 상황 재검토" }
+        ]
+      }
+    };
+
+    const assetClass = {
+      cash: { label: "CMA/MMF/CD", exp: 3.4, vol: 0.6, mdd: -0.5, tax: 0.55, liquidity: 100, stress: { rate: 0.1, fx: 0.0, commodity: 0.0 } },
+      shortBond: { label: "단기채·만기매칭", exp: 3.9, vol: 2.1, mdd: -2.2, tax: 0.6, liquidity: 92, stress: { rate: -1.1, fx: 0.0, commodity: -0.2 } },
+      income: { label: "배당·커버드콜", exp: 6.8, vol: 9.4, mdd: -13.0, tax: 1.1, liquidity: 78, stress: { rate: -2.8, fx: 2.2, commodity: -1.1 } },
+      global: { label: "글로벌 성장 ETF", exp: 9.6, vol: 17.2, mdd: -28.0, tax: 0.8, liquidity: 76, stress: { rate: -7.5, fx: 5.2, commodity: -3.4 } },
+      domestic: { label: "국내 주식·AI반도체", exp: 8.1, vol: 19.0, mdd: -31.0, tax: 0.35, liquidity: 72, stress: { rate: -6.2, fx: -3.8, commodity: -3.0 } },
+      treasury: { label: "미국채 10~30년", exp: 5.0, vol: 13.5, mdd: -24.0, tax: 0.7, liquidity: 80, stress: { rate: -8.0, fx: 5.5, commodity: -0.5 } },
+      gold: { label: "금·원자재", exp: 5.5, vol: 14.2, mdd: -20.0, tax: 0.2, liquidity: 82, stress: { rate: -0.7, fx: 4.0, commodity: 8.8 } },
+      reit: { label: "리츠·인프라", exp: 6.2, vol: 12.0, mdd: -22.0, tax: 1.0, liquidity: 68, stress: { rate: -5.5, fx: 1.2, commodity: 1.8 } }
+    };
+
+    const planTemplates = {
+      current: {
+        id: "current",
+        label: "현재안",
+        title: "기존 성향 유지",
+        desc: "국내 주식과 부동산 노출이 높고 단기 현금화 재원이 부족한 상태를 기준으로 비교합니다.",
+        alloc: { cash: 8, shortBond: 8, income: 15, global: 18, domestic: 31, treasury: 5, gold: 5, reit: 10 }
+      },
+      a: {
+        id: "a",
+        label: "제안 A",
+        title: "Tax Shield 안정형",
+        desc: "세금 납부와 18개월 유동성 이벤트를 먼저 분리하고, 남은 자금으로 인컴과 단기채를 조합합니다.",
+        alloc: { cash: 22, shortBond: 24, income: 18, global: 12, domestic: 6, treasury: 8, gold: 7, reit: 3 }
+      },
+      b: {
+        id: "b",
+        label: "제안 B",
+        title: "Global Growth 절충형",
+        desc: "필수 현금 버킷을 확보한 뒤 글로벌 성장, 달러, 금을 활용해 장기 실질가치 방어를 노립니다.",
+        alloc: { cash: 14, shortBond: 12, income: 16, global: 28, domestic: 10, treasury: 8, gold: 8, reit: 4 }
+      }
+    };
+
+    const state = {
+      scenario: "owner",
+      selectedPlan: "a",
+      analysis: null
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const money = (v) => {
+      const n = Number(v);
+      if (Math.abs(n) >= 10000) return (n / 10000).toFixed(n >= 100000 ? 0 : 1) + "억";
+      return n.toLocaleString("ko-KR") + "만";
+    };
+    const pct = (v, d = 1) => Number(v).toFixed(d) + "%";
+
+    function weighted(plan, field) {
+      return Object.entries(plan.alloc).reduce((sum, [key, weight]) => sum + assetClass[key][field] * weight / 100, 0);
+    }
+
+    function weightedStress(plan, field) {
+      return Object.entries(plan.alloc).reduce((sum, [key, weight]) => sum + assetClass[key].stress[field] * weight / 100, 0);
+    }
+
+    function calcPlan(plan, scenario) {
+      const exp = weighted(plan, "exp");
+      const vol = Math.sqrt(Object.entries(plan.alloc).reduce((sum, [key, weight]) => {
+        return sum + Math.pow(assetClass[key].vol * weight / 100, 2);
+      }, 0)) * 1.9;
+      const mdd = weighted(plan, "mdd") * (vol > 12 ? 1.08 : 0.92);
+      const taxDrag = weighted(plan, "tax") + (scenario.existingIncome > 2000 ? 0.45 : 0.1);
+      const afterTax = exp - taxDrag;
+      const sharpe = vol === 0 ? 0 : (afterTax - 3.5) / vol;
+      const liquidityAssets = scenario.assets * (plan.alloc.cash + plan.alloc.shortBond * 0.75) / 100;
+      const eventNeed = scenario.events.slice(0, 3).reduce((sum, e) => sum + e.amount, 0);
+      const liquidityCoverage = eventNeed ? liquidityAssets / eventNeed * 100 : 200;
+      const expectedTax = Math.max(0, scenario.existingIncome + scenario.assets * exp / 100 * 0.018 - 2000) * 0.42 + scenario.assets * Math.max(0, exp - 4) / 100 * 0.035;
+      return {
+        exp, vol, mdd, taxDrag, afterTax, sharpe, liquidityAssets,
+        liquidityCoverage, expectedTax,
+        stress: {
+          rate: weightedStress(plan, "rate"),
+          fx: weightedStress(plan, "fx"),
+          commodity: weightedStress(plan, "commodity")
+        }
+      };
+    }
+
+    function detectRRTTLLU(scenario, metrics) {
+      const memo = $("memo").value;
+      const riskText = $("riskInput").value === "low" ? "보수형" : $("riskInput").value === "high" ? "적극형" : "중립형";
+      return {
+        Return: memo.includes("물가") || scenario.scenario === "exit"
+          ? "세후 기준 물가상승률을 상회하는 연 4.5~6.5% 목표"
+          : "단기 현금 방어 후 세후 연 4~6% 목표",
+        Risk: `${riskText}. 최대하락폭은 고객이 상담 중 이탈하지 않을 수준으로 제한`,
+        Time: "12~18개월 확정 지출, 3년 세금·증여, 5년 이상 장기 자산화 구간을 분리",
+        Tax: scenario.existingIncome > 2000
+          ? "금융소득종합과세 구간 진입. 이자·배당·양도차익 실현 시점 관리 필요"
+          : "금융소득 2천만원 기준선 근접. 이자·배당형 상품 확대 전 사전 점검 필요",
+        Liquidity: `향후 이벤트 필요액 ${money(scenario.events.reduce((s, e) => s + e.amount, 0))}. A안 기준 커버리지 ${pct(metrics.liquidityCoverage, 0)}`,
+        Legal: "투자권유 적합성, 상품설명서 고지, 법인·개인 자금 구분, 증여·상속 관련 세무 검토",
+        Unique: scenario.title + " 특성상 수익률보다 현금화 시점과 의사결정 후회 리스크 관리가 중요"
+      };
+    }
+
+    function buildAnalysis() {
+      const scenario = { ...scenarios[state.scenario] };
+      scenario.assets = Number($("assetInput").value || scenario.assets);
+      scenario.existingIncome = Number($("incomeInput").value || scenario.existingIncome);
+      scenario.risk = $("riskInput").value;
+      const plans = Object.values(planTemplates).map(plan => ({
+        ...plan,
+        metrics: calcPlan(plan, scenario)
+      }));
+      const recommended = plans.find(p => p.id === "a");
+      return {
+        scenario,
+        plans,
+        rr: detectRRTTLLU(scenario, recommended.metrics),
+        behaviors: [
+          { title: "과신", text: "최근 성공한 투자 경험 때문에 성장주 비중을 한 번에 늘리려는 경향을 분할 집행 규칙으로 제한합니다." },
+          { title: "손실회피", text: "단기 지출 버킷과 장기 투자 버킷을 분리해 일시적 하락이 전체 계획 포기로 이어지지 않게 합니다." },
+          { title: "심리적 회계", text: "세금 재원, 증여 재원, 생활 재원, 성장 재원을 별도 계정처럼 시각화해 목적별 의사결정을 돕습니다." },
+          { title: "현재편향", text: "오늘의 시장 뉴스보다 예정된 납부일과 가족 이벤트를 우선순위로 두는 기본값을 제공합니다." }
+        ]
+      };
+    }
+
+    function renderSummary(analysis) {
+      const a = analysis.plans.find(p => p.id === "a").metrics;
+      const current = analysis.plans.find(p => p.id === "current").metrics;
+      const eventNeed = analysis.scenario.events.slice(0, 3).reduce((s, e) => s + e.amount, 0);
+      $("riskBadge").textContent = a.liquidityCoverage >= 130 ? "유동성 방어 양호" : "유동성 점검 필요";
+      $("riskBadge").className = "badge " + (a.liquidityCoverage >= 130 ? "good" : "warn");
+      const items = [
+        { label: "분석 금융자산", value: money(analysis.scenario.assets), small: "고객 상담 기준 입력값", tone: "blue" },
+        { label: "12~18개월 필요액", value: money(eventNeed), small: "세금·유학·법인 이벤트", tone: "gold" },
+        { label: "A안 유동성 커버리지", value: pct(a.liquidityCoverage, 0), small: "현금 + 단기채 75% 인정", tone: a.liquidityCoverage >= 130 ? "green" : "red" },
+        { label: "MDD 개선폭", value: pct(Math.abs(current.mdd) - Math.abs(a.mdd), 1), small: "현재안 대비 최대하락 완화", tone: "green" },
+        { label: "세후 기대수익률", value: pct(a.afterTax), small: "기대수익률 - 세금 드래그", tone: "blue" },
+        { label: "샤프 지수", value: a.sharpe.toFixed(2), small: "무위험수익률 3.5% 가정", tone: a.sharpe > 0.15 ? "green" : "gold" },
+        { label: "예상 세금", value: money(a.expectedTax), small: "간이 추정, 세무 검토 필요", tone: "gold" },
+        { label: "금리 +100bp 손실", value: pct(a.stress.rate), small: "A안 스트레스 예상 P&L", tone: a.stress.rate > -3 ? "green" : "red" }
+      ];
+      $("summaryMetrics").innerHTML = items.map(x => `
+        <div class="metric tone-${x.tone}">
+          <label>${x.label}</label>
+          <strong>${x.value}</strong>
+          <small>${x.small}</small>
+        </div>
+      `).join("");
+    }
+
+    function renderRR(analysis) {
+      $("rrGrid").innerHTML = Object.entries(analysis.rr).map(([key, value]) => `
+        <div class="rr-card">
+          <b><span>${key}</span><span class="badge">${key.slice(0, 1)}</span></b>
+          <p>${value}</p>
+        </div>
+      `).join("");
+    }
+
+    function renderPortfolios(analysis) {
+      $("portfolioGrid").innerHTML = analysis.plans.map(plan => {
+        const m = plan.metrics;
+        const selected = plan.id === state.selectedPlan;
+        const allocRows = Object.entries(plan.alloc).filter(([, v]) => v > 0).map(([key, v]) => {
+          const cls = key === "cash" || key === "shortBond" ? "cash" : key === "income" ? "income" : key === "gold" || key === "reit" ? "alt" : key === "domestic" || key === "global" ? "risk" : "";
+          return `<div class="bar-row"><span>${assetClass[key].label}</span><div class="bar ${cls}"><i style="width:${v}%"></i></div><span>${v}%</span></div>`;
+        }).join("");
+        return `
+          <article class="portfolio ${selected ? "selected" : ""}">
+            <span class="badge ${plan.id === "a" ? "good" : plan.id === "current" ? "bad" : "warn"}">${plan.label}</span>
+            <h3>${plan.title}</h3>
+            <p>${plan.desc}</p>
+            <div class="mini-metrics">
+              <div class="mini"><span>세후수익률</span><b>${pct(m.afterTax)}</b></div>
+              <div class="mini"><span>샤프</span><b>${m.sharpe.toFixed(2)}</b></div>
+              <div class="mini"><span>MDD</span><b class="loss">${pct(m.mdd)}</b></div>
+              <div class="mini"><span>유동성</span><b>${pct(m.liquidityCoverage, 0)}</b></div>
+              <div class="mini"><span>예상 세금</span><b>${money(m.expectedTax)}</b></div>
+              <div class="mini"><span>변동성</span><b>${pct(m.vol)}</b></div>
+            </div>
+            <div class="bars">${allocRows}</div>
+            <button class="btn ${selected ? "primary" : ""}" type="button" style="width:100%;margin-top:12px" onclick="selectPlan('${plan.id}')">
+              ${selected ? "선택됨" : "이 안 선택"}
+            </button>
+          </article>
+        `;
+      }).join("");
+      const selected = analysis.plans.find(p => p.id === state.selectedPlan);
+      $("selectedBadge").textContent = `선택: ${selected.label} · ${selected.title}`;
+    }
+
+    function renderStress(analysis) {
+      const scenarios = [
+        { key: "rate", title: "미국 기준금리 +100bp", note: "장기채와 성장주 가격 조정, 단기채 방어" },
+        { key: "fx", title: "원/달러 +200원", note: "달러자산 평가익, 국내주식 상대 약세" },
+        { key: "commodity", title: "원자재 인플레 충격", note: "금·원자재 방어, 소비·성장주 부담" }
+      ];
+      $("stressArea").innerHTML = `
+        <table class="stress-table">
+          <thead>
+            <tr><th>시나리오</th>${analysis.plans.map(p => `<th>${p.label}</th>`).join("")}<th>PB 코멘트</th></tr>
+          </thead>
+          <tbody>
+            ${scenarios.map(s => `
+              <tr>
+                <td><b>${s.title}</b><br><span style="color:var(--muted)">${s.note}</span></td>
+                ${analysis.plans.map(p => {
+                  const v = p.metrics.stress[s.key];
+                  return `<td class="${v < 0 ? "loss" : "gain"}">${pct(v)}</td>`;
+                }).join("")}
+                <td>${s.key === "rate" ? "A안은 단기채와 현금 비중으로 금리 충격을 줄입니다." : s.key === "fx" ? "B안은 달러 노출로 환율 상승 방어력이 가장 큽니다." : "금 편입 비중이 있는 A/B안 모두 방어 설명이 가능합니다."}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderTimeline(analysis) {
+      $("timelineArea").innerHTML = `
+        <div class="timeline">
+          ${analysis.scenario.events.map(event => `
+            <div class="event">
+              <time>${event.date}</time>
+              <div><b>${event.title}</b><p>${event.note}</p></div>
+              <span class="badge ${event.amount > 50000 ? "bad" : event.amount > 10000 ? "warn" : "good"}">${money(event.amount)}</span>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function renderBehavior(analysis) {
+      $("behaviorArea").innerHTML = analysis.behaviors.map(item => `
+        <div class="behavior">
+          <b>${item.title}</b>
+          <p>${item.text}</p>
+        </div>
+      `).join("");
+    }
+
+    function renderProposal(analysis) {
+      const selected = analysis.plans.find(p => p.id === state.selectedPlan);
+      const m = selected.metrics;
+      $("proposalPreview").innerHTML = `
+        <article class="proposal">
+          <div class="proposal-head">
+            <div>
+              <p class="eyebrow">Samsung Securities PB Insight</p>
+              <h2>VVIP 맞춤 유동성·세후 포트폴리오 제안서</h2>
+              <p style="margin:8px 0 0;color:var(--muted)">고객 유형: ${analysis.scenario.title} · 작성일: ${new Date().toLocaleDateString("ko-KR")}</p>
+            </div>
+            <div style="text-align:right">
+              <b style="font-size:18px">${selected.label}</b>
+              <p style="margin:4px 0 0;color:var(--muted)">${selected.title}</p>
+            </div>
+          </div>
+
+          <h3>1. 고객 상황 요약</h3>
+          <p>${analysis.scenario.memo}</p>
+
+          <div class="proposal-grid">
+            <div class="proposal-box"><span>분석 금융자산</span><b>${money(analysis.scenario.assets)}</b></div>
+            <div class="proposal-box"><span>세후 기대수익률</span><b>${pct(m.afterTax)}</b></div>
+            <div class="proposal-box"><span>유동성 커버리지</span><b>${pct(m.liquidityCoverage, 0)}</b></div>
+            <div class="proposal-box"><span>예상 세금</span><b>${money(m.expectedTax)}</b></div>
+            <div class="proposal-box"><span>최대하락폭</span><b>${pct(m.mdd)}</b></div>
+            <div class="proposal-box"><span>샤프 지수</span><b>${m.sharpe.toFixed(2)}</b></div>
+          </div>
+
+          <h3>2. 추천 논리</h3>
+          <p>${selected.desc} 이 안은 예정된 세금·유동성 이벤트를 먼저 현금성/단기채 버킷으로 분리하고, 장기 자산은 인컴·글로벌·대체자산으로 나누어 심리적 손실회피와 시장 충격을 동시에 관리합니다.</p>
+
+          <h3>3. 주요 현금화 일정</h3>
+          <table class="event-table">
+            <thead><tr><th>목표일</th><th>이벤트</th><th>필요액</th><th>관리 메모</th></tr></thead>
+            <tbody>
+              ${analysis.scenario.events.map(e => `<tr><td>${e.date}</td><td>${e.title}</td><td>${money(e.amount)}</td><td>${e.note}</td></tr>`).join("")}
+            </tbody>
+          </table>
+
+          <h3>4. PB 설명 스크립트</h3>
+          <p>고객님께서는 수익률 자체보다 예정된 세금과 가족 이벤트를 안정적으로 통과하는지가 더 중요합니다. 이번 제안은 투자자산을 하나의 덩어리로 보지 않고, 세금 재원·생활 재원·증여 재원·장기 성장 재원으로 나누어 관리합니다. 따라서 단기 지출 때문에 장기 투자를 불리한 시점에 매도할 가능성을 낮추고, 동시에 물가 상승에 뒤처지지 않는 수준의 세후 성과를 목표로 합니다.</p>
+
+          <div class="notice">본 제안서는 Young Creator 과제용 MVP에서 생성한 간이 예시입니다. 실제 투자권유 전에는 투자자정보 확인, 상품설명서 및 투자설명서 교부, 세무 전문가 검토, 법인·개인 자금 구분 확인이 필요합니다.</div>
+        </article>
+      `;
+    }
+
+    function renderAll() {
+      state.analysis = buildAnalysis();
+      renderSummary(state.analysis);
+      renderRR(state.analysis);
+      renderPortfolios(state.analysis);
+      renderStress(state.analysis);
+      renderTimeline(state.analysis);
+      renderBehavior(state.analysis);
+      renderProposal(state.analysis);
+    }
+
+    function loadScenario(key) {
+      state.scenario = key;
+      const sc = scenarios[key];
+      $("memo").value = sc.memo;
+      $("assetInput").value = sc.assets;
+      $("incomeInput").value = sc.existingIncome;
+      $("riskInput").value = sc.risk;
+      document.querySelectorAll(".sample").forEach(btn => btn.classList.toggle("active", btn.dataset.scenario === key));
+      renderAll();
+    }
+
+    function selectPlan(id) {
+      state.selectedPlan = id;
+      renderAll();
+    }
+
+    $("analyzeBtn").addEventListener("click", renderAll);
+    $("loadSampleBtn").addEventListener("click", () => loadScenario("owner"));
+    $("scrollProposalBtn").addEventListener("click", () => $("proposalSection").scrollIntoView({ behavior: "smooth" }));
+    $("printBtn").addEventListener("click", () => window.print());
+    $("printBtn2").addEventListener("click", () => window.print());
+    document.querySelectorAll(".sample").forEach(btn => {
+      btn.addEventListener("click", () => loadScenario(btn.dataset.scenario));
+    });
+    ["assetInput", "incomeInput", "riskInput"].forEach(id => $(id).addEventListener("change", renderAll));
+
+    loadScenario("owner");
+  </script>
+</body>
+</html>
