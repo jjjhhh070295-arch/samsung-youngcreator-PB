@@ -200,38 +200,45 @@ function buildBenchmarkChartData(
     const dollar = finiteNumber(point.dollar, fixedIncomeProxy(index, total, 2.3));
     const commodity = finiteNumber(point.commodity, fixedIncomeProxy(index, total, 3.6));
     const cash = fixedIncomeProxy(index, total, 3.0);
-    const equityBlend = sp500 * 0.65 + kospi200 * 0.35;
-    const els = equityBlend * 0.35 + bond * 0.45 + cash * 0.2;
-    const basePortfolio =
-      (weights.etf / totalWeight) * equityBlend +
-      (weights.bond / totalWeight) * bond +
-      (weights.els / totalWeight) * els +
-      (weights.mmf / totalWeight) * cash +
-      (weights.gold / totalWeight) * gold +
-      (weights.dollar / totalWeight) * dollar +
-      (weights.raw / totalWeight) * commodity;
-    let portfolio = basePortfolio;
+    // 1. 자산군별 대표 벤치마크 지수 1:1 정규화 매핑 (KOSPI200/S&P500 혼합을 주식 대표로 설정)
+    const stockBenchmark = kospi200 * 0.4 + sp500 * 0.6; // 글로벌 주식 혼합 프록시
+    const bondBenchmark = bond;                          // 국채/채권 지수
+    const goldBenchmark = gold;                          // 금 실물 지수
+    const cashBenchmark = cash;                          // CD금리/KOFR 금융 자산 프록시
+    const dollarBenchmark = dollar;                      // FX 달러 인덱스 프록시
+    const rawBenchmark = commodity;                     // 원자재 인덱스 프록시
+    
+    // ELS/ELB의 경우 상품 특성상 주식 벤치마크와 채권 벤치마크를 5:5로 복합 매핑하여 벤치마크 구현
+    const elsBenchmark = stockBenchmark * 0.5 + bondBenchmark * 0.5;
 
-    if (preference?.benchmarkOutperformance) {
-      const targetBenchmarks = [
-        preference.benchmarkTargets.includes('S&P500') ? sp500 : null,
-        preference.benchmarkTargets.includes('KOSPI200') ? kospi200 : null,
-        preference.benchmarkTargets.includes('벤치마크') || preference.benchmarkTargets.length === 0
-          ? Math.max(sp500, kospi200)
-          : null,
-      ].filter((value): value is number => value != null);
-      const benchmarkToBeat = targetBenchmarks.length > 0 ? Math.max(...targetBenchmarks) : Math.max(sp500, kospi200);
-      const finalAlpha = preference.highRiskAccepted ? [4, 8, 14][riskTilt + 1] : [2, 4, 7][riskTilt + 1];
-      const alphaTarget = finalAlpha * (total <= 1 ? 0 : index / (total - 1));
-      portfolio = Math.max(basePortfolio, benchmarkToBeat + alphaTarget);
-    }
+    // 2. 수식에 따른 실시간 혼합 벤치마크(Blended Benchmark) 가중평균 연산 (100 기준 규격화)
+  const blendedBenchmark =
+  (weights.etf / totalWeight) * stockBenchmark +
+  (weights.bond / totalWeight) * bondBenchmark +
+  (weights.els / totalWeight) * elsBenchmark +
+  (weights.mmf / totalWeight) * cashBenchmark +
+  (weights.gold / totalWeight) * goldBenchmark +
+  (weights.dollar / totalWeight) * dollarBenchmark +
+  (weights.raw / totalWeight) * rawBenchmark;
 
-    return {
-      ...point,
-      sp500: roundPercent(sp500),
-      kospi200: roundPercent(kospi200),
-      portfolio: roundPercent(portfolio),
-    };
+// 혼합 벤치마크는 “자산배분 기준선”으로 두고,
+// 제안 포트폴리오는 성향별 기대 초과성과를 더해 별도 트랙으로 계산
+const alphaByRiskTilt =
+  riskTilt === -1 ? 2.0 :
+  riskTilt === 0 ? 4.0 :
+  7.0;
+
+const timeProgress = total <= 1 ? 1 : index / (total - 1);
+
+const portfolio = blendedBenchmark + alphaByRiskTilt * timeProgress;
+
+return {
+  ...point,
+  sp500: roundPercent(sp500),
+  kospi200: roundPercent(kospi200),
+  portfolio: roundPercent(portfolio),
+  blendedBenchmark: roundPercent(blendedBenchmark),
+};
   });
 }
 
@@ -277,17 +284,19 @@ function BenchmarkReturnChart({
   fallback,
   updatedAt,
 }: {
-  data: BenchmarkChartPoint[];
+  data: (BenchmarkChartPoint & { blendedBenchmark?: number })[];
   source: string;
   fallback: boolean;
   updatedAt?: string;
 }) {
   const lastPoint = data[data.length - 1];
   const portfolioReturn = finiteNumber(lastPoint?.portfolio);
+  const blendedReturn = finiteNumber(lastPoint?.blendedBenchmark);
   const sp500Return = finiteNumber(lastPoint?.sp500);
   const kospi200Return = finiteNumber(lastPoint?.kospi200);
-  const alphaSp500 = portfolioReturn - sp500Return;
-  const alphaKospi200 = portfolioReturn - kospi200Return;
+  
+  // 단순 % 성과 차이가 아닌 자산 배분 공정 비교용 percentage point (%p) 도출
+  const alphaBlended = portfolioReturn - blendedReturn;
   const sourceLabel = fallback ? '일부 지연 · 백업 데이터 포함' : '실시간/지연 지수 데이터 · 최근 1년 월말 종가';
   const updatedLabel = updatedAt
     ? new Date(updatedAt).toLocaleString('ko-KR', {
@@ -303,13 +312,13 @@ function BenchmarkReturnChart({
       <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-3 dark:border-slate-800 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-slate-900 dark:bg-slate-100"></span>
+            <span className="h-2.5 w-2.5 rounded-full bg-blue-600"></span>
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-              실시간 지수 기반 수익률 추정
+              맞춤형 혼합 벤치마크(Blended Benchmark) 대비 성과 추정
             </h3>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            S&P500·KOSPI200은 최근 1년 종가 경로, 포트폴리오는 현재 비중을 지수와 채권·금·달러·원자재 프록시에 대입한 누적수익률 추정치입니다.
+            제안된 적극형/중립형/안정형 포트폴리오의 자산 비중과 일치하도록 자산군별 대표 지수를 실시간 결합한 공정 평가 기준선입니다.
           </p>
           <p className="mt-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
             {sourceLabel}
@@ -318,21 +327,13 @@ function BenchmarkReturnChart({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-xs sm:min-w-[280px]">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-            <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              S&P500 대비
+        <div className="grid grid-cols-1 gap-2 text-xs sm:min-w-[240px]">
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+            <span className="block text-[11px] font-semibold text-blue-700 dark:text-blue-400">
+              혼합 벤치마크 대비 초과성과
             </span>
-            <b className={alphaSp500 >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>
-              {formatPercent(alphaSp500)}
-            </b>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-            <span className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              KOSPI200 대비
-            </span>
-            <b className={alphaKospi200 >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>
-              {formatPercent(alphaKospi200)}
+            <b className={`text-base font-black ${alphaBlended >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {alphaBlended > 0 ? '+' : ''}{alphaBlended.toFixed(1)}%p
             </b>
           </div>
         </div>
@@ -371,8 +372,8 @@ function BenchmarkReturnChart({
             <Line
               type="linear"
               dataKey="portfolio"
-              name="포트폴리오"
-              stroke="rgb(var(--fg))"
+              name="제안 포트폴리오"
+              stroke="#0f172a"
               strokeWidth={3}
               dot={{ r: 3, strokeWidth: 1 }}
               activeDot={{ r: 6 }}
@@ -380,24 +381,17 @@ function BenchmarkReturnChart({
             />
             <Line
               type="linear"
-              dataKey="sp500"
-              name="S&P500"
-              stroke="#ef4444"
+              dataKey="blendedBenchmark"
+              name="혼합 벤치마크 (Blended)"
+              stroke="#10b981"
               strokeWidth={2.5}
-              dot={{ r: 3, strokeWidth: 1 }}
+              strokeDasharray="4 4"
+              dot={{ r: 2 }}
               activeDot={{ r: 5 }}
               connectNulls
             />
-            <Line
-              type="linear"
-              dataKey="kospi200"
-              name="KOSPI200"
-              stroke="#2563eb"
-              strokeWidth={2.5}
-              dot={{ r: 3, strokeWidth: 1 }}
-              activeDot={{ r: 5 }}
-              connectNulls
-            />
+            
+            
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -405,15 +399,17 @@ function BenchmarkReturnChart({
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
         <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
           <span className="h-2.5 w-2.5 rounded-full bg-slate-950 dark:bg-slate-100" />
-          포트폴리오 {portfolioReturn.toFixed(1)}%
+          제안 포트폴리오 {portfolioReturn.toFixed(1)}%
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 font-semibold text-red-700 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-300">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-          S&P500 {sp500Return.toFixed(1)}%
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 dark:text-emerald-300">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          혼합 벤치마크 {blendedReturn.toFixed(1)}%
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-semibold text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/50 dark:text-blue-300">
-          <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
-          KOSPI200 {kospi200Return.toFixed(1)}%
+        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-400">
+          S&P500 참고 ({sp500Return.toFixed(1)}%)
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-400">
+          KOSPI200 참고 ({kospi200Return.toFixed(1)}%)
         </span>
       </div>
     </section>
