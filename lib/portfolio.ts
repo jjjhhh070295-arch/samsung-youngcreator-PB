@@ -292,6 +292,7 @@ export interface ClientPreferenceProfile {
   targetReturn?: number;
   benchmarkOutperformance: boolean;
   benchmarkTargets: string[];
+  taxPriority: boolean;
   tags: string[];
   warnings: string[];
   actions: string[];
@@ -480,6 +481,7 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
   const highRiskAccepted = /아무리 위험|위험해도|고위험|공격적|공격형|적극|손실.*감수|리스크.*감수/.test(lower);
   const targetReturn = parseTargetReturn(rawText);
   const benchmarkOutperformance = /(?:벤치마크|benchmark|kospi|코스피|kospi200|코스피200|s&p|snp|sp500|s&p500|에스앤피).{0,24}(?:보다|대비|이상|초과|상회|넘|높|이기|웃돌)|(?:보다|대비).{0,16}(?:수익률|성과).{0,12}(?:높|초과|상회|이기)|(?:알파|초과수익)/i.test(lower);
+  const taxPriority = /(?:세금|절세|세후|비과세|과세이연|분리과세|금융소득종합과세|양도세|이자소득세).{0,24}(?:최대한|가장|최우선|우선|적게|줄|낮|절감|아끼|최소|안\s*내|안내|비과세)|(?:최대한|가장|최우선|우선).{0,16}(?:절세|세금|세후|비과세)|tax\s*(?:first|priority|efficient)/i.test(lower);
   const specificBenchmarkTargets = [
     /kospi|코스피|kospi200|코스피200/i.test(lower) ? "KOSPI200" : "",
     /s&p|snp|sp500|s&p500|에스앤피/i.test(lower) ? "S&P500" : "",
@@ -521,6 +523,12 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
     actions.push(`${targets.join("·")} 대비 높은 수익률 요구를 감지해 성장 ETF·테마주·해외주식 비중을 우선 보강했습니다.`);
     warnings.push("벤치마크 초과수익은 보장할 수 없으며, 시장 하락 시 손실폭과 추적오차가 커질 수 있어 고위험 적합성 확인이 필요합니다.");
   }
+  if (taxPriority) {
+    tags.push("세금 최우선");
+    actions.push("비과세·분리과세·과세이연 가능성이 있는 자산을 우선 검토하고, 수익률·위험도는 후순위 제약으로 낮췄습니다.");
+    actions.push("브라질 국채, 국내 상장주식 장내거래, 개별채권 직접투자, 연금저축·IRP 과세이연 계좌를 절세 후보군으로 올렸습니다.");
+    warnings.push("절세 효과는 개인/법인 구분, 대주주 요건, 조세조약 요건, 계좌 한도에 따라 달라 세무 전문가 확인이 필요합니다.");
+  }
 
   return {
     rawText,
@@ -532,6 +540,7 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
     targetReturn,
     benchmarkOutperformance,
     benchmarkTargets,
+    taxPriority,
     tags,
     warnings,
     actions,
@@ -665,6 +674,16 @@ function adjustedWeights(
     weights.dollar += preference.benchmarkTargets.includes("S&P500") ? 3 : 0;
   }
 
+  if (preference.taxPriority) {
+    weights.bond += 18 - riskTilt * 2;
+    weights.mmf += 8;
+    weights.etf += riskTilt === 1 ? 4 : -4;
+    weights.els -= 8;
+    weights.gold -= 2;
+    weights.raw = 0;
+    weights.dollar = Math.max(3, weights.dollar - 2);
+  }
+
   return normalizeOptionWeights(weights);
 }
 
@@ -674,6 +693,12 @@ function productsFor(
   preference: ClientPreferenceProfile,
 ) {
   const products: string[] = [];
+  if (preference.taxPriority) {
+    products.push("브라질 국채 비과세 검토 바스켓");
+    products.push("국내 상장주식 장내거래 절세 바스켓");
+    products.push("개별채권 직접투자 매매차익 비과세 검토");
+    products.push("연금저축·IRP 과세이연 KODEX");
+  }
   if (preference.overseasSingleStock) {
     products.push("해외 단일종목 8~12개 집중 바스켓");
     products.push("미국 대형 성장주·AI 반도체 개별주");
@@ -741,6 +766,20 @@ export function preferenceAdjustedMetrics(
       -Math.min(volatilityMddCap, metrics.volatility * (preference.highRiskAccepted ? 0.9 : 0.75)),
     );
     metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
+  }
+  if (preference.taxPriority) {
+    const tier = riskTilt + 1;
+    const expectedFloor = [4.8, 5.8, 7.2][tier];
+    const expectedCap = [6.5, 8.2, 10.5][tier];
+    const volatilityFloor = [6.5, 10, 16][tier];
+    const volatilityCap = [10, 16, 28][tier];
+    const mddGuide = [-10, -18, -30][tier];
+    const taxEfficiency = [0.96, 0.95, 0.93][tier];
+
+    metrics.expectedReturn = Math.min(Math.max(metrics.expectedReturn * 0.62, expectedFloor), expectedCap);
+    metrics.volatility = Math.min(Math.max(metrics.volatility * 0.55, volatilityFloor), volatilityCap);
+    metrics.mdd = Math.min(metrics.mdd, mddGuide);
+    metrics.taxReturn = Math.round(metrics.expectedReturn * taxEfficiency * 10) / 10;
   }
   metrics.expectedReturn = Math.round(metrics.expectedReturn * 10) / 10;
   metrics.volatility = Math.round(metrics.volatility * 10) / 10;
@@ -906,8 +945,8 @@ function buildKodexTaxSavingPlan(
   preference: ClientPreferenceProfile,
 ): TaxSavingPlan {
   const riskScore = factorScore(client, "risk");
-  const aggressive = riskScore >= 4 || preference.stockOnly || preference.benchmarkOutperformance || (preference.targetReturn ?? 0) >= 15;
-  const stable = riskScore <= 2 || cashflow.taxOutflow > client.assetSize * 0.03;
+  const aggressive = !preference.taxPriority && (riskScore >= 4 || preference.stockOnly || preference.benchmarkOutperformance || (preference.targetReturn ?? 0) >= 15);
+  const stable = preference.taxPriority || riskScore <= 2 || cashflow.taxOutflow > client.assetSize * 0.03;
   const taxText = `${factorValue(client, "tax", "")} ${client.ips.tax.notes} ${preference.rawText}`;
   const lowerIncomeHint = /5500|5,500|4500|4,500|저소득|총급여.*이하|종합소득.*이하/.test(taxText);
   const creditRate = lowerIncomeHint ? 0.165 : 0.132;
@@ -989,6 +1028,12 @@ function buildKodexTaxSavingPlan(
       ),
     ],
     solutions: [
+      ...(preference.taxPriority
+        ? [
+            "세금 최우선 요구가 있어 연금저축·IRP는 성장형보다 과세이연·안전자산 비중을 우선한 KODEX 조합으로 제안합니다.",
+            "일반 금융자산은 브라질 국채 비과세 요건, 국내 상장주식 소액주주 장내거래 여부, 개별채권 직접투자 매매차익 과세 여부를 세무 검토 체크리스트로 올립니다.",
+          ]
+        : []),
       "세액공제 한도 활용 순서는 연금저축 600만원을 먼저 채우고 IRP 300만원을 추가해 합산 900만원을 맞추는 방식으로 제안합니다.",
       `예상 세액공제액은 소득구간 확인 전 기본 ${Math.round(creditRate * 1000) / 10}% 가정 기준 ${formatKRWShortLocal(Math.round(taxCreditBase * creditRate))}입니다.`,
       "연금저축+IRP 합산 납입한도는 연 1,800만원이지만 세액공제 대상은 기본 합산 900만원으로 분리해 안내합니다.",
@@ -997,6 +1042,9 @@ function buildKodexTaxSavingPlan(
     sources: [
       { label: "KODEX 연금투자 가능 ETF 목록", url: "https://www.samsungfund.com/etf/product/pensionlist.do" },
       { label: "삼성 KODEX 연금 세액공제 가이드", url: "https://m.samsungfund.com/upload/kodex/newsroom/20260427141121713.pdf" },
+      { label: "국세청 연금계좌 세액공제 안내", url: "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7875" },
+      { label: "국세청 주식 양도소득세 신고대상 안내", url: "https://s.nts.go.kr/asan/na/ntt/selectNttInfo.do?mi=2201&nttSn=1348384" },
+      { label: "삼일PwC 브라질채권 비과세 검토", url: "https://www.pwc.com/kr/ko/insights/issue-brief/one-point-tax-10.html" },
     ],
   };
 }
@@ -1015,7 +1063,9 @@ export function buildPortfolioViewModel(
     optionFromBase(mockPortfolioOptions[2], client, cashflowSummary, researchSignals, preferenceProfile, 1),
   ];
   const recommendedId =
-    preferenceProfile.stockOnly || preferenceProfile.benchmarkOutperformance || (preferenceProfile.targetReturn ?? 0) >= 15
+    preferenceProfile.taxPriority
+      ? "stable"
+      : preferenceProfile.stockOnly || preferenceProfile.benchmarkOutperformance || (preferenceProfile.targetReturn ?? 0) >= 15
       ? "growth"
       : factorScore(client, "risk") >= 4 && cashflowSummary.taxOutflow < client.assetSize * 0.03
       ? "growth"
@@ -1036,7 +1086,9 @@ export function buildPortfolioViewModel(
     client: `${client.name} 고객은 ${clientSummary.clientType}이며 위험성향은 ${clientSummary.riskPropensity}, 투자기간은 ${clientSummary.investmentPeriod}로 반영했습니다.`,
     cashflow: `현금흐름 입력값 기준 월 유입 ${formatKRWShortLocal(cashflowSummary.monthlyIncome)}, 월 유출 ${formatKRWShortLocal(cashflowSummary.monthlyOutflow)}, 월 순현금흐름 ${formatKRWShortLocal(cashflowSummary.monthlyNet)}입니다.`,
     tax: cashflowSummary.taxOutflow > 0
-      ? `법인세·증여세·양도세 등 세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 우선 커버하도록 MMF/RP와 채권 비중을 높였습니다.`
+      ? preferenceProfile.taxPriority
+        ? `세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 커버하는 동시에, 브라질 국채 비과세 검토·국내 상장주식 장내거래·개별채권 직접투자·연금계좌 과세이연처럼 세후 효율이 높은 후보를 우선 배치했습니다.`
+        : `법인세·증여세·양도세 등 세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 우선 커버하도록 MMF/RP와 채권 비중을 높였습니다.`
       : "명시된 대형 세금 납부 이벤트가 없어 시장 신호와 위험성향 중심으로 배분했습니다.",
     unique: factorValue(client, "unique", "고유상황 입력값이 없어 표준 고액자산가 유동성 버킷을 적용했습니다."),
     preference: preferenceText,
@@ -1059,7 +1111,7 @@ export function buildPortfolioViewModel(
     rationale,
     preferenceProfile,
     taxSavingPlan,
-    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 최신 리서치의 ${highSignal.label} 신호와 ${preferenceProfile.hasRequirement ? "고객 고유 요구조건" : "고객 7요인"}을 함께 반영하되, ${client.name} 고객의 세금·현금화 일정을 우선 점검했습니다.`,
+    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 최신 리서치의 ${highSignal.label} 신호와 ${preferenceProfile.hasRequirement ? "고객 고유 요구조건" : "고객 7요인"}을 함께 반영하되, ${preferenceProfile.taxPriority ? "세후 효율과 절세 가능성" : `${client.name} 고객의 세금·현금화 일정`}을 우선 점검했습니다.`,
     recommendedId,
     liquidityReserveManwon,
   };

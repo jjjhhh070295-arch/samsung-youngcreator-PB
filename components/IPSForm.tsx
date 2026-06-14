@@ -38,7 +38,7 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
         const f = ips[m.key];
         const valuePlaceholder =
           m.key === "unique"
-            ? "예: 해외주식 단일종목만 편입, 기대수익률 20% 이상 희망"
+            ? "예: 세금을 최대한 적게 내고 싶음, 해외주식 단일종목만 편입, 기대수익률 20% 이상 희망"
             : m.key === "tax"
               ? "예: 연금저축/IRP 세액공제, 법인세·증여세 납부일 고려"
               : "예: 연 6~8%";

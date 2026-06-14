@@ -889,6 +889,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   </p>
                 </div>
               )}
+              {model.preferenceProfile.taxPriority && (
+                <div className="mt-3 rounded-lg border border-green-200 bg-white px-3 py-2">
+                  <p className="text-[11px] font-bold text-green-800">절세 최우선 반영 방식</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                    세금 최소화 요구를 최우선 조건으로 감지했습니다. 추천안은 안정형을 우선 선택하고,
+                    브라질 국채 비과세 검토, 국내 상장주식 장내거래, 개별채권 직접투자 매매차익,
+                    연금저축·IRP 과세이연 계좌를 먼저 배치합니다. 수익률과 위험도는 세후 효율을 해치지 않는
+                    범위에서만 보조적으로 반영합니다.
+                  </p>
+                </div>
+              )}
               {model.preferenceProfile.rawText && (
                 <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-500">
                   입력 문장: {model.preferenceProfile.rawText}
@@ -908,7 +919,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
         ) : (
           <p className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-xs leading-relaxed text-slate-500">
-            고유상황에 “해외주식 단일종목만”, “기대수익률 20% 이상”처럼 명시된 요구가 있으면 이 영역에 자동 표시되고 포트폴리오 비중과 근거에 반영됩니다.
+            고유상황에 “해외주식 단일종목만”, “기대수익률 20% 이상”, “세금을 최대한 적게 내고 싶다”처럼 명시된 요구가 있으면 이 영역에 자동 표시되고 포트폴리오 비중과 근거에 반영됩니다.
           </p>
         )}
       </section>
