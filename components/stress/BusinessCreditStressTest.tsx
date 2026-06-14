@@ -5,6 +5,7 @@ import {
   CREDIT_RATINGS,
   calculateMicroStress,
   normalizeCreditRating,
+  type CompanySize,
   type CreditRating,
   type MicroRiskLevel,
   type MicroStressInput,
@@ -18,18 +19,8 @@ import {
 } from "@/lib/stress/microStressScenarios";
 import type { Portfolio, ScenarioShock } from "@/lib/types";
 
-type ScenarioKey = keyof typeof microStressScenarios;
 type PortfolioProfileKey = "stable" | "balanced" | "growth";
-
-type PortfolioStressProfile = {
-  key: PortfolioProfileKey;
-  label: string;
-  badge: string;
-  shockMultiplier: number;
-  fundingMultiplier: number;
-  cashBufferMultiplier: number;
-  description: string;
-};
+type IndustryKey = "manufacturing" | "wholesale" | "construction" | "it" | "real_estate" | "other";
 
 type Props = {
   portfolios?: Portfolio[];
@@ -37,68 +28,119 @@ type Props = {
   macroPresetId?: string;
 };
 
+type PortfolioStressProfile = {
+  key: PortfolioProfileKey;
+  label: string;
+  labelEn: string;
+  sensitivity: number;
+  description: string;
+};
+
+type CompanyProfile = {
+  key: CompanySize;
+  label: string;
+  fundingSensitivity: number;
+  description: string;
+};
+
+type CompanyClassificationInput = {
+  selectedSize: CompanySize;
+  industry: IndustryKey;
+  averageRevenue3y: number;
+  totalAssets: number;
+  isDisclosureGroup: boolean;
+  isCrossShareholdingGroup: boolean;
+  hasLargeCompanyOwner30: boolean;
+  isPublicInstitution: boolean;
+};
+
+const portfolioProfiles: Record<PortfolioProfileKey, PortfolioStressProfile> = {
+  stable: {
+    key: "stable",
+    label: "안정형",
+    labelEn: "Stable",
+    sensitivity: 0.75,
+    description:
+      "현금성·안정형 자산 비중이 높아 동일한 법인 충격에서도 유동성 방어 흡수력이 상대적으로 큽니다.",
+  },
+  balanced: {
+    key: "balanced",
+    label: "균형형",
+    labelEn: "Balanced",
+    sensitivity: 1,
+    description:
+      "기준 포트폴리오로 보아 법인 스트레스가 유동성 방어력에 전이되는 정도를 표준값으로 반영합니다.",
+  },
+  growth: {
+    key: "growth",
+    label: "수익추구형",
+    labelEn: "Growth",
+    sensitivity: 1.25,
+    description:
+      "위험자산 현금화 할인과 변동성 부담을 감안해 동일한 법인 충격에도 유동성 부족액을 더 민감하게 봅니다.",
+  },
+};
+
+const companyProfiles: Record<CompanySize, CompanyProfile> = {
+  sme: {
+    key: "sme",
+    label: "중소기업",
+    fundingSensitivity: 1.2,
+    description:
+      "외부 충격 시 자금조달 접근성이 상대적으로 낮다고 보고 스프레드·등급 하락 민감도를 높게 적용합니다.",
+  },
+  middle: {
+    key: "middle",
+    label: "중견기업",
+    fundingSensitivity: 1,
+    description: "중견기업은 기준 조달 민감도를 적용합니다.",
+  },
+  large: {
+    key: "large",
+    label: "대기업/대규모기업집단",
+    fundingSensitivity: 0.85,
+    description:
+      "조달 접근성은 상대적으로 높게 보되, 차입금 규모가 크면 금액 효과는 그대로 크게 나타납니다.",
+  },
+};
+
+const industryMeta: Record<IndustryKey, { label: string; smeRevenueThreshold: number }> = {
+  manufacturing: { label: "제조업", smeRevenueThreshold: 1500 },
+  wholesale: { label: "도소매업", smeRevenueThreshold: 1000 },
+  construction: { label: "건설업", smeRevenueThreshold: 1000 },
+  it: { label: "정보통신업", smeRevenueThreshold: 800 },
+  real_estate: { label: "부동산업", smeRevenueThreshold: 400 },
+  other: { label: "기타", smeRevenueThreshold: 600 },
+};
+
 const demoInput: MicroStressInput = {
   annualRevenue: 120,
   ebitdaMargin: 15,
-  operatingLeverage: 1.2,
   annualRentalIncomeCurrent: 3,
   currentVacancyRate: 5,
+  cashBuffer: 8,
   totalDebt: 60,
   floatingDebt: 20,
-  maturingDebtWithinYear: 12,
-  averageFundingRate: 4.8,
+  refinancingDebtWithinYear: 12,
+  averageBorrowingRate: 4.8,
   currentRating: "A",
-  cashBuffer: 8,
-  eventLiquidityNeed: 5,
   currentRatio: 1.35,
   debtToEquityRatio: 120,
   interestCoverageRatio: 4.5,
   receivablesDays: 45,
   inventoryDays: 35,
-  forcedRefinancing: false,
+  eventLiquidityNeed: 5,
 };
 
-const scenarioEntries = Object.entries(microStressScenarios) as Array<
-  [
-    ScenarioKey,
-    MicroStressScenario & {
-      name: string;
-      message: string;
-    },
-  ]
->;
-
-const portfolioProfiles: Record<PortfolioProfileKey, PortfolioStressProfile> = {
-  stable: {
-    key: "stable",
-    label: "안정형 연계",
-    badge: "Stable",
-    shockMultiplier: 0.85,
-    fundingMultiplier: 0.9,
-    cashBufferMultiplier: 1.12,
-    description:
-      "안정형은 현금성·채권성 비중이 높다는 전제로 동일 충격의 유동성 압박을 낮게 반영합니다.",
-  },
-  balanced: {
-    key: "balanced",
-    label: "균형형 연계",
-    badge: "Balanced",
-    shockMultiplier: 1,
-    fundingMultiplier: 1,
-    cashBufferMultiplier: 1,
-    description:
-      "균형형은 포트폴리오 선택에 따른 추가 민감도 보정 없이 법인 펀더멘털 충격을 기준값으로 봅니다.",
-  },
-  growth: {
-    key: "growth",
-    label: "수익추구형 연계",
-    badge: "Growth",
-    shockMultiplier: 1.18,
-    fundingMultiplier: 1.15,
-    cashBufferMultiplier: 0.88,
-    description:
-      "수익추구형은 위험자산 현금화 할인과 차환 압박을 더 크게 보아 동일 충격의 민감도를 높입니다.",
-  },
+const demoCompany: CompanyClassificationInput = {
+  selectedSize: "middle",
+  industry: "manufacturing",
+  averageRevenue3y: 120,
+  totalAssets: 850,
+  isDisclosureGroup: false,
+  isCrossShareholdingGroup: false,
+  hasLargeCompanyOwner30: false,
+  isPublicInstitution: false,
 };
 
 const riskStyles: Record<
@@ -107,32 +149,35 @@ const riskStyles: Record<
 > = {
   safe: {
     label: "Safe",
-    badge:
-      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
     border: "border-emerald-200 dark:border-emerald-800/60",
     text: "text-emerald-700 dark:text-emerald-300",
-    panel: "bg-emerald-50/70 dark:bg-emerald-900/10",
+    panel: "bg-emerald-50/80 dark:bg-emerald-900/10",
   },
   watch: {
     label: "Watch",
     badge: "bg-gold-100 text-gold-800 dark:bg-gold-900/40 dark:text-gold-200",
     border: "border-gold-300/70 dark:border-gold-700/50",
     text: "text-gold-700 dark:text-gold-300",
-    panel: "bg-gold-50/70 dark:bg-gold-900/10",
+    panel: "bg-gold-50/80 dark:bg-gold-900/10",
   },
   danger: {
     label: "Danger",
     badge: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
     border: "border-red-200 dark:border-red-800/60",
     text: "text-red-600 dark:text-red-300",
-    panel: "bg-red-50/70 dark:bg-red-900/10",
+    panel: "bg-red-50/80 dark:bg-red-900/10",
   },
 };
 
-const sliderPercentKeys = new Set<keyof MicroStressScenario>([
-  "revenueShock",
-  "rentShock",
-]);
+const scenarioEntries = Object.entries(microStressScenarios) as Array<
+  [
+    keyof typeof microStressScenarios,
+    MicroStressScenario & { name: string; message: string },
+  ]
+>;
+
+const sliderPercentKeys = new Set<keyof MicroStressScenario>(["revenueShock"]);
 
 const formatEok = (value: number) => {
   const abs = Math.abs(value);
@@ -148,21 +193,40 @@ const formatPp = (value: number, digits = 1) =>
 
 const formatBp = (value: number) => `+${Math.round(value)}bp`;
 
-function riskCopy(level: MicroRiskLevel) {
-  if (level === "safe") return "현금 버퍼와 이자보상력이 12개월 충격을 흡수하는 구간입니다.";
-  if (level === "watch") return "영업현금흐름과 차환 조건을 점검하며 유동성 버킷 보강이 필요합니다.";
-  return "단기 현금화, 차입 만기 재조정, 위험자산 방어 조정이 필요한 구간입니다.";
-}
-
 function inferPortfolioProfile(portfolio?: Portfolio): PortfolioProfileKey {
   const text = `${portfolio?.id ?? ""} ${portfolio?.label ?? ""}`.toLowerCase();
   if (text.includes("stable") || text.includes("안정")) return "stable";
-  if (text.includes("growth") || text.includes("수익") || text.includes("성장")) {
-    return "growth";
-  }
+  if (text.includes("growth") || text.includes("수익") || text.includes("성장")) return "growth";
   if ((portfolio?.expectedRisk ?? 0) <= 4) return "stable";
   if ((portfolio?.expectedRisk ?? 0) >= 8) return "growth";
   return "balanced";
+}
+
+function buildMacroLinkedScenario(macroShock?: ScenarioShock): MicroStressScenario {
+  if (!macroShock) {
+    return (
+      microStressPresetScenarios.find((preset) => preset.id === "macro_linked")?.scenario ??
+      microStressScenarios.base
+    );
+  }
+
+  const fed = Math.max(0, macroShock.d_fed);
+  const ust = Math.max(0, macroShock.d_ust);
+  const inflation = Math.max(0, macroShock.infl);
+  const krw = Math.max(0, macroShock.ret_krw);
+  const commodity = Math.max(0, macroShock.ret_cmd);
+  const spreadShock = Math.min(500, fed * 55 + ust * 70 + inflation * 20);
+
+  return {
+    revenueShock: -Math.min(0.35, krw * 0.001 + commodity * 0.0008 + inflation * 0.01),
+    marginShockPp: -Math.min(7, inflation * 0.8 + krw * 0.04 + commodity * 0.04),
+    vacancyShockPp: Math.min(15, ust * 2 + fed),
+    fundingSpreadShockBp: spreadShock,
+    ratingDowngradeNotches: spreadShock >= 260 ? 2 : spreadShock >= 140 ? 1 : 0,
+    receivablesDelayDays: Math.min(60, (fed + ust) * 5 + krw * 0.35),
+    inventoryDelayDays: Math.min(45, commodity * 0.45 + inflation * 3),
+    shortTermDebtConcentrationPct: Math.min(80, 35 + fed * 12 + ust * 8),
+  };
 }
 
 function valueForSlider(scenario: MicroStressScenario, key: keyof MicroStressScenario) {
@@ -175,76 +239,41 @@ function valueFromSlider(key: keyof MicroStressScenario, value: number) {
 }
 
 function sliderValueLabel(key: keyof MicroStressScenario, value: number) {
-  if (key === "revenueShock" || key === "rentShock") return formatPercent(value, 0);
+  if (key === "revenueShock") return formatPercent(value, 0);
   if (key === "marginShockPp" || key === "vacancyShockPp") return formatPp(value, 1);
   if (key === "fundingSpreadShockBp") return formatBp(value);
   if (key === "ratingDowngradeNotches") return `${value.toFixed(0)} notch`;
-  if (key === "workingCapitalShockPct") return `${value.toFixed(1)}%`;
+  if (key === "shortTermDebtConcentrationPct") return `${value.toFixed(0)}%`;
   return `${value.toFixed(0)}일`;
 }
 
-function buildMacroOverlay(macroShock?: ScenarioShock): MicroStressScenario {
-  const fed = Math.max(0, macroShock?.d_fed ?? 0);
-  const ust = Math.max(0, macroShock?.d_ust ?? 0);
-  const inflation = Math.max(0, macroShock?.infl ?? 0);
-  const krw = Math.max(0, macroShock?.ret_krw ?? 0);
-  const commodity = Math.max(0, macroShock?.ret_cmd ?? 0);
-  const ratePressure = fed + ust;
+function classifyCompany(input: CompanyClassificationInput): CompanySize {
+  if (input.isDisclosureGroup || input.isCrossShareholdingGroup) return "large";
+  if (input.isPublicInstitution || input.hasLargeCompanyOwner30) return "large";
 
-  return {
-    revenueShock: -(krw * 0.001 + commodity * 0.0005),
-    marginShockPp: -(inflation * 0.35 + krw * 0.03 + commodity * 0.03),
-    vacancyShockPp: ust * 1.5,
-    rentShock: 0,
-    fundingSpreadShockBp: fed * 40 + ust * 55,
-    ratingDowngradeNotches: ratePressure >= 2 ? 1 : ratePressure >= 1.2 ? 0.5 : 0,
-    workingCapitalShockPct: krw * 0.04 + commodity * 0.025,
-    collectionDelayDays: ratePressure * 2,
-  };
+  const threshold = industryMeta[input.industry].smeRevenueThreshold;
+  const qualifiesAsSme =
+    input.averageRevenue3y <= threshold &&
+    input.totalAssets < 5000 &&
+    !input.isDisclosureGroup &&
+    !input.hasLargeCompanyOwner30;
+
+  if (qualifiesAsSme) return "sme";
+  return "middle";
 }
 
-function hasOverlay(overlay: MicroStressScenario) {
-  return Object.values(overlay).some((value) => Math.abs(value) > 0.001);
-}
-
-function applyScenarioAdjustments(
-  scenario: MicroStressScenario,
-  profile: PortfolioStressProfile,
-  macroOverlay: MicroStressScenario,
-  macroLinked: boolean,
-): MicroStressScenario {
-  const overlay = macroLinked ? macroOverlay : null;
-  return {
-    revenueShock: scenario.revenueShock * profile.shockMultiplier + (overlay?.revenueShock ?? 0),
-    marginShockPp: scenario.marginShockPp * profile.shockMultiplier + (overlay?.marginShockPp ?? 0),
-    vacancyShockPp:
-      scenario.vacancyShockPp * profile.shockMultiplier + (overlay?.vacancyShockPp ?? 0),
-    rentShock: scenario.rentShock * profile.shockMultiplier + (overlay?.rentShock ?? 0),
-    fundingSpreadShockBp:
-      scenario.fundingSpreadShockBp * profile.fundingMultiplier +
-      (overlay?.fundingSpreadShockBp ?? 0),
-    ratingDowngradeNotches: Math.min(
-      4,
-      Math.max(
-        0,
-        scenario.ratingDowngradeNotches * profile.shockMultiplier +
-          (overlay?.ratingDowngradeNotches ?? 0),
-      ),
-    ),
-    workingCapitalShockPct:
-      scenario.workingCapitalShockPct * profile.shockMultiplier +
-      (overlay?.workingCapitalShockPct ?? 0),
-    collectionDelayDays:
-      scenario.collectionDelayDays * profile.shockMultiplier +
-      (overlay?.collectionDelayDays ?? 0),
-  };
-}
-
-function inputWithPortfolioBuffer(input: MicroStressInput, profile: PortfolioStressProfile) {
-  return {
-    ...input,
-    cashBuffer: input.cashBuffer * profile.cashBufferMultiplier,
-  };
+function classificationReason(input: CompanyClassificationInput, inferred: CompanySize) {
+  if (input.isDisclosureGroup || input.isCrossShareholdingGroup) {
+    return "공시대상기업집단 또는 상호출자제한기업집단 소속으로 입력되어 대기업/대규모기업집단으로 간이 판정했습니다.";
+  }
+  if (input.isPublicInstitution) return "공공기관·지방공기업 여부가 예로 입력되어 중견기업 간이 판정에서 제외했습니다.";
+  if (input.hasLargeCompanyOwner30) {
+    return "자산총액 5,000억 원 이상 법인의 30% 이상 지분 보유 및 최다출자 가능성이 있어 독립성 기준 미충족으로 봤습니다.";
+  }
+  if (inferred === "sme") {
+    return `${industryMeta[input.industry].label} 3년 평균 매출액과 자산총액 5,000억 원 미만 조건을 함께 충족하는 것으로 간이 판정했습니다.`;
+  }
+  return "중소기업 매출·자산·독립성 조건을 충족하지 않으나 대규모기업집단 입력은 없어 중견기업으로 간이 판정했습니다.";
 }
 
 export default function BusinessCreditStressTest({
@@ -252,80 +281,87 @@ export default function BusinessCreditStressTest({
   macroShock,
   macroPresetId,
 }: Props) {
+  const inferredPortfolioKey = inferPortfolioProfile(portfolios[0]);
+  const [selectedPortfolioKey, setSelectedPortfolioKey] =
+    useState<PortfolioProfileKey>(inferredPortfolioKey);
   const [input, setInput] = useState<MicroStressInput>(demoInput);
-  const [presetId, setPresetId] = useState<MicroStressPresetId>("base");
-  const [scenario, setScenario] = useState<MicroStressScenario>(microStressScenarios.base);
-  const [macroLinked, setMacroLinked] = useState(true);
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>(
-    portfolios[0]?.id ?? "demo",
+  const [companyInput, setCompanyInput] =
+    useState<CompanyClassificationInput>(demoCompany);
+  const [presetId, setPresetId] = useState<MicroStressPresetId>("spread_rise");
+  const [scenario, setScenario] = useState<MicroStressScenario>(
+    microStressPresetScenarios.find((preset) => preset.id === "spread_rise")?.scenario ??
+      microStressScenarios.base,
   );
+
+  // 향후 기존 포트폴리오 추천 화면의 선택 상태가 전역/스토어로 노출되면 이 내부 드롭다운 대신 직접 연결 가능.
+  useEffect(() => {
+    setSelectedPortfolioKey(inferredPortfolioKey);
+  }, [inferredPortfolioKey]);
 
   useEffect(() => {
-    if (portfolios.length === 0) {
-      setSelectedPortfolioId("demo");
-      return;
+    if (presetId === "macro_linked") {
+      setScenario(buildMacroLinkedScenario(macroShock));
     }
-    if (!portfolios.some((portfolio) => portfolio.id === selectedPortfolioId)) {
-      setSelectedPortfolioId(portfolios[0].id);
-    }
-  }, [portfolios, selectedPortfolioId]);
+  }, [macroShock, presetId]);
 
-  const activePortfolio =
-    portfolios.find((portfolio) => portfolio.id === selectedPortfolioId) ?? portfolios[0];
-  const portfolioProfile = portfolioProfiles[inferPortfolioProfile(activePortfolio)];
-  const macroOverlay = useMemo(() => buildMacroOverlay(macroShock), [macroShock]);
-  const macroIsActive = hasOverlay(macroOverlay);
-  const adjustedInput = useMemo(
-    () => inputWithPortfolioBuffer(input, portfolioProfile),
-    [input, portfolioProfile],
+  const selectedPortfolio = portfolioProfiles[selectedPortfolioKey];
+  const selectedCompany = companyProfiles[companyInput.selectedSize];
+  const inferredCompanySize = classifyCompany(companyInput);
+  const inferredCompany = companyProfiles[inferredCompanySize];
+  const classificationMismatch = inferredCompanySize !== companyInput.selectedSize;
+
+  const result = useMemo(
+    () =>
+      calculateMicroStress(input, scenario, {
+        portfolioSensitivity: selectedPortfolio.sensitivity,
+        fundingSensitivity: selectedCompany.fundingSensitivity,
+        companySize: companyInput.selectedSize,
+      }),
+    [companyInput.selectedSize, input, scenario, selectedCompany.fundingSensitivity, selectedPortfolio.sensitivity],
   );
-  const adjustedScenario = useMemo(
-    () => applyScenarioAdjustments(scenario, portfolioProfile, macroOverlay, macroLinked),
-    [macroLinked, macroOverlay, portfolioProfile, scenario],
-  );
-  const currentResult = useMemo(
-    () => calculateMicroStress(adjustedInput, adjustedScenario),
-    [adjustedInput, adjustedScenario],
-  );
+
   const comparisonResults = useMemo(
     () =>
-      scenarioEntries.map(([key, entry]) => {
-        const adjusted = applyScenarioAdjustments(
-          entry,
-          portfolioProfile,
-          macroOverlay,
-          macroLinked,
-        );
-        return {
-          key,
-          scenario: entry,
-          adjustedScenario: adjusted,
-          result: calculateMicroStress(adjustedInput, adjusted),
-        };
-      }),
-    [adjustedInput, macroLinked, macroOverlay, portfolioProfile],
+      scenarioEntries.map(([key, item]) => ({
+        key,
+        scenario: item,
+        result: calculateMicroStress(input, item, {
+          portfolioSensitivity: selectedPortfolio.sensitivity,
+          fundingSensitivity: selectedCompany.fundingSensitivity,
+          companySize: companyInput.selectedSize,
+        }),
+      })),
+    [companyInput.selectedSize, input, selectedCompany.fundingSensitivity, selectedPortfolio.sensitivity],
   );
 
-  const currentRisk = riskStyles[currentResult.riskLevel];
-  const selectedPresetName =
+  const risk = riskStyles[result.riskLevel];
+  const creditRisk = riskStyles[result.creditWarningLevel];
+  const presetName =
     presetId === "custom"
       ? "사용자 설정"
       : microStressPresetScenarios.find((preset) => preset.id === presetId)?.name ?? "사용자 설정";
-  const baseComparison =
-    comparisonResults.find((item) => item.key === "base") ?? comparisonResults[1];
 
-  const pbMessage =
-    currentResult.liquidityGap <= 0
-      ? `${portfolioProfile.badge} 포트폴리오 연계 기준 ${selectedPresetName}에서도 12개월 유동성 부족은 발생하지 않지만, 신용등급 하락 시 추가 차입비용 ${formatEok(
-          currentResult.ratingDowngradeInterestCost,
-        )}과 이자보상배율 ${currentResult.stressedInterestCoverage.toFixed(1)}배를 고객에게 함께 설명해야 합니다.`
-      : `${portfolioProfile.badge} 포트폴리오 연계 기준 ${selectedPresetName}에서는 12개월 유동성 부족액이 ${formatEok(
-          currentResult.liquidityGap,
-        )}로 추정되므로, 세금·상환 이벤트 전에 현금성 버킷과 차입 만기 재조정을 먼저 확보해야 합니다.`;
+  const pbMessage = [
+    `현재 선택된 포트폴리오는 ${selectedPortfolio.label}으로, 민감도 계수 ${selectedPortfolio.sensitivity.toFixed(
+      2,
+    )}x가 유동성 방어력에 반영됩니다.`,
+    `해당 법인은 ${selectedCompany.label} 선택 기준으로 조달 민감도 ${selectedCompany.fundingSensitivity.toFixed(
+      2,
+    )}x를 적용하며, ${presetName} 시나리오에서 신용등급 ${scenario.ratingDowngradeNotches.toFixed(
+      0,
+    )} notch 하락과 스프레드 ${formatBp(scenario.fundingSpreadShockBp)}가 반영됩니다.`,
+    result.liquidityGap > 0
+      ? `12개월 유동성 부족액은 ${formatEok(result.liquidityGap)}로 추정되어 단기 유동성 버킷 확대와 차입 만기 분산이 우선 검토되어야 합니다.`
+      : "12개월 유동성 부족액은 발생하지 않지만, 추가 이자비용과 차환 부담을 고객 설명 자료에 별도로 표시하는 것이 좋습니다.",
+  ].join(" ");
 
   const applyPreset = (id: MicroStressPresetId) => {
     setPresetId(id);
     if (id === "custom") return;
+    if (id === "macro_linked") {
+      setScenario(buildMacroLinkedScenario(macroShock));
+      return;
+    }
     const preset = microStressPresetScenarios.find((item) => item.id === id);
     if (preset) setScenario({ ...preset.scenario });
   };
@@ -338,11 +374,15 @@ export default function BusinessCreditStressTest({
     }));
   };
 
-  const updateInput = <K extends keyof MicroStressInput>(
-    key: K,
-    value: MicroStressInput[K],
-  ) => {
+  const updateInput = <K extends keyof MicroStressInput>(key: K, value: MicroStressInput[K]) => {
     setInput((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateCompany = <K extends keyof CompanyClassificationInput>(
+    key: K,
+    value: CompanyClassificationInput[K],
+  ) => {
+    setCompanyInput((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
@@ -356,358 +396,247 @@ export default function BusinessCreditStressTest({
             법인오너·부동산 보유 VVIP 미시 스트레스
           </h3>
           <p className="mt-1 max-w-4xl text-xs leading-relaxed text-fg-muted">
-            법인 매출 감소, 공실률 상승, 회사채·여전채 스프레드 확대, 신용등급 하락,
-            운전자본 악화가 12개월 유동성 방어력에 미치는 영향을 포트폴리오 선택과 함께
-            연결합니다.
+            법인 신용도 악화와 회사채·여전채 스프레드 확대가 추가 이자비용, 차환 부담,
+            운전자본 부담, 12개월 유동성 부족액으로 전이되는 경로를 점검합니다.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${currentRisk.badge}`}>
-            Current Risk · {currentRisk.label}
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${risk.badge}`}>
+            Risk · {risk.label}
           </span>
-          <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-fg-muted">
-            {portfolioProfile.label}
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${creditRisk.badge}`}>
+            Credit · {creditRisk.label}
           </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-xl border border-border/70 bg-surface-2 p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h4 className="text-sm font-semibold text-fg">시나리오 프리셋·요인 강도</h4>
-              <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                프리셋을 고른 뒤 슬라이더를 조정하면 사용자 설정으로 즉시 전환됩니다.
-              </p>
-            </div>
-            <select
-              className="input h-9 min-w-[210px]"
-              value={presetId}
-              onChange={(event) => applyPreset(event.target.value as MicroStressPresetId)}
-            >
-              {presetId === "custom" && <option value="custom">사용자 설정</option>}
-              {microStressPresetScenarios.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))}
-            </select>
-          </div>
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <ControlSelect
+          label="선택 포트폴리오"
+          value={selectedPortfolioKey}
+          onChange={(value) => setSelectedPortfolioKey(value as PortfolioProfileKey)}
+          options={Object.values(portfolioProfiles).map((profile) => ({
+            value: profile.key,
+            label: `${profile.label} (${profile.labelEn})`,
+          }))}
+          badge={`민감도 계수 ${selectedPortfolio.sensitivity.toFixed(2)}x`}
+          description={selectedPortfolio.description}
+        />
+        <ControlSelect
+          label="법인 규모 선택"
+          value={companyInput.selectedSize}
+          onChange={(value) => updateCompany("selectedSize", value as CompanySize)}
+          options={Object.values(companyProfiles).map((profile) => ({
+            value: profile.key,
+            label: profile.label,
+          }))}
+          badge={`조달 민감도 ${selectedCompany.fundingSensitivity.toFixed(2)}x`}
+          description={selectedCompany.description}
+        />
+        <ControlSelect
+          label="시나리오 프리셋"
+          value={presetId}
+          onChange={(value) => applyPreset(value as MicroStressPresetId)}
+          options={[
+            ...(presetId === "custom" ? [{ value: "custom", label: "사용자 설정" }] : []),
+            ...microStressPresetScenarios.map((preset) => ({
+              value: preset.id,
+              label: preset.name,
+            })),
+          ]}
+          badge={macroPresetId ? `매크로: ${macroPresetId}` : "매크로: none"}
+          description={
+            presetId === "macro_linked"
+              ? "기존 매크로 스트레스의 금리·환율·물가·원자재 충격을 보수적으로 반영합니다."
+              : "프리셋 선택 후 슬라이더를 조정하면 사용자 설정으로 전환됩니다."
+          }
+        />
+      </div>
 
-          <div className="grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2">
-            {microStressSliderMeta.map((meta) => {
-              const sliderValue = valueForSlider(scenario, meta.key);
-              return (
-                <div key={meta.key}>
-                  <div className="mb-1 flex items-baseline justify-between gap-2">
-                    <label className="text-xs font-medium text-fg">{meta.label}</label>
-                    <span className="text-sm font-semibold tabular-nums text-gold-700 dark:text-gold-300">
-                      {sliderValueLabel(meta.key, sliderValue)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={meta.min}
-                    max={meta.max}
-                    step={meta.step}
-                    value={sliderValue}
-                    onChange={(event) => updateScenario(meta.key, Number(event.target.value))}
-                    className="w-full accent-gold-500"
-                  />
-                  <p className="mt-1 text-[11px] leading-tight text-fg-muted">{meta.hint}</p>
+      <div className="mt-3 rounded-xl border border-border/70 bg-surface-2 p-4">
+        <h4 className="text-sm font-semibold text-fg">요인별 슬라이더</h4>
+        <div className="mt-3 grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 xl:grid-cols-4">
+          {microStressSliderMeta.map((meta) => {
+            const sliderValue = valueForSlider(scenario, meta.key);
+            return (
+              <div key={meta.key}>
+                <div className="mb-1 flex items-baseline justify-between gap-2">
+                  <label className="text-xs font-medium text-fg">{meta.label}</label>
+                  <span className="text-sm font-semibold tabular-nums text-gold-700 dark:text-gold-300">
+                    {sliderValueLabel(meta.key, sliderValue)}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <div className="rounded-xl border border-border/70 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="text-sm font-semibold text-fg">포트폴리오 연계</h4>
-              {portfolios.length > 1 && (
-                <select
-                  className="input h-8 w-auto text-xs"
-                  value={selectedPortfolioId}
-                  onChange={(event) => setSelectedPortfolioId(event.target.value)}
-                >
-                  {portfolios.map((portfolio) => (
-                    <option key={portfolio.id} value={portfolio.id}>
-                      {portfolio.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <p className="mt-2 text-xs leading-relaxed text-fg-muted">
-              {activePortfolio?.label ?? "확정 포트폴리오 없음"} · {portfolioProfile.description}
-            </p>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <MiniStat
-                label="충격 강도"
-                value={`${Math.round(portfolioProfile.shockMultiplier * 100)}%`}
-              />
-              <MiniStat
-                label="스프레드 민감도"
-                value={`${Math.round(portfolioProfile.fundingMultiplier * 100)}%`}
-              />
-              <MiniStat
-                label="현금버퍼 보정"
-                value={`${Math.round(portfolioProfile.cashBufferMultiplier * 100)}%`}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border/70 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h4 className="text-sm font-semibold text-fg">매크로 스트레스 연동</h4>
-                <p className="mt-1 text-[11px] text-fg-muted">
-                  금리·물가·환율·원자재 충격을 차입 스프레드와 마진 압박으로 전이합니다.
-                </p>
-              </div>
-              <label className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-fg">
                 <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-gold-500"
-                  checked={macroLinked}
-                  onChange={(event) => setMacroLinked(event.target.checked)}
+                  type="range"
+                  min={meta.min}
+                  max={meta.max}
+                  step={meta.step}
+                  value={sliderValue}
+                  onChange={(event) => updateScenario(meta.key, Number(event.target.value))}
+                  className="w-full accent-gold-500"
                 />
-                연동
-              </label>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-              <span className="rounded-full bg-surface-2 px-2 py-1 text-fg-muted">
-                매크로 프리셋 {macroPresetId ?? "none"}
-              </span>
-              {macroIsActive ? (
-                <>
-                  <span className="rounded-full bg-surface-2 px-2 py-1 text-fg-muted">
-                    스프레드 {formatBp(macroOverlay.fundingSpreadShockBp)}
-                  </span>
-                  <span className="rounded-full bg-surface-2 px-2 py-1 text-fg-muted">
-                    마진 {formatPp(macroOverlay.marginShockPp, 1)}
-                  </span>
-                  <span className="rounded-full bg-surface-2 px-2 py-1 text-fg-muted">
-                    운전자본 +{macroOverlay.workingCapitalShockPct.toFixed(1)}%
-                  </span>
-                </>
-              ) : (
-                <span className="rounded-full bg-surface-2 px-2 py-1 text-fg-muted">
-                  현재 매크로 충격 없음
-                </span>
-              )}
-            </div>
-          </div>
+                <p className="mt-1 text-[11px] leading-tight text-fg-muted">{meta.hint}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      <details className="mt-3 rounded-xl border border-border/70 bg-surface p-4" open>
-        <summary className="cursor-pointer text-sm font-semibold text-fg">
-          법인 입력값 직접 수정
-        </summary>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <NumberInput
-            label="연매출"
-            unit="억원"
-            value={input.annualRevenue}
-            onChange={(value) => updateInput("annualRevenue", value)}
-          />
-          <NumberInput
-            label="EBITDA margin"
-            unit="%"
-            value={input.ebitdaMargin}
-            step={0.1}
-            onChange={(value) => updateInput("ebitdaMargin", value)}
-          />
-          <NumberInput
-            label="영업 레버리지"
-            unit="배"
-            value={input.operatingLeverage}
-            step={0.1}
-            onChange={(value) => updateInput("operatingLeverage", value)}
-          />
-          <NumberInput
-            label="연 임대수입"
-            unit="억원"
-            value={input.annualRentalIncomeCurrent}
-            step={0.1}
-            onChange={(value) => updateInput("annualRentalIncomeCurrent", value)}
-          />
-          <NumberInput
-            label="현재 공실률"
-            unit="%"
-            value={input.currentVacancyRate}
-            step={0.1}
-            onChange={(value) => updateInput("currentVacancyRate", value)}
-          />
-          <NumberInput
-            label="총 차입금"
-            unit="억원"
-            value={input.totalDebt}
-            onChange={(value) => updateInput("totalDebt", value)}
-          />
-          <NumberInput
-            label="변동/차환 차입금"
-            unit="억원"
-            value={input.floatingDebt}
-            onChange={(value) => updateInput("floatingDebt", value)}
-          />
-          <NumberInput
-            label="12개월 만기도래"
-            unit="억원"
-            value={input.maturingDebtWithinYear}
-            onChange={(value) => updateInput("maturingDebtWithinYear", value)}
-          />
-          <NumberInput
-            label="평균 조달금리"
-            unit="%"
-            value={input.averageFundingRate}
-            step={0.1}
-            onChange={(value) => updateInput("averageFundingRate", value)}
-          />
-          <label className="block">
-            <span className="text-[11px] font-medium text-fg-muted">현재 신용등급</span>
-            <select
-              className="input mt-1 h-9 w-full"
-              value={input.currentRating}
-              onChange={(event) =>
-                updateInput("currentRating", normalizeCreditRating(event.target.value) as CreditRating)
-              }
-            >
-              {CREDIT_RATINGS.map((rating) => (
-                <option key={rating} value={rating}>
-                  {rating}
-                </option>
-              ))}
-            </select>
-          </label>
-          <NumberInput
-            label="현금 버퍼"
-            unit="억원"
-            value={input.cashBuffer}
-            step={0.1}
-            onChange={(value) => updateInput("cashBuffer", value)}
-          />
-          <NumberInput
-            label="이벤트성 유동성 필요"
-            unit="억원"
-            value={input.eventLiquidityNeed}
-            step={0.1}
-            onChange={(value) => updateInput("eventLiquidityNeed", value)}
-          />
-          <NumberInput
-            label="유동비율"
-            unit="배"
-            value={input.currentRatio}
-            step={0.01}
-            onChange={(value) => updateInput("currentRatio", value)}
-          />
-          <NumberInput
-            label="부채/자기자본"
-            unit="%"
-            value={input.debtToEquityRatio}
-            onChange={(value) => updateInput("debtToEquityRatio", value)}
-          />
-          <NumberInput
-            label="이자보상배율"
-            unit="배"
-            value={input.interestCoverageRatio}
-            step={0.1}
-            onChange={(value) => updateInput("interestCoverageRatio", value)}
-          />
-          <NumberInput
-            label="매출채권 회수일"
-            unit="일"
-            value={input.receivablesDays}
-            onChange={(value) => updateInput("receivablesDays", value)}
-          />
-          <NumberInput
-            label="재고 회전일"
-            unit="일"
-            value={input.inventoryDays}
-            onChange={(value) => updateInput("inventoryDays", value)}
-          />
-          <label className="flex items-center gap-2 rounded-lg border border-border/70 bg-surface-2 px-3 py-2 text-xs font-medium text-fg">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-gold-500"
-              checked={input.forcedRefinancing}
-              onChange={(event) => updateInput("forcedRefinancing", event.target.checked)}
-            />
-            등급 하락 시 총차입금 즉시 차환 압박
-          </label>
-        </div>
-      </details>
-
-      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className={`rounded-xl border p-4 ${currentRisk.border} ${currentRisk.panel}`}>
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className={`rounded-xl border p-4 ${risk.border} ${risk.panel}`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h4 className="text-sm font-semibold text-fg">현재 설정 결과</h4>
+              <h4 className="text-sm font-semibold text-fg">결과 카드</h4>
               <p className="mt-1 text-[11px] text-fg-muted">
-                {selectedPresetName} · {portfolioProfile.badge}
-                {macroLinked && macroIsActive ? " · Macro-linked" : ""}
+                {presetName} · {selectedPortfolio.label} · {selectedCompany.label}
               </p>
             </div>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${currentRisk.badge}`}>
-              {currentRisk.label}
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${risk.badge}`}>
+              위험등급 {risk.label}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Metric label="영업현금흐름 감소액" value={formatEok(currentResult.operatingCashflowLoss)} />
-            <Metric label="임대수입 감소액" value={formatEok(currentResult.rentalIncomeLoss)} />
-            <Metric
-              label="시장 스프레드 이자비용"
-              value={formatEok(currentResult.marketSpreadInterestCost)}
-            />
-            <Metric
-              label="신용등급 하락 추가 차입비용"
-              value={formatEok(currentResult.ratingDowngradeInterestCost)}
-            />
-            <Metric label="운전자본·회수지연 부담" value={formatEok(currentResult.workingCapitalNeed)} />
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+            <Metric label="영업현금흐름 감소액" value={formatEok(result.operatingCashflowLoss)} />
+            <Metric label="임대수입 감소액" value={formatEok(result.rentalIncomeLoss)} />
+            <Metric label="추가 이자비용" value={formatEok(result.additionalInterestCost)} />
+            <Metric label="차환 부담 증가액" value={formatEok(result.refinancingBurdenIncrease)} />
+            <Metric label="운전자본 부담 증가액" value={formatEok(result.workingCapitalBurdenIncrease)} />
             <Metric
               label="12개월 유동성 부족액"
-              value={currentResult.liquidityGap <= 0 ? "부족 없음" : formatEok(currentResult.liquidityGap)}
-              strong
-              tone={currentResult.liquidityGap <= 0 ? "safe" : currentResult.riskLevel}
+              value={result.liquidityGap <= 0 ? "부족 없음" : formatEok(result.liquidityGap)}
+              tone={result.liquidityGap <= 0 ? "safe" : result.riskLevel}
             />
+            <Metric label="추정 조달금리 상승폭" value={`${result.fundingRateShockPct.toFixed(2)}%p`} />
+            <Metric label="신용위험 경고 등급" value={creditRisk.label} tone={result.creditWarningLevel} />
+            <Metric label="민감도 반영 후 현금소요" value={formatEok(result.stressUseOfCash)} />
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-fg-muted">
-            {riskCopy(currentResult.riskLevel)}
-          </p>
         </div>
 
         <div className="rounded-xl border border-border/70 p-4">
-          <h4 className="text-sm font-semibold text-fg">재무비율 체크</h4>
-          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-            <MiniStat
-              label="유동성"
-              value={`${currentResult.stressedCurrentRatio.toFixed(2)}배`}
-              hint="Stress 유동비율"
-            />
-            <MiniStat
-              label="안정성"
-              value={`${currentResult.stressedDebtToEbitda.toFixed(1)}배`}
-              hint="Debt / EBITDA"
-            />
-            <MiniStat
-              label="수익성"
-              value={`${((currentResult.stressedEbitda / Math.max(1, input.annualRevenue)) * 100).toFixed(1)}%`}
-              hint="Stress EBITDA margin"
-            />
-            <MiniStat
-              label="활동성"
-              value={`${Math.round(input.receivablesDays + adjustedScenario.collectionDelayDays)}일`}
-              hint="회수일 + 지연"
-            />
+          <h4 className="text-sm font-semibold text-fg">PB 설명문</h4>
+          <p className="mt-2 text-sm leading-relaxed text-fg">{pbMessage}</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <MiniStat label="Stress 유동비율" value={`${result.stressedCurrentRatio.toFixed(2)}배`} />
+            <MiniStat label="Stress ICR" value={`${result.stressedInterestCoverage.toFixed(1)}배`} />
+            <MiniStat label="Debt / EBITDA" value={`${result.stressedDebtToEbitda.toFixed(1)}배`} />
+            <MiniStat label="DSO / DIO" value={`${Math.round(result.stressedReceivablesDays)}일 / ${Math.round(result.stressedInventoryDays)}일`} />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr]">
+        <details className="rounded-xl border border-border/70 bg-surface p-4" open>
+          <summary className="cursor-pointer text-sm font-semibold text-fg">
+            데모 입력값 직접 수정
+          </summary>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <NumberInput label="연매출" unit="억원" value={input.annualRevenue} onChange={(value) => updateInput("annualRevenue", value)} />
+            <NumberInput label="EBITDA margin" unit="%" value={input.ebitdaMargin} step={0.1} onChange={(value) => updateInput("ebitdaMargin", value)} />
+            <NumberInput label="연 임대수입" unit="억원" value={input.annualRentalIncomeCurrent} step={0.1} onChange={(value) => updateInput("annualRentalIncomeCurrent", value)} />
+            <NumberInput label="현재 공실률" unit="%" value={input.currentVacancyRate} step={0.1} onChange={(value) => updateInput("currentVacancyRate", value)} />
+            <NumberInput label="현금 버퍼" unit="억원" value={input.cashBuffer} step={0.1} onChange={(value) => updateInput("cashBuffer", value)} />
+            <NumberInput label="총 차입금" unit="억원" value={input.totalDebt} onChange={(value) => updateInput("totalDebt", value)} />
+            <NumberInput label="변동금리 차입금" unit="억원" value={input.floatingDebt} onChange={(value) => updateInput("floatingDebt", value)} />
+            <NumberInput label="12개월 내 차환 필요 차입금" unit="억원" value={input.refinancingDebtWithinYear} onChange={(value) => updateInput("refinancingDebtWithinYear", value)} />
+            <NumberInput label="평균 차입금리" unit="%" value={input.averageBorrowingRate} step={0.1} onChange={(value) => updateInput("averageBorrowingRate", value)} />
+            <label className="block">
+              <span className="text-[11px] font-medium text-fg-muted">현재 법인 신용등급</span>
+              <select
+                className="input mt-1 h-9 w-full"
+                value={input.currentRating}
+                onChange={(event) => updateInput("currentRating", normalizeCreditRating(event.target.value) as CreditRating)}
+              >
+                {CREDIT_RATINGS.map((rating) => (
+                  <option key={rating} value={rating}>
+                    {rating}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <NumberInput label="유동비율" unit="배" value={input.currentRatio} step={0.01} onChange={(value) => updateInput("currentRatio", value)} />
+            <NumberInput label="부채비율" unit="%" value={input.debtToEquityRatio} onChange={(value) => updateInput("debtToEquityRatio", value)} />
+            <NumberInput label="이자보상배율" unit="배" value={input.interestCoverageRatio} step={0.1} onChange={(value) => updateInput("interestCoverageRatio", value)} />
+            <NumberInput label="매출채권 회전일수" unit="일" value={input.receivablesDays} onChange={(value) => updateInput("receivablesDays", value)} />
+            <NumberInput label="재고자산 회전일수" unit="일" value={input.inventoryDays} onChange={(value) => updateInput("inventoryDays", value)} />
+          </div>
+        </details>
+
+        <details className="rounded-xl border border-border/70 bg-surface p-4" open>
+          <summary className="cursor-pointer text-sm font-semibold text-fg">
+            법인 규모 분류
+          </summary>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="block">
+              <span className="text-[11px] font-medium text-fg-muted">주된 업종</span>
+              <select
+                className="input mt-1 h-9 w-full"
+                value={companyInput.industry}
+                onChange={(event) => updateCompany("industry", event.target.value as IndustryKey)}
+              >
+                {Object.entries(industryMeta).map(([key, meta]) => (
+                  <option key={key} value={key}>
+                    {meta.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <NumberInput label="최근 3년 평균 매출액" unit="억원" value={companyInput.averageRevenue3y} onChange={(value) => updateCompany("averageRevenue3y", value)} />
+            <NumberInput label="자산총액" unit="억원" value={companyInput.totalAssets} onChange={(value) => updateCompany("totalAssets", value)} />
+            <BooleanSelect label="공시대상기업집단 소속" value={companyInput.isDisclosureGroup} onChange={(value) => updateCompany("isDisclosureGroup", value)} />
+            <BooleanSelect label="상호출자제한기업집단 소속" value={companyInput.isCrossShareholdingGroup} onChange={(value) => updateCompany("isCrossShareholdingGroup", value)} />
+            <BooleanSelect label="대기업 30% 이상 최다출자" value={companyInput.hasLargeCompanyOwner30} onChange={(value) => updateCompany("hasLargeCompanyOwner30", value)} />
+            <BooleanSelect label="공공기관·지방공기업" value={companyInput.isPublicInstitution} onChange={(value) => updateCompany("isPublicInstitution", value)} />
           </div>
           <div className="mt-3 rounded-lg border border-border/70 bg-surface-2 p-3">
-            <h5 className="text-xs font-semibold text-fg">PB 설명문</h5>
-            <p className="mt-2 text-sm leading-relaxed text-fg">{pbMessage}</p>
-            <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">
-              이 모델은 보유 채권의 평가손실이 아니라 법인 자체의 신용등급 하락과 시장
-              스프레드 확대가 차입비용·차환압박·운전자본 부담으로 전이되는 경로를 봅니다.
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-fg">간이 판정 결과</p>
+              <span className="rounded-full bg-gold-100 px-2.5 py-1 text-xs font-semibold text-gold-800 dark:bg-gold-900/40 dark:text-gold-200">
+                {inferredCompany.label}
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+              {classificationReason(companyInput, inferredCompanySize)}
+            </p>
+            {classificationMismatch && (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-200">
+                선택값과 간이 판정이 다릅니다. 현재 계산에는 사용자가 선택한 {selectedCompany.label}
+                기준을 적용하고 있습니다.
+              </p>
+            )}
+          </div>
+        </details>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-xl border border-border/70 p-4">
+          <h4 className="text-sm font-semibold text-fg">재무비율 위험 신호</h4>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Signal label="유동성" value={`${result.stressedCurrentRatio.toFixed(2)}배`} danger={result.stressedCurrentRatio < 0.9} watch={result.stressedCurrentRatio < 1.2} />
+            <Signal label="안정성" value={`${input.debtToEquityRatio.toFixed(0)}%`} danger={input.debtToEquityRatio >= 250} watch={input.debtToEquityRatio >= 150} />
+            <Signal label="수익성" value={`${Math.max(0, input.ebitdaMargin + scenario.marginShockPp).toFixed(1)}%`} danger={input.ebitdaMargin + scenario.marginShockPp < 5} watch={input.ebitdaMargin + scenario.marginShockPp < 10} />
+            <Signal label="활동성" value={`${Math.round(result.stressedReceivablesDays)}일`} danger={result.stressedReceivablesDays >= 120} watch={result.stressedReceivablesDays >= 90} />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/70 p-4">
+          <h4 className="text-sm font-semibold text-fg">법인 규모 간이 판정 기준</h4>
+          <div className="mt-2 space-y-2 text-xs leading-relaxed text-fg-muted">
+            <p>
+              중소기업은 업종별 3년 평균 매출액 기준, 자산총액 5,000억 원 미만, 공시대상기업집단 제외,
+              독립성 기준을 함께 봅니다.
+            </p>
+            <p>
+              중견기업은 중소기업이 아니면서 공공기관·지방공기업, 상호출자제한기업집단,
+              독립성 기준 미충족 기업을 제외하는 방식으로 간이 판정합니다.
+            </p>
+            <p>
+              대기업/대규모기업집단은 공시대상기업집단 또는 상호출자제한기업집단 소속 여부를
+              우선 신호로 봅니다. 공시대상기업집단은 자산총액 5조 원 이상 기업집단,
+              상호출자제한기업집단은 자산총액이 명목 GDP의 0.5% 이상인 기업집단 기준을 표시합니다.
+            </p>
+            <p className="rounded-lg border border-border/70 bg-surface-2 p-2 text-[11px]">
+              본 분류는 PB 상담용 간이 판정입니다. 실제 법적 분류는 중소기업 확인서,
+              중견기업 확인서, 공정거래위원회 기업집단 지정 현황 등 공식 확인이 필요합니다.
             </p>
           </div>
         </div>
@@ -717,45 +646,35 @@ export default function BusinessCreditStressTest({
         <div className="mb-2 flex items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-fg">Mild / Base / Severe 3단계 비교</h4>
           <span className="text-[11px] text-fg-muted">
-            Base 기준 부족액 {baseComparison.result.liquidityGap <= 0
-              ? "없음"
-              : formatEok(baseComparison.result.liquidityGap)}
+            포트폴리오·법인 규모 민감도 동일 적용
           </span>
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          {comparisonResults.map(({ key, scenario: entry, adjustedScenario: scenarioForCalc, result }) => {
-            const risk = riskStyles[result.riskLevel];
+          {comparisonResults.map(({ key, scenario: comparisonScenario, result: comparison }) => {
+            const comparisonRisk = riskStyles[comparison.riskLevel];
             return (
-              <article key={key} className={`rounded-xl border bg-surface p-4 ${risk.border}`}>
+              <article key={key} className={`rounded-xl border bg-surface p-4 ${comparisonRisk.border}`}>
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div>
-                    <h5 className="text-sm font-semibold text-fg">{entry.name}</h5>
-                    <p className="mt-0.5 text-[11px] text-fg-muted">{entry.message} 시나리오</p>
+                    <h5 className="text-sm font-semibold text-fg">{comparisonScenario.name}</h5>
+                    <p className="mt-0.5 text-[11px] text-fg-muted">{comparisonScenario.message} 시나리오</p>
                   </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${risk.badge}`}>
-                    {risk.label}
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${comparisonRisk.badge}`}>
+                    {comparisonRisk.label}
                   </span>
                 </div>
-
                 <div className="grid grid-cols-3 gap-1.5 rounded-lg bg-surface-2 p-2 text-[11px] text-fg-muted">
-                  <span>{formatPercent(scenarioForCalc.revenueShock * 100)} 매출</span>
-                  <span>{formatPp(scenarioForCalc.vacancyShockPp, 1)} 공실</span>
-                  <span>{formatBp(scenarioForCalc.fundingSpreadShockBp)}</span>
+                  <span>{formatPercent(comparisonScenario.revenueShock * 100)} 매출</span>
+                  <span>{formatBp(comparisonScenario.fundingSpreadShockBp)}</span>
+                  <span>{comparisonScenario.ratingDowngradeNotches.toFixed(0)} notch</span>
                 </div>
-
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  <Metric label="영업현금흐름 감소" value={formatEok(result.operatingCashflowLoss)} compact />
-                  <Metric label="임대수입 감소" value={formatEok(result.rentalIncomeLoss)} compact />
-                  <Metric label="스프레드 비용" value={formatEok(result.marketSpreadInterestCost)} compact />
-                  <Metric label="등급하락 비용" value={formatEok(result.ratingDowngradeInterestCost)} compact />
+                  <Metric label="추가 이자비용" value={formatEok(comparison.additionalInterestCost)} compact />
+                  <Metric label="차환 부담" value={formatEok(comparison.refinancingBurdenIncrease)} compact />
                   <div className="col-span-2 rounded-lg border border-border/70 p-3">
                     <p className="text-[11px] text-fg-muted">12개월 유동성 부족액</p>
-                    <p className={`mt-1 text-xl font-bold tabular-nums ${risk.text}`}>
-                      {result.liquidityGap <= 0 ? "부족 없음" : formatEok(result.liquidityGap)}
-                    </p>
-                    <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                      생존개월 {result.survivalMonths.toFixed(1)}개월 · ICR{" "}
-                      {result.stressedInterestCoverage.toFixed(1)}배
+                    <p className={`mt-1 text-xl font-bold tabular-nums ${comparisonRisk.text}`}>
+                      {comparison.liquidityGap <= 0 ? "부족 없음" : formatEok(comparison.liquidityGap)}
                     </p>
                   </div>
                 </div>
@@ -765,6 +684,41 @@ export default function BusinessCreditStressTest({
         </div>
       </div>
     </section>
+  );
+}
+
+function ControlSelect({
+  label,
+  value,
+  onChange,
+  options,
+  badge,
+  description,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  badge: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-surface-2 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-sm font-semibold text-fg">{label}</label>
+        <span className="rounded-full bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-muted">
+          {badge}
+        </span>
+      </div>
+      <select className="input mt-2 h-9 w-full" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">{description}</p>
+    </div>
   );
 }
 
@@ -787,13 +741,38 @@ function NumberInput({
       <div className="mt-1 flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-2">
         <input
           type="number"
+          min={0}
+          step={step}
           className="h-9 min-w-0 flex-1 bg-transparent text-sm font-medium tabular-nums text-fg outline-none"
           value={Number.isFinite(value) ? value : 0}
-          step={step}
-          onChange={(event) => onChange(Number(event.target.value))}
+          onChange={(event) => onChange(Math.max(0, Number(event.target.value) || 0))}
         />
         <span className="shrink-0 text-[11px] text-fg-muted">{unit}</span>
       </div>
+    </label>
+  );
+}
+
+function BooleanSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[11px] font-medium text-fg-muted">{label}</span>
+      <select
+        className="input mt-1 h-9 w-full"
+        value={value ? "yes" : "no"}
+        onChange={(event) => onChange(event.target.value === "yes")}
+      >
+        <option value="no">아니오</option>
+        <option value="yes">예</option>
+      </select>
     </label>
   );
 }
@@ -802,44 +781,54 @@ function Metric({
   label,
   value,
   compact = false,
-  strong = false,
   tone,
 }: {
   label: string;
   value: string;
   compact?: boolean;
-  strong?: boolean;
   tone?: MicroRiskLevel;
 }) {
   const toneClass = tone ? riskStyles[tone].text : "text-fg";
   return (
     <div className="rounded-lg border border-border/70 bg-surface p-3">
       <p className="text-[11px] text-fg-muted">{label}</p>
-      <p
-        className={`mt-1 font-semibold tabular-nums ${compact ? "text-sm" : "text-base"} ${
-          strong ? toneClass : "text-fg"
-        }`}
-      >
+      <p className={`mt-1 font-semibold tabular-nums ${compact ? "text-sm" : "text-base"} ${toneClass}`}>
         {value}
       </p>
     </div>
   );
 }
 
-function MiniStat({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-}) {
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border/70 bg-surface p-2.5">
       <p className="text-[10px] text-fg-muted">{label}</p>
       <p className="mt-1 text-sm font-semibold tabular-nums text-fg">{value}</p>
-      {hint && <p className="mt-0.5 text-[10px] leading-tight text-fg-muted">{hint}</p>}
+    </div>
+  );
+}
+
+function Signal({
+  label,
+  value,
+  watch,
+  danger,
+}: {
+  label: string;
+  value: string;
+  watch: boolean;
+  danger: boolean;
+}) {
+  const level: MicroRiskLevel = danger ? "danger" : watch ? "watch" : "safe";
+  return (
+    <div className="rounded-lg border border-border/70 bg-surface p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] text-fg-muted">{label}</p>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${riskStyles[level].badge}`}>
+          {riskStyles[level].label}
+        </span>
+      </div>
+      <p className="mt-1 text-sm font-semibold tabular-nums text-fg">{value}</p>
     </div>
   );
 }

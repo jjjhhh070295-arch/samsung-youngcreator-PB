@@ -1,176 +1,185 @@
-export const CREDIT_RATINGS = ["AAA", "AA", "A", "BBB", "BB", "B", "CCC"] as const;
+export const CREDIT_RATINGS = ["AAA", "AA", "A", "BBB", "BB 이하", "무등급"] as const;
 
 export type CreditRating = (typeof CREDIT_RATINGS)[number];
 export type MicroRiskLevel = "safe" | "watch" | "danger";
+export type CompanySize = "sme" | "middle" | "large";
 
 export type MicroStressInput = {
   annualRevenue: number;
   ebitdaMargin: number;
-  operatingLeverage: number;
   annualRentalIncomeCurrent: number;
   currentVacancyRate: number;
+  cashBuffer: number;
   totalDebt: number;
   floatingDebt: number;
-  maturingDebtWithinYear: number;
-  averageFundingRate: number;
+  refinancingDebtWithinYear: number;
+  averageBorrowingRate: number;
   currentRating: CreditRating;
-  cashBuffer: number;
-  eventLiquidityNeed: number;
   currentRatio: number;
   debtToEquityRatio: number;
   interestCoverageRatio: number;
   receivablesDays: number;
   inventoryDays: number;
-  forcedRefinancing: boolean;
+  eventLiquidityNeed: number;
 };
 
 export type MicroStressScenario = {
   revenueShock: number;
   marginShockPp: number;
   vacancyShockPp: number;
-  rentShock: number;
   fundingSpreadShockBp: number;
   ratingDowngradeNotches: number;
-  workingCapitalShockPct: number;
-  collectionDelayDays: number;
+  receivablesDelayDays: number;
+  inventoryDelayDays: number;
+  shortTermDebtConcentrationPct: number;
 };
 
-const ratingSpreadPerNotchBp: Record<CreditRating, number> = {
-  AAA: 25,
-  AA: 35,
-  A: 50,
-  BBB: 75,
-  BB: 120,
-  B: 180,
-  CCC: 280,
+export type MicroStressModifiers = {
+  portfolioSensitivity: number;
+  fundingSensitivity: number;
+  companySize: CompanySize;
 };
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : 0));
 
+const positive = (value: number) => Math.max(0, Number.isFinite(value) ? value : 0);
+
 export function normalizeCreditRating(value: string): CreditRating {
-  const upper = value.toUpperCase().replace(/[+-]/g, "");
-  if (upper === "AAA") return "AAA";
-  if (upper === "AA") return "AA";
-  if (upper === "A") return "A";
-  if (upper === "BBB") return "BBB";
-  if (upper === "BB") return "BB";
-  if (upper === "B") return "B";
-  return "CCC";
+  const normalized = value.trim().toUpperCase().replace(/[+-]/g, "");
+  if (normalized === "AAA") return "AAA";
+  if (normalized === "AA") return "AA";
+  if (normalized === "A") return "A";
+  if (normalized === "BBB") return "BBB";
+  if (normalized.includes("BB")) return "BB 이하";
+  if (normalized.includes("무") || normalized.includes("NR") || normalized.includes("NONE")) {
+    return "무등급";
+  }
+  return "무등급";
 }
 
-export function calculateRatingSpreadShockBp(
-  rating: CreditRating,
-  downgradeNotches: number,
-) {
-  return ratingSpreadPerNotchBp[rating] * Math.max(0, downgradeNotches);
+export function calculateRatingSpreadShockBp(downgradeNotches: number) {
+  return clamp(downgradeNotches, 0, 3) * 50;
 }
 
 export function calculateMicroStress(
   input: MicroStressInput,
   scenario: MicroStressScenario,
+  modifiers: MicroStressModifiers = {
+    portfolioSensitivity: 1,
+    fundingSensitivity: 1,
+    companySize: "middle",
+  },
 ) {
-  const annualRevenue = Math.max(0, input.annualRevenue);
-  const ebitdaMargin = clamp(input.ebitdaMargin, -20, 60);
-  const operatingLeverage = clamp(input.operatingLeverage, 0.1, 5);
-  const totalDebt = Math.max(0, input.totalDebt);
-  const normalDebtExposure = Math.min(
-    totalDebt,
-    Math.max(0, input.floatingDebt) + Math.max(0, input.maturingDebtWithinYear),
-  );
-  const exposedDebt = input.forcedRefinancing ? totalDebt : normalDebtExposure;
+  const annualRevenue = positive(input.annualRevenue);
+  const ebitdaMargin = clamp(input.ebitdaMargin, 0, 60);
+  const rentalIncome = positive(input.annualRentalIncomeCurrent);
+  const cashBuffer = positive(input.cashBuffer);
+  const totalDebt = positive(input.totalDebt);
+  const floatingDebt = Math.min(totalDebt, positive(input.floatingDebt));
+  const refinancingDebtWithinYear = Math.min(totalDebt, positive(input.refinancingDebtWithinYear));
+  const averageBorrowingRate = positive(input.averageBorrowingRate);
+  const portfolioSensitivity = positive(modifiers.portfolioSensitivity || 1);
+  const fundingSensitivity = positive(modifiers.fundingSensitivity || 1);
 
   const baseEbitda = annualRevenue * (ebitdaMargin / 100);
   const stressedRevenue = annualRevenue * (1 + Math.min(0, scenario.revenueShock));
-  const stressedMargin = clamp(ebitdaMargin + scenario.marginShockPp, -20, 60);
-  const stressedEbitda = Math.max(0, stressedRevenue * (stressedMargin / 100));
-
+  const stressedMargin = clamp(ebitdaMargin + Math.min(0, scenario.marginShockPp), 0, 60);
+  const stressedEbitda = stressedRevenue * (stressedMargin / 100);
   const revenueLoss = Math.max(0, annualRevenue - stressedRevenue);
-  const marginCashflowLoss = Math.max(0, baseEbitda - stressedEbitda);
-  const operatingCashflowLoss = marginCashflowLoss * operatingLeverage;
+  const operatingCashflowLoss = Math.max(0, baseEbitda - stressedEbitda);
 
-  const currentOccupancyRate = clamp(1 - input.currentVacancyRate / 100, 0.05, 1);
+  const currentOccupancyRate = clamp(1 - positive(input.currentVacancyRate) / 100, 0.05, 1);
   const stressedVacancyRate = clamp(
-    input.currentVacancyRate + scenario.vacancyShockPp,
+    positive(input.currentVacancyRate) + positive(scenario.vacancyShockPp),
     0,
     95,
   );
   const stressedOccupancyRate = clamp(1 - stressedVacancyRate / 100, 0.01, 1);
-  const stressedRentFactor = clamp(1 + scenario.rentShock, 0.2, 1.5);
-  const stressedRentalIncome =
-    Math.max(0, input.annualRentalIncomeCurrent) *
-    (stressedOccupancyRate / currentOccupancyRate) *
-    stressedRentFactor;
-  const rentalIncomeLoss = Math.max(
-    0,
-    Math.max(0, input.annualRentalIncomeCurrent) - stressedRentalIncome,
-  );
+  const stressedRentalIncome = rentalIncome * (stressedOccupancyRate / currentOccupancyRate);
+  const rentalIncomeLoss = Math.max(0, rentalIncome - stressedRentalIncome);
 
-  const marketSpreadInterestCost =
-    exposedDebt * (Math.max(0, scenario.fundingSpreadShockBp) / 10000);
   const ratingSpreadShockBp = calculateRatingSpreadShockBp(
-    input.currentRating,
     scenario.ratingDowngradeNotches,
   );
-  const ratingDowngradeInterestCost = exposedDebt * (ratingSpreadShockBp / 10000);
-  const additionalInterestCost =
-    marketSpreadInterestCost + ratingDowngradeInterestCost;
+  const fundingRateShockBp =
+    (positive(scenario.fundingSpreadShockBp) + ratingSpreadShockBp) * fundingSensitivity;
+  const fundingRateShockPct = fundingRateShockBp / 100;
+  const fundingRateShockDecimal = fundingRateShockBp / 10000;
+  const additionalInterestCost = floatingDebt * fundingRateShockDecimal;
+  const refinancingConcentration = clamp(
+    scenario.shortTermDebtConcentrationPct,
+    0,
+    100,
+  ) / 100;
+  const refinancingBurdenIncrease =
+    refinancingDebtWithinYear * fundingRateShockDecimal * refinancingConcentration;
 
-  const collectionDelayNeed =
-    (annualRevenue / 365) * Math.max(0, scenario.collectionDelayDays);
-  const workingCapitalShockNeed =
-    annualRevenue * (Math.max(0, scenario.workingCapitalShockPct) / 100);
-  const workingCapitalNeed = collectionDelayNeed + workingCapitalShockNeed;
+  const receivablesStressNeed =
+    (annualRevenue / 365) * positive(scenario.receivablesDelayDays);
+  const inventoryStressNeed =
+    (annualRevenue * 0.55 / 365) * positive(scenario.inventoryDelayDays);
+  const workingCapitalBurdenIncrease = receivablesStressNeed + inventoryStressNeed;
 
-  const baselineInterestExpense =
-    totalDebt * (Math.max(0, input.averageFundingRate) / 100);
-  const stressedInterestExpense = Math.max(
-    baselineInterestExpense + additionalInterestCost,
-    0.01,
-  );
-  const stressedInterestCoverage = stressedEbitda / stressedInterestExpense;
-  const stressedDebtToEbitda = totalDebt / Math.max(stressedEbitda, 0.1);
-
-  const covenantLiquidityNeed =
-    scenario.ratingDowngradeNotches <= 0
-      ? 0
-      : totalDebt *
-        (0.005 * Math.max(0, scenario.ratingDowngradeNotches) +
-          (stressedInterestCoverage < 2 ? 0.01 : 0) +
-          (input.currentRatio < 1.1 ? 0.01 : 0));
-
-  const cashflowStress =
-    operatingCashflowLoss + rentalIncomeLoss + additionalInterestCost;
+  const liquidityStressBeforePortfolio =
+    operatingCashflowLoss +
+    rentalIncomeLoss +
+    additionalInterestCost +
+    refinancingBurdenIncrease +
+    workingCapitalBurdenIncrease;
+  const liquidityStressAfterPortfolio =
+    liquidityStressBeforePortfolio * portfolioSensitivity;
   const stressUseOfCash =
-    input.eventLiquidityNeed +
-    cashflowStress +
-    workingCapitalNeed +
-    covenantLiquidityNeed;
-  const liquidityGap = stressUseOfCash - input.cashBuffer;
-  const monthlyCashBurn = Math.max(
-    (cashflowStress + workingCapitalNeed + covenantLiquidityNeed) / 12,
-    0.01,
-  );
-  const survivalMonths = input.cashBuffer / monthlyCashBurn;
+    positive(input.eventLiquidityNeed) + liquidityStressAfterPortfolio;
+  const liquidityGap = stressUseOfCash - cashBuffer;
 
+  const baselineInterestExpense = Math.max(totalDebt * (averageBorrowingRate / 100), 0.01);
+  const stressedInterestExpense =
+    baselineInterestExpense + additionalInterestCost + refinancingBurdenIncrease;
+  const stressedInterestCoverage = stressedEbitda / Math.max(stressedInterestExpense, 0.01);
   const workingCapitalBase = Math.max(annualRevenue * 0.12, 1);
   const stressedCurrentRatio = Math.max(
     0.1,
-    input.currentRatio - (workingCapitalNeed + Math.max(0, liquidityGap)) / workingCapitalBase,
+    positive(input.currentRatio) -
+      (workingCapitalBurdenIncrease + Math.max(0, liquidityGap)) / workingCapitalBase,
   );
+  const stressedDebtToEbitda = totalDebt / Math.max(stressedEbitda, 0.1);
+  const stressedReceivablesDays =
+    positive(input.receivablesDays) + positive(scenario.receivablesDelayDays);
+  const stressedInventoryDays =
+    positive(input.inventoryDays) + positive(scenario.inventoryDelayDays);
+
+  const monthlyCashBurn = Math.max(
+    liquidityStressAfterPortfolio / 12,
+    0.01,
+  );
+  const survivalMonths = cashBuffer / monthlyCashBurn;
+
+  let creditWarningLevel: MicroRiskLevel = "safe";
+  if (
+    scenario.ratingDowngradeNotches >= 3 ||
+    fundingRateShockBp >= 350 ||
+    input.currentRating === "무등급"
+  ) {
+    creditWarningLevel = "danger";
+  } else if (scenario.ratingDowngradeNotches >= 1 || fundingRateShockBp >= 150) {
+    creditWarningLevel = "watch";
+  }
 
   let riskLevel: MicroRiskLevel = "watch";
   if (
     liquidityGap <= 0 &&
     stressedInterestCoverage >= 3 &&
-    stressedCurrentRatio >= 1.2
+    stressedCurrentRatio >= 1.2 &&
+    creditWarningLevel !== "danger"
   ) {
     riskLevel = "safe";
   } else if (
-    liquidityGap > Math.max(2, input.cashBuffer * 0.6) ||
+    liquidityGap > Math.max(2, cashBuffer * 0.6) ||
     stressedInterestCoverage < 1.5 ||
     stressedCurrentRatio < 0.9 ||
-    stressedDebtToEbitda >= 6
+    stressedDebtToEbitda >= 6 ||
+    creditWarningLevel === "danger"
   ) {
     riskLevel = "danger";
   }
@@ -179,13 +188,14 @@ export function calculateMicroStress(
     revenueLoss,
     operatingCashflowLoss,
     rentalIncomeLoss,
-    marketSpreadInterestCost,
     ratingSpreadShockBp,
-    ratingDowngradeInterestCost,
+    fundingRateShockBp,
+    fundingRateShockPct,
     additionalInterestCost,
-    workingCapitalNeed,
-    covenantLiquidityNeed,
-    cashflowStress,
+    refinancingBurdenIncrease,
+    workingCapitalBurdenIncrease,
+    liquidityStressBeforePortfolio,
+    liquidityStressAfterPortfolio,
     stressUseOfCash,
     liquidityGap,
     survivalMonths,
@@ -194,7 +204,9 @@ export function calculateMicroStress(
     stressedInterestCoverage,
     stressedCurrentRatio,
     stressedDebtToEbitda,
-    exposedDebt,
+    stressedReceivablesDays,
+    stressedInventoryDays,
+    creditWarningLevel,
     riskLevel,
   };
 }
