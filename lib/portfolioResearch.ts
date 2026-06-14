@@ -13,6 +13,13 @@ export interface ResearchSource {
   category: "market" | "strategy" | "report";
 }
 
+// LLM(Gemini/Claude) 분석 신호 — 방향(±)·강도까지 담는다(키워드 signals 보강).
+export interface AnalyzedSignalLite {
+  signal: ResearchSignal;
+  direction: -1 | 0 | 1;
+  strength: number; // 0~5
+}
+
 export interface MarketResearchItem {
   id: string;
   title: string;
@@ -21,6 +28,8 @@ export interface MarketResearchItem {
   date?: string;
   excerpt?: string;
   signals: ResearchSignal[];
+  // 캐시된 LLM 분석이 있으면 채워짐(/api/research가 주입). 있으면 가중치 계산이 방향·강도를 반영.
+  analysis?: AnalyzedSignalLite[];
 }
 
 export interface ResearchSignalScore {
@@ -47,13 +56,24 @@ export const RESEARCH_SOURCES: ResearchSource[] = [
   },
   {
     name: "한국투자증권 리서치",
-    url: "https://securities.koreainvestment.com/main/research/research/Strategy.jsp?jkGubun=6&category1=02&category2=01&jkGubun=6&focusYN=&fromDate=2023.05.19&toDate=2023.08.19&searchDate=3month&searchColumn=all&searchValue=&rowsPerPages=10&currentPage=5",
+    // 날짜 파라미터를 빼면 최근 3개월이 기본으로 잡혀 최신 리포트가 나온다(기존 2023 날짜 하드코딩 제거).
+    url: "https://securities.koreainvestment.com/main/research/research/Strategy.jsp?jkGubun=6&category1=02&category2=01",
     category: "strategy",
   },
   {
     name: "미래에셋증권 리서치",
     url: "https://securities.miraeasset.com/bbs/board/message/list.do?categoryId=1521",
     category: "report",
+  },
+  {
+    name: "하나증권 리서치",
+    url: "https://www.hanaw.com/main/research/research/list.cmd",
+    category: "strategy",
+  },
+  {
+    name: "한경 컨센서스",
+    url: "https://consensus.hankyung.com/analysis/list",
+    category: "market",
   },
   {
     name: "Thinkpool 미래에셋증권 리포트",
@@ -242,16 +262,26 @@ export function inferSignals(text: string): ResearchSignal[] {
 export function scoreResearchSignals(items: MarketResearchItem[]): ResearchSignalScore[] {
   const scores = new Map<ResearchSignal, number>();
   items.forEach((item, index) => {
-    const recencyWeight = Math.max(1, 4 - Math.floor(index / 5));
-    item.signals.forEach((signal) => {
-      scores.set(signal, (scores.get(signal) ?? 0) + recencyWeight);
-    });
+    const recencyWeight = Math.max(1, 4 - Math.floor(index / 5)); // 상위(최신)일수록 가중↑
+    if (item.analysis && item.analysis.length > 0) {
+      // LLM 분석 있음: 방향(±)×강도×최신 — "강세/약세"와 "강도"를 반영.
+      for (const a of item.analysis) {
+        scores.set(a.signal, (scores.get(a.signal) ?? 0) + a.direction * a.strength * recencyWeight);
+      }
+    } else {
+      // 분석 없음(폴백): 기존 키워드 방식 — 등장 빈도×최신 (방향·강도 없음).
+      item.signals.forEach((signal) => {
+        scores.set(signal, (scores.get(signal) ?? 0) + recencyWeight);
+      });
+    }
   });
 
   return (Object.keys(SIGNAL_LABELS) as ResearchSignal[])
     .map((signal) => ({
       signal,
-      score: scores.get(signal) ?? 0,
+      // [-8, +12] 클램프: 양수는 기존 Math.min 캡(8/10 등)과 동일하게 동작(키워드 모드 호환 유지),
+      // 음수(축소 신호)만 새로 허용. 최종 비중은 normalizeOptionWeights가 0~100으로 정규화.
+      score: Math.max(-8, Math.min(12, Math.round(scores.get(signal) ?? 0))),
       label: SIGNAL_LABELS[signal],
     }))
     .sort((a, b) => b.score - a.score);

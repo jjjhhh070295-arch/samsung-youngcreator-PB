@@ -16,20 +16,23 @@ export async function GET() {
       .from("research_signals")
       .select("report_id, title, source, url, date, summary, signals, model, analyzed_at")
       .order("date", { ascending: false })
-      .limit(40);
+      .limit(120); // 캐시는 누적되므로 지난 주 리포트도 목록에 남도록 넉넉히
     if (error) throw error;
 
-    const reports = (data ?? []).map((r) => ({
-      id: r.report_id,
-      title: r.title,
-      source: r.source,
-      url: r.url,
-      date: r.date,
-      summary: r.summary ?? "",
-      signals: (r.signals ?? []) as ReportAnalysis["signals"],
-      model: r.model,
-      analyzedAt: r.analyzed_at,
-    }));
+    const reports = (data ?? [])
+      .map((r) => ({
+        id: r.report_id,
+        title: r.title,
+        source: r.source,
+        url: r.url,
+        date: r.date,
+        summary: r.summary ?? "",
+        signals: (r.signals ?? []) as ReportAnalysis["signals"],
+        model: r.model,
+        analyzedAt: r.analyzed_at,
+      }))
+      // 본문 추출 실패 등으로 신호를 하나도 못 뽑은 리포트(표·차트 only 등)는 목록에서 제외
+      .filter((r) => r.signals.length > 0);
 
     const aggregated = aggregateAnalyses(
       reports.map((r) => ({ id: r.id, summary: r.summary, signals: r.signals, model: r.model })),

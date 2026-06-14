@@ -55,6 +55,8 @@ export default function ResearchPage() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState("");
+  const [viewMode, setViewMode] = useState<"week" | "source">("week"); // 주차별 / 출처(증권사)별
+  const [activeSource, setActiveSource] = useState<string | null>(null); // 출처별 보기에서 선택된 출처
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -175,57 +177,124 @@ export default function ResearchPage() {
         />
       )}
 
-      {/* 리포트별 요약 — 주차별 그룹 */}
+      {/* 리포트별 요약 — 주차별 / 출처별 그룹 (토글) */}
       {status === "ready" && reports.length > 0 && (
         <div className="space-y-5">
-          <h2 className="text-sm font-semibold text-fg-muted">리포트 (주차별 · 총 {reports.length})</h2>
-          {groupByWeek(reports).map((g) => (
-            <div key={g.key}>
-              <div className="mb-2 flex items-center gap-2">
-                <span className="rounded-md bg-navy-800 px-2.5 py-1 text-xs font-bold text-white dark:bg-navy-600">
-                  {g.label}
-                </span>
-                <span className="text-xs text-fg-muted">{g.reports.length}건</span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
-              <div className="space-y-3">
-                {g.reports.map((r) => (
-                  <div key={r.id} className="card p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-gold-600 dark:text-gold-300">
-                        {r.source}
-                        {r.date && <span className="ml-2 text-fg-muted">{r.date}</span>}
-                      </span>
-                      {r.url && (
-                        <a
-                          href={r.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-fg-muted underline hover:text-fg"
-                        >
-                          원문 ↗
-                        </a>
-                      )}
-                    </div>
-                    <p className="mt-1 text-sm font-semibold text-fg">{r.title}</p>
-                    {r.summary ? (
-                      <p className="mt-1 text-xs leading-relaxed text-fg-muted">{r.summary}</p>
-                    ) : (
-                      <p className="mt-1 text-[11px] text-fg-muted">
-                        본문 미분석 (키워드 추정) — [실패만 재분석] 시 요약 생성
-                      </p>
-                    )}
-                    {r.signals.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {r.signals.map((s, i) => (
-                          <DirChip key={i} s={s} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-fg-muted">
+              리포트 ({viewMode === "week" ? "주차별" : "출처별"} · 총 {reports.length})
+            </h2>
+            {/* 보기 전환 */}
+            <div className="inline-flex overflow-hidden rounded-lg border border-border text-xs">
+              <button
+                className={`px-3 py-1.5 font-medium ${viewMode === "week" ? "bg-navy-800 text-white dark:bg-navy-600" : "text-fg-muted hover:bg-surface-2"}`}
+                onClick={() => setViewMode("week")}
+              >
+                주차별
+              </button>
+              <button
+                className={`px-3 py-1.5 font-medium ${viewMode === "source" ? "bg-navy-800 text-white dark:bg-navy-600" : "text-fg-muted hover:bg-surface-2"}`}
+                onClick={() => setViewMode("source")}
+              >
+                출처별
+              </button>
             </div>
+          </div>
+
+          {viewMode === "week"
+            ? groupByWeek(reports).map((g) => (
+                <div key={g.key}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="rounded-md bg-navy-800 px-2.5 py-1 text-xs font-bold text-white dark:bg-navy-600">
+                      {g.label}
+                    </span>
+                    <span className="text-xs text-fg-muted">{g.reports.length}건</span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                  <div className="space-y-3">
+                    {g.reports.map((r) => (
+                      <ReportCard key={r.id} r={r} />
+                    ))}
+                  </div>
+                </div>
+              ))
+            : (() => {
+                // 출처(증권사)별 — 가로 탭바로 출처를 나란히 두고, 선택한 출처의 리포트만 표시
+                const groups = groupBySource(reports);
+                const active = groups.find((g) => g.key === activeSource) ?? groups[0];
+                return (
+                  <div className="space-y-4">
+                    {/* 출처 탭바 */}
+                    <div className="flex flex-wrap gap-2 border-b border-border pb-3">
+                      {groups.map((g) => {
+                        const on = g.key === active?.key;
+                        return (
+                          <button
+                            key={g.key}
+                            onClick={() => setActiveSource(g.key)}
+                            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-bold transition ${
+                              on
+                                ? "bg-navy-800 text-white dark:bg-navy-600"
+                                : "bg-surface-2 text-fg-muted hover:text-fg"
+                            }`}
+                          >
+                            {g.label}
+                            <span
+                              className={`rounded px-1 text-[10px] ${on ? "bg-white/20" : "bg-border text-fg-muted"}`}
+                            >
+                              {g.reports.length}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* 선택된 출처의 리포트 */}
+                    <div className="space-y-3">
+                      {active?.reports.map((r) => (
+                        <ReportCard key={r.id} r={r} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 리포트 1건 카드 (주차별·출처별 공용)
+function ReportCard({ r }: { r: Report }) {
+  return (
+    <div className="card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-medium text-gold-600 dark:text-gold-300">
+          {r.source}
+          {r.date && <span className="ml-2 text-fg-muted">{r.date}</span>}
+        </span>
+        {r.url && (
+          <a
+            href={r.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-fg-muted underline hover:text-fg"
+          >
+            원문 ↗
+          </a>
+        )}
+      </div>
+      <p className="mt-1 text-sm font-semibold text-fg">{r.title}</p>
+      {r.summary ? (
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">{r.summary}</p>
+      ) : (
+        <p className="mt-1 text-[11px] text-fg-muted">
+          본문 미분석 (키워드 추정) — [실패만 재분석] 시 요약 생성
+        </p>
+      )}
+      {r.signals.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {r.signals.map((s, i) => (
+            <DirChip key={i} s={s} />
           ))}
         </div>
       )}
@@ -253,4 +322,20 @@ function groupByWeek(reports: Report[]): { key: string; label: string; reports: 
     map.get(key)!.reports.push(r);
   }
   return Array.from(map.values()).sort((a, b) => b.sort.localeCompare(a.sort));
+}
+
+// 리포트를 출처(증권사)별로 그룹화. source가 "네이버 금융 … · 대신증권"이면 증권사명으로 묶고,
+// 아니면 출처명 그대로 사용. 건수 많은 출처 먼저.
+function groupBySource(reports: Report[]): { key: string; label: string; reports: Report[] }[] {
+  const map = new Map<string, { key: string; label: string; reports: Report[] }>();
+  for (const r of reports) {
+    const parts = (r.source || "").split(" · ");
+    const label = (parts[1] || parts[0] || "기타").trim();
+    const key = label;
+    if (!map.has(key)) map.set(key, { key, label, reports: [] });
+    map.get(key)!.reports.push(r);
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => b.reports.length - a.reports.length || a.label.localeCompare(b.label),
+  );
 }

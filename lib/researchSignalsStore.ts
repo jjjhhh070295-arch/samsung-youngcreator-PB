@@ -8,13 +8,18 @@ import type { ReportAnalysis } from "./researchAnalysis";
 export async function getCachedAnalyses(ids: string[]): Promise<Map<string, ReportAnalysis>> {
   const map = new Map<string, ReportAnalysis>();
   if (!supabase || ids.length === 0) return map;
+  const want = new Set(ids);
   try {
+    // 주의: id가 길어(한글 slug ~115자) .in("report_id", ids[30+]) 는 URL 길이 초과로 요청이 실패한다.
+    // → 캐시가 항상 비어 매번 전체 재분석되는 버그가 됨. 그래서 최근 행을 넉넉히 받아 JS에서 교집합 필터.
     const { data, error } = await supabase
       .from("research_signals")
       .select("report_id, summary, signals, model")
-      .in("report_id", ids);
+      .order("analyzed_at", { ascending: false })
+      .limit(500);
     if (error) return map;
     for (const row of data ?? []) {
+      if (!want.has(row.report_id)) continue;
       map.set(row.report_id, {
         id: row.report_id,
         summary: row.summary ?? "",
