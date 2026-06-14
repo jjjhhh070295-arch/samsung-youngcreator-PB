@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import type { Client, Portfolio } from '@/lib/types';
 import {
+  buildDetailedHoldings,
   buildPortfolioViewModel,
   preferenceAdjustedMetrics,
   type PortfolioOption,
@@ -610,6 +611,22 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     () => buildBenchmarkChartData(benchmarkPoints, adjustedWeights, model.preferenceProfile, selectedRiskTilt),
     [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedRiskTilt],
   );
+  const selectedDetailedHoldings = useMemo(
+    () => buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase),
+    [adjustedWeights, model.preferenceProfile, selectedBase],
+  );
+  const detailBuckets = useMemo(
+    () =>
+      (Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
+        .filter(([, weight]) => weight > 0)
+        .map(([asset, weight]) => ({
+          asset,
+          weight,
+          holdings: selectedDetailedHoldings.filter((holding) => holding.bucket === asset),
+        }))
+        .filter((bucket) => bucket.holdings.length > 0),
+    [adjustedWeights, selectedDetailedHoldings],
+  );
   const totalWeight = Object.values(adjustedWeights).reduce((a, b) => a + b, 0);
   const weightDiff = 100 - totalWeight;
   const selectedOption = displayPortfolioOptions.find((option) => option.id === selectedBase) ?? displayPortfolioOptions[1];
@@ -848,6 +865,60 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </div>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-blue-600"></span>
+            <h3 className="text-base font-bold text-slate-800">선택안 세부 추천 자산</h3>
+          </div>
+          <span className="text-[11px] font-medium text-slate-400">
+            자산군 내부 비중까지 합산 100%
+          </span>
+        </div>
+
+        <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-900">
+          위 자산배분 비중을 실제 제안서에서 설명할 수 있도록 세부 후보로 나눴습니다.
+          각 비중은 전체 포트폴리오 기준이며, PB 검토와 고객 적합성 확인 전제의 예시입니다.
+        </p>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {detailBuckets.map(({ asset, weight, holdings }) => (
+            <div key={asset} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-sm ${barColors[asset]}`}></span>
+                  <p className="text-sm font-black text-slate-800">{weightLabels[asset]}</p>
+                </div>
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-700">
+                  {weight}%
+                </span>
+              </div>
+              <div className="space-y-2">
+                {holdings.map((holding) => (
+                  <div key={`${asset}-${holding.name}`} className="rounded-lg border border-white bg-white px-3 py-2 text-xs">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-bold text-slate-800">{holding.name}</p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{holding.role}</p>
+                      </div>
+                      <span className="shrink-0 text-sm font-black text-blue-700">{holding.weight}%</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="rounded border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        {holding.taxNote}
+                      </span>
+                      <span className="rounded border border-slate-100 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                        {holding.source}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <BenchmarkReturnChart
         data={benchmarkChartData}
         source={benchmarkSource}
@@ -1062,6 +1133,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                       {product}
                     </span>
                   ))}
+                </div>
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <p className="mb-1.5 text-[10px] font-bold text-slate-400">세부 비중 미리보기</p>
+                  <div className="space-y-1">
+                    {option.detailedHoldings.slice(0, 4).map((holding) => (
+                      <div key={`${option.id}-${holding.bucket}-${holding.name}`} className="flex items-center justify-between gap-2 text-[10px]">
+                        <span className="min-w-0 truncate text-slate-600">{holding.name}</span>
+                        <span className="shrink-0 font-black text-slate-800">{holding.weight}%</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </button>
             );

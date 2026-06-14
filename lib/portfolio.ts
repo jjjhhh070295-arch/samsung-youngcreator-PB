@@ -149,6 +149,16 @@ export interface PortfolioOption {
     raw: number;
   };
   mainProducts: string[];
+  detailedHoldings: PortfolioDetailHolding[];
+}
+
+export interface PortfolioDetailHolding {
+  bucket: keyof PortfolioOption["weights"];
+  name: string;
+  weight: number;
+  role: string;
+  taxNote: string;
+  source: string;
 }
 
 // 4. 상품군 적합도 타입
@@ -213,7 +223,8 @@ export const mockPortfolioOptions: PortfolioOption[] = [
     mdd: -1.5,
     taxReturn: 3.9,
     weights: { etf: 10, bond: 50, els: 5, mmf: 25, gold: 5, dollar: 5, raw: 0 },
-    mainProducts: ['삼성 국고채 3년 ETF', '대동 Prime 상환사채', '정기예금 연계형 ELB']
+    mainProducts: ['삼성 국고채 3년 ETF', '대동 Prime 상환사채', '정기예금 연계형 ELB'],
+    detailedHoldings: [],
   },
   {
     id: 'balanced',
@@ -223,7 +234,8 @@ export const mockPortfolioOptions: PortfolioOption[] = [
     mdd: -6.2,
     taxReturn: 6.1,
     weights: { etf: 35, bond: 35, els: 10, mmf: 10, gold: 5, dollar: 5, raw: 0 },
-    mainProducts: ['KODEX 200', '삼성 단기채권 우량 펀드', '지수연계 노낙인 ELS']
+    mainProducts: ['KODEX 200', '삼성 단기채권 우량 펀드', '지수연계 노낙인 ELS'],
+    detailedHoldings: [],
   },
   {
     id: 'growth',
@@ -233,7 +245,8 @@ export const mockPortfolioOptions: PortfolioOption[] = [
     mdd: -14.8,
     taxReturn: 9.2,
     weights: { etf: 60, bond: 15, els: 10, mmf: 5, gold: 5, dollar: 5, raw: 0 },
-    mainProducts: ['KODEX 미국반도체MV', '삼성 미국S&P500동일가중', '글로벌 테크 ELS']
+    mainProducts: ['KODEX 미국반도체MV', '삼성 미국S&P500동일가중', '글로벌 테크 ELS'],
+    detailedHoldings: [],
   }
 ];
 
@@ -759,6 +772,137 @@ function productsFor(
   return products.slice(0, 4);
 }
 
+function splitWeight(totalWeight: number, ratios: number[]) {
+  if (totalWeight <= 0 || ratios.length === 0) return [];
+  const ratioSum = ratios.reduce((sum, ratio) => sum + ratio, 0) || 1;
+  let used = 0;
+  return ratios.map((ratio, index) => {
+    if (index === ratios.length - 1) return Math.round((totalWeight - used) * 10) / 10;
+    const value = Math.round(((totalWeight * ratio) / ratioSum) * 10) / 10;
+    used += value;
+    return value;
+  });
+}
+
+function detail(
+  bucket: keyof PortfolioOption["weights"],
+  name: string,
+  weight: number,
+  role: string,
+  taxNote: string,
+  source: string,
+): PortfolioDetailHolding | null {
+  if (weight <= 0) return null;
+  return { bucket, name, weight, role, taxNote, source };
+}
+
+export function buildDetailedHoldings(
+  weights: PortfolioOption["weights"],
+  preference: ClientPreferenceProfile,
+  optionId: PortfolioOption["id"],
+): PortfolioDetailHolding[] {
+  const details: Array<PortfolioDetailHolding | null> = [];
+  const taxPriority = preference.taxPriority;
+  const aggressive = optionId === "growth" || preference.stockOnly || preference.benchmarkOutperformance;
+
+  const etf = splitWeight(
+    weights.etf,
+    taxPriority
+      ? aggressive
+        ? [30, 25, 20, 15, 10]
+        : [30, 25, 20, 15, 10]
+      : aggressive
+        ? [30, 25, 20, 15, 10]
+        : [35, 25, 20, 20],
+  );
+
+  if (taxPriority) {
+    details.push(
+      detail("etf", "삼성전자", etf[0], "국내 상장 대형주 장내거래 후보", "대주주 요건·특수관계자 지분율 확인 전제", "국내 상장주식 절세 후보"),
+      detail("etf", "SK하이닉스", etf[1], "반도체 대표주 장내거래 후보", "대주주 요건·매매 시점별 양도세 확인", "국내 상장주식 절세 후보"),
+      detail("etf", "KODEX 200TR", etf[2], "국내 대표지수 총수익 ETF", "분배금·매매차익 과세 구조 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX MSCI KOREA TR", etf[3], "국내 대형주 분산 ETF", "TR 구조와 보유계좌 과세 확인", "삼성자산운용 KODEX"),
+      detail("etf", "현대차", etf[4], "국내 대형 가치주 보완 후보", "대주주 요건·배당소득 과세 확인", "국내 상장주식 절세 후보"),
+    );
+  } else if (preference.overseasSingleStock) {
+    details.push(
+      detail("etf", "NVIDIA", etf[0], "AI 반도체 핵심 개별주", "해외주식 양도소득세·환율 변동 확인", "해외 단일종목 후보"),
+      detail("etf", "Microsoft", etf[1], "클라우드·AI 플랫폼 개별주", "해외주식 양도소득세 확인", "해외 단일종목 후보"),
+      detail("etf", "Apple", etf[2], "미국 대형 기술주 분산", "해외 배당·양도세 확인", "해외 단일종목 후보"),
+      detail("etf", "Broadcom", etf[3], "AI 인프라·반도체 보완", "해외주식 양도세 확인", "해외 단일종목 후보"),
+      detail("etf", "Eli Lilly", etf[4], "헬스케어 성장 분산", "환율·해외 양도세 확인", "해외 단일종목 후보"),
+    );
+  } else if (aggressive) {
+    details.push(
+      detail("etf", "KODEX 미국S&P500", etf[0], "미국 대표지수 핵심", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX 미국나스닥100", etf[1], "미국 성장주 비중 확대", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX AI반도체핵심장비", etf[2], "AI·반도체 알파 추구", "국내 ETF 과세 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX 인도Nifty50", etf[3], "신흥국 성장 분산", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX 200", etf[4], "국내 지수 보완", "국내 ETF 과세 확인", "삼성자산운용 KODEX"),
+    );
+  } else {
+    details.push(
+      detail("etf", "KODEX 200TR", etf[0], "국내 대표지수 분산", "분배금·매매차익 과세 구조 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX 미국S&P500", etf[1], "미국 대표지수 핵심", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX MSCI KOREA TR", etf[2], "국내 대형주 분산", "TR 구조와 보유계좌 과세 확인", "삼성자산운용 KODEX"),
+      detail("etf", "KODEX AI반도체핵심장비", etf[3], "테마 알파 제한 편입", "테마 변동성 확인", "삼성자산운용 KODEX"),
+    );
+  }
+
+  const bond = splitWeight(weights.bond, taxPriority ? [35, 25, 20, 20] : [35, 30, 20, 15]);
+  if (taxPriority) {
+    details.push(
+      detail("bond", "브라질 국채 만기분산(헤알화)", bond[0], "조세조약상 이자 비과세 검토 후보", "환율·국가위험·조세조약 요건 세무 확인", "브라질 국채 절세 검토"),
+      detail("bond", "국고채 3년 직접투자", bond[1], "세금 납부 재원 안정화", "채권 매매차익 과세 여부·이자소득 과세 확인", "채권 직접투자"),
+      detail("bond", "AA- 이상 우량 회사채 직접투자", bond[2], "만기매칭 인컴 래더", "이자소득·법인 회계 처리 확인", "우량 회사채"),
+      detail("bond", "KODEX 단기채권", bond[3], "단기 유동성 대기", "ETF 분배금 과세 확인", "삼성자산운용 KODEX"),
+    );
+  } else {
+    details.push(
+      detail("bond", "KODEX 종합채권(AA-이상)액티브", bond[0], "우량채권 코어", "분배금 과세 확인", "삼성자산운용 KODEX"),
+      detail("bond", "KODEX 단기채권", bond[1], "단기 변동성 완충", "분배금 과세 확인", "삼성자산운용 KODEX"),
+      detail("bond", "국고채 3년 직접투자", bond[2], "만기매칭 안정자산", "이자소득 과세 확인", "채권 직접투자"),
+      detail("bond", "AA- 이상 우량 회사채", bond[3], "인컴 보강", "신용위험·이자소득 과세 확인", "우량 회사채"),
+    );
+  }
+
+  const els = splitWeight(weights.els, [60, 40]);
+  details.push(
+    detail("els", "S&P500·EuroStoxx50 노낙인 ELS", els[0], "쿠폰형 제한 편입", "파생결합증권 과세·중도상환 위험 확인", "ELS/ELB 검토"),
+    detail("els", "원금지급형 ELB", els[1], "현금성 대체 수익 보완", "발행사 신용위험·과세 확인", "ELS/ELB 검토"),
+  );
+
+  const mmf = splitWeight(weights.mmf, taxPriority ? [45, 35, 20] : [50, 30, 20]);
+  details.push(
+    detail("mmf", "법인 MMF", mmf[0], "세금 납부 전 대기자금", "법인 회계·이자소득 처리 확인", "유동성 버킷"),
+    detail("mmf", "RP 1~3개월 롤링", mmf[1], "납부월 전 만기매칭", "RP 이자소득 과세 확인", "유동성 버킷"),
+    detail("mmf", "CMA 세금 납부 전용 계정", mmf[2], "법인세·증여세 납부 재원 분리", "계좌 목적별 내부 승인 확인", "유동성 버킷"),
+  );
+
+  const gold = splitWeight(weights.gold, [70, 30]);
+  details.push(
+    detail("gold", "KRX 금현물", gold[0], "시장 충격 헤지", "거래 방식별 과세 확인", "금 헤지"),
+    detail("gold", "KODEX 골드선물(H)", gold[1], "금 가격 보완 노출", "ETF 과세·선물 롤오버 확인", "삼성자산운용 KODEX"),
+  );
+
+  const dollar = splitWeight(weights.dollar, [55, 45]);
+  details.push(
+    detail("dollar", "달러 MMF", dollar[0], "달러 유동성 대기", "환차익·이자소득 과세 확인", "달러 유동성"),
+    detail("dollar", "미국 단기국채 ETF", dollar[1], "단기 달러채 분산", "해외 ETF 과세 확인", "달러 채권"),
+  );
+
+  const raw = splitWeight(weights.raw, [60, 40]);
+  details.push(
+    detail("raw", "KODEX WTI원유선물(H)", raw[0], "원자재 가격 헤지", "선물형 ETF 과세·롤오버 확인", "삼성자산운용 KODEX"),
+    detail("raw", "농산물/원자재 분산 ETF", raw[1], "인플레이션 보완", "고변동성·과세 확인", "원자재 보완"),
+  );
+
+  return details
+    .filter((item): item is PortfolioDetailHolding => Boolean(item))
+    .filter((item) => item.weight > 0)
+    .map((item) => ({ ...item, weight: Math.round(item.weight * 10) / 10 }));
+}
+
 export function preferenceAdjustedMetrics(
   weights: PortfolioOption["weights"],
   preference: ClientPreferenceProfile,
@@ -843,6 +987,7 @@ function optionFromBase(
     mdd: metrics.mdd,
     taxReturn: metrics.taxReturn,
     mainProducts: productsFor(weights, signals, preference),
+    detailedHoldings: buildDetailedHoldings(weights, preference, base.id),
   };
 }
 
