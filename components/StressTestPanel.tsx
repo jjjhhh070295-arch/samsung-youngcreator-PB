@@ -40,6 +40,7 @@ import {
   runStressTest,
   proposeRebalance,
 } from "@/lib/stresstest";
+import { runMonteCarloCvar } from "@/lib/stress/monteCarlo";
 import { CHART_COLORS } from "@/lib/theme";
 import { EmptyView } from "./StateViews";
 
@@ -83,6 +84,18 @@ export default function StressTestPanel({ portfolios }: Props) {
     () => (target ? proposeRebalance(target, shock) : null),
     [target, shock],
   );
+  const monteCarlo = useMemo(
+    () => (target ? runMonteCarloCvar(target, shock, { simulations: 5000 }) : null),
+    [target, shock],
+  );
+  const monteCarloByPortfolio = useMemo(() => {
+    return new Map(
+      portfolios.map((portfolio) => [
+        portfolio.id,
+        runMonteCarloCvar(portfolio, shock, { simulations: 5000 }),
+      ]),
+    );
+  }, [portfolios, shock]);
 
   if (portfolios.length === 0) {
     return (
@@ -200,12 +213,16 @@ export default function StressTestPanel({ portfolios }: Props) {
                   <th className="px-3 py-2 text-right">충격분</th>
                   <th className="px-3 py-2 text-right">충격 후 예상수익</th>
                   <th className="px-3 py-2 text-right">예상 낙폭</th>
+                  <th className="px-3 py-2 text-right">VaR 95%</th>
+                  <th className="px-3 py-2 text-right">CVaR 95%</th>
+                  <th className="px-3 py-2 text-right">손실확률</th>
                   <th className="px-3 py-2 text-center">신뢰도</th>
                 </tr>
               </thead>
               <tbody>
                 {results.map((r) => {
                   const c = confidenceLabel(r.confidence);
+                  const mc = monteCarloByPortfolio.get(r.portfolioId);
                   return (
                     <tr
                       key={r.portfolioId}
@@ -229,6 +246,15 @@ export default function StressTestPanel({ portfolios }: Props) {
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-red-500">
                         −{fmtAbs(r.projectedDrawdown)}%
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-red-500">
+                        {mc ? `${fmt(mc.var95)}%` : "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums text-red-500">
+                        {mc ? `${fmt(mc.cvar95)}%` : "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-fg">
+                        {mc ? `${fmtAbs(mc.probabilityOfLoss, 0)}%` : "-"}
                       </td>
                       <td className={`px-3 py-2 text-center text-xs font-medium ${c.cls}`}>
                         {c.txt}
@@ -461,6 +487,112 @@ export default function StressTestPanel({ portfolios }: Props) {
           )}
 
           {/* ── 모델 신뢰도 상세 (자산군 × 요인 t-통계량) ── */}
+          {monteCarlo && (
+            <div className="card p-4">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-fg">
+                    몬테카를로 + CVaR tail risk 점검
+                  </h4>
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                    {monteCarlo.label} 기준 {monteCarlo.simulations.toLocaleString()}회 시뮬레이션한
+                    12개월 수익률 분포입니다. 스튜던트-t tail risk, 자산군 변동성, 단순 스트레스 상관 가정을 반영합니다.
+                  </p>
+                </div>
+                <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-fg-muted">
+                  95% tail risk 구간
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                <div className="rounded-lg border border-border/70 p-3">
+                  <p className="text-[11px] text-fg-muted">평균 수익률</p>
+                  <p className={`mt-1 text-lg font-semibold tabular-nums ${monteCarlo.meanReturn >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-500"}`}>
+                    {fmt(monteCarlo.meanReturn)}%
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border/70 p-3">
+                  <p className="text-[11px] text-fg-muted">VaR 95%</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-red-500">
+                    {fmt(monteCarlo.var95)}%
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border/70 p-3">
+                  <p className="text-[11px] text-fg-muted">CVaR 95%</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-red-500">
+                    {fmt(monteCarlo.cvar95)}%
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border/70 p-3">
+                  <p className="text-[11px] text-fg-muted">손실확률</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-fg">
+                    {fmtAbs(monteCarlo.probabilityOfLoss, 0)}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-medium text-fg-muted">시뮬레이션 수익률 분포</p>
+                    <p className="text-[11px] text-fg-muted">
+                      최악 {fmt(monteCarlo.worstReturn)}% / 최고 {fmt(monteCarlo.bestReturn)}%
+                    </p>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={monteCarlo.histogram} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.muted} strokeOpacity={0.2} />
+                      <XAxis dataKey="bucket" tick={{ fill: "currentColor", fontSize: 10 }} interval={1} />
+                      <YAxis tick={{ fill: "currentColor", fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip
+                        formatter={(v: number) => [`${v.toLocaleString()}개 경로`, "빈도"]}
+                        contentStyle={{
+                          background: "rgb(var(--surface))",
+                          border: "1px solid rgb(var(--border))",
+                          borderRadius: 8,
+                          fontSize: 12,
+                        }}
+                      />
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                        {monteCarlo.histogram.map((bucket) => (
+                          <Cell
+                            key={bucket.bucket}
+                            fill={bucket.bucket.includes("-") || bucket.bucket.includes("<") ? "#dc2626" : CHART_COLORS.primary}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="rounded-lg border border-border/70 p-3">
+                  <h5 className="text-xs font-semibold text-fg">해석 방법</h5>
+                  <div className="mt-2 space-y-2 text-xs leading-relaxed text-fg-muted">
+                    <p>
+                      VaR 95%는 하위 5% 경계 수익률입니다. CVaR 95%는 그보다 더 나쁜 최악 5%
+                      구간의 평균 수익률이므로 더 보수적인 tail risk 지표입니다.
+                    </p>
+                    <p>
+                      -10% 이하 손실확률:{" "}
+                      <span className="font-semibold tabular-nums text-fg">
+                        {fmtAbs(monteCarlo.probabilityBelowMinus10)}%
+                      </span>
+                      . 변동성 추정치:{" "}
+                      <span className="font-semibold tabular-nums text-fg">
+                        {fmtAbs(monteCarlo.volatility)}%
+                      </span>
+                      .
+                    </p>
+                    <p>
+                      이 값은 보장된 예측이 아니라 PB 검토를 돕는 참고 지표입니다. 선택한 시나리오 주변에서
+                      가능한 손익 분포와 tail risk를 보여줘 기존 베타 기반 충격 분석을 보완합니다.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <details className="card p-4">
             <summary className="cursor-pointer text-sm font-semibold text-fg">
               모델 신뢰도 상세 (회귀 추정 계수·t값)
