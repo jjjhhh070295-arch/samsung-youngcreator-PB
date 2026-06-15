@@ -21,8 +21,21 @@ import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ViewToggle from "@/components/ViewToggle";
 import ConfirmModal from "@/components/ConfirmModal";
 import { LoadingView, ErrorView, EmptyView } from "@/components/StateViews";
+import { formatKRWShort } from "@/lib/format";
 
 type ViewMode = "pb" | "client";
+
+type MarketTicker = { label: string; sub: string; value: string; change: string; up: boolean };
+type EtfItem = { code: string; name: string; price: number; changeRate: string; up: boolean; flat: boolean };
+
+// 로딩 중·실패 시 보여줄 폴백(예시) 값
+const DUMMY_MARKET: MarketTicker[] = [
+  { label: "코스피", sub: "KOSPI", value: "2,545.98", change: "+0.87%", up: true },
+  { label: "S&P 500", sub: "S&P 500", value: "5,602.23", change: "+1.24%", up: true },
+  { label: "원/달러", sub: "USD/KRW", value: "1,372.50", change: "-0.34%", up: false },
+  { label: "미국 국채 10Y", sub: "US 10Y", value: "4.46%", change: "-0.03%p", up: false },
+  { label: "한국 국채 3Y", sub: "국고채 3년", value: "3.21%", change: "+0.02%p", up: true },
+];
 
 export default function HomePage() {
   const [view, setView] = useState<ViewMode>("pb");
@@ -37,6 +50,35 @@ export default function HomePage() {
   const [clientFormOpen, setClientFormOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [deleteClientTarget, setDeleteClientTarget] = useState<Client | null>(null);
+
+  // 증시·금리 티커 (실시간 /api/market, 실패 시 더미 폴백)
+  const [market, setMarket] = useState<MarketTicker[]>(DUMMY_MARKET);
+  const [marketLive, setMarketLive] = useState(false);
+  // 삼성자산운용 KODEX 인기 ETF (/api/etf)
+  const [etfs, setEtfs] = useState<EtfItem[]>([]);
+  const [rightTab, setRightTab] = useState<"market" | "etf">("market");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/market", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled || !d?.ok || !Array.isArray(d.items) || d.items.length === 0) return;
+        setMarket(d.items);
+        setMarketLive(true);
+      })
+      .catch(() => {});
+    fetch("/api/etf", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled || !d?.ok || !Array.isArray(d.items)) return;
+        setEtfs(d.items);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -57,6 +99,9 @@ export default function HomePage() {
 
   const clientCount = (pbId: string) =>
     clients.filter((c) => c.assignedPbId === pbId).length;
+
+  // 히어로용 집계
+  const totalAum = clients.reduce((sum, c) => sum + (c.assetSize || 0), 0);
 
   const handleCreatePb = async (name: string) => {
     await createPb(name);
@@ -96,22 +141,152 @@ export default function HomePage() {
 
   return (
     <div>
-      {/* 히어로 배너 */}
-      <div className="mb-6 overflow-hidden rounded-2xl bg-gradient-to-br from-navy-900 via-navy-800 to-navy-700 p-6 text-white shadow-card sm:p-10">
-        <p className="flex items-center gap-2 text-xs font-medium text-gold-300">
-          <span className="h-px w-6 bg-gold-400" />
-          SAMSUNG SECURITIES · PRIVATE BANKING
-        </p>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-          삼성증권 PB센터
-        </h1>
-        <p className="mt-2 max-w-xl text-sm text-white/70">
-          고객 상담을 <b className="text-gold-300">RRTTLLU 7요인</b>으로 구조화해
-          투자정책서(IPS)로 정리하고, 상담 이력·성향 변화·운용자산을 한곳에서 관리합니다.
-        </p>
-        <p className="mt-3 text-[11px] text-white/40">
-          ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
-        </p>
+      {/* 히어로 — 바이낸스식 2단 (좌: 헤드라인+CTA / 우: 시세 패널) */}
+      <div className="mb-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.25fr_1fr]">
+        {/* 좌 */}
+        <div>
+          <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-gold-400">
+            <span className="h-px w-6 bg-gold-400" />
+            SAMSUNG SECURITIES · PRIVATE BANKING
+          </p>
+          <h1 className="mt-2 text-4xl font-black leading-[1.02] tracking-tight text-fg sm:text-5xl">
+            {formatKRWShort(totalAum)}
+          </h1>
+          <p className="mt-1 text-lg font-bold text-fg-muted">관리 자산 규모</p>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-fg-muted">
+            삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.
+          </p>
+
+          {/* 스탯 칩 */}
+          <div className="mt-4 flex flex-wrap gap-3">
+            <div className="rounded-xl border border-border bg-surface px-5 py-2.5">
+              <p className="text-2xl font-black text-gold-400">{clients.length}</p>
+              <p className="text-xs text-fg-muted">관리 고객</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface px-5 py-2.5">
+              <p className="text-2xl font-black text-gold-400">{pbs.length}</p>
+              <p className="text-xs text-fg-muted">담당 PB</p>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              className="btn-gold px-6 py-2.5"
+              onClick={() => {
+                setEditingClient(null);
+                setClientFormOpen(true);
+              }}
+            >
+              + 고객 추가
+            </button>
+            <button className="btn-outline px-6 py-2.5" onClick={() => setPbManageOpen(true)}>
+              PB 관리
+            </button>
+          </div>
+          <p className="mt-4 text-[11px] text-fg-muted/70">
+            ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
+          </p>
+        </div>
+
+        {/* 우 — 시세 패널 (증시·금리 / KODEX ETF 탭) */}
+        <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
+          {/* 탭 헤더 */}
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex gap-1">
+              <button
+                onClick={() => setRightTab("market")}
+                className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
+                  rightTab === "market"
+                    ? "bg-surface-2 text-fg"
+                    : "text-fg-muted hover:text-fg"
+                }`}
+              >
+                증시 · 금리
+              </button>
+              <button
+                onClick={() => setRightTab("etf")}
+                className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
+                  rightTab === "etf" ? "bg-surface-2 text-fg" : "text-fg-muted hover:text-fg"
+                }`}
+              >
+                KODEX ETF
+              </button>
+            </div>
+            {rightTab === "market" ? (
+              <span
+                className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${
+                  marketLive ? "bg-green-500/15 text-green-500" : "bg-surface-2 text-fg-muted"
+                }`}
+              >
+                {marketLive ? (
+                  <>
+                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> 실시간
+                  </>
+                ) : (
+                  "예시"
+                )}
+              </span>
+            ) : (
+              <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-fg-muted">
+                순자산 상위
+              </span>
+            )}
+          </div>
+
+          {/* 증시·금리 */}
+          {rightTab === "market" && (
+            <div className="space-y-0.5">
+              {market.map((m) => (
+                <div
+                  key={m.label}
+                  className="flex items-center justify-between rounded-lg px-2 py-2 transition-colors hover:bg-surface-2"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-fg">{m.label}</p>
+                    <p className="text-[11px] text-fg-muted">{m.sub}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-fg">{m.value}</p>
+                    <p className={`text-[11px] font-medium ${m.up ? "text-green-500" : "text-red-500"}`}>
+                      {m.change}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* KODEX ETF */}
+          {rightTab === "etf" &&
+            (etfs.length === 0 ? (
+              <p className="py-8 text-center text-sm text-fg-muted">불러오는 중…</p>
+            ) : (
+              <div className="space-y-0.5">
+                {etfs.map((e) => (
+                  <a
+                    key={e.code}
+                    href={`https://finance.naver.com/item/main.naver?code=${e.code}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-surface-2"
+                  >
+                    <p className="min-w-0 truncate text-sm font-semibold text-fg">{e.name}</p>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold text-fg">{e.price.toLocaleString()}원</p>
+                      <p
+                        className={`text-[11px] font-medium ${
+                          e.flat ? "text-fg-muted" : e.up ? "text-green-500" : "text-red-500"
+                        }`}
+                      >
+                        {e.changeRate}
+                      </p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            ))}
+        </div>
       </div>
 
       {/* 보기 토글 */}

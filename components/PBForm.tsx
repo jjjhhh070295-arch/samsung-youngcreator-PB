@@ -51,11 +51,6 @@ export default function PBForm({ open, initial, onSubmit, onClose }: Props) {
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
-          {initial && (
-            <p className="mt-2 text-xs text-fg-muted">
-              식별코드 {initial.code} 는 변경되지 않습니다.
-            </p>
-          )}
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button className="btn-outline" onClick={onClose} disabled={saving}>

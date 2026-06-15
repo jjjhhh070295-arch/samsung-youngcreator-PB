@@ -73,7 +73,7 @@ export default function IPSDocumentPage() {
 
   // 담당 PB 이름 (ID → 이름)
   const assignedPb = pbs.find((p) => p.id === client.assignedPbId);
-  const pbDisplay = assignedPb ? `${assignedPb.name} (${assignedPb.code})` : "미지정";
+  const pbDisplay = assignedPb ? assignedPb.name : "미지정";
 
   return (
     <div className="mx-auto max-w-3xl">

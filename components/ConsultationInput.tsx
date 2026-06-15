@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { IPS } from "@/lib/types";
 import { MAX_AUDIO_BYTES } from "@/lib/stt";
 
@@ -26,6 +26,49 @@ export default function ConsultationInput({
   const [analyzing, setAnalyzing] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [msg, setMsg] = useState<{ type: "info" | "error" | "ok"; text: string } | null>(null);
+
+  // 브라우저 실시간 녹음 (MediaRecorder)
+  const [recording, setRecording] = useState(false);
+  const [recSec, setRecSec] = useState(0);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const mmss = (s: number) =>
+    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+  const startRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (recTimerRef.current) clearInterval(recTimerRef.current);
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        if (blob.size > 0) {
+          const ext = (mr.mimeType || "audio/webm").includes("ogg") ? "ogg" : "webm";
+          onFile(new File([blob], `recording.${ext}`, { type: blob.type }));
+        }
+      };
+      mr.start();
+      recRef.current = mr;
+      setRecording(true);
+      setRecSec(0);
+      recTimerRef.current = setInterval(() => setRecSec((s) => s + 1), 1000);
+    } catch {
+      setMsg({ type: "error", text: "마이크 권한이 필요합니다. 브라우저에서 마이크 사용을 허용하세요." });
+    }
+  };
+
+  const stopRec = () => {
+    recRef.current?.stop();
+    recRef.current = null;
+    setRecording(false);
+  };
 
   const analyze = async () => {
     if (!notes.trim()) {
@@ -163,9 +206,40 @@ export default function ConsultationInput({
 
         {tab === "voice" && (
           <div>
+            {/* 실시간 녹음 */}
+            <div className="mb-3 flex flex-col items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 py-6">
+              {recording ? (
+                <>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-red-500">
+                    <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+                    녹음 중 · {mmss(recSec)}
+                  </div>
+                  <button className="btn-danger text-sm" onClick={stopRec}>
+                    ⏹ 녹음 중지 &amp; 변환
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-3xl">🎙️</span>
+                  <button
+                    className="btn-gold text-sm"
+                    onClick={startRec}
+                    disabled={transcribing || disabled}
+                  >
+                    ● 녹음 시작
+                  </button>
+                  <span className="text-xs text-fg-muted">
+                    상담을 바로 녹음 → 중지하면 자동으로 변환됩니다.
+                  </span>
+                </>
+              )}
+            </div>
+
+            <p className="mb-2 text-center text-xs text-fg-muted">— 또는 파일 업로드 —</p>
+
             <label
-              className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 text-center transition-colors hover:border-gold-400 ${
-                disabled ? "pointer-events-none opacity-50" : ""
+              className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-8 text-center transition-colors hover:border-gold-400 ${
+                disabled || recording ? "pointer-events-none opacity-50" : ""
               }`}
             >
               <span className="text-3xl">🎙️</span>

@@ -75,7 +75,7 @@ function SignalChip({ s }: { s: AnalyzedReportSignal }) {
       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
       : s.direction < 0
         ? 'bg-rose-50 text-rose-700 border-rose-200'
-        : 'bg-slate-50 text-slate-600 border-slate-200';
+        : 'bg-surface-2 text-fg-muted border-border';
   return (
     <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${cls}`} title={s.evidence}>
       {RESEARCH_SIGNAL_KO[s.signal] ?? s.signal} {arrow}
@@ -251,7 +251,7 @@ function getStatusClass(status: string) {
     case '비추천':
       return 'bg-rose-50 text-rose-700 border-rose-200';
     default:
-      return 'bg-gray-50 text-gray-700 border-gray-200';
+      return 'bg-surface-2 text-fg border-border';
   }
 }
 
@@ -308,19 +308,19 @@ function BenchmarkReturnChart({
     : '';
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
-      <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-3 dark:border-slate-800 lg:flex-row lg:items-start lg:justify-between">
+    <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+      <div className="mb-4 flex flex-col gap-3 border-b border-border pb-3 dark:border-slate-800 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+            <h3 className="text-base font-bold text-fg dark:text-slate-100">
               맞춤형 혼합 벤치마크(Blended Benchmark) 대비 성과 추정
             </h3>
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-xs leading-relaxed text-fg-muted dark:text-fg-muted">
             제안된 적극형/중립형/안정형 포트폴리오의 자산 비중과 일치하도록 자산군별 대표 지수를 실시간 결합한 공정 평가 기준선입니다.
           </p>
-          <p className="mt-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+          <p className="mt-1 text-[11px] font-semibold text-fg-muted dark:text-fg-muted">
             {sourceLabel}
             {updatedLabel ? ` · 조회 ${updatedLabel}` : ''}
             {source ? ` · ${source}` : ''}
@@ -339,7 +339,7 @@ function BenchmarkReturnChart({
         </div>
       </div>
 
-      <div className="h-[320px] w-full text-slate-700 dark:text-slate-200">
+      <div className="h-[320px] w-full text-fg dark:text-slate-200">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 12, right: 18, bottom: 8, left: -8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.16} />
@@ -397,18 +397,18 @@ function BenchmarkReturnChart({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
-        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-          <span className="h-2.5 w-2.5 rounded-full bg-slate-950 dark:bg-slate-100" />
+        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 font-semibold text-fg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <span className="h-2.5 w-2.5 rounded-full bg-slate-950 dark:bg-surface-2" />
           제안 포트폴리오 {portfolioReturn.toFixed(1)}%
         </span>
         <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 dark:text-emerald-300">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
           혼합 벤치마크 {blendedReturn.toFixed(1)}%
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-400">
+        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">
           S&P500 참고 ({sp500Return.toFixed(1)}%)
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-400">
+        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">
           KOSPI200 참고 ({kospi200Return.toFixed(1)}%)
         </span>
       </div>
@@ -720,7 +720,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   };
 
   return (
-    <div className="space-y-6 rounded-2xl bg-slate-50 p-4 text-slate-900 md:p-6">
+    <div className="space-y-6 rounded-2xl bg-surface-2 p-4 text-fg md:p-6">
       <div className="flex flex-col justify-between gap-4 rounded-2xl bg-slate-900 p-5 text-white shadow-sm md:flex-row md:items-center">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-blue-300">
@@ -743,7 +743,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
         {/* 왼쪽 2열: Recommended Conclusion + KPI 카드 (Compact 디자인 적용) */}
-        <div className="xl:col-span-7 overflow-hidden rounded-xl border border-slate-200 bg-slate-900 shadow-sm">
+        <div className="xl:col-span-7 overflow-hidden rounded-xl border border-border bg-slate-900 shadow-sm">
         <div className="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 p-5 text-white space-y-4">
             <div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700/60 pb-2">
@@ -772,19 +772,19 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
-                <span className="block text-[10px] font-medium text-slate-400">예상 수익률</span>
+                <span className="block text-[10px] font-medium text-fg-muted">예상 수익률</span>
                 <span className="mt-0.5 block text-xl font-black text-emerald-400">{metrics.expectedReturn}%</span>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
-                <span className="block text-[10px] font-medium text-slate-400">세후 가상수익률</span>
+                <span className="block text-[10px] font-medium text-fg-muted">세후 가상수익률</span>
                 <span className="mt-0.5 block text-xl font-black text-blue-400">{metrics.taxReturn}%</span>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
-                <span className="block text-[10px] font-medium text-slate-400">포트폴리오 변동성</span>
+                <span className="block text-[10px] font-medium text-fg-muted">포트폴리오 변동성</span>
                 <span className="mt-0.5 block text-xl font-black text-slate-200">{metrics.volatility}%</span>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
-                <span className="block text-[10px] font-medium text-slate-400">시뮬레이션 MDD</span>
+                <span className="block text-[10px] font-medium text-fg-muted">시뮬레이션 MDD</span>
                 <span className="mt-0.5 block text-xl font-black text-rose-400">{metrics.mdd}%</span>
               </div>
             </div>
@@ -792,11 +792,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
 
         {/* 오른쪽 1열: 도넛형 자산비중 프리뷰 카드 */}
-        <div className="xl:col-span-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between">
+        <div className="xl:col-span-5 rounded-xl border border-border bg-surface p-4 shadow-sm flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 mb-3">
+            <div className="flex items-center gap-1.5 pb-2 border-b border-border mb-3">
               <span className="h-2 w-2 rounded-full bg-blue-600"></span>
-              <h3 className="font-bold text-slate-800 text-sm">포트폴리오 자산 배분 비중</h3>
+              <h3 className="font-bold text-fg text-sm">포트폴리오 자산 배분 비중</h3>
             </div>
 
             <div className="flex flex-row items-center justify-between gap-6 py-3">
@@ -834,8 +834,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   })()}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase">SUM</span>
-                  <span className="text-xl font-black text-slate-900">{totalWeight}%</span>
+                  <span className="text-[10px] text-fg-muted font-bold uppercase">SUM</span>
+                  <span className="text-xl font-black text-fg">{totalWeight}%</span>
                 </div>
               </div>
 
@@ -844,30 +844,30 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 {(Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
                   .filter(([, weight]) => weight > 0)
                   .map(([asset, weight]) => (
-                    <div key={asset} className="flex items-center justify-between border-b border-slate-50 pb-0.5">
+                    <div key={asset} className="flex items-center justify-between border-b border-border pb-0.5">
                       <div className="flex items-center space-x-1.5">
                         <span className={`w-1.5 h-1.5 rounded-sm ${barColors[asset]} block flex-shrink-0`}></span>
-                        <span className="text-sm font-medium text-slate-600">{weightLabels[asset]}</span>
+                        <span className="text-sm font-medium text-fg-muted">{weightLabels[asset]}</span>
                       </div>
-                      <span className="text-base font-black text-slate-900">{weight}%</span>
+                      <span className="text-base font-black text-fg">{weight}%</span>
                     </div>
                   ))}
               </div>
             </div>
           </div>
-          <div className="text-[10px] text-slate-400 text-center bg-slate-50 p-1.5 rounded border border-slate-100 mt-2">
+          <div className="text-[10px] text-fg-muted text-center bg-surface-2 p-1.5 rounded border border-border mt-2">
             하단 편집기 조율 시 위 도넛 비중이 연동 갱신됩니다.
           </div>
         </div>
       </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-            <h3 className="text-base font-bold text-slate-800">선택안 세부 추천 자산</h3>
+            <h3 className="text-base font-bold text-fg">선택안 세부 추천 자산</h3>
           </div>
-          <span className="text-[11px] font-medium text-slate-400">
+          <span className="text-[11px] font-medium text-fg-muted">
             자산군 내부 비중까지 합산 100%
           </span>
         </div>
@@ -879,23 +879,23 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {detailBuckets.map(({ asset, weight, holdings }) => (
-            <div key={asset} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div key={asset} className="rounded-xl border border-border bg-surface-2 p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 rounded-sm ${barColors[asset]}`}></span>
-                  <p className="text-sm font-black text-slate-800">{weightLabels[asset]}</p>
+                  <p className="text-sm font-black text-fg">{weightLabels[asset]}</p>
                 </div>
-                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-700">
+                <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-black text-fg">
                   {weight}%
                 </span>
               </div>
               <div className="space-y-2">
                 {holdings.map((holding) => (
-                  <div key={`${asset}-${holding.name}`} className="rounded-lg border border-white bg-white px-3 py-2 text-xs">
+                  <div key={`${asset}-${holding.name}`} className="rounded-lg border border-white bg-surface px-3 py-2 text-xs">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <p className="font-bold text-slate-800">{holding.name}</p>
-                        <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{holding.role}</p>
+                        <p className="font-bold text-fg">{holding.name}</p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-fg-muted">{holding.role}</p>
                       </div>
                       <span className="shrink-0 text-sm font-black text-blue-700">{holding.weight}%</span>
                     </div>
@@ -903,7 +903,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                       <span className="rounded border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                         {holding.taxNote}
                       </span>
-                      <span className="rounded border border-slate-100 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                      <span className="rounded border border-border bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-fg-muted">
                         {holding.source}
                       </span>
                     </div>
@@ -922,13 +922,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         updatedAt={benchmarkUpdatedAt}
       />
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-rose-500"></span>
-            <h3 className="text-base font-bold text-slate-800">고객 고유 요구조건 반영</h3>
+            <h3 className="text-base font-bold text-fg">고객 고유 요구조건 반영</h3>
           </div>
-          <span className="text-[11px] font-medium text-slate-400">
+          <span className="text-[11px] font-medium text-fg-muted">
             고유상황 입력값 자동 해석
           </span>
         </div>
@@ -939,16 +939,16 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <p className="text-xs font-bold text-rose-800">감지된 요구조건</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {model.preferenceProfile.tags.map((tag) => (
-                  <span key={tag} className="rounded-full border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                  <span key={tag} className="rounded-full border border-rose-200 bg-surface px-2.5 py-1 text-[11px] font-bold text-rose-700">
                     {tag}
                   </span>
                 ))}
               </div>
               <p className="mt-3 text-xs leading-relaxed text-rose-900">{model.rationale.preference}</p>
               {model.preferenceProfile.benchmarkOutperformance && (
-                <div className="mt-3 rounded-lg border border-rose-200 bg-white px-3 py-2">
+                <div className="mt-3 rounded-lg border border-rose-200 bg-surface px-3 py-2">
                   <p className="text-[11px] font-bold text-rose-800">벤치마크 초과수익 반영 방식</p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                  <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
                     {model.preferenceProfile.benchmarkTargets.length > 0
                       ? `${model.preferenceProfile.benchmarkTargets.join("·")} 대비 초과수익`
                       : "벤치마크 대비 초과수익"}을 목표 요구조건으로 감지했습니다. 추천안은 수익추구형을 우선 선택하고,
@@ -957,9 +957,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 </div>
               )}
               {model.preferenceProfile.taxPriority && (
-                <div className="mt-3 rounded-lg border border-green-200 bg-white px-3 py-2">
+                <div className="mt-3 rounded-lg border border-green-200 bg-surface px-3 py-2">
                   <p className="text-[11px] font-bold text-green-800">절세 최우선 반영 방식</p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                  <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
                     세금 최소화 요구를 최우선 조건으로 감지했습니다. 추천안은 안정형을 우선 선택하고,
                     브라질 국채 비과세 검토, 국내 상장주식 장내거래, 개별채권 직접투자 매매차익,
                     연금저축·IRP 과세이연 계좌를 먼저 배치합니다. 수익률과 위험도는 세후 효율을 해치지 않는
@@ -968,7 +968,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 </div>
               )}
               {model.preferenceProfile.rawText && (
-                <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+                <p className="mt-2 rounded-lg bg-surface px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
                   입력 문장: {model.preferenceProfile.rawText}
                 </p>
               )}
@@ -985,7 +985,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             </div>
           </div>
         ) : (
-          <p className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-xs leading-relaxed text-slate-500">
+          <p className="rounded-xl border border-border bg-surface-2 p-4 text-xs leading-relaxed text-fg-muted">
             고유상황에 “해외주식 단일종목만”, “기대수익률 20% 이상”, “세금을 최대한 적게 내고 싶다”처럼 명시된 요구가 있으면 이 영역에 자동 표시되고 포트폴리오 비중과 근거에 반영됩니다.
           </p>
         )}
@@ -994,13 +994,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       <div className="grid grid-cols-1 gap-5">
         
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-indigo-600"></span>
-              <h3 className="text-base font-bold text-slate-800">선택안별 리서치 반영 상태</h3>
+              <h3 className="text-base font-bold text-fg">선택안별 리서치 반영 상태</h3>
             </div>
-            <span className="text-[11px] font-medium text-slate-400">
+            <span className="text-[11px] font-medium text-fg-muted">
               {researchStatus === 'loading'
                 ? '업데이트 확인 중'
                 : fallbackUsed
@@ -1015,9 +1015,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
           <div className="grid grid-cols-2 gap-2">
             {selectedSignalScores.slice(0, 4).map((signal) => (
-              <div key={signal.signal} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <span className="block text-[11px] font-semibold text-slate-500">{signal.label}</span>
-                <span className="mt-1 block text-lg font-black text-slate-800">{signal.score}</span>
+              <div key={signal.signal} className="rounded-xl border border-border bg-surface-2 p-3">
+                <span className="block text-[11px] font-semibold text-fg-muted">{signal.label}</span>
+                <span className="mt-1 block text-lg font-black text-fg">{signal.score}</span>
               </div>
             ))}
           </div>
@@ -1029,7 +1029,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               return (
                 <div
                   key={item.id}
-                  className="rounded-xl border border-slate-100 text-xs transition hover:border-blue-200"
+                  className="rounded-xl border border-border text-xs transition hover:border-blue-200"
                 >
                   <button
                     type="button"
@@ -1037,21 +1037,21 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left hover:bg-blue-50/40"
                   >
                     <span className="min-w-0">
-                      <span className="block font-bold text-slate-700">{item.title}</span>
-                      <span className="mt-0.5 block text-[11px] text-slate-400">
+                      <span className="block font-bold text-fg">{item.title}</span>
+                      <span className="mt-0.5 block text-[11px] text-fg-muted">
                         {item.source}
                         {item.date ? ` · ${item.date}` : ''}
                       </span>
                     </span>
-                    <span className="mt-0.5 shrink-0 text-[11px] text-slate-400">{isOpen ? '▲' : '▼'}</span>
+                    <span className="mt-0.5 shrink-0 text-[11px] text-fg-muted">{isOpen ? '▲' : '▼'}</span>
                   </button>
 
                   {isOpen && (
-                    <div className="border-t border-slate-100 px-3 py-2.5">
+                    <div className="border-t border-border px-3 py-2.5">
                       {analyzed?.summary ? (
-                        <p className="text-[11px] leading-relaxed text-slate-600">{analyzed.summary}</p>
+                        <p className="text-[11px] leading-relaxed text-fg-muted">{analyzed.summary}</p>
                       ) : (
-                        <p className="text-[11px] leading-relaxed text-slate-400">
+                        <p className="text-[11px] leading-relaxed text-fg-muted">
                           본문 요약 미생성 — 사이드바 ‘리서치 분석’에서 [실패만 재분석]을 누르면 요약이 채워집니다.
                         </p>
                       )}
@@ -1079,10 +1079,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </section>
       </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
-          <h3 className="text-base font-bold text-slate-800">추천 포트폴리오 3개안 비교</h3>
+          <h3 className="text-base font-bold text-fg">추천 포트폴리오 3개안 비교</h3>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -1096,11 +1096,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 className={`rounded-2xl border p-5 text-left transition-all ${
                   isSelected
                     ? 'border-blue-600 bg-blue-50/30 shadow-md ring-4 ring-blue-50'
-                    : 'border-slate-200 bg-white opacity-75 hover:border-slate-300 hover:opacity-100'
+                    : 'border-border bg-surface opacity-75 hover:border-border hover:opacity-100'
                 }`}
               >
                 <div className="mb-3 flex items-start justify-between gap-2">
-                  <h4 className="text-sm font-bold text-slate-800">{option.name}</h4>
+                  <h4 className="text-sm font-bold text-fg">{option.name}</h4>
                   {isSelected && (
                     <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
                       Active
@@ -1109,34 +1109,34 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 </div>
                 <table className="mb-3 w-full text-xs">
                   <tbody>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-1 text-slate-400">기대수익률</td>
+                    <tr className="border-b border-border">
+                      <td className="py-1 text-fg-muted">기대수익률</td>
                       <td className="py-1 text-right font-bold text-emerald-600">{option.expectedReturn}%</td>
                     </tr>
-                    <tr className="border-b border-slate-100">
-                      <td className="py-1 text-slate-400">세후수익률</td>
+                    <tr className="border-b border-border">
+                      <td className="py-1 text-fg-muted">세후수익률</td>
                       <td className="py-1 text-right font-bold text-blue-600">{option.taxReturn}%</td>
                     </tr>
                     <tr>
-                      <td className="py-1 text-slate-400">최대낙폭</td>
+                      <td className="py-1 text-fg-muted">최대낙폭</td>
                       <td className="py-1 text-right font-medium text-rose-500">{option.mdd}%</td>
                     </tr>
                   </tbody>
                 </table>
                 <div className="flex flex-wrap gap-1">
                   {option.mainProducts.map((product) => (
-                    <span key={product} className="rounded border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
+                    <span key={product} className="rounded border border-border bg-surface-2 px-2 py-0.5 text-[10px] text-fg-muted">
                       {product}
                     </span>
                   ))}
                 </div>
-                <div className="mt-3 border-t border-slate-100 pt-3">
-                  <p className="mb-1.5 text-[10px] font-bold text-slate-400">세부 비중 미리보기</p>
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="mb-1.5 text-[10px] font-bold text-fg-muted">세부 비중 미리보기</p>
                   <div className="space-y-1">
                     {option.detailedHoldings.slice(0, 4).map((holding) => (
                       <div key={`${option.id}-${holding.bucket}-${holding.name}`} className="flex items-center justify-between gap-2 text-[10px]">
-                        <span className="min-w-0 truncate text-slate-600">{holding.name}</span>
-                        <span className="shrink-0 font-black text-slate-800">{holding.weight}%</span>
+                        <span className="min-w-0 truncate text-fg-muted">{holding.name}</span>
+                        <span className="shrink-0 font-black text-fg">{holding.weight}%</span>
                       </div>
                     ))}
                   </div>
@@ -1147,23 +1147,23 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
           <span className="h-2.5 w-2.5 rounded-full bg-violet-600"></span>
-          <h3 className="text-base font-bold text-slate-800">포트폴리오 산출 근거</h3>
+          <h3 className="text-base font-bold text-fg">포트폴리오 산출 근거</h3>
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 lg:col-span-2">
-            <p className="text-xs font-bold text-slate-700">시장 리포트 근거</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+          <div className="rounded-xl border border-border bg-surface-2 p-3 lg:col-span-2">
+            <p className="text-xs font-bold text-fg">시장 리포트 근거</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
               {currentPortfolioName}은 {selectedProfile.emphasis} 아래 리포트들을 근거로 {selectedProfile.allocationLogic}
             </p>
             <ul className="mt-2 space-y-2">
               {marketReportReasons.map((r) => (
                 <li key={r.id} className="border-l-2 border-indigo-200 pl-2 text-xs leading-relaxed">
-                  <span className="font-semibold text-slate-700">{r.title}</span>
-                  <span className="text-[11px] text-slate-400"> · {r.source}</span>
-                  <span className="mt-0.5 block text-slate-600">근거: {r.reason}</span>
+                  <span className="font-semibold text-fg">{r.title}</span>
+                  <span className="text-[11px] text-fg-muted"> · {r.source}</span>
+                  <span className="mt-0.5 block text-fg-muted">근거: {r.reason}</span>
                 </li>
               ))}
             </ul>
@@ -1173,16 +1173,16 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <ReasonBlock title="세금 납부일 반영" body={model.rationale.tax} />
           <ReasonBlock title="요구조건 반영" body={model.rationale.preference} />
           <ReasonBlock title="고유상황 반영" body={model.rationale.unique} wide />
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <p className="text-xs font-bold text-slate-700">현금흐름 핵심 숫자</p>
+          <div className="rounded-xl border border-border bg-surface-2 p-3">
+            <p className="text-xs font-bold text-fg">현금흐름 핵심 숫자</p>
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-              <span className="text-slate-500">월 유입</span>
+              <span className="text-fg-muted">월 유입</span>
               <span className="text-right font-bold">{formatWonShort(model.cashflowSummary.monthlyIncome)}</span>
-              <span className="text-slate-500">월 유출</span>
+              <span className="text-fg-muted">월 유출</span>
               <span className="text-right font-bold">{formatWonShort(model.cashflowSummary.monthlyOutflow)}</span>
-              <span className="text-slate-500">세금성 예정 유출</span>
+              <span className="text-fg-muted">세금성 예정 유출</span>
               <span className="text-right font-bold text-rose-600">{formatWonShort(model.cashflowSummary.taxOutflow)}</span>
-              <span className="text-slate-500">단기 분리 제안액</span>
+              <span className="text-fg-muted">단기 분리 제안액</span>
               <span className="text-right font-bold text-indigo-600">{liquidityAmount.toLocaleString()}만원</span>
             </div>
           </div>
@@ -1190,13 +1190,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       </section>
 
       {model.taxPainPoints.length > 0 && (
-        <section className="rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm">
+        <section className="rounded-2xl border border-emerald-200 bg-surface p-5 shadow-sm">
           <div className="mb-4 flex flex-col gap-2 border-b border-emerald-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
-              <h3 className="text-base font-bold text-slate-800">고액자산가 주요 세금 고충 참고</h3>
+              <h3 className="text-base font-bold text-fg">고액자산가 주요 세금 고충 참고</h3>
             </div>
-            <span className="text-[11px] font-medium text-slate-400">
+            <span className="text-[11px] font-medium text-fg-muted">
               국세청·세무전문 자료 기반 체크리스트
             </span>
           </div>
@@ -1208,23 +1208,23 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {model.taxPainPoints.map((point) => (
-              <div key={point.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div key={point.id} className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs font-bold text-slate-800">{point.label}</p>
+                  <p className="text-xs font-bold text-fg">{point.label}</p>
                   <span
                     className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
                       point.severity === "상"
                         ? "border-rose-200 bg-rose-50 text-rose-700"
                         : point.severity === "중"
                           ? "border-amber-200 bg-amber-50 text-amber-700"
-                          : "border-slate-200 bg-white text-slate-500"
+                          : "border-border bg-surface text-fg-muted"
                     }`}
                   >
                     {point.severity}
                   </span>
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-slate-600">{point.whyItMatters}</p>
-                <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-relaxed text-emerald-800">
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">{point.whyItMatters}</p>
+                <p className="mt-2 rounded-lg bg-surface px-3 py-2 text-[11px] leading-relaxed text-emerald-800">
                   반영: {point.portfolioResponse}
                 </p>
                 <a
@@ -1241,13 +1241,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </section>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-green-600"></span>
-            <h3 className="text-base font-bold text-slate-800">KODEX 연금저축·IRP 절세 포트폴리오</h3>
+            <h3 className="text-base font-bold text-fg">KODEX 연금저축·IRP 절세 포트폴리오</h3>
           </div>
-          <span className="text-[11px] font-medium text-slate-400">
+          <span className="text-[11px] font-medium text-fg-muted">
             삼성자산운용 KODEX 상품 기준
           </span>
         </div>
@@ -1259,13 +1259,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               연금저축 {formatWonShort(model.taxSavingPlan.pensionSavingContribution)} + IRP {formatWonShort(model.taxSavingPlan.irpContribution)}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <p className="text-[11px] font-semibold text-slate-500">세액공제 대상</p>
-            <p className="mt-1 text-sm font-black text-slate-800">{formatWonShort(model.taxSavingPlan.taxCreditBase)}</p>
+          <div className="rounded-xl border border-border bg-surface-2 p-3">
+            <p className="text-[11px] font-semibold text-fg-muted">세액공제 대상</p>
+            <p className="mt-1 text-sm font-black text-fg">{formatWonShort(model.taxSavingPlan.taxCreditBase)}</p>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <p className="text-[11px] font-semibold text-slate-500">가정 공제율</p>
-            <p className="mt-1 text-sm font-black text-slate-800">{Math.round(model.taxSavingPlan.creditRate * 1000) / 10}%</p>
+          <div className="rounded-xl border border-border bg-surface-2 p-3">
+            <p className="text-[11px] font-semibold text-fg-muted">가정 공제율</p>
+            <p className="mt-1 text-sm font-black text-fg">{Math.round(model.taxSavingPlan.creditRate * 1000) / 10}%</p>
           </div>
           <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
             <p className="text-[11px] font-semibold text-blue-700">예상 환급액</p>
@@ -1273,19 +1273,19 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
         </div>
 
-        <p className="mb-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+        <p className="mb-4 rounded-xl border border-border bg-surface-2 p-3 text-xs leading-relaxed text-fg-muted">
           {model.taxSavingPlan.clientFit}
         </p>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {model.taxSavingPlan.portfolios.map((portfolio) => (
-            <div key={portfolio.accountType} className="rounded-2xl border border-slate-200 p-4">
+            <div key={portfolio.accountType} className="rounded-2xl border border-border p-4">
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-800">{portfolio.accountType} KODEX 추천안</h4>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">{portfolio.note}</p>
+                  <h4 className="text-sm font-bold text-fg">{portfolio.accountType} KODEX 추천안</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">{portfolio.note}</p>
                 </div>
-                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">
+                <span className="rounded-full bg-surface-2 px-2 py-1 text-[11px] font-bold text-fg-muted">
                   위험자산 {portfolio.riskAssetWeight}%
                 </span>
               </div>
@@ -1296,11 +1296,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     href={holding.product.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2 text-xs hover:border-green-200 hover:bg-green-50/40"
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2 text-xs hover:border-green-200 hover:bg-green-50/40"
                   >
                     <span>
-                      <b className="block text-slate-700">{holding.product.name}</b>
-                      <span className="text-[11px] text-slate-400">
+                      <b className="block text-fg">{holding.product.name}</b>
+                      <span className="text-[11px] text-fg-muted">
                         {holding.product.role} · {holding.product.retirementLimit}
                       </span>
                     </span>
@@ -1321,8 +1321,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               ))}
             </ul>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <p className="text-xs font-bold text-slate-700">참고 출처</p>
+          <div className="rounded-xl border border-border bg-surface-2 p-3">
+            <p className="text-xs font-bold text-fg">참고 출처</p>
             <div className="mt-2 flex flex-col gap-1.5 text-xs">
               {model.taxSavingPlan.sources.map((source) => (
                 <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
@@ -1334,16 +1334,16 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         <button
           type="button"
           onClick={() => setIsSuitabilityOpen((value) => !value)}
-          className="flex w-full items-center justify-between bg-slate-50 p-4 text-left transition-colors hover:bg-slate-100"
+          className="flex w-full items-center justify-between bg-surface-2 p-4 text-left transition-colors hover:bg-surface-2"
         >
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
-            <h3 className="text-sm font-bold text-slate-800">상품군 투자 적합성 필터</h3>
-            <span className="text-xs text-slate-400">리서치·세금·현금흐름 기준</span>
+            <h3 className="text-sm font-bold text-fg">상품군 투자 적합성 필터</h3>
+            <span className="text-xs text-fg-muted">리서치·세금·현금흐름 기준</span>
           </div>
           <span className="text-xs font-bold text-blue-600">{isSuitabilityOpen ? '접기' : '펼쳐보기'}</span>
         </button>
@@ -1351,22 +1351,22 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <div className="overflow-x-auto p-4">
             <table className="w-full border-collapse text-left">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-100/60 text-xs text-slate-500">
+                <tr className="border-b border-border bg-surface-2/60 text-xs text-fg-muted">
                   <th className="p-3 font-semibold">자산군</th>
                   <th className="w-24 p-3 text-center font-semibold">적합도</th>
                   <th className="p-3 font-semibold">판단 근거</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
+              <tbody className="divide-y divide-border text-xs">
                 {model.assetSuitability.map((item) => (
-                  <tr key={item.category} className="hover:bg-slate-50/50">
-                    <td className="p-3 font-bold text-slate-700">{item.category}</td>
+                  <tr key={item.category} className="hover:bg-surface-2/50">
+                    <td className="p-3 font-bold text-fg">{item.category}</td>
                     <td className="p-3 text-center">
                       <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${getStatusClass(item.status)}`}>
                         {item.status}
                       </span>
                     </td>
-                    <td className="p-3 font-medium text-slate-600">{item.reason}</td>
+                    <td className="p-3 font-medium text-fg-muted">{item.reason}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1376,11 +1376,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       </section>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="mb-5 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm lg:col-span-2">
+          <div className="mb-5 flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-cyan-600"></span>
-              <h3 className="text-base font-bold text-slate-800">PB 커스텀 세부 비중 조율</h3>
+              <h3 className="text-base font-bold text-fg">PB 커스텀 세부 비중 조율</h3>
             </div>
             <div
               className={`rounded-xl border px-3 py-1.5 text-xs font-bold ${
@@ -1401,11 +1401,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <WeightControl asset="gold" value={weights.gold} onChange={handleWeightChange} max={30} compact />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 border-t border-slate-100 pt-4 md:grid-cols-2">
-              <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-xl border border-border bg-surface-2 p-3">
                 <div>
-                  <span className="block text-xs font-bold text-slate-700">구조화 지수 ELS/ELB 포함</span>
-                  <span className="text-[10px] text-slate-400">비활성화 시 ELS 비중 0% 처리</span>
+                  <span className="block text-xs font-bold text-fg">구조화 지수 ELS/ELB 포함</span>
+                  <span className="text-[10px] text-fg-muted">비활성화 시 ELS 비중 0% 처리</span>
                 </div>
                 <input
                   type="checkbox"
@@ -1414,13 +1414,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     setHasManualEdit(true);
                     setElsIncluded(event.target.checked);
                   }}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-border text-blue-600 focus:ring-blue-500"
                 />
               </div>
 
-              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700">단기 유동성 분리 확보액</span>
+                  <span className="text-xs font-bold text-fg">단기 유동성 분리 확보액</span>
                   <span className="text-xs font-bold text-indigo-600">{liquidityAmount.toLocaleString()}만원</span>
                 </div>
                 <input
@@ -1435,7 +1435,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     setLiquidityAmount(value);
                     handleWeightChange('mmf', Math.min(Math.round((value / 100000) * 100), 40));
                   }}
-                  className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-slate-100 accent-indigo-600"
+                  className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-surface-2 accent-indigo-600"
                 />
               </div>
             </div>
@@ -1462,7 +1462,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <p>
                 {model.rationale.unique}
               </p>
-              <p className="border-t border-slate-800 pt-2 text-[11px] text-slate-400">
+              <p className="border-t border-slate-800 pt-2 text-[11px] text-fg-muted">
                 출처: {selectedResearchItems.slice(0, 3).map((item) => `${item.source} - ${item.title}`).join(' / ')} 등 최신 리포트/기사 최대 20개
               </p>
             </div>
@@ -1472,7 +1472,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             className={`mt-5 rounded-xl px-4 py-3 text-center text-xs font-bold tracking-wide ${
               totalWeight === 100
                 ? 'bg-blue-600 text-white shadow-md'
-                : 'bg-slate-800 text-slate-500'
+                : 'bg-slate-800 text-fg-muted'
             }`}
           >
             {totalWeight === 100
@@ -1495,7 +1495,7 @@ function MetricCard({ label, value, tone }: { label: string; value: string; tone
 
   return (
     <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-4 text-center">
-      <span className="block text-xs font-medium text-slate-400">{label}</span>
+      <span className="block text-xs font-medium text-fg-muted">{label}</span>
       <span className={`mt-1 block text-2xl font-black ${toneClass}`}>{value}</span>
     </div>
   );
@@ -1503,9 +1503,9 @@ function MetricCard({ label, value, tone }: { label: string; value: string; tone
 
 function ReasonBlock({ title, body, wide }: { title: string; body: string; wide?: boolean }) {
   return (
-    <div className={`rounded-xl border border-slate-100 bg-slate-50 p-3 ${wide ? 'lg:col-span-2' : ''}`}>
-      <p className="text-xs font-bold text-slate-700">{title}</p>
-      <p className="mt-1 text-xs leading-relaxed text-slate-600">{body}</p>
+    <div className={`rounded-xl border border-border bg-surface-2 p-3 ${wide ? 'lg:col-span-2' : ''}`}>
+      <p className="text-xs font-bold text-fg">{title}</p>
+      <p className="mt-1 text-xs leading-relaxed text-fg-muted">{body}</p>
     </div>
   );
 }
@@ -1525,9 +1525,9 @@ function WeightControl({
 }) {
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-xs font-bold text-slate-700">
+      <div className="mb-1 flex items-center justify-between text-xs font-bold text-fg">
         <span>{weightLabels[asset]} 비중</span>
-        {compact && <span className="text-slate-500">{value}%</span>}
+        {compact && <span className="text-fg-muted">{value}%</span>}
       </div>
       <div className="flex items-center gap-3">
         <input
@@ -1537,7 +1537,7 @@ function WeightControl({
           step="1"
           value={value}
           onChange={(event) => onChange(asset, Number(event.target.value))}
-          className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-slate-100 accent-blue-600"
+          className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-surface-2 accent-blue-600"
         />
         <div className="relative flex w-24 flex-shrink-0 items-center">
           <input
@@ -1546,9 +1546,9 @@ function WeightControl({
             max={max}
             value={value}
             onChange={(event) => onChange(asset, Math.min(max, Number(event.target.value)))}
-            className="w-full rounded-md border border-slate-300 py-1 pl-2 pr-6 text-right text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            className="w-full rounded-md border border-border py-1 pl-2 pr-6 text-right text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
-          <span className="absolute right-2 text-xs font-semibold text-slate-400">%</span>
+          <span className="absolute right-2 text-xs font-semibold text-fg-muted">%</span>
         </div>
       </div>
     </div>

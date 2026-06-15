@@ -93,7 +93,9 @@ export default function PBPage() {
         </Link>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="badge-gold">{pb.code}</span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-400/15 text-sm font-bold text-gold-400">
+              {pb.name?.[0] ?? "?"}
+            </span>
             <h1 className="text-xl font-bold text-fg">{pb.name}</h1>
           </div>
           <div className="flex gap-2">
@@ -170,7 +172,7 @@ export default function PBPage() {
         confirmLabel="삭제"
         description={
           <>
-            <b>{pb.name}</b> ({pb.code})를 삭제합니다. 담당 고객 {myClients.length}명은
+            <b>{pb.name}</b> PB를 삭제합니다. 담당 고객 {myClients.length}명은
             삭제되지 않고 <b>담당 PB 미지정</b>으로 바뀝니다.
           </>
         }

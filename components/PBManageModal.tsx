@@ -71,8 +71,8 @@ export default function PBManageModal({
     const n = clientCountOf(pb.id);
     const msg =
       n > 0
-        ? `${pb.name}(${pb.code})를 삭제할까요?\n담당 고객 ${n}명은 삭제되지 않고 담당 PB가 '미지정'으로 바뀝니다.`
-        : `${pb.name}(${pb.code})를 삭제할까요?`;
+        ? `${pb.name} PB를 삭제할까요?\n담당 고객 ${n}명은 삭제되지 않고 담당 PB가 '미지정'으로 바뀝니다.`
+        : `${pb.name} PB를 삭제할까요?`;
     if (!window.confirm(msg)) return;
     setBusy(true);
     try {
@@ -155,7 +155,6 @@ export default function PBManageModal({
                   ) : (
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="badge-gold font-mono">{pb.code}</span>
                         <span className="text-sm font-medium text-fg">{pb.name}</span>
                         <span className="text-xs text-fg-muted">
                           · 고객 {clientCountOf(pb.id)}명

@@ -52,6 +52,10 @@ export default function ClientForm({
   const [assignedPbId, setAssignedPbId] = useState("");
   const [assetText, setAssetText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [birthError, setBirthError] = useState("");
+
+  // 오늘(로컬) — 생년월일/설립일이 미래가 되지 않도록 max 로 사용
+  const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
 
   useEffect(() => {
     if (!open) return;
@@ -79,6 +83,11 @@ export default function ClientForm({
 
   const submit = async () => {
     if (!name.trim()) return;
+    // 미래 날짜 차단 (브라우저 max 우회 입력 대비 2차 검증)
+    if (birthDate && birthDate > todayStr) {
+      setBirthError(`${isCorp ? "설립일" : "생년월일"}은 오늘 이후로 설정할 수 없어요.`);
+      return;
+    }
     setSaving(true);
     try {
       await onSubmit({
@@ -151,8 +160,14 @@ export default function ClientForm({
               type="date"
               className="input"
               value={birthDate}
-              onChange={(e) => setBirthDate(e.target.value)}
+              min="1900-01-01"
+              max={todayStr}
+              onChange={(e) => {
+                setBirthDate(e.target.value);
+                setBirthError("");
+              }}
             />
+            {birthError && <p className="mt-1 text-[11px] text-red-500">{birthError}</p>}
           </div>
 
           <div>
@@ -165,7 +180,7 @@ export default function ClientForm({
               <option value="">미지정</option>
               {pbs.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.code} · {p.name}
+                  {p.name}
                 </option>
               ))}
             </select>
