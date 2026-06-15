@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, IPS, IPSFactor, FactorKey } from "@/lib/types";
 import { FACTOR_KEYS } from "@/lib/types";
+import { QUANT_FACTORS } from "@/lib/scoring";
 import { createConsultation, updateClient } from "@/lib/store";
 import { formatDuration, formatDurationKo } from "@/lib/format";
 import ConsultationInput from "./ConsultationInput";
@@ -29,6 +30,9 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
   const [notes, setNotes] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 정성 요인 AI 채점 상태 (훅은 조기 반환 위에서 선언해야 함)
+  const [aiScoring, setAiScoring] = useState(false);
+  const [aiMsg, setAiMsg] = useState("");
 
   // 타이머
   const [running, setRunning] = useState(false);
@@ -84,6 +88,53 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
   const onAiResult = (ips: IPS) => {
     setDraftIps(ips);
     setDirty(true);
+  };
+
+  // 정성 요인 AI 채점: 값이 적힌 정성 요인(세금·유동성·법적·고유)을 기준표 기준으로 1~5점.
+  // 정량(수익률·위험·기간)은 입력 시 규칙으로 이미 자동 채점되므로 제외.
+  const runFactorAI = async () => {
+    const factors = FACTOR_KEYS.filter(
+      (k) => !QUANT_FACTORS.includes(k) && draftIps[k].value?.trim(),
+    ).map((k) => ({ key: k, value: draftIps[k].value }));
+    if (factors.length === 0) {
+      setAiMsg("AI로 채점할 정성 요인(값이 입력된)이 없어요.");
+      return;
+    }
+    setAiScoring(true);
+    setAiMsg("");
+    try {
+      const res = await fetch("/api/analyze/factors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ factors }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setAiMsg(data.error ?? "AI 채점 실패");
+        return;
+      }
+      const scores: Record<string, { score: number; evidence: string }> = data.scores ?? {};
+      setDraftIps((prev) => {
+        const next = cloneIps(prev);
+        (Object.keys(scores) as FactorKey[]).forEach((k) => {
+          next[k] = {
+            ...next[k],
+            score: scores[k].score,
+            status: "explicit",
+            source: "ai",
+            evidence: scores[k].evidence || next[k].evidence,
+          };
+        });
+        return next;
+      });
+      setDirty(true);
+      const n = Object.keys(scores).length;
+      setAiMsg(n > 0 ? `정성 요인 ${n}개를 AI가 채점했어요 (수정 가능).` : "채점된 요인이 없어요.");
+    } catch {
+      setAiMsg("AI 채점 호출에 실패했어요.");
+    } finally {
+      setAiScoring(false);
+    }
   };
 
   const tryClose = () => {
@@ -248,6 +299,20 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
               >
                 {allReviewed ? "전체 확정 해제" : "모두 검토 확정"}
               </button>
+            </div>
+
+            {/* 정성 요인 AI 채점 */}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-4 py-2.5">
+              <span className="text-xs text-fg-muted">
+                값만 적고 점수가 비어있는 <b className="text-fg">정성 요인(세금·유동성·법적·고유)</b>을 AI가 기준표로 채점해요.
+                <span className="ml-1">(수익률·위험·기간은 입력 시 자동 채점)</span>
+              </span>
+              <div className="flex items-center gap-2">
+                {aiMsg && <span className="text-[11px] text-fg-muted">{aiMsg}</span>}
+                <button className="btn-primary text-xs" onClick={runFactorAI} disabled={aiScoring}>
+                  {aiScoring ? "AI 채점 중…" : "🤖 정성요인 AI 채점"}
+                </button>
+              </div>
             </div>
 
             <IPSForm ips={draftIps} readOnly={false} onChange={factorChange} />

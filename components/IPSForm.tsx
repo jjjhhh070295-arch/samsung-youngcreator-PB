@@ -2,6 +2,7 @@
 
 import type { IPS, IPSFactor, FactorKey, FactorStatus } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
+import { autoScoreFromValue, QUANT_FACTORS } from "@/lib/scoring";
 
 interface Props {
   ips: IPS;
@@ -30,6 +31,19 @@ function StatusBadge({ status }: { status: FactorStatus }) {
 export default function IPSForm({ ips, readOnly, onChange }: Props) {
   const update = (key: FactorKey, patch: Partial<IPSFactor>) => {
     onChange(key, { ...ips[key], ...patch });
+  };
+
+  // 정량 요인은 값 입력 시 기준표로 점수를 자동 산출 + 상태를 "직접 근거"로 (숫자 없으면 그대로).
+  const updateValue = (key: FactorKey, value: string) => {
+    const patch: Partial<IPSFactor> = { value, source: "manual" };
+    if (QUANT_FACTORS.includes(key)) {
+      const auto = autoScoreFromValue(key, value);
+      if (auto != null) {
+        patch.score = auto;
+        patch.status = "explicit";
+      }
+    }
+    update(key, patch);
   };
 
   return (
@@ -100,17 +114,32 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
                   <input
                     className="input"
                     value={f.value}
-                    placeholder={f.status === "empty" ? "(공백 허용)" : valuePlaceholder}
-                    disabled={f.status === "empty"}
-                    onChange={(e) => update(m.key, { value: e.target.value, source: "manual" })}
+                    placeholder={
+                      f.status === "empty" && !QUANT_FACTORS.includes(m.key)
+                        ? "(공백 허용)"
+                        : valuePlaceholder
+                    }
+                    disabled={f.status === "empty" && !QUANT_FACTORS.includes(m.key)}
+                    onChange={(e) => updateValue(m.key, e.target.value)}
                   />
                 )}
               </div>
 
-              {/* 점수 (explicit만) */}
+              {/* 점수 (1~5) */}
               <div>
                 <label className="label">점수 (1~5)</label>
-                {f.status !== "explicit" ? (
+                {QUANT_FACTORS.includes(m.key) && !readOnly ? (
+                  // 정량 요인: 값에서 규칙으로 자동 산출 → 선택 없이 자동 표시
+                  f.score != null ? (
+                    <p className="min-h-[2.25rem] rounded-lg bg-gold-50 px-3 py-2 text-sm font-semibold text-gold-700 dark:bg-gold-900/30 dark:text-gold-200">
+                      {f.score}점 <span className="text-[10px] font-normal text-fg-muted">· 자동</span>
+                    </p>
+                  ) : (
+                    <p className="flex min-h-[2.25rem] items-center rounded-lg bg-surface-2 px-3 py-2 text-xs text-fg-muted">
+                      값 입력 시 자동 채점
+                    </p>
+                  )
+                ) : f.status !== "explicit" ? (
                   <p className="min-h-[2.25rem] rounded-lg bg-surface-2 px-3 py-2 text-sm text-fg-muted">
                     {f.status === "inferred" ? "추론 — 점수 없음" : "—"}
                   </p>
