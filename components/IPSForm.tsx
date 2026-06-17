@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import type { IPS, IPSFactor, FactorKey, FactorStatus } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
 import { autoScoreFromValue, QUANT_FACTORS } from "@/lib/scoring";
+import { TAG_FACTORS, isTagFactor, scoreFromTagLabels, parseTagValue } from "@/lib/rrttlluScoring";
 
 interface Props {
   ips: IPS;
@@ -29,6 +31,7 @@ function StatusBadge({ status }: { status: FactorStatus }) {
 // RRTTLLU 7요인 편집 폼.
 // readOnly=true 면 잠금(읽기 전용). 부모가 [저장 확정]/[수정]으로 토글한다.
 export default function IPSForm({ ips, readOnly, onChange }: Props) {
+  const [tagPickerOpen, setTagPickerOpen] = useState<FactorKey | null>(null);
   const update = (key: FactorKey, patch: Partial<IPSFactor>) => {
     onChange(key, { ...ips[key], ...patch });
   };
@@ -44,6 +47,21 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
       }
     }
     update(key, patch);
+  };
+
+  // 정성 요인(세금·법적·고유): 태그 토글 → 강도 점수 자동. value엔 선택 라벨 저장.
+  const toggleTag = (key: FactorKey, label: string) => {
+    const current = parseTagValue(ips[key].value);
+    const next = current.includes(label)
+      ? current.filter((l) => l !== label)
+      : [...current, label];
+    const score = scoreFromTagLabels(key, next);
+    update(key, {
+      value: next.join(", "),
+      score,
+      status: next.length > 0 ? "explicit" : "empty",
+      source: "manual",
+    });
   };
 
   return (
@@ -105,8 +123,66 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {/* 값 */}
               <div className="sm:col-span-2">
-                <label className="label">값 / 설명</label>
-                {readOnly ? (
+                <label className="label">
+                  {isTagFactor(m.key) ? "해당 요인 (복수 선택)" : "값 / 설명"}
+                </label>
+                {isTagFactor(m.key) && !readOnly ? (
+                  // 정성 요인: 선택된 태그만 칩으로 표시, 나머지는 [+ 추가]로 펼쳐 선택
+                  (() => {
+                    const all = TAG_FACTORS[m.key] ?? [];
+                    const selected = parseTagValue(f.value);
+                    const unselected = all.filter((t) => !selected.includes(t.label));
+                    const open = tagPickerOpen === m.key;
+                    return (
+                      <div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {selected.length === 0 && (
+                            <span className="text-xs text-fg-muted">해당 요인 없음</span>
+                          )}
+                          {selected.map((label) => {
+                            const tag = all.find((t) => t.label === label);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => toggleTag(m.key, label)}
+                                title="클릭하면 제거"
+                                className="rounded-md border border-gold-400 bg-gold-50 px-2.5 py-1 text-xs font-medium text-gold-700 dark:bg-gold-900/30 dark:text-gold-200"
+                              >
+                                {label}
+                                {tag && <span className="opacity-60"> ·{tag.score}</span>}
+                                <span className="ml-1 opacity-60">✕</span>
+                              </button>
+                            );
+                          })}
+                          {unselected.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setTagPickerOpen(open ? null : m.key)}
+                              className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs font-medium text-fg-muted hover:text-fg"
+                            >
+                              {open ? "닫기" : "+ 추가"}
+                            </button>
+                          )}
+                        </div>
+                        {open && (
+                          <div className="mt-2 flex flex-wrap gap-1.5 rounded-lg border border-border bg-surface-2 p-2">
+                            {unselected.map((tag) => (
+                              <button
+                                key={tag.id}
+                                type="button"
+                                onClick={() => toggleTag(m.key, tag.label)}
+                                className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-fg-muted hover:text-fg"
+                              >
+                                {tag.label} <span className="opacity-60">·{tag.score}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : readOnly ? (
                   <p className="min-h-[2.25rem] rounded-lg bg-surface-2 px-3 py-2 text-sm text-fg">
                     {f.value || <span className="text-fg-muted">미언급</span>}
                   </p>
@@ -128,15 +204,15 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
               {/* 점수 (1~5) */}
               <div>
                 <label className="label">점수 (1~5)</label>
-                {QUANT_FACTORS.includes(m.key) && !readOnly ? (
-                  // 정량 요인: 값에서 규칙으로 자동 산출 → 선택 없이 자동 표시
+                {(QUANT_FACTORS.includes(m.key) || isTagFactor(m.key)) && !readOnly ? (
+                  // 정량(값) · 정성(태그) 요인: 규칙으로 자동 산출 → 선택 없이 자동 표시
                   f.score != null ? (
                     <p className="min-h-[2.25rem] rounded-lg bg-gold-50 px-3 py-2 text-sm font-semibold text-gold-700 dark:bg-gold-900/30 dark:text-gold-200">
                       {f.score}점 <span className="text-[10px] font-normal text-fg-muted">· 자동</span>
                     </p>
                   ) : (
                     <p className="flex min-h-[2.25rem] items-center rounded-lg bg-surface-2 px-3 py-2 text-xs text-fg-muted">
-                      값 입력 시 자동 채점
+                      {isTagFactor(m.key) ? "태그 선택 시 자동 채점" : "값 입력 시 자동 채점"}
                     </p>
                   )
                 ) : f.status !== "explicit" ? (

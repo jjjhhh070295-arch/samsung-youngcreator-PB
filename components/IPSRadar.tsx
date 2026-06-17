@@ -13,6 +13,7 @@ import {
 import type { IPS } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
 import { CHART_COLORS } from "@/lib/theme";
+import { derivePropensity } from "@/lib/rrttlluScoring";
 
 interface Props {
   ips: IPS;
@@ -35,8 +36,27 @@ export default function IPSRadar({ ips, height = 280, lang = "ko" }: Props) {
 
   const unconfirmed = data.filter((d) => !d.confirmed).map((d) => d.factor);
 
+  // 성향등급(안정형~공격투자형) — 목표수익률·위험허용도 점수 기반
+  const propensity = derivePropensity(
+    ips.return.status === "explicit" ? ips.return.score : null,
+    ips.risk.status === "explicit" ? ips.risk.score : null,
+  );
+
   return (
     <div>
+      {propensity && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-fg-muted">{lang === "en" ? "Profile" : "투자성향"}</span>
+          <span className="rounded-md bg-gold-400/15 px-2.5 py-1 text-sm font-bold text-gold-600 dark:text-gold-300">
+            {propensity.label} ({propensity.grade}/5)
+          </span>
+          {propensity.returnMismatch && (
+            <span className="rounded-md bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-500">
+              ⚠ 목표수익률이 위험성향보다 높음 (정합성 점검)
+            </span>
+          )}
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={height}>
         <BarChart
           data={data}

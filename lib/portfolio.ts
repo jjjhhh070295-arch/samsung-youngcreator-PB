@@ -378,6 +378,31 @@ const factorValue = (client: Client, key: FactorKey, fallback = "미입력") =>
 const factorScore = (client: Client, key: FactorKey, fallback = 3) =>
   client.ips?.[key]?.score ?? fallback;
 
+// 7요인 보강 틸팅 — 기존 adjustedWeights가 안 쓰던 목표수익률·투자기간·법적을 비중에 반영.
+// (risk/tax/liquidity/unique는 adjustedWeights에서 이미 반영 → 중복 방지 위해 여기선 제외)
+// 점수 3=중립이라 미채점/중립이면 변화 0. 최종은 normalizeOptionWeights가 0~100·합100 보정.
+function applySevenFactorTilt(
+  weights: PortfolioOption["weights"],
+  client: Client,
+): PortfolioOption["weights"] {
+  const ret = factorScore(client, "return"); // 1~5 (중립 3)
+  const time = factorScore(client, "timeHorizon"); // 1~5 (중립 3)
+  const legal = factorScore(client, "legal", 1); // 1~5 (제약없음 1)
+
+  // 목표수익률↑ → 위험자산↑·채권↓
+  weights.etf += (ret - 3) * 4;
+  weights.bond -= (ret - 3) * 2;
+  // 투자기간↑ → 위험자산↑·단기현금↓ (길수록 변동성 감내 여력↑)
+  weights.etf += (time - 3) * 3;
+  weights.mmf -= (time - 3) * 2;
+  // 법적 제약↑ → 복잡상품(ELS) 축소 → 채권으로 이전
+  const legalCut = (legal - 1) * 2;
+  weights.els -= legalCut;
+  weights.bond += legalCut;
+
+  return weights;
+}
+
 const clampWeight = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
 const formatKRWShortLocal = (won: number) => {
@@ -733,6 +758,9 @@ function adjustedWeights(
     weights.raw = 0;
     weights.dollar = Math.max(3, weights.dollar - 2);
   }
+
+  // 7요인 보강(목표수익률·투자기간·법적) — 정규화 직전 한 줄로 적용
+  applySevenFactorTilt(weights, client);
 
   return normalizeOptionWeights(weights);
 }

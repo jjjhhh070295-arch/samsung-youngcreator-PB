@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { emptyIPS, FACTOR_KEYS, type IPS, type IPSFactor } from "@/lib/types";
+import { isTagFactor, matchTagsInText, tagOptionsForPrompt } from "@/lib/rrttlluScoring";
 import { rubricForPrompt } from "@/lib/scoring";
 
 export const runtime = "nodejs";
@@ -30,6 +31,12 @@ const SYSTEM_PROMPT = `당신은 PB(프라이빗뱅커)의 상담 기록을 분�
 
 [채점 기준표 — explicit일 때 반드시 이 기준으로 점수 부여]
 ${rubricForPrompt()}
+
+[정성 요인(tax·legal·unique)은 '태그'로 — 매우 중요]
+아래 목록에서 해당되는 태그를 골라 value에 **정확히 이 라벨 그대로**, 콤마로 나열한다(복수 가능). 해당 없으면 빈 문자열.
+정성 요인의 score는 시스템이 태그 강도로 자동 산출하므로 점수는 신경 쓰지 말고 value(태그)만 정확히 고른다.
+${tagOptionsForPrompt()}
+예: tax → "한계세율 높음(38%+), 금융소득종합과세 대상, 상속"
 
 [채점 원칙]
 - explicit이면 위 기준표에 맞춰 점수(1~5)를 정한다. 상담에 나온 수치/표현을 기준표 구간에 대입한다. (예: 목표수익률 "연 6~8%" → 3점)
@@ -81,21 +88,35 @@ function normalizeToIPS(raw: any): IPS {
         ? r.status
         : "empty";
 
+    let value = typeof r.value === "string" ? r.value : "";
     let score: number | null = null;
-    if (status === "explicit" && typeof r.score === "number") {
+    let finalStatus = status;
+
+    if (isTagFactor(key)) {
+      // 정성 요인: LLM이 고른 value에서 태그 추출 → 강도 자동 산출(LLM 점수 무시)
+      const m = matchTagsInText(key, value);
+      if (m.labels.length > 0) {
+        value = m.labels.join(", ");
+        score = m.score;
+        finalStatus = "explicit";
+      } else {
+        value = "";
+        finalStatus = status === "explicit" ? "empty" : status; // 태그 못 고르면 점수 없음
+      }
+    } else if (status === "explicit" && typeof r.score === "number") {
       score = Math.max(1, Math.min(5, Math.round(r.score)));
     }
-    // inferred/empty 는 점수 강제로 null (과대계상 방지)
+    // inferred/empty(비태그) 는 점수 강제로 null (과대계상 방지)
 
     ips[key] = {
-      value: typeof r.value === "string" ? r.value : "",
+      value,
       score,
       notes: "",
       source: "ai",
-      status,
-      evidence: status === "explicit" && typeof r.evidence === "string" ? r.evidence : "",
+      status: finalStatus,
+      evidence: finalStatus === "explicit" && typeof r.evidence === "string" ? r.evidence : "",
       inferenceHint:
-        status === "inferred" && typeof r.inferenceHint === "string" ? r.inferenceHint : "",
+        finalStatus === "inferred" && typeof r.inferenceHint === "string" ? r.inferenceHint : "",
       reviewed: false, // AI 결과는 draft
     };
   }
