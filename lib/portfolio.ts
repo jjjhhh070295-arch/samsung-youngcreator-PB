@@ -388,6 +388,9 @@ function applySevenFactorTilt(
   const ret = factorScore(client, "return"); // 1~5 (중립 3)
   const time = factorScore(client, "timeHorizon"); // 1~5 (중립 3)
   const legal = factorScore(client, "legal", 1); // 1~5 (제약없음 1)
+  const tax = factorScore(client, "tax"); // 1~5 (중립 3)
+  const liq = factorScore(client, "liquidity"); // 1~5 (중립 3)
+  const uniq = factorScore(client, "unique", 1); // 1~5 (없음 1)
 
   // 목표수익률↑ → 위험자산↑·채권↓
   weights.etf += (ret - 3) * 4;
@@ -399,6 +402,19 @@ function applySevenFactorTilt(
   const legalCut = (legal - 1) * 2;
   weights.els -= legalCut;
   weights.bond += legalCut;
+  // 세금 민감도↑ → 세후 안정자산(채권·MMF)↑·주식↓ (약하게, 기존 ≥4 점프 위에 점진 가산)
+  weights.bond += (tax - 3) * 1.5;
+  weights.mmf += (tax - 3) * 1;
+  weights.etf -= (tax - 3) * 1.5;
+  // 유동성 필요↑ → 현금성(MMF)↑·주식↓ (약하게)
+  weights.mmf += (liq - 3) * 2.5;
+  weights.etf -= (liq - 3) * 1.5;
+  // 고유 강도↑(집중포지션 등) → 보수적으로: ELS↓·주식 약간↓ → 채권/현금 완충 (약하게)
+  const uniqTilt = (uniq - 1) * 1;
+  weights.els -= uniqTilt;
+  weights.etf -= uniqTilt;
+  weights.bond += uniqTilt * 1.5;
+  weights.mmf += uniqTilt * 0.5;
 
   return weights;
 }
