@@ -28,13 +28,18 @@ async function transcribeWithClova(audio: Buffer, contentType: string): Promise<
     );
   }
 
-  // CLOVA Speech: multipart 'media' + 'params'(json) 업로드
+  // CLOVA Speech: multipart 'media' + 'params'(json) 업로드. 화자분리(diarization) 켬.
   const form = new FormData();
   const blob = new Blob([new Uint8Array(audio)], { type: contentType || "application/octet-stream" });
   form.append("media", blob, "audio");
   form.append(
     "params",
-    JSON.stringify({ language: "ko-KR", completion: "sync", format: "JSON" }),
+    JSON.stringify({
+      language: "ko-KR",
+      completion: "sync",
+      format: "JSON",
+      diarization: { enable: true }, // 화자 분리 (PB ↔ 고객)
+    }),
   );
 
   const res = await fetch(`${invokeUrl}/recognizer/upload`, {
@@ -47,8 +52,33 @@ async function transcribeWithClova(audio: Buffer, contentType: string): Promise<
     throw new Error(`CLOVA Speech 오류 (${res.status}): ${detail.slice(0, 300)}`);
   }
   const json: any = await res.json();
-  const text: string = json.text ?? json.segments?.map((s: any) => s.text).join(" ") ?? "";
-  return { text: text.trim(), provider: "clova" };
+  return { text: assembleBySpeaker(json), provider: "clova" };
+}
+
+// CLOVA 응답 segments를 화자별로 묶어 "화자1: …\n화자2: …" 형태로 만든다.
+// (화자 정보가 없으면 전체 text 그대로)
+function assembleBySpeaker(json: any): string {
+  const segs: any[] = Array.isArray(json?.segments) ? json.segments : [];
+  if (segs.length === 0) return (json?.text ?? "").trim();
+
+  const parts: string[] = [];
+  let curSpk: string | null = null;
+  let buf: string[] = [];
+  const flush = () => {
+    if (buf.length === 0) return;
+    parts.push((curSpk ? `화자${curSpk}: ` : "") + buf.join(" ").trim());
+    buf = [];
+  };
+  for (const s of segs) {
+    const spk = s?.speaker?.label != null ? String(s.speaker.label) : null;
+    if (spk !== curSpk) {
+      flush();
+      curSpk = spk;
+    }
+    if (s?.text) buf.push(String(s.text).trim());
+  }
+  flush();
+  return parts.join("\n").trim();
 }
 
 // ── OpenAI Whisper (대체) ──
@@ -59,10 +89,28 @@ async function transcribeWithWhisper(audio: Buffer, contentType: string): Promis
       "OPENAI_API_KEY 가 설정되지 않았습니다 (Whisper 대체 경로).",
     );
   }
+  // 실제 포맷에 맞는 파일명/타입을 줘야 OpenAI가 파싱함(과거: audio.mp3 강제 → webm/wav 거부됨)
+  const ct = (contentType || "audio/webm").split(";")[0].trim().toLowerCase();
+  const extMap: Record<string, string> = {
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/oga": "oga",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/mp4": "mp4",
+    "audio/x-m4a": "m4a",
+    "audio/m4a": "m4a",
+    "audio/aac": "m4a",
+    "audio/flac": "flac",
+  };
+  const ext = extMap[ct] ?? "webm";
   const form = new FormData();
-  const blob = new Blob([new Uint8Array(audio)], { type: contentType || "audio/mpeg" });
-  form.append("file", blob, "audio.mp3");
-  form.append("model", "whisper-1");
+  const blob = new Blob([new Uint8Array(audio)], { type: ct });
+  form.append("file", blob, `audio.${ext}`);
+  // gpt-4o-mini-transcribe: whisper-1보다 정확하고 저렴(한국어 양호). 필요시 env로 교체.
+  form.append("model", process.env.OPENAI_STT_MODEL?.trim() || "gpt-4o-mini-transcribe");
   form.append("language", "ko");
 
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {

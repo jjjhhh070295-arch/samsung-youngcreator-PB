@@ -35,8 +35,8 @@ export async function GET(req: Request) {
   try {
     const origin = new URL(req.url).origin;
 
-    // 1) 최신 리포트 목록 (기존 크롤러 재사용 — 박상혁 엔진 그대로)
-    const res = await fetch(`${origin}/api/research`, { cache: "no-store" });
+    // 1) 최신 리포트 목록 (기존 크롤러 재사용). noauto=1 로 research의 자동 재트리거 방지(루프 차단).
+    const res = await fetch(`${origin}/api/research?noauto=1`, { cache: "no-store" });
     if (!res.ok) throw new Error(`/api/research ${res.status}`);
     const data = await res.json();
     const items: MarketResearchItem[] = Array.isArray(data.items) ? data.items : [];

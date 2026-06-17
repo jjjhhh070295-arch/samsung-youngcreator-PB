@@ -94,9 +94,9 @@ export default function ConsultationInput({
             : "AI 분석 완료. 아래 7요인 폼에 draft로 채워졌습니다. 검토 후 [검토 확정] → [저장 확정] 하세요.",
         });
       } else {
-        // 키 없음 / 파싱 실패 → 수동 입력 유도
+        // 키 없음 / 크레딧 소진 / 키 오류 / 파싱 실패 → 수동 입력 유도
         setMsg({ type: "error", text: data.error ?? "분석에 실패했습니다." });
-        if (data.code === "NO_KEY" || data.code === "PARSE_FAILED") {
+        if (["NO_KEY", "NO_CREDIT", "BAD_KEY", "PARSE_FAILED"].includes(data.code)) {
           onRequestManualEdit();
           setTab("manual");
         }
@@ -133,8 +133,8 @@ export default function ConsultationInput({
           type: "ok",
           text: data.dummy
             ? (data.note ?? "샘플(더미) 변환 결과입니다.") +
-              " ① 전문 텍스트 탭에 채워졌습니다. [AI 분석]을 눌러보세요."
-            : "변환 완료. ① 전문 텍스트 탭에 결과가 채워졌습니다. [AI 분석]을 눌러보세요.",
+              " ① 전문 텍스트 탭에 채워졌습니다. ⚠️ 숫자·화자(PB/고객) 오인식을 검토·수정한 뒤 [AI 분석]."
+            : "변환 완료 → ① 전문 텍스트 탭. ⚠️ STT는 오타가 있을 수 있어요. 숫자·화자(PB/고객)를 검토·수정한 뒤 [AI 분석]을 누르세요.",
         });
       } else {
         setMsg({ type: "error", text: data.error ?? "음성 변환에 실패했습니다." });

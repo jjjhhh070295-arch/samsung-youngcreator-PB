@@ -128,6 +128,7 @@ export interface Portfolio {
   rationale: string; // 산출 근거 설명 (더미)
   editedByPb: boolean; // PB가 수정했는지
   referencedReports?: ReferencedReport[]; // 확정 시점 참고 리포트(영향 큰 상위 N개)
+  confirmedAt?: string; // 확정 시각(ISO) — 이 시점 리서치 기준으로 구조·근거를 박제
 }
 
 // ── 스트레스 테스트 (데이터 기반 요인 민감도 모델) ──

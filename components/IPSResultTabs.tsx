@@ -102,7 +102,8 @@ export default function IPSResultTabs({
     setFinalizing(true);
     try {
       const referencedReports = await pickTopReports(5);
-      await onFinalizePortfolio({ ...chosen, referencedReports }); // 참고 리포트 박제 + 저장
+      // 확정 시점 박제: 구조(allocations)·근거(referencedReports)·확정시각을 함께 저장 → 이후 리서치가 바뀌어도 고정
+      await onFinalizePortfolio({ ...chosen, referencedReports, confirmedAt: new Date().toISOString() });
     } finally {
       setFinalizing(false);
     }
@@ -373,7 +374,10 @@ export default function IPSResultTabs({
                 </div>
 
                 {/* 참고 리포트 (확정 시점 박제) */}
-                <ReferencedReports reports={client.portfolios[0]?.referencedReports} />
+                <ReferencedReports
+                  reports={client.portfolios[0]?.referencedReports}
+                  confirmedAt={client.portfolios[0]?.confirmedAt}
+                />
               </div>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -474,8 +478,17 @@ const SIGNAL_KO_REF: Record<string, string> = {
 };
 
 // 확정 포트폴리오가 참고한 리포트 — 접었다 펼치는 즉석 열람
-function ReferencedReports({ reports }: { reports?: Portfolio["referencedReports"] }) {
+function ReferencedReports({
+  reports,
+  confirmedAt,
+}: {
+  reports?: Portfolio["referencedReports"];
+  confirmedAt?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const stampLabel = confirmedAt
+    ? `확정 시점 기준 스냅샷 · ${new Date(confirmedAt).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })}`
+    : null;
   if (!reports || reports.length === 0) {
     return (
       <p className="mt-3 border-t border-border pt-3 text-[11px] text-fg-muted">
@@ -485,6 +498,11 @@ function ReferencedReports({ reports }: { reports?: Portfolio["referencedReports
   }
   return (
     <div className="mt-3 border-t border-border pt-3">
+      {stampLabel && (
+        <p className="mb-1.5 text-[11px] text-fg-muted">
+          🔒 {stampLabel} — 이후 리서치가 바뀌어도 이 기록은 고정됩니다.
+        </p>
+      )}
       <button
         className="text-sm font-medium text-gold-700 hover:underline dark:text-gold-300"
         onClick={() => setOpen((v) => !v)}

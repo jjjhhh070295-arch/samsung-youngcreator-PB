@@ -12,6 +12,19 @@ export const dynamic = "force-dynamic";
 
 const MAX_ITEMS = 30;
 const PER_SOURCE_CAP = 4; // 한 출처(증권사)당 최대 건수 — 다양성 확보
+const MAX_AGE_DAYS = 30; // 날짜 하한 — 이보다 오래된 리포트는 제외(과거 데이터 유입 차단)
+
+// 자동 분석 쿨다운 — 사이트 로드 때 새 리포트가 있으면 1회만 ingest, 잦은 재실행(토큰 낭비) 방지
+const AUTO_INGEST_COOLDOWN_MS = 10 * 60 * 1000;
+let lastAutoIngest = 0;
+
+// 날짜가 하한(MAX_AGE_DAYS) 이내인지. 날짜 없으면(크롤 상단 최신으로 간주) 통과.
+function withinAgeFloor(item: MarketResearchItem): boolean {
+  if (!item.date) return true;
+  const t = new Date(item.date).getTime();
+  if (isNaN(t)) return true;
+  return (Date.now() - t) / 86_400_000 <= MAX_AGE_DAYS;
+}
 
 function decodeHtmlEntity(value: string) {
   return value
@@ -327,6 +340,7 @@ async function fetchSource(source: ResearchSource) {
 function uniqueLatest(items: MarketResearchItem[]) {
   const seen = new Set<string>();
   const sorted = items
+    .filter(withinAgeFloor) // 30일 하한 — 과거 리포트 제외(2차 채움에서도 안 끌려옴)
     .filter((item) => {
       const key = `${item.source}|${item.title}`;
       if (seen.has(key)) return false;
@@ -356,7 +370,10 @@ function uniqueLatest(items: MarketResearchItem[]) {
   return picked;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const noauto = url.searchParams.get("noauto") === "1"; // ingest가 부를 때 자동 재트리거 방지
+
   const settled = await Promise.allSettled(RESEARCH_SOURCES.map(fetchSource));
   const fetched = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
   const fallbackNeeded = fetched.length < MAX_ITEMS;
@@ -373,6 +390,14 @@ export async function GET() {
       analysis: a.signals.map((s) => ({ signal: s.signal, direction: s.direction, strength: s.strength })),
     };
   });
+
+  // 자동 분석: 분석 안 된(캐시 없는) 리포트가 있으면 ingest를 백그라운드로 1회 실행.
+  // 쿨다운(10분)으로 페이지 이동마다 중복 실행 방지 → 토큰 낭비 차단. 새 리포트만 분석되므로 평소엔 비용 0.
+  const hasUnanalyzed = picked.some((it) => !cached.has(it.id));
+  if (!noauto && hasUnanalyzed && Date.now() - lastAutoIngest > AUTO_INGEST_COOLDOWN_MS) {
+    lastAutoIngest = Date.now();
+    void fetch(`${url.origin}/api/research/ingest`, { cache: "no-store" }).catch(() => {});
+  }
 
   return NextResponse.json({
     updatedAt: new Date().toISOString(),

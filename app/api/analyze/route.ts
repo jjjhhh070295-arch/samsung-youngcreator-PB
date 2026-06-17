@@ -18,6 +18,10 @@ const SYSTEM_PROMPT = `당신은 PB(프라이빗뱅커)의 상담 기록을 분�
 - legal: 법적/규제 제약
 - unique: 고객 고유 상황
 
+[화자 구분 처리]
+- 원문이 "화자1: …", "화자2: …" 처럼 화자별로 나뉘어 있으면, 질문하는 쪽은 보통 PB(상담사)이고 답하며 본인 상황·성향을 말하는 쪽이 고객이다. 반드시 고객의 발화를 근거로 분석하고, PB의 질문·제안·예시는 점수 근거로 쓰지 말 것. (어느 쪽이 고객인지 애매하면 보수적으로 판단)
+- 화자 라벨이 없는 통합 녹취라면, PB의 질문·제안과 고객의 답변이 한 덩어리로 섞여 있을 수 있다. 이 경우 고객 본인의 상황·성향으로 보이는 내용만 보수적으로 추출하고, PB가 던진 질문·예시·권유(예: "이 정도 수익률은 어떠세요?")를 고객의 의사로 오인하지 말 것. 고객 발언인지 불확실하면 explicit 대신 inferred로 둔다.
+
 [오류·과대계상 방지 규칙 — 매우 중요]
 각 요인을 반드시 다음 셋 중 하나로 분류한다.
 1) "explicit" (직접 근거 있음): 상담 원문에 명시적 근거가 있을 때만. 점수(1~5)를 매기고, 근거가 된 원문 구절을 evidence에 그대로 인용한다.
@@ -165,13 +169,50 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, ips });
   } catch (e: any) {
     console.error("[/api/analyze]", e);
+    const status = e?.status ?? e?.response?.status;
+    const msg = String(e?.message ?? "");
+
+    // 크레딧 소진(잔액 부족) — Anthropic은 보통 400 + "credit balance is too low"
+    if (status === 400 && /credit balance|too low|insufficient/i.test(msg)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "NO_CREDIT",
+          error:
+            "⚠️ Claude API 크레딧이 소진된 것 같습니다. 결제(크레딧)를 충전하거나, '7요인 직접 입력' 탭에서 수동으로 입력하세요.",
+        },
+        { status: 200 },
+      );
+    }
+    // 요청 한도 초과(일시적)
+    if (status === 429) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "RATE_LIMIT",
+          error: "⚠️ AI 요청 한도 초과입니다. 잠시 후 다시 시도하거나 직접 입력하세요.",
+        },
+        { status: 200 },
+      );
+    }
+    // 인증 실패(키 오류)
+    if (status === 401) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "BAD_KEY",
+          error: "⚠️ Claude API 키가 유효하지 않습니다(401). 키를 확인하거나 직접 입력하세요.",
+        },
+        { status: 200 },
+      );
+    }
     return NextResponse.json(
       {
         ok: false,
         code: "SERVER_ERROR",
         error:
           "분석 중 오류가 발생했습니다. 잠시 후 다시 시도하거나 직접 입력하세요. (" +
-          (e?.message ?? "unknown") +
+          (msg || "unknown") +
           ")",
       },
       { status: 200 },

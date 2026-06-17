@@ -259,10 +259,22 @@ export function inferSignals(text: string): ResearchSignal[] {
     .map(([signal]) => signal);
 }
 
+// 리포트 날짜로 최신성 가중치 — 오래될수록 영향 감소(가산점 하락). 날짜 없으면 중간값.
+export function dateRecencyWeight(date?: string | null): number {
+  if (!date) return 2;
+  const t = new Date(date).getTime();
+  if (isNaN(t)) return 2;
+  const days = (Date.now() - t) / 86_400_000;
+  if (days <= 7) return 4; // 1주 이내
+  if (days <= 14) return 3; // 2주 이내
+  if (days <= 30) return 2; // 1달 이내
+  return 1; // 그 이상(하한 통과분) — 최소 가중
+}
+
 export function scoreResearchSignals(items: MarketResearchItem[]): ResearchSignalScore[] {
   const scores = new Map<ResearchSignal, number>();
-  items.forEach((item, index) => {
-    const recencyWeight = Math.max(1, 4 - Math.floor(index / 5)); // 상위(최신)일수록 가중↑
+  items.forEach((item) => {
+    const recencyWeight = dateRecencyWeight(item.date); // 날짜 기반: 오래된 리포트는 가산점↓
     if (item.analysis && item.analysis.length > 0) {
       // LLM 분석 있음: 방향(±)×강도×최신 — "강세/약세"와 "강도"를 반영.
       for (const a of item.analysis) {
