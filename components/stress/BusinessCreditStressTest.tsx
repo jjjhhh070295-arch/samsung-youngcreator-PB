@@ -12,6 +12,14 @@ import {
   type MicroStressScenario,
 } from "@/lib/stress/microStress";
 import {
+  KOREA_BUSINESS_CREDIT_CRITERIA,
+  KOREA_BUSINESS_CREDIT_GUIDE,
+  KOREA_BUSINESS_CREDIT_SOURCES,
+  classifyKoreaBusinessCreditRisk,
+  type RiskLevel,
+  type RiskScore,
+} from "@/lib/stress/koreaBusinessCreditRisk";
+import {
   microStressPresetScenarios,
   microStressScenarios,
   microStressSliderMeta,
@@ -143,8 +151,10 @@ const demoCompany: CompanyClassificationInput = {
   isPublicInstitution: false,
 };
 
+type RiskTone = MicroRiskLevel | "severe";
+
 const riskStyles: Record<
-  MicroRiskLevel,
+  RiskTone,
   { label: string; badge: string; border: string; text: string; panel: string }
 > = {
   safe: {
@@ -167,6 +177,13 @@ const riskStyles: Record<
     border: "border-red-200 dark:border-red-800/60",
     text: "text-red-600 dark:text-red-300",
     panel: "bg-red-50/80 dark:bg-red-900/10",
+  },
+  severe: {
+    label: "Severe Danger",
+    badge: "bg-rose-700 text-white dark:bg-rose-800 dark:text-rose-50",
+    border: "border-rose-400 dark:border-rose-700/80",
+    text: "text-rose-700 dark:text-rose-300",
+    panel: "bg-rose-50/90 dark:bg-rose-950/20",
   },
 };
 
@@ -192,6 +209,49 @@ const formatPp = (value: number, digits = 1) =>
   `${value > 0 ? "+" : ""}${value.toFixed(digits)}%p`;
 
 const formatBp = (value: number) => `+${Math.round(value)}bp`;
+
+const levelToneMap: Record<RiskLevel, RiskTone> = {
+  Safe: "safe",
+  Watch: "watch",
+  Danger: "danger",
+  "Severe Danger": "severe",
+};
+
+const scoreBadgeMap: Record<RiskScore, { tone: RiskTone; label: string }> = {
+  1: { tone: "safe", label: "1점 Safe" },
+  3: { tone: "watch", label: "3점 Watch" },
+  5: { tone: "danger", label: "5점 Danger" },
+};
+
+const metricHelpMap: Record<string, string> = {
+  liquidityGap:
+    "앞으로 1년 동안 예상되는 현금유출을 현재 현금으로 감당하고도 부족한 금액입니다.",
+  runway: "현재 현금으로 몇 개월 버틸 수 있는지 보여줍니다.",
+  interestCoverage: "영업으로 번 돈으로 이자를 몇 배 감당할 수 있는지 보여줍니다.",
+  currentRatio:
+    "1년 안에 현금화할 수 있는 자산으로 1년 안에 갚을 부채를 감당할 수 있는지 봅니다.",
+  debtToEquity: "자기자본 대비 부채가 얼마나 많은지 보여줍니다.",
+  debtDependency: "자산을 얼마나 차입금으로 조달하고 있는지 보여줍니다.",
+  fundingRateShock:
+    "금리와 스프레드가 올라 법인의 차입금리가 얼마나 높아졌는지 보여줍니다.",
+  ratingDowngrade: "법인의 신용도 악화가 차입 여건에 미치는 영향을 봅니다.",
+  fundingSpread:
+    "시장 전체가 기업에게 요구하는 위험 프리미엄이 얼마나 커졌는지 봅니다.",
+  shortTermDebtConcentration:
+    "1년 안에 갚거나 갈아타야 하는 차입금이 얼마나 몰려 있는지 봅니다.",
+  workingCapitalBurden:
+    "매출채권 회수 지연이나 재고 증가로 현금이 묶이는 금액입니다.",
+  additionalInterestCost:
+    "변동금리 차입금에 조달금리 상승폭이 반영되면서 늘어나는 연간 추가 이자비용입니다.",
+  refinancingBurden:
+    "12개월 안에 만기가 돌아오는 차입금을 다시 조달할 때 추가로 부담할 수 있는 비용입니다.",
+  operatingCashflowLoss:
+    "매출 감소와 수익성 악화로 줄어드는 영업 현금창출력을 뜻합니다.",
+  rentalIncomeLoss:
+    "공실률 상승으로 줄어드는 임대수입 금액입니다.",
+  finalRisk:
+    "한국 기준 중심 PB 상담용 조기경보 룰로 계산한 최종 위험등급입니다.",
+};
 
 function inferPortfolioProfile(portfolio?: Portfolio): PortfolioProfileKey {
   const text = `${portfolio?.id ?? ""} ${portfolio?.label ?? ""}`.toLowerCase();
@@ -309,6 +369,10 @@ export default function BusinessCreditStressTest({
   const inferredCompanySize = classifyCompany(companyInput);
   const inferredCompany = companyProfiles[inferredCompanySize];
   const classificationMismatch = inferredCompanySize !== companyInput.selectedSize;
+  const presetName =
+    presetId === "custom"
+      ? "사용자 설정"
+      : microStressPresetScenarios.find((preset) => preset.id === presetId)?.name ?? "사용자 설정";
 
   const result = useMemo(
     () =>
@@ -320,40 +384,80 @@ export default function BusinessCreditStressTest({
     [companyInput.selectedSize, input, scenario, selectedCompany.fundingSensitivity, selectedPortfolio.sensitivity],
   );
 
+  const koreaRisk = useMemo(
+    () =>
+      classifyKoreaBusinessCreditRisk({
+        cashBuffer: input.cashBuffer,
+        liquidityGap: result.liquidityGap,
+        stressUseOfCash: result.stressUseOfCash,
+        survivalMonths: result.survivalMonths,
+        interestCoverage: result.stressedInterestCoverage,
+        stressedEbitda: result.stressedEbitda,
+        currentRatio: result.stressedCurrentRatio,
+        debtToEquityRatio: input.debtToEquityRatio,
+        totalDebt: input.totalDebt,
+        totalAssets: companyInput.totalAssets,
+        industry: companyInput.industry,
+        fundingRateShockPct: result.fundingRateShockPct,
+        ratingDowngradeNotches: scenario.ratingDowngradeNotches,
+        fundingSpreadShockBp: scenario.fundingSpreadShockBp,
+        shortTermDebtConcentrationPct: scenario.shortTermDebtConcentrationPct,
+        workingCapitalBurdenIncrease: result.workingCapitalBurdenIncrease,
+        refinancingBurdenIncrease: result.refinancingBurdenIncrease,
+        additionalInterestCost: result.additionalInterestCost,
+        operatingCashflowLoss: result.operatingCashflowLoss,
+        portfolioLabel: selectedPortfolio.label,
+        companySizeLabel: selectedCompany.label,
+        presetName,
+      }),
+    [companyInput.industry, companyInput.totalAssets, input, presetName, result, scenario, selectedCompany.label, selectedPortfolio.label],
+  );
+
   const comparisonResults = useMemo(
     () =>
-      scenarioEntries.map(([key, item]) => ({
-        key,
-        scenario: item,
-        result: calculateMicroStress(input, item, {
+      scenarioEntries.map(([key, item]) => {
+        const scenarioResult = calculateMicroStress(input, item, {
           portfolioSensitivity: selectedPortfolio.sensitivity,
           fundingSensitivity: selectedCompany.fundingSensitivity,
           companySize: companyInput.selectedSize,
-        }),
-      })),
-    [companyInput.selectedSize, input, selectedCompany.fundingSensitivity, selectedPortfolio.sensitivity],
+        });
+
+        return {
+          key,
+          scenario: item,
+          result: scenarioResult,
+          risk: classifyKoreaBusinessCreditRisk({
+            cashBuffer: input.cashBuffer,
+            liquidityGap: scenarioResult.liquidityGap,
+            stressUseOfCash: scenarioResult.stressUseOfCash,
+            survivalMonths: scenarioResult.survivalMonths,
+            interestCoverage: scenarioResult.stressedInterestCoverage,
+            stressedEbitda: scenarioResult.stressedEbitda,
+            currentRatio: scenarioResult.stressedCurrentRatio,
+            debtToEquityRatio: input.debtToEquityRatio,
+            totalDebt: input.totalDebt,
+            totalAssets: companyInput.totalAssets,
+            industry: companyInput.industry,
+            fundingRateShockPct: scenarioResult.fundingRateShockPct,
+            ratingDowngradeNotches: item.ratingDowngradeNotches,
+            fundingSpreadShockBp: item.fundingSpreadShockBp,
+            shortTermDebtConcentrationPct: item.shortTermDebtConcentrationPct,
+            workingCapitalBurdenIncrease: scenarioResult.workingCapitalBurdenIncrease,
+            refinancingBurdenIncrease: scenarioResult.refinancingBurdenIncrease,
+            additionalInterestCost: scenarioResult.additionalInterestCost,
+            operatingCashflowLoss: scenarioResult.operatingCashflowLoss,
+            portfolioLabel: selectedPortfolio.label,
+            companySizeLabel: selectedCompany.label,
+            presetName: item.name,
+          }),
+        };
+      }),
+    [companyInput.industry, companyInput.selectedSize, companyInput.totalAssets, input, selectedCompany.fundingSensitivity, selectedCompany.label, selectedPortfolio.label, selectedPortfolio.sensitivity],
   );
 
-  const risk = riskStyles[result.riskLevel];
+  const risk = riskStyles[levelToneMap[koreaRisk.level]];
   const creditRisk = riskStyles[result.creditWarningLevel];
-  const presetName =
-    presetId === "custom"
-      ? "사용자 설정"
-      : microStressPresetScenarios.find((preset) => preset.id === presetId)?.name ?? "사용자 설정";
-
-  const pbMessage = [
-    `현재 선택된 포트폴리오는 ${selectedPortfolio.label}으로, 민감도 계수 ${selectedPortfolio.sensitivity.toFixed(
-      2,
-    )}x가 유동성 방어력에 반영됩니다.`,
-    `해당 법인은 ${selectedCompany.label} 선택 기준으로 조달 민감도 ${selectedCompany.fundingSensitivity.toFixed(
-      2,
-    )}x를 적용하며, ${presetName} 시나리오에서 신용등급 ${scenario.ratingDowngradeNotches.toFixed(
-      0,
-    )} notch 하락과 스프레드 ${formatBp(scenario.fundingSpreadShockBp)}가 반영됩니다.`,
-    result.liquidityGap > 0
-      ? `12개월 유동성 부족액은 ${formatEok(result.liquidityGap)}로 추정되어 단기 유동성 버킷 확대와 차입 만기 분산이 우선 검토되어야 합니다.`
-      : "12개월 유동성 부족액은 발생하지 않지만, 추가 이자비용과 차환 부담을 고객 설명 자료에 별도로 표시하는 것이 좋습니다.",
-  ].join(" ");
+  const pbMessage = koreaRisk.pbCommentary;
 
   const contributionItems = useMemo(() => {
     const rawItems = [
@@ -390,6 +494,7 @@ export default function BusinessCreditStressTest({
     `12개월 내 차환 필요 차입금은 만기 분산으로 ${formatEok(input.refinancingDebtWithinYear)}에서 ${formatEok(defenseTarget.refinancingDebt)} 수준의 집중도로 낮춥니다.`,
     `매출채권 회수관리와 재고 회전 개선으로 운전자본 부담을 ${formatEok(result.workingCapitalBurdenIncrease)}에서 ${formatEok(defenseTarget.workingCapitalBurden)} 수준으로 낮추는 것을 목표로 합니다.`,
   ];
+  const activeCriteria = koreaRisk.criteria.filter((criterion) => criterion.score > 1);
 
   const applyPreset = (id: MicroStressPresetId) => {
     setPresetId(id);
@@ -531,35 +636,171 @@ export default function BusinessCreditStressTest({
               </p>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${risk.badge}`}>
-              위험등급 {risk.label}
+              최종 위험등급 {koreaRisk.level}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
-            <Metric label="영업현금흐름 감소액" value={formatEok(result.operatingCashflowLoss)} />
-            <Metric label="임대수입 감소액" value={formatEok(result.rentalIncomeLoss)} />
-            <Metric label="추가 이자비용" value={formatEok(result.additionalInterestCost)} />
-            <Metric label="차환 부담 증가액" value={formatEok(result.refinancingBurdenIncrease)} />
-            <Metric label="운전자본 부담 증가액" value={formatEok(result.workingCapitalBurdenIncrease)} />
+            <Metric
+              label="영업현금흐름 감소액"
+              help={metricHelpMap.operatingCashflowLoss}
+              value={formatEok(result.operatingCashflowLoss)}
+            />
+            <Metric
+              label="임대수입 감소액"
+              help={metricHelpMap.rentalIncomeLoss}
+              value={formatEok(result.rentalIncomeLoss)}
+            />
+            <Metric
+              label="추가 이자비용"
+              help={metricHelpMap.additionalInterestCost}
+              value={formatEok(result.additionalInterestCost)}
+            />
+            <Metric
+              label="차환 부담 증가액"
+              help={metricHelpMap.refinancingBurden}
+              value={formatEok(result.refinancingBurdenIncrease)}
+            />
+            <Metric
+              label="운전자본 부담 증가액"
+              help={metricHelpMap.workingCapitalBurden}
+              value={formatEok(result.workingCapitalBurdenIncrease)}
+            />
             <Metric
               label="12개월 유동성 부족액"
+              help={metricHelpMap.liquidityGap}
               value={result.liquidityGap <= 0 ? "부족 없음" : formatEok(result.liquidityGap)}
-              tone={result.liquidityGap <= 0 ? "safe" : result.riskLevel}
+              tone={
+                koreaRisk.criteria.find((item) => item.key === "liquidityGap")?.score === 5
+                  ? "danger"
+                  : result.liquidityGap <= 0
+                    ? "safe"
+                    : "watch"
+              }
             />
-            <Metric label="유동성 runway" value={`${result.survivalMonths.toFixed(1)}개월`} tone={result.survivalMonths >= 12 ? "safe" : result.survivalMonths >= 6 ? "watch" : "danger"} />
-            <Metric label="추정 조달금리 상승폭" value={`${result.fundingRateShockPct.toFixed(2)}%p`} />
+            <Metric
+              label="유동성 Runway"
+              help={metricHelpMap.runway}
+              value={`${result.survivalMonths.toFixed(1)}개월`}
+              tone={
+                koreaRisk.criteria.find((item) => item.key === "runway")?.score === 5
+                  ? "danger"
+                  : result.survivalMonths >= 12
+                    ? "safe"
+                    : "watch"
+              }
+            />
+            <Metric
+              label="이자보상배율"
+              help={metricHelpMap.interestCoverage}
+              value={`${result.stressedInterestCoverage.toFixed(1)}배`}
+              tone={
+                koreaRisk.criteria.find((item) => item.key === "interestCoverage")?.score === 5
+                  ? "danger"
+                  : result.stressedInterestCoverage >= 3
+                    ? "safe"
+                    : "watch"
+              }
+            />
+            <Metric
+              label="추정 조달금리 상승폭"
+              help={metricHelpMap.fundingRateShock}
+              value={`${result.fundingRateShockPct.toFixed(2)}%p`}
+            />
             <Metric label="신용위험 경고 등급" value={creditRisk.label} tone={result.creditWarningLevel} />
-            <Metric label="민감도 반영 후 현금소요" value={formatEok(result.stressUseOfCash)} />
+            <Metric
+              label="최종 위험등급"
+              help={metricHelpMap.finalRisk}
+              value={koreaRisk.level}
+              tone={levelToneMap[koreaRisk.level]}
+            />
           </div>
         </div>
 
         <div className="rounded-xl border border-border/70 p-4">
-          <h4 className="text-sm font-semibold text-fg">PB 설명문</h4>
-          <p className="mt-2 text-sm leading-relaxed text-fg">{pbMessage}</p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-semibold text-fg">현재 등급 산출 근거</h4>
+              <p className="mt-1 text-[11px] text-fg-muted">
+                {selectedPortfolio.label} · {selectedCompany.label} · {presetName}
+              </p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${risk.badge}`}>
+              {koreaRisk.level}
+            </span>
+          </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
+            <MiniStat label="5점 Danger 항목" value={`${koreaRisk.dangerCount}개`} />
+            <MiniStat label="3점 Watch 항목" value={`${koreaRisk.watchCount}개`} />
             <MiniStat label="Stress 유동비율" value={`${result.stressedCurrentRatio.toFixed(2)}배`} />
             <MiniStat label="Stress ICR" value={`${result.stressedInterestCoverage.toFixed(1)}배`} />
-            <MiniStat label="Debt / EBITDA" value={`${result.stressedDebtToEbitda.toFixed(1)}배`} />
-            <MiniStat label="DSO / DIO" value={`${Math.round(result.stressedReceivablesDays)}일 / ${Math.round(result.stressedInventoryDays)}일`} />
+          </div>
+          <div className="mt-3 rounded-lg border border-border/70 bg-surface-2 p-3">
+            <p className="text-[11px] font-medium text-fg-muted">주요 원인 Top 3</p>
+            <div className="mt-2 space-y-2">
+              {koreaRisk.topDrivers.length > 0 ? (
+                koreaRisk.topDrivers.map((driver) => {
+                  const scoreMeta = scoreBadgeMap[driver.score];
+                  return (
+                    <div
+                      key={driver.key}
+                      className="rounded-lg border border-border/70 bg-surface px-3 py-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-fg">{driver.label}</p>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-fg-muted">
+                            {driver.reason}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-xs font-semibold tabular-nums text-fg">
+                            {driver.valueLabel}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${riskStyles[scoreMeta.tone].badge}`}
+                          >
+                            {scoreMeta.label}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-fg-muted">
+                  현재는 3점 또는 5점 구간에 들어간 핵심 경보 항목이 없습니다.
+                </p>
+              )}
+            </div>
+          </div>
+          <p className="mt-3 text-sm leading-relaxed text-fg">{pbMessage}</p>
+          {koreaRisk.severeTriggers.length > 0 && (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-xs leading-relaxed text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/20 dark:text-rose-200">
+              <p className="font-semibold">Severe Danger 트리거</p>
+              <ul className="mt-1 space-y-1">
+                {koreaRisk.severeTriggers.map((trigger) => (
+                  <li key={trigger}>{trigger}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {activeCriteria.map((criterion) => {
+              const scoreMeta = scoreBadgeMap[criterion.score];
+              return (
+                <span
+                  key={criterion.key}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${riskStyles[scoreMeta.tone].badge}`}
+                  title={criterion.clientExplanation}
+                >
+                  {criterion.label} · {criterion.valueLabel}
+                </span>
+              );
+            })}
+          </div>
+          <div className="mt-3 rounded-lg border border-border/70 bg-surface-2 p-3">
+            <p className="text-[11px] font-medium text-fg-muted">등급 판정 요약</p>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">{koreaRisk.explanation}</p>
           </div>
         </div>
       </div>
@@ -697,12 +938,44 @@ export default function BusinessCreditStressTest({
 
       <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-xl border border-border/70 p-4">
-          <h4 className="text-sm font-semibold text-fg">재무비율 위험 신호</h4>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Signal label="유동성" value={`${result.stressedCurrentRatio.toFixed(2)}배`} danger={result.stressedCurrentRatio < 0.9} watch={result.stressedCurrentRatio < 1.2} />
-            <Signal label="안정성" value={`${input.debtToEquityRatio.toFixed(0)}%`} danger={input.debtToEquityRatio >= 250} watch={input.debtToEquityRatio >= 150} />
-            <Signal label="수익성" value={`${Math.max(0, input.ebitdaMargin + scenario.marginShockPp).toFixed(1)}%`} danger={input.ebitdaMargin + scenario.marginShockPp < 5} watch={input.ebitdaMargin + scenario.marginShockPp < 10} />
-            <Signal label="활동성" value={`${Math.round(result.stressedReceivablesDays)}일`} danger={result.stressedReceivablesDays >= 120} watch={result.stressedReceivablesDays >= 90} />
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold text-fg">현재 기준별 판정 상세</h4>
+            <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-fg-muted">
+              1점 / 3점 / 5점 룰 기반
+            </span>
+          </div>
+          <div className="space-y-2">
+            {koreaRisk.criteria.map((criterion) => {
+              const scoreMeta = scoreBadgeMap[criterion.score];
+              return (
+                <div
+                  key={criterion.key}
+                  className="rounded-lg border border-border/70 bg-surface-2 px-3 py-2.5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="flex items-center gap-1 text-sm font-semibold text-fg">
+                        {criterion.label}
+                        <HelpHint text={criterion.clientExplanation} />
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+                        {criterion.reason}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${riskStyles[scoreMeta.tone].badge}`}
+                      >
+                        {scoreMeta.label}
+                      </span>
+                      <p className="mt-1 text-xs font-semibold tabular-nums text-fg">
+                        {criterion.valueLabel}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -730,6 +1003,102 @@ export default function BusinessCreditStressTest({
         </div>
       </div>
 
+      <details className="mt-3 rounded-xl border border-border/70 bg-surface p-4" open>
+        <summary className="cursor-pointer text-sm font-semibold text-fg">
+          위험등급 산출 기준 보기
+        </summary>
+        <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+          발표용 표에는 1점 Safe, 3점 Watch, 5점 Danger만 표시합니다. 2점과 4점은 쓰지 않고
+          한국 기준 중심 PB 상담용 조기경보 룰로 단순화했습니다.
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[920px] text-sm">
+            <thead className="border-b border-border bg-surface-2 text-xs text-fg-muted">
+              <tr>
+                <th className="px-3 py-2 text-left">지표</th>
+                <th className="px-3 py-2 text-left">1점 Safe</th>
+                <th className="px-3 py-2 text-left">3점 Watch</th>
+                <th className="px-3 py-2 text-left">5점 Danger</th>
+              </tr>
+            </thead>
+            <tbody>
+              {KOREA_BUSINESS_CREDIT_CRITERIA.map((criterion) => (
+                <tr key={criterion.key} className="border-b border-border/60 align-top">
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-1 text-sm font-semibold text-fg">
+                      {criterion.label}
+                      <HelpHint text={criterion.clientExplanation} />
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+                      {criterion.clientExplanation}
+                    </p>
+                  </td>
+                  <td className="px-3 py-3 text-xs leading-relaxed text-fg">{criterion.safeText}</td>
+                  <td className="px-3 py-3 text-xs leading-relaxed text-fg">{criterion.watchText}</td>
+                  <td className="px-3 py-3 text-xs leading-relaxed text-fg">{criterion.dangerText}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="rounded-lg border border-border/70 bg-surface-2 p-3">
+            <p className="text-xs font-semibold text-fg">종합 Safe / Watch / Danger 룰</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+              Safe는 5점 항목 0개, 3점 항목 1개 이하, 12개월 유동성 부족액 없음입니다.
+              Watch는 5점 항목 없이 3점 항목 2개 이상이거나 부족액이 일부 발생한 경우입니다.
+              Danger는 5점 항목 1개 이상이거나, 3점 항목이 3개 이상 누적되고 핵심 유동성 신호가
+              동반될 때입니다.
+            </p>
+          </div>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800 dark:border-rose-800/60 dark:bg-rose-950/20 dark:text-rose-200">
+            <p className="text-xs font-semibold">Severe Danger 룰</p>
+            <p className="mt-1 text-[11px] leading-relaxed">
+              유동성 Runway 3개월 미만, 이자보상배율 0배 미만 또는 영업손실,
+              신용등급 3 notch 하락과 스프레드 300bp 이상 동시 발생 시 Severe Danger로 분류합니다.
+            </p>
+          </div>
+        </div>
+      </details>
+
+      <div className="mt-3 rounded-xl border border-border/70 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h4 className="text-sm font-semibold text-fg">PB 상담 활용 가이드</h4>
+          <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-fg-muted">
+            고객 상황별 설명 포인트
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead className="border-b border-border bg-surface-2 text-xs text-fg-muted">
+              <tr>
+                <th className="px-3 py-2 text-left">고객 상황</th>
+                <th className="px-3 py-2 text-left">함께 볼 지표</th>
+                <th className="px-3 py-2 text-left">PB 설명 포인트</th>
+              </tr>
+            </thead>
+            <tbody>
+              {KOREA_BUSINESS_CREDIT_GUIDE.map((row) => (
+                <tr key={row.situation} className="border-b border-border/60 align-top">
+                  <td className="px-3 py-3 text-sm font-semibold text-fg">{row.situation}</td>
+                  <td className="px-3 py-3 text-xs leading-relaxed text-fg">{row.indicators}</td>
+                  <td className="px-3 py-3 text-xs leading-relaxed text-fg">{row.guidance}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <details className="mt-3 rounded-xl border border-border/70 bg-surface p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-fg">출처 및 한계</summary>
+        <div className="mt-3 space-y-2 text-xs leading-relaxed text-fg-muted">
+          {KOREA_BUSINESS_CREDIT_SOURCES.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+      </details>
+
       <div className="mt-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-fg">Mild / Base / Severe 3단계 비교</h4>
@@ -738,8 +1107,8 @@ export default function BusinessCreditStressTest({
           </span>
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          {comparisonResults.map(({ key, scenario: comparisonScenario, result: comparison }) => {
-            const comparisonRisk = riskStyles[comparison.riskLevel];
+          {comparisonResults.map(({ key, scenario: comparisonScenario, result: comparison, risk: comparisonRiskResult }) => {
+            const comparisonRisk = riskStyles[levelToneMap[comparisonRiskResult.level]];
             return (
               <article key={key} className={`rounded-xl border bg-surface p-4 ${comparisonRisk.border}`}>
                 <div className="mb-3 flex items-center justify-between gap-2">
@@ -748,7 +1117,7 @@ export default function BusinessCreditStressTest({
                     <p className="mt-0.5 text-[11px] text-fg-muted">{comparisonScenario.message} 시나리오</p>
                   </div>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${comparisonRisk.badge}`}>
-                    {comparisonRisk.label}
+                    {comparisonRiskResult.level}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5 rounded-lg bg-surface-2 p-2 text-[11px] text-fg-muted">
@@ -759,6 +1128,22 @@ export default function BusinessCreditStressTest({
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <Metric label="추가 이자비용" value={formatEok(comparison.additionalInterestCost)} compact />
                   <Metric label="차환 부담" value={formatEok(comparison.refinancingBurdenIncrease)} compact />
+                  <Metric
+                    label="최종 등급"
+                    value={comparisonRiskResult.level}
+                    compact
+                    tone={levelToneMap[comparisonRiskResult.level]}
+                  />
+                  <Metric
+                    label="Runway"
+                    value={`${comparison.survivalMonths.toFixed(1)}개월`}
+                    compact
+                    tone={
+                      comparisonRiskResult.level === "Severe Danger"
+                        ? "severe"
+                        : levelToneMap[comparisonRiskResult.level]
+                    }
+                  />
                   <div className="col-span-2 rounded-lg border border-border/70 p-3">
                     <p className="text-[11px] text-fg-muted">12개월 유동성 부족액</p>
                     <p className={`mt-1 text-xl font-bold tabular-nums ${comparisonRisk.text}`}>
@@ -867,19 +1252,24 @@ function BooleanSelect({
 
 function Metric({
   label,
+  help,
   value,
   compact = false,
   tone,
 }: {
   label: string;
+  help?: string;
   value: string;
   compact?: boolean;
-  tone?: MicroRiskLevel;
+  tone?: RiskTone;
 }) {
   const toneClass = tone ? riskStyles[tone].text : "text-fg";
   return (
     <div className="rounded-lg border border-border/70 bg-surface p-3">
-      <p className="text-[11px] text-fg-muted">{label}</p>
+      <p className="flex items-center gap-1 text-[11px] text-fg-muted">
+        <span>{label}</span>
+        {help && <HelpHint text={help} />}
+      </p>
       <p className={`mt-1 font-semibold tabular-nums ${compact ? "text-sm" : "text-base"} ${toneClass}`}>
         {value}
       </p>
@@ -921,27 +1311,14 @@ function FactorBar({
   );
 }
 
-function Signal({
-  label,
-  value,
-  watch,
-  danger,
-}: {
-  label: string;
-  value: string;
-  watch: boolean;
-  danger: boolean;
-}) {
-  const level: MicroRiskLevel = danger ? "danger" : watch ? "watch" : "safe";
+function HelpHint({ text }: { text: string }) {
   return (
-    <div className="rounded-lg border border-border/70 bg-surface p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] text-fg-muted">{label}</p>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${riskStyles[level].badge}`}>
-          {riskStyles[level].label}
-        </span>
-      </div>
-      <p className="mt-1 text-sm font-semibold tabular-nums text-fg">{value}</p>
-    </div>
+    <span
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-[10px] font-semibold text-fg-muted"
+      title={text}
+      aria-label={text}
+    >
+      i
+    </span>
   );
 }
