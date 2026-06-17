@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, IPS, IPSFactor, FactorKey } from "@/lib/types";
 import { FACTOR_KEYS } from "@/lib/types";
-import { QUANT_FACTORS } from "@/lib/scoring";
+import { QUANT_FACTORS, autoScoreFromValue } from "@/lib/scoring";
+import { matchTagsInText } from "@/lib/rrttlluScoring";
 import { createConsultation, updateClient } from "@/lib/store";
 import { formatDuration, formatDurationKo } from "@/lib/format";
 import ConsultationInput from "./ConsultationInput";
@@ -30,9 +31,7 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
   const [notes, setNotes] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  // 정성 요인 AI 채점 상태 (훅은 조기 반환 위에서 선언해야 함)
-  const [aiScoring, setAiScoring] = useState(false);
-  const [aiMsg, setAiMsg] = useState("");
+  const [aiMsg, setAiMsg] = useState(""); // 전체 채점 결과 메시지
 
   // 타이머
   const [running, setRunning] = useState(false);
@@ -90,51 +89,25 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
     setDirty(true);
   };
 
-  // 정성 요인 AI 채점: 값이 적힌 정성 요인(세금·유동성·법적·고유)을 기준표 기준으로 1~5점.
-  // 정량(수익률·위험·기간)은 입력 시 규칙으로 이미 자동 채점되므로 제외.
+  // 입력값으로 전체 채점(규칙 기반, LLM 불필요): 자유서술/숫자에서 7요인 점수 산출.
+  // 정량=숫자/표현, 정성=키워드→태그 강도. 입력 시에도 자동 채점되지만, 한 번에 보정·확정용.
   const runFactorAI = async () => {
-    const factors = FACTOR_KEYS.filter(
-      (k) => !QUANT_FACTORS.includes(k) && draftIps[k].value?.trim(),
-    ).map((k) => ({ key: k, value: draftIps[k].value }));
-    if (factors.length === 0) {
-      setAiMsg("AI로 채점할 정성 요인(값이 입력된)이 없어요.");
-      return;
-    }
-    setAiScoring(true);
-    setAiMsg("");
-    try {
-      const res = await fetch("/api/analyze/factors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ factors }),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        setAiMsg(data.error ?? "AI 채점 실패");
-        return;
+    let scored = 0;
+    setDraftIps((prev) => {
+      const next = cloneIps(prev);
+      for (const k of FACTOR_KEYS) {
+        const value = next[k].value?.trim() ?? "";
+        if (!value) continue;
+        const s = QUANT_FACTORS.includes(k) ? autoScoreFromValue(k, value) : matchTagsInText(k, value).score;
+        if (s != null) {
+          next[k] = { ...next[k], score: s, status: "explicit", source: "manual" };
+          scored++;
+        }
       }
-      const scores: Record<string, { score: number; evidence: string }> = data.scores ?? {};
-      setDraftIps((prev) => {
-        const next = cloneIps(prev);
-        (Object.keys(scores) as FactorKey[]).forEach((k) => {
-          next[k] = {
-            ...next[k],
-            score: scores[k].score,
-            status: "explicit",
-            source: "ai",
-            evidence: scores[k].evidence || next[k].evidence,
-          };
-        });
-        return next;
-      });
-      setDirty(true);
-      const n = Object.keys(scores).length;
-      setAiMsg(n > 0 ? `정성 요인 ${n}개를 AI가 채점했어요 (수정 가능).` : "채점된 요인이 없어요.");
-    } catch {
-      setAiMsg("AI 채점 호출에 실패했어요.");
-    } finally {
-      setAiScoring(false);
-    }
+      return next;
+    });
+    setDirty(true);
+    setAiMsg(scored > 0 ? `입력값으로 ${scored}개 요인을 채점했어요 (수정 가능).` : "채점할 입력값이 없어요.");
   };
 
   const tryClose = () => {
@@ -301,16 +274,16 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
               </button>
             </div>
 
-            {/* 정성 요인 AI 채점 */}
+            {/* 입력값으로 전체 채점 */}
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-4 py-2.5">
               <span className="text-xs text-fg-muted">
-                값만 적고 점수가 비어있는 <b className="text-fg">정성 요인(세금·유동성·법적·고유)</b>을 AI가 기준표로 채점해요.
-                <span className="ml-1">(수익률·위험·기간은 입력 시 자동 채점)</span>
+                각 요인에 <b className="text-fg">자유롭게 입력</b>한 뒤 누르면 7요인 점수를 한 번에 산출해요.
+                <span className="ml-1">(입력하면 자동 채점되지만, 한 번에 보정·확정용)</span>
               </span>
               <div className="flex items-center gap-2">
                 {aiMsg && <span className="text-[11px] text-fg-muted">{aiMsg}</span>}
-                <button className="btn-primary text-xs" onClick={runFactorAI} disabled={aiScoring}>
-                  {aiScoring ? "AI 채점 중…" : "🤖 정성요인 AI 채점"}
+                <button className="btn-primary text-xs" onClick={runFactorAI}>
+                  🧮 입력값으로 전체 채점
                 </button>
               </div>
             </div>

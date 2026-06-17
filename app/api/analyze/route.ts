@@ -93,8 +93,11 @@ function normalizeToIPS(raw: any): IPS {
     let finalStatus = status;
 
     if (isTagFactor(key)) {
-      // 정성 요인: LLM이 고른 value에서 태그 추출 → 강도 자동 산출(LLM 점수 무시)
-      const m = matchTagsInText(key, value);
+      // 정성 요인: value+근거+단서 합쳐서 태그 추출(LLM이 어디에 써도 잡히게) → 강도 자동
+      const combined = [r.value, r.evidence, r.inferenceHint]
+        .filter((s) => typeof s === "string")
+        .join(" ");
+      const m = matchTagsInText(key, combined);
       if (m.labels.length > 0) {
         value = m.labels.join(", ");
         score = m.score;

@@ -63,10 +63,38 @@ export const QUANT_FACTORS: FactorKey[] = ["return", "risk", "timeHorizon"];
 
 // 정량 요인: 입력값 문자열에서 숫자를 뽑아 기준표 구간 → 1~5점 자동 산출.
 // 범위("6~8%")는 중간값, "이상/초과/+"는 상단·"미만/이하"는 하단으로 보정. 숫자 없으면 null.
+// 숫자가 없을 때 정성적 표현으로 점수 추정 (자유서술 채점용). 매칭 없으면 null.
+function qualScore(key: FactorKey, value: string): number | null {
+  const v = (value || "").toLowerCase();
+  const bands: Record<string, [RegExp, number][]> = {
+    return: [
+      [/공격|고수익|두자리|매우 높|10\s*%\s*이상/, 5],
+      [/성장|적극|높은 수익|중상/, 4],
+      [/중간|일반|보통/, 3],
+      [/안정|보수|예금|원금|낮/, 2],
+    ],
+    risk: [
+      [/공격|고위험|적극|크게 감수|손실 감수|매우 높/, 5],
+      [/중상|다소 공격|약간 공격/, 4],
+      [/중위험|중립|균형|보통/, 3],
+      [/안정|보수|원금\s*보전|손실\s*싫|낮/, 1],
+    ],
+    timeHorizon: [
+      [/초장기|장기|10\s*년|평생|은퇴 후/, 5],
+      [/5\s*년 이상|7\s*년|중장기/, 4],
+      [/중기|3\s*[~-]\s*5|3\s*년/, 3],
+      [/단기|1\s*[~-]\s*3|1\s*년/, 2],
+      [/초단기|수개월|6\s*개월|1\s*년\s*미만/, 1],
+    ],
+  };
+  for (const [re, s] of bands[key] ?? []) if (re.test(v)) return s;
+  return null;
+}
+
 export function autoScoreFromValue(key: FactorKey, value: string): number | null {
   if (!QUANT_FACTORS.includes(key)) return null;
   const raw = (value || "").match(/\d+(?:\.\d+)?/g);
-  if (!raw || raw.length === 0) return null;
+  if (!raw || raw.length === 0) return qualScore(key, value); // 숫자 없으면 표현으로 추정
   const nums = raw.map(Number);
   let n = nums.length >= 2 ? (nums[0] + nums[1]) / 2 : nums[0];
   if (/이상|초과|넘|over|\+/i.test(value)) n *= 1.001; // 경계에서 상단 구간으로

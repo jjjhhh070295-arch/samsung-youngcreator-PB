@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import type { IPS, IPSFactor, FactorKey, FactorStatus } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
 import { autoScoreFromValue, QUANT_FACTORS } from "@/lib/scoring";
-import { TAG_FACTORS, isTagFactor, scoreFromTagLabels, parseTagValue } from "@/lib/rrttlluScoring";
+import { TAG_FACTORS, isTagFactor, matchTagsInText } from "@/lib/rrttlluScoring";
 
 interface Props {
   ips: IPS;
@@ -31,12 +30,11 @@ function StatusBadge({ status }: { status: FactorStatus }) {
 // RRTTLLU 7요인 편집 폼.
 // readOnly=true 면 잠금(읽기 전용). 부모가 [저장 확정]/[수정]으로 토글한다.
 export default function IPSForm({ ips, readOnly, onChange }: Props) {
-  const [tagPickerOpen, setTagPickerOpen] = useState<FactorKey | null>(null);
   const update = (key: FactorKey, patch: Partial<IPSFactor>) => {
     onChange(key, { ...ips[key], ...patch });
   };
 
-  // 정량 요인은 값 입력 시 기준표로 점수를 자동 산출 + 상태를 "직접 근거"로 (숫자 없으면 그대로).
+  // 값(자유서술) 입력 시 자동 채점: 정량은 숫자/표현, 정성은 키워드→태그 강도.
   const updateValue = (key: FactorKey, value: string) => {
     const patch: Partial<IPSFactor> = { value, source: "manual" };
     if (QUANT_FACTORS.includes(key)) {
@@ -44,36 +42,37 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
       if (auto != null) {
         patch.score = auto;
         patch.status = "explicit";
+      } else if (!value.trim()) {
+        patch.score = null;
+        patch.status = "empty";
+      }
+    } else if (isTagFactor(key)) {
+      const m = matchTagsInText(key, value);
+      if (m.score != null) {
+        patch.score = m.score;
+        patch.status = "explicit";
+      } else {
+        patch.score = null;
+        patch.status = value.trim() ? "inferred" : "empty";
       }
     }
     update(key, patch);
-  };
-
-  // 정성 요인(세금·법적·고유): 태그 토글 → 강도 점수 자동. value엔 선택 라벨 저장.
-  const toggleTag = (key: FactorKey, label: string) => {
-    const current = parseTagValue(ips[key].value);
-    const next = current.includes(label)
-      ? current.filter((l) => l !== label)
-      : [...current, label];
-    const score = scoreFromTagLabels(key, next);
-    update(key, {
-      value: next.join(", "),
-      score,
-      status: next.length > 0 ? "explicit" : "empty",
-      source: "manual",
-    });
   };
 
   return (
     <div className="space-y-3">
       {FACTOR_META.map((m) => {
         const f = ips[m.key];
-        const valuePlaceholder =
-          m.key === "unique"
-            ? "예: 세금을 최대한 적게 내고 싶음, 해외주식 단일종목만 편입, 기대수익률 20% 이상 희망"
-            : m.key === "tax"
-              ? "예: 연금저축/IRP 세액공제, 법인세·증여세 납부일 고려"
-              : "예: 연 6~8%";
+        const PLACEHOLDERS: Partial<Record<FactorKey, string>> = {
+          return: "예: 연 6~8% / 고수익 추구",
+          risk: "예: 손실 15% 이내 / 중위험 이상 가능 / 원금 보전 최우선",
+          timeHorizon: "예: 7년 / 장기 / 1~2년 내 현금화",
+          tax: "예: 법인세·부동산 양도세·증여세 부담, 금융소득종합과세 대상",
+          liquidity: "예: 1~2년 내 목돈 필요 / 상시 인출 / 장기간 묶어둘 수 있음",
+          legal: "예: 법인 자금, 임원·최대주주 보호예수, 신탁",
+          unique: "예: 특정 종목 집중, 가업승계, ESG 제약",
+        };
+        const valuePlaceholder = PLACEHOLDERS[m.key] ?? "자유롭게 입력";
         return (
           <div key={m.key} className="card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -123,81 +122,48 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {/* 값 */}
               <div className="sm:col-span-2">
-                <label className="label">
-                  {isTagFactor(m.key) ? "해당 요인 (복수 선택)" : "값 / 설명"}
-                </label>
-                {isTagFactor(m.key) && !readOnly ? (
-                  // 정성 요인: 선택된 태그만 칩으로 표시, 나머지는 [+ 추가]로 펼쳐 선택
-                  (() => {
-                    const all = TAG_FACTORS[m.key] ?? [];
-                    const selected = parseTagValue(f.value);
-                    const unselected = all.filter((t) => !selected.includes(t.label));
-                    const open = tagPickerOpen === m.key;
-                    return (
-                      <div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {selected.length === 0 && (
-                            <span className="text-xs text-fg-muted">해당 요인 없음</span>
-                          )}
-                          {selected.map((label) => {
-                            const tag = all.find((t) => t.label === label);
-                            return (
-                              <button
-                                key={label}
-                                type="button"
-                                onClick={() => toggleTag(m.key, label)}
-                                title="클릭하면 제거"
-                                className="rounded-md border border-gold-400 bg-gold-50 px-2.5 py-1 text-xs font-medium text-gold-700 dark:bg-gold-900/30 dark:text-gold-200"
-                              >
-                                {label}
-                                {tag && <span className="opacity-60"> ·{tag.score}</span>}
-                                <span className="ml-1 opacity-60">✕</span>
-                              </button>
-                            );
-                          })}
-                          {unselected.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setTagPickerOpen(open ? null : m.key)}
-                              className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs font-medium text-fg-muted hover:text-fg"
-                            >
-                              {open ? "닫기" : "+ 추가"}
-                            </button>
-                          )}
-                        </div>
-                        {open && (
-                          <div className="mt-2 flex flex-wrap gap-1.5 rounded-lg border border-border bg-surface-2 p-2">
-                            {unselected.map((tag) => (
-                              <button
-                                key={tag.id}
-                                type="button"
-                                onClick={() => toggleTag(m.key, tag.label)}
-                                className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-fg-muted hover:text-fg"
-                              >
-                                {tag.label} <span className="opacity-60">·{tag.score}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : readOnly ? (
+                <label className="label">값 / 설명 (자유서술)</label>
+                {readOnly ? (
                   <p className="min-h-[2.25rem] rounded-lg bg-surface-2 px-3 py-2 text-sm text-fg">
                     {f.value || <span className="text-fg-muted">미언급</span>}
                   </p>
                 ) : (
-                  <input
-                    className="input"
-                    value={f.value}
-                    placeholder={
-                      f.status === "empty" && !QUANT_FACTORS.includes(m.key)
-                        ? "(공백 허용)"
-                        : valuePlaceholder
-                    }
-                    disabled={f.status === "empty" && !QUANT_FACTORS.includes(m.key)}
-                    onChange={(e) => updateValue(m.key, e.target.value)}
-                  />
+                  <>
+                    <input
+                      className="input"
+                      value={f.value}
+                      placeholder={valuePlaceholder}
+                      onChange={(e) => updateValue(m.key, e.target.value)}
+                    />
+                    {/* 정성 요인: 입력에서 자동 감지된 태그 표시 */}
+                    {isTagFactor(m.key) &&
+                      (() => {
+                        const matched = matchTagsInText(m.key, f.value).labels;
+                        if (matched.length > 0) {
+                          return (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {matched.map((l) => {
+                                const tag = (TAG_FACTORS[m.key] ?? []).find((t) => t.label === l);
+                                return (
+                                  <span
+                                    key={l}
+                                    className="rounded border border-gold-400 bg-gold-50 px-1.5 py-0.5 text-[11px] font-medium text-gold-700 dark:bg-gold-900/30 dark:text-gold-200"
+                                  >
+                                    {l}
+                                    {tag && <span className="opacity-60"> ·{tag.score}</span>}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          );
+                        }
+                        return f.value.trim() ? (
+                          <p className="mt-1 text-[11px] text-fg-muted">
+                            감지된 요인 없음 — 키워드(상속·법인·부동산·신탁·집중 등)를 포함해 적어보세요
+                          </p>
+                        ) : null;
+                      })()}
+                  </>
                 )}
               </div>
 
@@ -212,7 +178,7 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
                     </p>
                   ) : (
                     <p className="flex min-h-[2.25rem] items-center rounded-lg bg-surface-2 px-3 py-2 text-xs text-fg-muted">
-                      {isTagFactor(m.key) ? "태그 선택 시 자동 채점" : "값 입력 시 자동 채점"}
+                      값 입력 시 자동 채점
                     </p>
                   )
                 ) : f.status !== "explicit" ? (
