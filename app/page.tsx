@@ -58,25 +58,33 @@ export default function HomePage() {
   const [etfs, setEtfs] = useState<EtfItem[]>([]);
   const [rightTab, setRightTab] = useState<"market" | "etf">("market");
 
+  const [marketAt, setMarketAt] = useState<Date | null>(null);
+
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/market", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled || !d?.ok || !Array.isArray(d.items) || d.items.length === 0) return;
-        setMarket(d.items);
-        setMarketLive(true);
-      })
-      .catch(() => {});
-    fetch("/api/etf", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (cancelled || !d?.ok || !Array.isArray(d.items)) return;
-        setEtfs(d.items);
-      })
-      .catch(() => {});
+    const loadMarket = () => {
+      fetch("/api/market", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (cancelled || !d?.ok || !Array.isArray(d.items) || d.items.length === 0) return;
+          setMarket(d.items);
+          setMarketLive(true);
+          setMarketAt(new Date());
+        })
+        .catch(() => {});
+      fetch("/api/etf", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (cancelled || !d?.ok || !Array.isArray(d.items)) return;
+          setEtfs(d.items);
+        })
+        .catch(() => {});
+    };
+    loadMarket(); // 최초 1회
+    const id = setInterval(loadMarket, 60_000); // 60초마다 자동 갱신
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
   }, []);
 
@@ -222,6 +230,11 @@ export default function HomePage() {
                 {marketLive ? (
                   <>
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> 실시간
+                    {marketAt && (
+                      <span className="ml-1 opacity-70">
+                        {marketAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                      </span>
+                    )}
                   </>
                 ) : (
                   "예시"
