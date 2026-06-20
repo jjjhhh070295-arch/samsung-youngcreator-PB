@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FACTOR_META } from "@/lib/types";
 import { SCORE_RUBRIC } from "@/lib/scoring";
 
@@ -15,6 +15,15 @@ export default function ScoreRubricButton({
 }: Props) {
   const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className={className}>
@@ -27,8 +36,12 @@ export default function ScoreRubricButton({
           role="dialog"
           aria-modal="true"
           aria-label="7요인 점수 기준표"
+          onMouseDown={() => setOpen(false)}
         >
-          <div className="max-h-[86vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+          <div
+            className="max-h-[86vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="flex items-start justify-between gap-4 border-b border-border bg-surface-2 px-5 py-4">
               <div>
                 <p className="text-base font-black text-fg">RRTTLLU 7요인 점수 기준표</p>

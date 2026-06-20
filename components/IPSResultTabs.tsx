@@ -154,7 +154,7 @@ export default function IPSResultTabs({
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
     <button
-      className={client.stages?.[k] ? "btn-outline text-xs" : "btn-gold text-xs"}
+      className={client.stages?.[k] ? "btn-outline whitespace-nowrap text-xs" : "btn-gold whitespace-nowrap text-xs"}
       onClick={() => onToggleStage(k)}
     >
       {client.stages?.[k] ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
@@ -235,7 +235,7 @@ export default function IPSResultTabs({
           <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
             <ScoreRubricButton
               label="AI점수 기준표 확인"
-              className="shrink-0 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700"
+              className="shrink-0 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700"
             />
             <StageToggle k="factors" />
           </div>
