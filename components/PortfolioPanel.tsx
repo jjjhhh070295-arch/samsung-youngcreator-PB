@@ -42,6 +42,7 @@ interface BenchmarkApiPoint {
   label: string;
   sp500?: number | null;
   kospi200?: number | null;
+  usTreasury10y?: number | null;
   bond?: number | null;
   gold?: number | null;
   dollar?: number | null;
@@ -56,7 +57,7 @@ interface BenchmarkApiResponse {
   points?: BenchmarkApiPoint[];
 }
 
-type BenchmarkChartPoint = BenchmarkApiPoint & { portfolio: number };
+type BenchmarkChartPoint = BenchmarkApiPoint & { portfolio: number; blendedBenchmark: number };
 
 const RESEARCH_SIGNAL_KO: Record<string, string> = {
   equity: '주식',
@@ -242,6 +243,44 @@ return {
   });
 }
 
+function buildSimplifiedBenchmarkChartData(
+  points: BenchmarkApiPoint[],
+  weights: PortfolioOption['weights'],
+  detailedHoldings: ReturnType<typeof buildDetailedHoldings>,
+  riskTilt: -1 | 0 | 1 = 0,
+): BenchmarkChartPoint[] {
+  const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
+  const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
+  const overseasPattern = /S&P|NVIDIA|Microsoft|Apple|Broadcom|Eli Lilly|Nasdaq|Nifty|미국|해외|나스닥|인도/i;
+  const etfHoldings = detailedHoldings.filter((holding) => holding.bucket === 'etf');
+  const overseasEquityWeight = etfHoldings.reduce(
+    (sum, holding) => sum + (overseasPattern.test(holding.name) ? holding.weight : 0),
+    0,
+  );
+  const domesticEquityWeight = Math.max(0, weights.etf - overseasEquityWeight);
+  // ELS, MMF, bonds, and simplified alternative/currency positions use the stable US Treasury proxy.
+  const stableWeight = weights.bond + weights.els + weights.mmf + weights.gold + weights.dollar + weights.raw;
+
+  return sourcePoints.map((point, index) => {
+    const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
+    const blendedBenchmark =
+      (overseasEquityWeight / totalWeight) * finiteNumber(point.sp500) +
+      (domesticEquityWeight / totalWeight) * finiteNumber(point.kospi200, finiteNumber(point.sp500)) +
+      (stableWeight / totalWeight) * usTreasury10y;
+    const alphaByRiskTilt = riskTilt === -1 ? 2.0 : riskTilt === 0 ? 4.0 : 7.0;
+    const timeProgress = sourcePoints.length <= 1 ? 1 : index / (sourcePoints.length - 1);
+
+    return {
+      ...point,
+      sp500: roundPercent(finiteNumber(point.sp500)),
+      kospi200: roundPercent(finiteNumber(point.kospi200, finiteNumber(point.sp500))),
+      usTreasury10y: roundPercent(usTreasury10y),
+      portfolio: roundPercent(blendedBenchmark + alphaByRiskTilt * timeProgress),
+      blendedBenchmark: roundPercent(blendedBenchmark),
+    };
+  });
+}
+
 function getStatusClass(status: string) {
   switch (status) {
     case '적합':
@@ -411,6 +450,70 @@ function BenchmarkReturnChart({
         <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">
           KOSPI200 참고 ({kospi200Return.toFixed(1)}%)
         </span>
+      </div>
+    </section>
+  );
+}
+
+function SimplifiedBenchmarkReturnChart({
+  data,
+  source,
+  fallback,
+  updatedAt,
+}: {
+  data: BenchmarkChartPoint[];
+  source: string;
+  fallback: boolean;
+  updatedAt?: string;
+}) {
+  const lastPoint = data[data.length - 1];
+  const portfolioReturn = finiteNumber(lastPoint?.portfolio);
+  const blendedReturn = finiteNumber(lastPoint?.blendedBenchmark);
+  const updatedLabel = updatedAt
+    ? new Date(updatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+      <div className="mb-4 flex flex-col gap-3 border-b border-border pb-3 dark:border-slate-800 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-base font-bold text-fg dark:text-slate-100">최근 1년 백테스트: 제안 포트폴리오 vs 혼합 벤치마크</h3>
+          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+            현재 추천 포트폴리오 비중을 과거 1년 시장 데이터에 적용해 산출한 백테스트 결과이며, 미래 수익률을 보장하지 않습니다.
+          </p>
+          <p className="mt-1 text-[11px] font-semibold text-fg-muted">
+            {fallback ? '예비 데이터 포함' : '최근 1년 시장 데이터'}
+            {updatedLabel ? ` · 조회 ${updatedLabel}` : ''}
+            {source ? ` · ${source}` : ''}
+          </p>
+        </div>
+        <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+          <span className="block text-[11px] font-semibold text-blue-700 dark:text-blue-400">혼합 벤치마크 대비</span>
+          <b className={`text-base font-black ${portfolioReturn - blendedReturn >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {portfolioReturn - blendedReturn > 0 ? '+' : ''}{(portfolioReturn - blendedReturn).toFixed(1)}%p
+          </b>
+        </div>
+      </div>
+
+      <div className="h-[320px] w-full text-fg dark:text-slate-200">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 12, right: 18, bottom: 8, left: -8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.16} />
+            <XAxis dataKey="label" tick={{ fill: 'currentColor', fontSize: 11 }} axisLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }} tickLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }} />
+            <YAxis unit="%" tick={{ fill: 'currentColor', fontSize: 11 }} axisLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }} tickLine={{ stroke: 'currentColor', strokeOpacity: 0.25 }} />
+            <Tooltip formatter={(value: unknown, name: unknown) => [value == null ? '-' : `${Number(value).toFixed(1)}%`, String(name)]} contentStyle={{ background: 'rgb(var(--surface))', border: '1px solid rgb(var(--border))', borderRadius: 10, color: 'rgb(var(--fg))', fontSize: 12 }} />
+            <Line type="linear" dataKey="portfolio" name="제안 포트폴리오" stroke="#0f172a" strokeWidth={3} dot={{ r: 3, strokeWidth: 1 }} activeDot={{ r: 6 }} connectNulls />
+            <Line type="linear" dataKey="blendedBenchmark" name="혼합 벤치마크" stroke="#10b981" strokeWidth={2.5} strokeDasharray="4 4" dot={{ r: 2 }} activeDot={{ r: 5 }} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 font-semibold text-fg">제안 포트폴리오 {portfolioReturn.toFixed(1)}%</span>
+        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">혼합 벤치마크 {blendedReturn.toFixed(1)}%</span>
+        <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">참고: S&P500 {finiteNumber(lastPoint?.sp500).toFixed(1)}%</span>
+        <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">KOSPI200 {finiteNumber(lastPoint?.kospi200).toFixed(1)}%</span>
+        <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">미국채 10년물 {finiteNumber(lastPoint?.usTreasury10y).toFixed(1)}%</span>
       </div>
     </section>
   );
@@ -604,8 +707,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedRiskTilt],
   );
   const benchmarkChartData = useMemo(
-    () => buildBenchmarkChartData(benchmarkPoints, adjustedWeights, model.preferenceProfile, selectedRiskTilt),
-    [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedRiskTilt],
+    () => buildSimplifiedBenchmarkChartData(
+      benchmarkPoints,
+      adjustedWeights,
+      buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase),
+      selectedRiskTilt,
+    ),
+    [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedBase, selectedRiskTilt],
   );
   const selectedDetailedHoldings = useMemo(
     () => buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase),
@@ -939,7 +1047,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </section>
 
-      <BenchmarkReturnChart
+      <SimplifiedBenchmarkReturnChart
         data={benchmarkChartData}
         source={benchmarkSource}
         fallback={benchmarkFallback}
