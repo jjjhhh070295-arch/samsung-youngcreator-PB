@@ -11,11 +11,15 @@ create table if not exists pbs (
 create table if not exists clients (
   id uuid primary key default gen_random_uuid(),
   code text unique not null,          -- "C-2026-0001"
-  client_type text not null default 'individual',  -- individual | corporate
+  client_type text not null default 'individual',  -- individual | corporate | sole_proprietor
   name text not null,
   birth_date date,                    -- 개인=생년월일, 법인=설립일
   assigned_pb_id uuid references pbs(id) on delete set null,
   asset_size bigint default 0,        -- 원
+  linked_client_id uuid references clients(id) on delete set null, -- 법인↔대표 연결
+  ownership_pct numeric(5,2),          -- 대표/주주 지분율
+  is_majority_shareholder boolean,     -- 최대주주 여부
+  account_separation text,             -- separated | mixed | unknown
   consultation_notes text default '', -- 최신 전문 텍스트
   ips jsonb default '{}',             -- 최신 RRTTLLU 7요인
   cash_flows jsonb default '[]',      -- 고객 현금흐름 목록
@@ -26,6 +30,10 @@ create table if not exists clients (
 
 -- 기존 프로젝트에 stages 칸이 없으면 추가 (이미 있으면 무시됨)
 alter table clients add column if not exists stages jsonb default '{}';
+alter table clients add column if not exists linked_client_id uuid references clients(id) on delete set null;
+alter table clients add column if not exists ownership_pct numeric(5,2);
+alter table clients add column if not exists is_majority_shareholder boolean;
+alter table clients add column if not exists account_separation text;
 
 -- 상담 1건 = 1행 (이력 누적 + 타이머 + 성향 스냅샷)
 create table if not exists consultations (

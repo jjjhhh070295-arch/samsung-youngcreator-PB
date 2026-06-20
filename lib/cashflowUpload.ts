@@ -7,6 +7,12 @@ type TemplateEntry = {
   explicitDue?: string;
   explicitCategory?: string;
   valueHint?: string;
+  rawDirection?: string;
+  rawEntity?: string;
+  rawAccountType?: string;
+  rawRecurring?: string;
+  rawNote?: string;
+  appIncluded?: string;
 };
 
 type KnownCategory =
@@ -92,6 +98,9 @@ const parseInputDate = (value?: string) => {
 
 const parseDateLike = (raw: string) => {
   const value = raw.trim();
+  const month = value.match(/(20\d{2})[./-](\d{1,2})$/);
+  if (month) return toDateInput(new Date(Number(month[1]), Number(month[2]) - 1, 1));
+
   const iso = value.match(/(20\d{2})[./-](\d{1,2})[./-](\d{1,2})/);
   if (iso) return toDateInput(new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
 
@@ -251,6 +260,30 @@ const inferCategory = (label: string, explicitCategory: string) => {
   return fieldAliases.find((entry) =>
     entry.aliases.some((alias) => normalizedLabel.includes(normalize(alias))),
   )?.category;
+};
+
+const parseEntity = (raw: string): CashFlow["entity"] | undefined => {
+  const normalized = normalize(raw);
+  if (!normalized) return undefined;
+  if (normalized.includes("개인사업") || normalized.includes("사업자")) return "sole_business";
+  if (normalized.includes("혼용")) return "mixed";
+  if (normalized.includes("법인")) return "corporate";
+  if (normalized.includes("개인")) return "personal";
+  return undefined;
+};
+
+const parseRecurring = (raw: string, fallback: boolean) => {
+  const normalized = normalize(raw);
+  if (!normalized) return fallback;
+  if (/정기|월|매월|분기|연/.test(normalized)) return true;
+  if (/일회|단발|비정기|1회/.test(normalized)) return false;
+  return fallback;
+};
+
+const shouldIncludeInApp = (raw: string) => {
+  const normalized = normalize(raw);
+  if (!normalized) return true;
+  return !["n", "no", "false", "미반영", "제외", "아니오"].some((token) => normalized.includes(normalize(token)));
 };
 
 const findScheduleKey = (label: string) => {
@@ -458,7 +491,13 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
   const itemColumn = findColumn(header, ["항목", "구분", "item", "name"], 0);
   const valueColumn = findColumn(header, ["값", "금액", "만원", "amount", "value"], 1);
   const dueColumn = findColumn(header, ["납부일", "예정일", "일자", "날짜", "date"], 2);
-  const categoryColumn = findColumn(header, ["분류", "카테고리", "category"], 3);
+  const categoryColumn = findColumn(header, ["분류", "카테고리", "세무", "회계", "category"], 3);
+  const directionColumn = findColumn(header, ["유입/유출", "유입유출", "입출금", "direction"], -1);
+  const entityColumn = findColumn(header, ["자금주체", "주체", "entity", "owner"], -1);
+  const accountColumn = findColumn(header, ["계좌유형", "계좌", "account"], -1);
+  const recurringColumn = findColumn(header, ["정기/일회", "정기일회", "반복주기", "recurring"], -1);
+  const noteColumn = findColumn(header, ["메모", "비고", "note"], -1);
+  const appColumn = findColumn(header, ["앱반영", "app"], -1);
   const valueHeader = header[valueColumn] ?? "";
 
   const cashFlows: CashFlow[] = [];
@@ -476,14 +515,28 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
     explicitDue,
     explicitCategory = "",
     valueHint = valueHeader,
+    rawDirection = "",
+    rawEntity = "",
+    rawAccountType = "",
+    rawRecurring = "",
+    rawNote = "",
+    appIncluded = "",
   }: TemplateEntry) => {
     const cleanLabel = label.trim();
     const cleanValue = rawValue.trim();
     if (!cleanLabel || !cleanValue) return;
+    if (!shouldIncludeInApp(appIncluded)) return;
 
     const category = inferCategory(cleanLabel, explicitCategory);
     const scheduleKey = findScheduleKey(cleanLabel);
     const amount = parseAmountManwon(cleanValue, valueHint);
+    const direction = normalize(rawDirection);
+    const directionSignedAmount =
+      direction.includes("유입") || direction.includes("입금")
+        ? amount
+        : direction.includes("유출") || direction.includes("출금")
+          ? amount == null ? undefined : -amount
+          : undefined;
 
     if (scheduleKey) {
       if (["businessYearEnd", "realEstateSaleDate", "giftDate", "inheritanceDate", "ipoLockupEndDate", "mnaClosingDate"].includes(scheduleKey)) {
@@ -505,7 +558,7 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
       return;
     }
 
-    if (amount === undefined || !category) {
+    if (amount === undefined || (!category && directionSignedAmount === undefined)) {
       unmatchedLabels.push(cleanLabel);
       return;
     }
@@ -519,13 +572,13 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
 
     if (category === "debt") return;
 
-    if (category === "tax") {
+    if (category === "tax" && directionSignedAmount === undefined) {
       annualTaxWon += amount;
       return;
     }
 
-    const recurring = category !== "saving";
-    const signedAmount = category === "income" ? amount : -amount;
+    const recurring = parseRecurring(rawRecurring, category !== "saving");
+    const signedAmount = directionSignedAmount ?? (category === "income" ? amount : -amount);
     if (category === "income") monthlyIncomeWon += amount;
     if (category === "expense" || category === "saving") monthlyOutflowWon += amount;
 
@@ -535,6 +588,10 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
       amount: signedAmount,
       date: explicitDue ? toMonthInput(explicitDue) : toDateInput(now()).slice(0, 7),
       recurring,
+      entity: parseEntity(rawEntity),
+      accountType: rawAccountType.trim() || undefined,
+      category: explicitCategory.trim() || category,
+      taxAccountingNote: rawNote.trim() || undefined,
     });
   };
 
@@ -549,6 +606,12 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
         explicitDue,
         explicitCategory: cellToText(row[categoryColumn]),
         valueHint: valueHeader,
+        rawDirection: directionColumn >= 0 ? cellToText(row[directionColumn]) : "",
+        rawEntity: entityColumn >= 0 ? cellToText(row[entityColumn]) : "",
+        rawAccountType: accountColumn >= 0 ? cellToText(row[accountColumn]) : "",
+        rawRecurring: recurringColumn >= 0 ? cellToText(row[recurringColumn]) : "",
+        rawNote: noteColumn >= 0 ? cellToText(row[noteColumn]) : "",
+        appIncluded: appColumn >= 0 ? cellToText(row[appColumn]) : "",
       });
     }
   }
@@ -629,6 +692,8 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
       amount: -event.amountWon,
       date: toMonthInput(event.dueDate),
       recurring: false,
+      category: "세금",
+      taxAccountingNote: `${event.rule}. 상담용 추정치이며 세무 전문가 확인 필요`,
     });
   });
 

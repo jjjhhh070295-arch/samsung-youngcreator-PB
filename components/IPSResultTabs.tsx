@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, IPSFactor, CashFlow, Portfolio, StageKey } from "@/lib/types";
-import { FACTOR_META, computeStages } from "@/lib/types";
+import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
 import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
 import StressTestPanel from "./StressTestPanel";
@@ -19,6 +19,7 @@ interface Props {
   onFinalizePortfolio: (portfolio: Portfolio) => Promise<void> | void; // 최종 확정(저장+단계)
   onUnfinalizePortfolio: () => Promise<void> | void; // 확정 해제
   onToggleStage: (key: StageKey) => Promise<void> | void; // 스트레스/IPS 완료 토글
+  linkedClient?: Client | null;
 }
 
 type Tab =
@@ -56,6 +57,7 @@ export default function IPSResultTabs({
   onFinalizePortfolio,
   onUnfinalizePortfolio,
   onToggleStage,
+  linkedClient,
 }: Props) {
   const router = useRouter();
   const ips = client.ips;
@@ -212,7 +214,7 @@ export default function IPSResultTabs({
             <div>
               <p className="text-xs text-fg-muted">구분</p>
               <p className="text-sm font-semibold text-fg">
-                {client.clientType === "corporate" ? "법인" : "개인"}
+                {CLIENT_TYPE_LABEL[client.clientType]}
               </p>
             </div>
             <div>
@@ -223,6 +225,29 @@ export default function IPSResultTabs({
               <p className="text-xs text-fg-muted">자산규모</p>
               <p className="text-sm font-semibold text-fg">
                 {(client.assetSize / 1_0000_0000).toLocaleString("ko-KR")}억
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-muted">연동 고객</p>
+              {linkedClient ? (
+                <button
+                  className="text-left text-sm font-semibold text-gold-600 hover:underline dark:text-gold-300"
+                  onClick={() => router.push(`/pb/${pbId}/${linkedClient.id}`)}
+                >
+                  {linkedClient.name}
+                </button>
+              ) : (
+                <p className="text-sm font-semibold text-fg-muted">없음</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-fg-muted">지분/통장 상태</p>
+              <p className="text-sm font-semibold text-fg">
+                {client.accountSeparation
+                  ? ACCOUNT_SEPARATION_LABEL[client.accountSeparation]
+                  : client.ownershipPct != null
+                    ? `${client.ownershipPct}%${client.isMajorityShareholder ? " · 최대주주" : ""}`
+                    : "미입력"}
               </p>
             </div>
           </div>
@@ -337,7 +362,13 @@ export default function IPSResultTabs({
           <div className="mb-3 flex items-center justify-end">
             <StageToggle k="cashflow" />
           </div>
-          <CashFlowEditor cashFlows={client.cashFlows} onSave={onSaveCashFlows} />
+          <CashFlowEditor
+            cashFlows={client.cashFlows}
+            clientType={client.clientType}
+            accountSeparation={client.accountSeparation}
+            linkedClientName={linkedClient?.name}
+            onSave={onSaveCashFlows}
+          />
         </div>
       )}
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { Client } from "@/lib/types";
-import { computeStages } from "@/lib/types";
+import { CLIENT_TYPE_LABEL, computeStages } from "@/lib/types";
 import { getClient } from "@/lib/store";
 import { formatKRW, formatDate } from "@/lib/format";
 import IPSRadar from "@/components/IPSRadar";
@@ -126,6 +126,7 @@ export default function ClientView() {
   const t = T[lang];
   const en = lang === "en";
   const assetLabel = (a: string) => (en ? ASSET_EN[a] ?? a : a);
+  const dateLabel = client.clientType === "corporate" ? t.established : t.dob;
 
   const done = computeStages(client);
   const has7Factor = done.factors;
@@ -191,8 +192,8 @@ export default function ClientView() {
           </b>
         </p>
         <p className="mt-1 text-xs text-fg-muted">
-          {client.clientType === "corporate" ? t.established : t.dob}{" "}
-          {formatDate(client.birthDate)}
+          {en ? "Type" : "구분"} {en ? CLIENT_TYPE_LABEL[client.clientType] : CLIENT_TYPE_LABEL[client.clientType]} ·{" "}
+          {dateLabel} {formatDate(client.birthDate)}
         </p>
       </div>
 

@@ -39,7 +39,8 @@ export default function PBDashboard({ clients, consultations }: Props) {
   const count = clients.length;
   const aum = clients.reduce((s, c) => s + (c.assetSize || 0), 0);
   const individuals = clients.filter((c) => c.clientType === "individual").length;
-  const corporates = count - individuals;
+  const corporates = clients.filter((c) => c.clientType === "corporate").length;
+  const soleProprietors = clients.filter((c) => c.clientType === "sole_proprietor").length;
 
   const durations = consultations
     .map((c) => c.durationSeconds)
@@ -56,9 +57,9 @@ export default function PBDashboard({ clients, consultations }: Props) {
       <Stat label="담당 고객" value={`${count}명`} />
       <Stat label="총 운용자산 (AUM)" value={formatKRW(aum)} accent />
       <Stat
-        label="개인 / 법인"
-        value={`${individuals} / ${corporates}`}
-        sub={`개인 ${ratio(individuals)}% · 법인 ${ratio(corporates)}%`}
+        label="개인 / 법인 / 개인사업자"
+        value={`${individuals} / ${corporates} / ${soleProprietors}`}
+        sub={`개인 ${ratio(individuals)}% · 법인 ${ratio(corporates)}% · 개인사업자 ${ratio(soleProprietors)}%`}
       />
       <Stat
         label="평균 상담시간"

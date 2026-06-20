@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL } from "@/lib/types";
 import type { Client, Consultation, CashFlow, PB, Portfolio, StageKey } from "@/lib/types";
 import {
   getClient,
+  listClients,
   listConsultations,
   listPbs,
   updateClient,
@@ -25,6 +27,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
 
   const [client, setClient] = useState<Client | null>(null);
+  const [allClients, setAllClients] = useState<Client[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
@@ -36,16 +39,18 @@ export default function ClientDetailPage() {
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      const [c, cons, allPbs] = await Promise.all([
+      const [c, cons, allPbs, clients] = await Promise.all([
         getClient(clientId),
         listConsultations(clientId),
         listPbs(),
+        listClients(),
       ]);
       if (!c) {
         setStatus("error");
         return;
       }
       setClient(c);
+      setAllClients(clients);
       setConsultations(cons);
       setPbs(allPbs);
       setStatus("ready");
@@ -103,6 +108,10 @@ export default function ClientDetailPage() {
       birthDate: v.birthDate,
       assignedPbId: v.assignedPbId,
       assetSize: v.assetSize,
+      linkedClientId: v.linkedClientId,
+      ownershipPct: v.ownershipPct,
+      isMajorityShareholder: v.isMajorityShareholder,
+      accountSeparation: v.accountSeparation,
     });
     await load();
     // 담당 PB가 바뀌면 현재 URL의 pbId와 달라지므로 새 경로로 이동
@@ -121,6 +130,7 @@ export default function ClientDetailPage() {
     consultations.length > 0
       ? consultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))[0].createdAt
       : "";
+  const linkedClient = allClients.find((item) => item.id === client?.linkedClientId) ?? null;
 
   if (status === "loading") return <LoadingView />;
   if (status === "error" || !client)
@@ -141,8 +151,9 @@ export default function ClientDetailPage() {
             <div className="flex items-center gap-2">
               <span className="badge-gold font-mono">{client.code}</span>
               <span className={client.clientType === "corporate" ? "badge-navy" : "badge-muted"}>
-                {client.clientType === "corporate" ? "법인" : "개인"}
+                {CLIENT_TYPE_LABEL[client.clientType]}
               </span>
+              {client.isMajorityShareholder && <span className="badge-gold">최대주주</span>}
             </div>
             <h1 className="mt-2 text-2xl font-bold text-fg">{client.name}</h1>
             <p className="mt-1 text-sm text-fg-muted">
@@ -150,6 +161,22 @@ export default function ClientDetailPage() {
               {formatDate(client.birthDate)} · 자산규모{" "}
               <b className="text-gold-600 dark:text-gold-300">{formatKRW(client.assetSize)}</b>
             </p>
+            {(linkedClient || client.accountSeparation) && (
+              <p className="mt-1 text-xs text-fg-muted">
+                {linkedClient && (
+                  <>
+                    연동 고객 <b className="text-fg">{linkedClient.name}</b>
+                    {client.ownershipPct != null && ` · 지분율 ${client.ownershipPct}%`}
+                  </>
+                )}
+                {linkedClient && client.accountSeparation && " · "}
+                {client.accountSeparation && (
+                  <>
+                    통장 분리 <b className="text-fg">{ACCOUNT_SEPARATION_LABEL[client.accountSeparation]}</b>
+                  </>
+                )}
+              </p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-2">
             <button
@@ -222,6 +249,7 @@ export default function ClientDetailPage() {
           onFinalizePortfolio={finalizePortfolio}
           onUnfinalizePortfolio={unfinalizePortfolio}
           onToggleStage={toggleStage}
+          linkedClient={linkedClient}
         />
       </section>
 
@@ -258,6 +286,7 @@ export default function ClientDetailPage() {
         open={editOpen}
         initial={client}
         pbs={pbs}
+        clients={allClients}
         suggestedCode={client.code}
         onSubmit={submitEdit}
         onClose={() => setEditOpen(false)}

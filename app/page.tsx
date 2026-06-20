@@ -133,6 +133,10 @@ export default function HomePage() {
         birthDate: v.birthDate,
         assignedPbId: v.assignedPbId,
         assetSize: v.assetSize,
+        linkedClientId: v.linkedClientId,
+        ownershipPct: v.ownershipPct,
+        isMajorityShareholder: v.isMajorityShareholder,
+        accountSeparation: v.accountSeparation,
       });
     } else {
       await createClient(v);
@@ -425,6 +429,7 @@ export default function HomePage() {
         open={clientFormOpen}
         initial={editingClient}
         pbs={pbs}
+        clients={clients}
         suggestedCode={nextClientCode(clients)}
         onSubmit={submitClient}
         onClose={() => setClientFormOpen(false)}

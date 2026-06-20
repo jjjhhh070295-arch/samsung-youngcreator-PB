@@ -149,6 +149,7 @@ export default function PBPage() {
         open={clientFormOpen}
         initial={null}
         pbs={pbs}
+        clients={allClients}
         defaultPbId={pbId}
         suggestedCode={nextClientCode(allClients)}
         onSubmit={submitClient}

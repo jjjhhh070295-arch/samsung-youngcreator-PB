@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { Client, PB } from "@/lib/types";
-import { FACTOR_META } from "@/lib/types";
+import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META } from "@/lib/types";
 import { getClient, listPbs } from "@/lib/store";
 import { formatKRW, formatDate } from "@/lib/format";
 import { LoadingView, ErrorView } from "@/components/StateViews";
@@ -13,7 +13,7 @@ import { LoadingView, ErrorView } from "@/components/StateViews";
 // 7요인 값을 엮어 PB 종합 분석 문장 생성
 function buildSummary(client: Client): string {
   const ips = client.ips;
-  const t = client.clientType === "corporate" ? "법인" : "개인";
+  const t = CLIENT_TYPE_LABEL[client.clientType];
   const seg: string[] = [];
   seg.push(
     `${client.name} 고객은 ${t} 고객으로, 자산규모 ${formatKRW(client.assetSize)} 수준입니다.`,
@@ -117,7 +117,7 @@ export default function IPSDocumentPage() {
           <InfoGrid
             rows={[
               ["고객명", client.name],
-              ["구분", client.clientType === "corporate" ? "법인" : "개인"],
+              ["구분", CLIENT_TYPE_LABEL[client.clientType]],
               ["식별코드", client.code],
               [
                 client.clientType === "corporate" ? "설립일" : "생년월일",
@@ -125,6 +125,15 @@ export default function IPSDocumentPage() {
               ],
               ["자산규모", formatKRW(client.assetSize)],
               ["담당 PB", pbDisplay],
+              ["연동 고객 ID", client.linkedClientId ?? "없음"],
+              [
+                "지분/통장 상태",
+                client.accountSeparation
+                  ? ACCOUNT_SEPARATION_LABEL[client.accountSeparation]
+                  : client.ownershipPct != null
+                    ? `${client.ownershipPct}%${client.isMajorityShareholder ? " · 최대주주" : ""}`
+                    : "미입력",
+              ],
             ]}
           />
         </Section>

@@ -2,7 +2,7 @@
 //
 // 산출 순서: 7요인 분석 → 현금흐름 분석 → 리포트/리서치 분석 → 고객 요구조건 반영 → 포트폴리오 산출.
 
-import { FACTOR_META, type Client, type Portfolio, type AssetAllocation, type CashFlow, type FactorKey } from "./types";
+import { CLIENT_TYPE_LABEL, FACTOR_META, type Client, type Portfolio, type AssetAllocation, type CashFlow, type FactorKey } from "./types";
 import {
   FALLBACK_MARKET_RESEARCH,
   scoreResearchSignals,
@@ -159,6 +159,10 @@ export interface CashflowPortfolioSummary {
   monthlyNet: number;
   scheduledOutflow: number;
   taxOutflow: number;
+  corporateTaxOutflow: number;
+  soleBusinessNet: number;
+  mixedEntityOutflow: number;
+  linkedDividendFlow: number;
   nearestOutflow?: CashFlow;
 }
 
@@ -525,7 +529,17 @@ function summarizeCashflows(cashFlows: CashFlow[]): CashflowPortfolioSummary {
   const recurring = cashFlows.filter((flow) => flow.recurring);
   const scheduled = cashFlows.filter((flow) => !flow.recurring && flow.amount < 0);
   const taxFlows = cashFlows.filter((flow) =>
-    /세|법인세|증여|상속|양도|재산|종부|tax/i.test(flow.label),
+    /세|법인세|증여|상속|양도|재산|종부|tax/i.test(
+      `${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""}`,
+    ),
+  );
+  const corporateTaxFlows = cashFlows.filter((flow) =>
+    flow.amount < 0 && /법인세|corporate[_\s-]?tax/i.test(`${flow.label} ${flow.category ?? ""}`),
+  );
+  const soleBusinessFlows = cashFlows.filter((flow) => flow.entity === "sole_business");
+  const mixedOutflows = cashFlows.filter((flow) => flow.entity === "mixed" && flow.amount < 0);
+  const linkedDividendFlows = cashFlows.filter((flow) =>
+    /배당|dividend/i.test(`${flow.label} ${flow.category ?? ""}`),
   );
   const nearestOutflow = scheduled.slice().sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"))[0];
   const monthlyIncome = recurring.filter((flow) => flow.amount > 0).reduce((sum, flow) => sum + flow.amount, 0);
@@ -537,6 +551,10 @@ function summarizeCashflows(cashFlows: CashFlow[]): CashflowPortfolioSummary {
     monthlyNet: monthlyIncome - monthlyOutflow,
     scheduledOutflow: scheduled.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
     taxOutflow: taxFlows.filter((flow) => flow.amount < 0).reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
+    corporateTaxOutflow: corporateTaxFlows.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
+    soleBusinessNet: soleBusinessFlows.reduce((sum, flow) => sum + flow.amount, 0),
+    mixedEntityOutflow: mixedOutflows.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
+    linkedDividendFlow: linkedDividendFlows.reduce((sum, flow) => sum + flow.amount, 0),
     nearestOutflow,
   };
 }
@@ -566,6 +584,9 @@ function liquidityReservePercent(
     (scores.liquidity - 1) * 3.2 +
     (scores.tax >= 4 ? 4 : 0) +
     (client.clientType === "corporate" ? 3 : 0) +
+    (client.clientType === "sole_proprietor" ? 3 : 0) +
+    (client.accountSeparation && client.accountSeparation !== "separated" ? 4 : 0) +
+    (client.linkedClientId && client.isMajorityShareholder ? 2 : 0) +
     (hasNearLiquidityNeed ? 4 : 0) +
     scheduledPct * 0.34 +
     taxPct * 0.7 +
@@ -640,6 +661,9 @@ function assetScoresFromAnalysis(
     (scores.liquidity - 3) * 4 +
     Math.max(0, scores.legal - 1) * 6 +
     (client.clientType === "corporate" ? 10 : 0) +
+    (client.clientType === "sole_proprietor" ? 6 : 0) +
+    (client.accountSeparation && client.accountSeparation !== "separated" ? 5 : 0) +
+    (cashflow.corporateTaxOutflow > 0 ? 5 : 0) +
     (preference.taxPriority ? 44 : 0) +
     (riskSignal >= 6 ? riskSignal * 1.4 : 0) -
     (preference.stockOnly ? 30 : 0) -
@@ -1039,9 +1063,24 @@ function clientSummaryFrom(client: Client, cashflow: CashflowPortfolioSummary): 
     ? `${cashflow.nearestOutflow.date} ${cashflow.nearestOutflow.label}`
     : factorValue(client, "liquidity", "중");
   const taxSensitivity = factorScore(client, "tax") >= 4 || cashflow.taxOutflow > 0 ? "높음" : "보통";
+  const segmentRequirements: string[] = [];
+  if (client.clientType === "sole_proprietor") {
+    segmentRequirements.push(
+      client.accountSeparation === "mixed"
+        ? "개인사업자 통장 혼용으로 사업비/생활비 분리 확인 전 투자 가능 현금 보수적 반영"
+        : client.accountSeparation === "separated"
+          ? "개인사업자 사업자금과 개인 생활자금 분리 확인"
+          : "개인사업자 통장 분리 여부 미확인으로 PB 추가 확인 필요",
+    );
+  }
+  if (client.linkedClientId) {
+    segmentRequirements.push(
+      `연동 고객이 있어 배당·법인세·지분율(${client.ownershipPct ?? "미입력"}%)의 개인 현금흐름 영향 중복 반영 점검`,
+    );
+  }
 
   return {
-    clientType: client.clientType === "corporate" ? "법인 고액자산가" : "개인 고액자산가",
+    clientType: `${CLIENT_TYPE_LABEL[client.clientType]} 고액자산가`,
     riskPropensity: `${riskName} (${riskScore}점)`,
     investmentPeriod: factorValue(client, "timeHorizon", "투자기간 미입력"),
     liquidityNeed,
@@ -1054,6 +1093,7 @@ function clientSummaryFrom(client: Client, cashflow: CashflowPortfolioSummary): 
         ? `월 순현금흐름 ${formatKRWShortLocal(cashflow.monthlyNet)} 흑자 기반 정기 투자 가능`
         : `월 순현금흐름 ${formatKRWShortLocal(cashflow.monthlyNet)}로 방어적 현금관리 필요`,
       factorValue(client, "unique", "고유상황 미입력"),
+      ...segmentRequirements,
     ],
   };
 }
@@ -1091,6 +1131,7 @@ function macroReportFrom(items: MarketResearchItem[], signals: ReturnType<typeof
 function suitabilityFrom(client: Client, cashflow: CashflowPortfolioSummary, signals: ReturnType<typeof scoreResearchSignals>): AssetSuitability[] {
   const highTax = factorScore(client, "tax") >= 4 || cashflow.taxOutflow > 0;
   const highRiskSignal = topSignalScore(signals, "risk") >= 8;
+  const mixedBusinessCash = client.clientType === "sole_proprietor" && client.accountSeparation !== "separated";
 
   return [
     {
@@ -1109,13 +1150,17 @@ function suitabilityFrom(client: Client, cashflow: CashflowPortfolioSummary, sig
     },
     {
       category: "ELS/ELB",
-      status: highRiskSignal || client.clientType === "corporate" ? "주의" : "적합",
-      reason: "구조와 만기, 조기상환 조건을 PB가 검토한 뒤 제한 비중으로만 편입",
+      status: highRiskSignal || client.clientType === "corporate" || mixedBusinessCash ? "주의" : "적합",
+      reason: mixedBusinessCash
+        ? "사업자통장 혼용 또는 미확인 상태에서는 조기상환·만기 현금화 일정이 사업 운영자금과 충돌하지 않는지 먼저 확인"
+        : "구조와 만기, 조기상환 조건을 PB가 검토한 뒤 제한 비중으로만 편입",
     },
     {
       category: "MMF/RP",
       status: "적합",
-      reason: cashflow.taxOutflow > 0
+      reason: mixedBusinessCash
+        ? "사업 운영자금, 생활비, 부가세·종합소득세 예비금을 분리 확인할 때까지 우선 대기자금으로 활용"
+        : cashflow.taxOutflow > 0
         ? `세금성 유출 ${formatKRWShortLocal(cashflow.taxOutflow)}의 현금화 목표일을 맞추기 위한 필수 버킷`
         : "상담 후 추가 출자·생활 이벤트를 대비하는 즉시 유동성 버킷",
     },
@@ -1372,7 +1417,9 @@ export function buildPortfolioViewModel(
     client,
   );
   const recommendedId =
-    preferenceProfile.taxPriority
+    client.clientType === "sole_proprietor" && client.accountSeparation !== "separated"
+      ? "stable"
+      : preferenceProfile.taxPriority
       ? "stable"
       : scores.liquidity >= 4 || scores.legal >= 4 || taxPressurePct >= 5 || cashPressurePct >= 25
         ? "stable"
@@ -1395,7 +1442,11 @@ export function buildPortfolioViewModel(
     market: `${topResearch} 등 최신 ${items.length}개 리포트/기사에서 ${highSignal.label} 신호가 가장 강하게 관찰되어 해당 자산군을 기준 비중보다 보강했습니다.`,
     client: `${client.name} 고객은 ${clientSummary.clientType}이며 위험성향은 ${clientSummary.riskPropensity}, 투자기간은 ${clientSummary.investmentPeriod}로 반영했습니다.`,
     cashflow: `현금흐름 입력값 기준 월 유입 ${formatKRWShortLocal(cashflowSummary.monthlyIncome)}, 월 유출 ${formatKRWShortLocal(cashflowSummary.monthlyOutflow)}, 월 순현금흐름 ${formatKRWShortLocal(cashflowSummary.monthlyNet)}입니다.`,
-    tax: cashflowSummary.taxOutflow > 0
+    tax: client.clientType === "sole_proprietor" && client.accountSeparation !== "separated"
+      ? "개인사업자 통장 혼용/미확인 상태이므로 사업 매출 전체를 투자 가능 현금으로 보지 않고, 사업비·생활비·부가세/종합소득세 예비금을 먼저 분리합니다. 세무·회계 성격은 상담용 추정이며 전문가 확인이 필요합니다."
+      : client.linkedClientId && cashflowSummary.linkedDividendFlow !== 0
+        ? "법인-대표 연동 고객으로 배당 지급과 개인 배당 유입이 중복 반영되지 않도록 동일 기준월 메모를 확인하고, 법인세 납부 후 실제 배당 가능 재원을 보수적으로 반영합니다."
+        : cashflowSummary.taxOutflow > 0
       ? preferenceProfile.taxPriority
         ? `세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 커버하는 동시에, 브라질 국채 비과세 검토·국내 상장주식 장내거래·개별채권 직접투자·연금계좌 과세이연처럼 세후 효율이 높은 후보를 우선 배치했습니다.`
         : `법인세·증여세·양도세 등 세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 우선 커버하도록 MMF/RP와 채권 비중을 높였습니다.`

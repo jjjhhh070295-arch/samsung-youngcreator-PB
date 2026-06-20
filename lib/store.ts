@@ -32,6 +32,10 @@ function rowToClient(r: any): Client {
     birthDate: r.birth_date ?? "",
     assignedPbId: r.assigned_pb_id ?? "",
     assetSize: Number(r.asset_size ?? 0),
+    linkedClientId: r.linked_client_id ?? null,
+    ownershipPct: r.ownership_pct == null ? null : Number(r.ownership_pct),
+    isMajorityShareholder: r.is_majority_shareholder ?? null,
+    accountSeparation: r.account_separation ?? null,
     consultationNotes: r.consultation_notes ?? "",
     ips: (r.ips && Object.keys(r.ips).length ? r.ips : emptyIPS()) as IPS,
     cashFlows: (r.cash_flows ?? []) as CashFlow[],
@@ -49,6 +53,10 @@ function clientToRow(c: Partial<Client>): any {
   if (c.birthDate !== undefined) row.birth_date = c.birthDate || null;
   if (c.assignedPbId !== undefined) row.assigned_pb_id = c.assignedPbId || null;
   if (c.assetSize !== undefined) row.asset_size = c.assetSize;
+  if (c.linkedClientId !== undefined) row.linked_client_id = c.linkedClientId || null;
+  if (c.ownershipPct !== undefined) row.ownership_pct = c.ownershipPct ?? null;
+  if (c.isMajorityShareholder !== undefined) row.is_majority_shareholder = c.isMajorityShareholder ?? null;
+  if (c.accountSeparation !== undefined) row.account_separation = c.accountSeparation ?? null;
   if (c.consultationNotes !== undefined) row.consultation_notes = c.consultationNotes;
   if (c.ips !== undefined) row.ips = c.ips;
   if (c.cashFlows !== undefined) row.cash_flows = c.cashFlows;
@@ -156,6 +164,9 @@ function sampleCashFlows(): CashFlow[] {
       amount: Number(amount),
       date: "2026-06",
       recurring: true,
+      entity: "corporate" as const,
+      accountType: "법인 운영계좌",
+      category: Number(amount) >= 0 ? "매출/수입" : "운영비/투자",
     })),
     ...scheduled.map(([label, amount, date]) => ({
       id: `sample-scheduled-${String(label).replace(/[^a-zA-Z0-9가-힣]/g, "")}`,
@@ -163,6 +174,10 @@ function sampleCashFlows(): CashFlow[] {
       amount: Number(amount),
       date: String(date),
       recurring: false,
+      entity: "corporate" as const,
+      accountType: "법인 MMF/RP",
+      category: /세/.test(String(label)) ? "법인세/세금" : "목적자금",
+      taxAccountingNote: "상담용 추정치이며 세무 전문가 확인 필요",
     })),
   ];
 }
@@ -232,6 +247,10 @@ function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
     birthDate: "2012-04-18",
     assignedPbId: pb.id,
     assetSize: 21_400_000_000,
+    linkedClientId: null,
+    ownershipPct: 60,
+    isMajorityShareholder: true,
+    accountSeparation: null,
     consultationNotes:
       "CSV 현금흐름표 기반 샘플. 서울 강남구 소재 법인 고객이며 IPO 보호예수 해제, M&A 지분매각, 가업승계 증여, 2027년 법인세 납부재원 마련을 동시에 검토한다.",
     ips: sampleIps(),
@@ -419,6 +438,10 @@ export interface NewClientInput {
   birthDate: string;
   assignedPbId: string;
   assetSize: number;
+  linkedClientId?: string | null;
+  ownershipPct?: number | null;
+  isMajorityShareholder?: boolean | null;
+  accountSeparation?: Client["accountSeparation"];
 }
 
 export async function createClient(input: NewClientInput): Promise<Client> {
@@ -432,6 +455,10 @@ export async function createClient(input: NewClientInput): Promise<Client> {
       birthDate: input.birthDate,
       assignedPbId: input.assignedPbId,
       assetSize: input.assetSize,
+      linkedClientId: input.linkedClientId ?? null,
+      ownershipPct: input.ownershipPct ?? null,
+      isMajorityShareholder: input.isMajorityShareholder ?? null,
+      accountSeparation: input.accountSeparation ?? null,
       consultationNotes: "",
       ips: emptyIPS(),
       cashFlows: [],
@@ -455,6 +482,10 @@ export async function createClient(input: NewClientInput): Promise<Client> {
         birthDate: input.birthDate,
         assignedPbId: input.assignedPbId,
         assetSize: input.assetSize,
+        linkedClientId: input.linkedClientId ?? null,
+        ownershipPct: input.ownershipPct ?? null,
+        isMajorityShareholder: input.isMajorityShareholder ?? null,
+        accountSeparation: input.accountSeparation ?? null,
         ips: emptyIPS(),
         cashFlows: [],
         portfolios: [],

@@ -7,7 +7,30 @@ export interface PB {
   createdAt: string;
 }
 
-export type ClientType = "individual" | "corporate";
+export type ClientType = "individual" | "corporate" | "sole_proprietor";
+
+export type AccountSeparation = "separated" | "mixed" | "unknown";
+
+export type CashFlowEntity = "personal" | "corporate" | "sole_business" | "mixed";
+
+export const CLIENT_TYPE_LABEL: Record<ClientType, string> = {
+  individual: "개인",
+  corporate: "법인",
+  sole_proprietor: "개인사업자",
+};
+
+export const ACCOUNT_SEPARATION_LABEL: Record<AccountSeparation, string> = {
+  separated: "분리",
+  mixed: "혼용",
+  unknown: "미확인",
+};
+
+export const CASH_FLOW_ENTITY_LABEL: Record<CashFlowEntity, string> = {
+  personal: "개인",
+  corporate: "법인",
+  sole_business: "개인사업자",
+  mixed: "혼용",
+};
 
 // RRTTLLU 7요인 키
 export type FactorKey =
@@ -54,6 +77,10 @@ export interface Client {
   birthDate: string; // YYYY-MM-DD (개인=생년월일, 법인=설립일)
   assignedPbId: string;
   assetSize: number; // 원
+  linkedClientId?: string | null; // 법인↔대표 개인 연결
+  ownershipPct?: number | null; // 대표/주주의 지분율
+  isMajorityShareholder?: boolean | null; // 최대주주 여부
+  accountSeparation?: AccountSeparation | null; // 개인사업자 통장 분리 상태
   consultationNotes: string; // 최신 전문 텍스트
   ips: IPS; // 최신 RRTTLLU
   cashFlows: CashFlow[]; // 현금흐름 (포트폴리오 입력)
@@ -101,6 +128,10 @@ export interface CashFlow {
   amount: number; // 원. 양수=유입, 음수=유출
   date: string; // 예상 시점 YYYY-MM
   recurring: boolean; // 정기 반복 여부
+  entity?: CashFlowEntity; // 자금주체
+  accountType?: string; // 예: 개인통장, 법인 MMF, 사업자통장
+  category?: string; // 급여/배당/법인세/생활비/사업비용 등
+  taxAccountingNote?: string; // 상담용 세무·회계 메모
 }
 
 // ── 포트폴리오 (7요인·현금흐름·리서치 기반 추천) ──

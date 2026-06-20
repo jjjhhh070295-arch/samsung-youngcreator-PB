@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CLIENT_TYPE_LABEL } from "@/lib/types";
 import type { Client, ClientType, PB } from "@/lib/types";
 import { formatKRW, formatDate } from "@/lib/format";
 
@@ -18,11 +19,6 @@ interface Props {
   onEdit?: (c: Client) => void;
   onDelete?: (c: Client) => void;
 }
-
-const TYPE_LABEL: Record<ClientType, string> = {
-  individual: "개인",
-  corporate: "법인",
-};
 
 export default function ClientTable({
   clients,
@@ -116,7 +112,7 @@ export default function ClientTable({
 
       {/* 필터 */}
       <div className="mb-3 flex items-center gap-2">
-        {(["all", "individual", "corporate"] as const).map((f) => (
+        {(["all", "individual", "corporate", "sole_proprietor"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -126,7 +122,7 @@ export default function ClientTable({
                 : "bg-surface-2 text-fg-muted hover:text-fg"
             }`}
           >
-            {f === "all" ? "전체" : TYPE_LABEL[f]}
+            {f === "all" ? "전체" : CLIENT_TYPE_LABEL[f]}
           </button>
         ))}
         <span className="ml-auto text-xs text-fg-muted">{sorted.length}명</span>
@@ -187,7 +183,7 @@ export default function ClientTable({
                 <td className="px-3 py-2.5 font-medium text-fg">{c.name}</td>
                 <td className="px-3 py-2.5">
                   <span className={c.clientType === "corporate" ? "badge-navy" : "badge-muted"}>
-                    {TYPE_LABEL[c.clientType]}
+                    {CLIENT_TYPE_LABEL[c.clientType]}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2.5 text-fg-muted">
