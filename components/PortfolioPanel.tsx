@@ -43,7 +43,7 @@ interface BenchmarkApiPoint {
   date: string;
   label: string;
   sp500?: number | null;
-  kospi200?: number | null;
+  kospi?: number | null;
   usTreasury10y?: number | null;
   bond?: number | null;
   gold?: number | null;
@@ -60,6 +60,140 @@ interface BenchmarkApiResponse {
 }
 
 type BenchmarkChartPoint = BenchmarkApiPoint & { portfolio: number; blendedBenchmark: number };
+
+type ReferenceLineKey = 'sp500' | 'kospi' | 'usTreasury10y';
+
+const REFERENCE_LINE_META: Record<
+  ReferenceLineKey,
+  {
+    dataKey: ReferenceLineKey;
+    name: string;
+    compareLabel: string;
+    stroke: string;
+    activeClass: string;
+    idleClass: string;
+    dotClass: string;
+    cardClass: string;
+    cardTitleClass: string;
+  }
+> = {
+  sp500: {
+    dataKey: 'sp500',
+    name: 'S&P500',
+    compareLabel: 'S&P500 대비',
+    stroke: '#f59e0b',
+    activeClass: 'border-amber-300 bg-amber-50 font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    idleClass: 'border-border bg-surface-2 text-fg-muted hover:border-amber-200 dark:hover:border-amber-800',
+    dotClass: 'bg-amber-500',
+    cardClass: 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30',
+    cardTitleClass: 'text-amber-800 dark:text-amber-300',
+  },
+  kospi: {
+    dataKey: 'kospi',
+    name: 'KOSPI',
+    compareLabel: 'KOSPI 대비',
+    stroke: '#3b82f6',
+    activeClass: 'border-blue-300 bg-blue-50 font-semibold text-blue-800 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
+    idleClass: 'border-border bg-surface-2 text-fg-muted hover:border-blue-200 dark:hover:border-blue-800',
+    dotClass: 'bg-blue-500',
+    cardClass: 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30',
+    cardTitleClass: 'text-blue-800 dark:text-blue-300',
+  },
+  usTreasury10y: {
+    dataKey: 'usTreasury10y',
+    name: '미국 7-10년국채 ETF (IEF)',
+    compareLabel: '미국 7-10년국채 ETF 대비',
+    stroke: '#8b5cf6',
+    activeClass: 'border-violet-300 bg-violet-50 font-semibold text-violet-800 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
+    idleClass: 'border-border bg-surface-2 text-fg-muted hover:border-violet-200 dark:hover:border-violet-800',
+    dotClass: 'bg-violet-500',
+    cardClass: 'border-violet-200 bg-violet-50 dark:border-violet-800 dark:bg-violet-950/30',
+    cardTitleClass: 'text-violet-800 dark:text-violet-300',
+  },
+};
+
+function formatAlphaPercentPoints(alpha: number) {
+  return `${alpha > 0 ? '+' : ''}${alpha.toFixed(1)}%p`;
+}
+
+function alphaToneClass(alpha: number) {
+  return alpha >= 0 ? 'text-emerald-600' : 'text-rose-600';
+}
+
+function BenchmarkAlphaPanel({
+  portfolioReturn,
+  blendedReturn,
+  referenceReturns,
+  visibleRefs,
+  blendedTitle = '혼합 벤치마크 대비 초과성과',
+}: {
+  portfolioReturn: number;
+  blendedReturn: number;
+  referenceReturns: Record<ReferenceLineKey, number>;
+  visibleRefs: Record<ReferenceLineKey, boolean>;
+  blendedTitle?: string;
+}) {
+  const activeRefs = (Object.keys(REFERENCE_LINE_META) as ReferenceLineKey[]).filter((key) => visibleRefs[key]);
+
+  return (
+    <div className="grid grid-cols-1 gap-2 text-xs sm:min-w-[240px]">
+      <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+        <span className="block text-[11px] font-semibold text-blue-700 dark:text-blue-400">{blendedTitle}</span>
+        <b className={`text-base font-black ${alphaToneClass(portfolioReturn - blendedReturn)}`}>
+          {formatAlphaPercentPoints(portfolioReturn - blendedReturn)}
+        </b>
+        <span className="mt-0.5 block text-[10px] text-fg-muted">
+          제안 포트폴리오 {portfolioReturn.toFixed(1)}% vs 혼합 벤치마크 {blendedReturn.toFixed(1)}%
+        </span>
+      </div>
+      {activeRefs.map((lineKey) => {
+        const meta = REFERENCE_LINE_META[lineKey];
+        const referenceReturn = referenceReturns[lineKey];
+        const alpha = portfolioReturn - referenceReturn;
+        return (
+          <div key={lineKey} className={`rounded-xl border px-3 py-2 ${meta.cardClass}`}>
+            <span className={`block text-[11px] font-semibold ${meta.cardTitleClass}`}>
+              {meta.compareLabel} 초과성과
+            </span>
+            <b className={`text-base font-black ${alphaToneClass(alpha)}`}>
+              {formatAlphaPercentPoints(alpha)}
+            </b>
+            <span className="mt-0.5 block text-[10px] text-fg-muted">
+              제안 포트폴리오 {portfolioReturn.toFixed(1)}% vs {meta.name} {referenceReturn.toFixed(1)}%
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReferenceLineToggle({
+  lineKey,
+  label,
+  value,
+  active,
+  onToggle,
+}: {
+  lineKey: ReferenceLineKey;
+  label: string;
+  value: number;
+  active: boolean;
+  onToggle: (key: ReferenceLineKey) => void;
+}) {
+  const meta = REFERENCE_LINE_META[lineKey];
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(lineKey)}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition ${active ? meta.activeClass : meta.idleClass}`}
+    >
+      <span className={`h-2.5 w-2.5 rounded-full ${active ? meta.dotClass : 'bg-fg-muted opacity-35'}`} />
+      {label} {value.toFixed(1)}%
+    </button>
+  );
+}
 
 const RESEARCH_SIGNAL_KO: Record<string, string> = {
   equity: '주식',
@@ -143,19 +277,19 @@ const barColors: Record<WeightKey, string> = {
 };
 
 const FALLBACK_BENCHMARK_POINTS: BenchmarkApiPoint[] = [
-  { date: 'fallback-0', label: '12M 전', sp500: 0, kospi200: 0, bond: 0, gold: 0, dollar: 0, commodity: 0 },
-  { date: 'fallback-1', label: '11M 전', sp500: -1.1, kospi200: -2.0, bond: 0.2, gold: 1.6, dollar: -0.4, commodity: -1.7 },
-  { date: 'fallback-2', label: '10M 전', sp500: -0.2, kospi200: 1.8, bond: -0.3, gold: 0.7, dollar: 0.8, commodity: -0.6 },
-  { date: 'fallback-3', label: '9M 전', sp500: 2.1, kospi200: 0.9, bond: 0.1, gold: 3.9, dollar: 1.1, commodity: 1.5 },
-  { date: 'fallback-4', label: '8M 전', sp500: 3.7, kospi200: 4.4, bond: 0.8, gold: 5.4, dollar: -0.2, commodity: 0.2 },
-  { date: 'fallback-5', label: '7M 전', sp500: 1.9, kospi200: 3.1, bond: 0.4, gold: 4.8, dollar: 1.7, commodity: 2.8 },
-  { date: 'fallback-6', label: '6M 전', sp500: 5.2, kospi200: 6.8, bond: 1.1, gold: 7.2, dollar: 1.2, commodity: 1.9 },
-  { date: 'fallback-7', label: '5M 전', sp500: 4.3, kospi200: 5.3, bond: 1.0, gold: 6.1, dollar: 2.4, commodity: 4.1 },
-  { date: 'fallback-8', label: '4M 전', sp500: 7.1, kospi200: 9.5, bond: 1.7, gold: 10.4, dollar: 1.6, commodity: 3.2 },
-  { date: 'fallback-9', label: '3M 전', sp500: 6.4, kospi200: 7.7, bond: 1.4, gold: 9.2, dollar: 2.9, commodity: 5.6 },
-  { date: 'fallback-10', label: '2M 전', sp500: 8.8, kospi200: 11.1, bond: 2.0, gold: 12.7, dollar: 2.0, commodity: 4.3 },
-  { date: 'fallback-11', label: '1M 전', sp500: 7.6, kospi200: 9.4, bond: 1.8, gold: 10.8, dollar: 1.3, commodity: 3.8 },
-  { date: 'fallback-12', label: '현재', sp500: 9.2, kospi200: 6.4, bond: 2.2, gold: 11.6, dollar: 1.8, commodity: 4.9 },
+  { date: 'fallback-0', label: '12M 전', sp500: 0, kospi: 0, bond: 0, gold: 0, dollar: 0, commodity: 0 },
+  { date: 'fallback-1', label: '11M 전', sp500: -1.1, kospi: -2.0, bond: 0.2, gold: 1.6, dollar: -0.4, commodity: -1.7 },
+  { date: 'fallback-2', label: '10M 전', sp500: -0.2, kospi: 1.8, bond: -0.3, gold: 0.7, dollar: 0.8, commodity: -0.6 },
+  { date: 'fallback-3', label: '9M 전', sp500: 2.1, kospi: 0.9, bond: 0.1, gold: 3.9, dollar: 1.1, commodity: 1.5 },
+  { date: 'fallback-4', label: '8M 전', sp500: 3.7, kospi: 4.4, bond: 0.8, gold: 5.4, dollar: -0.2, commodity: 0.2 },
+  { date: 'fallback-5', label: '7M 전', sp500: 1.9, kospi: 3.1, bond: 0.4, gold: 4.8, dollar: 1.7, commodity: 2.8 },
+  { date: 'fallback-6', label: '6M 전', sp500: 5.2, kospi: 6.8, bond: 1.1, gold: 7.2, dollar: 1.2, commodity: 1.9 },
+  { date: 'fallback-7', label: '5M 전', sp500: 4.3, kospi: 5.3, bond: 1.0, gold: 6.1, dollar: 2.4, commodity: 4.1 },
+  { date: 'fallback-8', label: '4M 전', sp500: 7.1, kospi: 9.5, bond: 1.7, gold: 10.4, dollar: 1.6, commodity: 3.2 },
+  { date: 'fallback-9', label: '3M 전', sp500: 6.4, kospi: 7.7, bond: 1.4, gold: 9.2, dollar: 2.9, commodity: 5.6 },
+  { date: 'fallback-10', label: '2M 전', sp500: 8.8, kospi: 11.1, bond: 2.0, gold: 12.7, dollar: 2.0, commodity: 4.3 },
+  { date: 'fallback-11', label: '1M 전', sp500: 7.6, kospi: 9.4, bond: 1.8, gold: 10.8, dollar: 1.3, commodity: 3.8 },
+  { date: 'fallback-12', label: '현재', sp500: 9.2, kospi: 6.4, bond: 2.2, gold: 11.6, dollar: 1.8, commodity: 4.9 },
 ];
 
 const optionProfiles: Record<
@@ -222,14 +356,14 @@ function buildBenchmarkChartData(
 
   return sourcePoints.map((point, index) => {
     const sp500 = finiteNumber(point.sp500);
-    const kospi200 = finiteNumber(point.kospi200, sp500);
+    const kospi = finiteNumber(point.kospi, sp500);
     const bond = finiteNumber(point.bond, fixedIncomeProxy(index, total, 3.2));
     const gold = finiteNumber(point.gold, fixedIncomeProxy(index, total, 4.0));
     const dollar = finiteNumber(point.dollar, fixedIncomeProxy(index, total, 2.3));
     const commodity = finiteNumber(point.commodity, fixedIncomeProxy(index, total, 3.6));
     const cash = fixedIncomeProxy(index, total, 3.0);
-    // 1. 자산군별 대표 벤치마크 지수 1:1 정규화 매핑 (KOSPI200/S&P500 혼합을 주식 대표로 설정)
-    const stockBenchmark = kospi200 * 0.4 + sp500 * 0.6; // 글로벌 주식 혼합 프록시
+    // 1. 자산군별 대표 벤치마크 지수 1:1 정규화 매핑 (KOSPI/S&P500 혼합을 주식 대표로 설정)
+    const stockBenchmark = kospi * 0.4 + sp500 * 0.6; // 글로벌 주식 혼합 프록시
     const bondBenchmark = bond;                          // 국채/채권 지수
     const goldBenchmark = gold;                          // 금 실물 지수
     const cashBenchmark = cash;                          // CD금리/KOFR 금융 자산 프록시
@@ -263,7 +397,7 @@ const portfolio = blendedBenchmark + alphaByRiskTilt * timeProgress;
 return {
   ...point,
   sp500: roundPercent(sp500),
-  kospi200: roundPercent(kospi200),
+  kospi: roundPercent(kospi),
   portfolio: roundPercent(portfolio),
   blendedBenchmark: roundPercent(blendedBenchmark),
 };
@@ -292,7 +426,7 @@ function buildSimplifiedBenchmarkChartData(
     const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
     const blendedBenchmark =
       (overseasEquityWeight / totalWeight) * finiteNumber(point.sp500) +
-      (domesticEquityWeight / totalWeight) * finiteNumber(point.kospi200, finiteNumber(point.sp500)) +
+      (domesticEquityWeight / totalWeight) * finiteNumber(point.kospi, finiteNumber(point.sp500)) +
       (stableWeight / totalWeight) * usTreasury10y;
     const alphaByRiskTilt = riskTilt === -1 ? 2.0 : riskTilt === 0 ? 4.0 : 7.0;
     const timeProgress = sourcePoints.length <= 1 ? 1 : index / (sourcePoints.length - 1);
@@ -300,7 +434,7 @@ function buildSimplifiedBenchmarkChartData(
     return {
       ...point,
       sp500: roundPercent(finiteNumber(point.sp500)),
-      kospi200: roundPercent(finiteNumber(point.kospi200, finiteNumber(point.sp500))),
+      kospi: roundPercent(finiteNumber(point.kospi, finiteNumber(point.sp500))),
       usTreasury10y: roundPercent(usTreasury10y),
       portfolio: roundPercent(blendedBenchmark + alphaByRiskTilt * timeProgress),
       blendedBenchmark: roundPercent(blendedBenchmark),
@@ -336,11 +470,11 @@ function latestBenchmarkTarget(
   if (!lastPoint) return undefined;
   const targets = [
     preference.benchmarkTargets.includes('S&P500') ? finiteNumber(lastPoint.sp500, Number.NaN) : Number.NaN,
-    preference.benchmarkTargets.includes('KOSPI200') ? finiteNumber(lastPoint.kospi200, Number.NaN) : Number.NaN,
+    preference.benchmarkTargets.includes('KOSPI') ? finiteNumber(lastPoint.kospi, Number.NaN) : Number.NaN,
   ].filter(Number.isFinite);
   const values = targets.length > 0
     ? targets
-    : [finiteNumber(lastPoint.sp500, Number.NaN), finiteNumber(lastPoint.kospi200, Number.NaN)].filter(Number.isFinite);
+    : [finiteNumber(lastPoint.sp500, Number.NaN), finiteNumber(lastPoint.kospi, Number.NaN)].filter(Number.isFinite);
   return values.length > 0 ? Math.max(...values) : undefined;
 }
 
@@ -355,15 +489,26 @@ function BenchmarkReturnChart({
   fallback: boolean;
   updatedAt?: string;
 }) {
+  const [visibleRefs, setVisibleRefs] = useState<Record<ReferenceLineKey, boolean>>({
+    sp500: false,
+    kospi: false,
+    usTreasury10y: false,
+  });
+  const toggleReferenceLine = (key: ReferenceLineKey) => {
+    setVisibleRefs((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
   const lastPoint = data[data.length - 1];
   const portfolioReturn = finiteNumber(lastPoint?.portfolio);
   const blendedReturn = finiteNumber(lastPoint?.blendedBenchmark);
   const sp500Return = finiteNumber(lastPoint?.sp500);
-  const kospi200Return = finiteNumber(lastPoint?.kospi200);
-  
-  // 단순 % 성과 차이가 아닌 자산 배분 공정 비교용 percentage point (%p) 도출
-  const alphaBlended = portfolioReturn - blendedReturn;
-  const sourceLabel = fallback ? '일부 지연 · 백업 데이터 포함' : '실시간/지연 지수 데이터 · 최근 1년 월말 종가';
+  const kospiReturn = finiteNumber(lastPoint?.kospi);
+  const usTreasuryReturn = finiteNumber(lastPoint?.usTreasury10y);
+  const referenceReturns: Record<ReferenceLineKey, number> = {
+    sp500: sp500Return,
+    kospi: kospiReturn,
+    usTreasury10y: usTreasuryReturn,
+  };
+  const sourceLabel = fallback ? '일부 지연 · 백업 데이터 포함' : '실시간/지연 지수 데이터 · 최근 1년 월별 종가 (당월 최신 반영)';
   const updatedLabel = updatedAt
     ? new Date(updatedAt).toLocaleString('ko-KR', {
         month: '2-digit',
@@ -393,16 +538,12 @@ function BenchmarkReturnChart({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 text-xs sm:min-w-[240px]">
-          <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-            <span className="block text-[11px] font-semibold text-blue-700 dark:text-blue-400">
-              혼합 벤치마크 대비 초과성과
-            </span>
-            <b className={`text-base font-black ${alphaBlended >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {alphaBlended > 0 ? '+' : ''}{alphaBlended.toFixed(1)}%p
-            </b>
-          </div>
-        </div>
+        <BenchmarkAlphaPanel
+          portfolioReturn={portfolioReturn}
+          blendedReturn={blendedReturn}
+          referenceReturns={referenceReturns}
+          visibleRefs={visibleRefs}
+        />
       </div>
 
       <div className="h-[320px] w-full text-fg dark:text-slate-200">
@@ -456,8 +597,24 @@ function BenchmarkReturnChart({
               activeDot={{ r: 5 }}
               connectNulls
             />
-            
-            
+            {(Object.keys(REFERENCE_LINE_META) as ReferenceLineKey[]).map((lineKey) => {
+              if (!visibleRefs[lineKey]) return null;
+              const meta = REFERENCE_LINE_META[lineKey];
+              return (
+                <Line
+                  key={lineKey}
+                  type="linear"
+                  dataKey={meta.dataKey}
+                  name={meta.name}
+                  stroke={meta.stroke}
+                  strokeWidth={1.75}
+                  strokeDasharray="3 3"
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  connectNulls
+                />
+              );
+            })}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -471,12 +628,9 @@ function BenchmarkReturnChart({
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
           혼합 벤치마크 {blendedReturn.toFixed(1)}%
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">
-          S&P500 참고 ({sp500Return.toFixed(1)}%)
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">
-          KOSPI200 참고 ({kospi200Return.toFixed(1)}%)
-        </span>
+        <ReferenceLineToggle lineKey="sp500" label="S&P500" value={sp500Return} active={visibleRefs.sp500} onToggle={toggleReferenceLine} />
+        <ReferenceLineToggle lineKey="kospi" label="KOSPI" value={kospiReturn} active={visibleRefs.kospi} onToggle={toggleReferenceLine} />
+        <ReferenceLineToggle lineKey="usTreasury10y" label="미국 7-10년국채 ETF" value={usTreasuryReturn} active={visibleRefs.usTreasury10y} onToggle={toggleReferenceLine} />
       </div>
     </section>
   );
@@ -493,9 +647,25 @@ function SimplifiedBenchmarkReturnChart({
   fallback: boolean;
   updatedAt?: string;
 }) {
+  const [visibleRefs, setVisibleRefs] = useState<Record<ReferenceLineKey, boolean>>({
+    sp500: false,
+    kospi: false,
+    usTreasury10y: false,
+  });
+  const toggleReferenceLine = (key: ReferenceLineKey) => {
+    setVisibleRefs((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
   const lastPoint = data[data.length - 1];
   const portfolioReturn = finiteNumber(lastPoint?.portfolio);
   const blendedReturn = finiteNumber(lastPoint?.blendedBenchmark);
+  const sp500Return = finiteNumber(lastPoint?.sp500);
+  const kospiReturn = finiteNumber(lastPoint?.kospi);
+  const usTreasuryReturn = finiteNumber(lastPoint?.usTreasury10y);
+  const referenceReturns: Record<ReferenceLineKey, number> = {
+    sp500: sp500Return,
+    kospi: kospiReturn,
+    usTreasury10y: usTreasuryReturn,
+  };
   const updatedLabel = updatedAt
     ? new Date(updatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
     : '';
@@ -514,12 +684,13 @@ function SimplifiedBenchmarkReturnChart({
             {source ? ` · ${source}` : ''}
           </p>
         </div>
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900">
-          <span className="block text-[11px] font-semibold text-blue-700 dark:text-blue-400">혼합 벤치마크 대비</span>
-          <b className={`text-base font-black ${portfolioReturn - blendedReturn >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {portfolioReturn - blendedReturn > 0 ? '+' : ''}{(portfolioReturn - blendedReturn).toFixed(1)}%p
-          </b>
-        </div>
+        <BenchmarkAlphaPanel
+          portfolioReturn={portfolioReturn}
+          blendedReturn={blendedReturn}
+          referenceReturns={referenceReturns}
+          visibleRefs={visibleRefs}
+          blendedTitle="혼합 벤치마크 대비"
+        />
       </div>
 
       <div className="h-[320px] w-full text-fg dark:text-slate-200">
@@ -531,6 +702,24 @@ function SimplifiedBenchmarkReturnChart({
             <Tooltip formatter={(value: unknown, name: unknown) => [value == null ? '-' : `${Number(value).toFixed(1)}%`, String(name)]} contentStyle={{ background: 'rgb(var(--surface))', border: '1px solid rgb(var(--border))', borderRadius: 10, color: 'rgb(var(--fg))', fontSize: 12 }} />
             <Line type="linear" dataKey="portfolio" name="제안 포트폴리오" stroke="#0f172a" strokeWidth={3} dot={{ r: 3, strokeWidth: 1 }} activeDot={{ r: 6 }} connectNulls />
             <Line type="linear" dataKey="blendedBenchmark" name="혼합 벤치마크" stroke="#10b981" strokeWidth={2.5} strokeDasharray="4 4" dot={{ r: 2 }} activeDot={{ r: 5 }} connectNulls />
+            {(Object.keys(REFERENCE_LINE_META) as ReferenceLineKey[]).map((lineKey) => {
+              if (!visibleRefs[lineKey]) return null;
+              const meta = REFERENCE_LINE_META[lineKey];
+              return (
+                <Line
+                  key={lineKey}
+                  type="linear"
+                  dataKey={meta.dataKey}
+                  name={meta.name}
+                  stroke={meta.stroke}
+                  strokeWidth={1.75}
+                  strokeDasharray="3 3"
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  connectNulls
+                />
+              );
+            })}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -538,9 +727,9 @@ function SimplifiedBenchmarkReturnChart({
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
         <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 font-semibold text-fg">제안 포트폴리오 {portfolioReturn.toFixed(1)}%</span>
         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">혼합 벤치마크 {blendedReturn.toFixed(1)}%</span>
-        <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">참고: S&P500 {finiteNumber(lastPoint?.sp500).toFixed(1)}%</span>
-        <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">KOSPI200 {finiteNumber(lastPoint?.kospi200).toFixed(1)}%</span>
-        <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-fg-muted">미국채 10년물 {finiteNumber(lastPoint?.usTreasury10y).toFixed(1)}%</span>
+        <ReferenceLineToggle lineKey="sp500" label="S&P500" value={sp500Return} active={visibleRefs.sp500} onToggle={toggleReferenceLine} />
+        <ReferenceLineToggle lineKey="kospi" label="KOSPI" value={kospiReturn} active={visibleRefs.kospi} onToggle={toggleReferenceLine} />
+        <ReferenceLineToggle lineKey="usTreasury10y" label="미국 7-10년국채 ETF" value={usTreasuryReturn} active={visibleRefs.usTreasury10y} onToggle={toggleReferenceLine} />
       </div>
     </section>
   );

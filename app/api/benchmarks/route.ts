@@ -3,27 +3,31 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type BenchmarkKey = "sp500" | "kospi200" | "usTreasury10y";
+type BenchmarkKey = "sp500" | "kospi" | "usTreasury10y";
 
 interface Point { date: string; label: string; value: number; }
 interface BenchmarkSeries { key: BenchmarkKey; label: string; symbol: string; source: string; asOf: string; points: Point[]; }
 interface BenchmarkDefinition { key: BenchmarkKey; label: string; symbol: string; provider: "naver" | "yahoo"; }
-interface MarketRow { timestamp: number; close: number; }
+interface MarketRow { timestamp: number; close: number; localDate: string; }
+
+const LOOKBACK_MONTHS = 13;
 
 const BENCHMARKS: BenchmarkDefinition[] = [
   { key: "sp500", label: "S&P500", symbol: ".INX", provider: "naver" },
-  { key: "kospi200", label: "KOSPI200", symbol: "KPI200", provider: "naver" },
-  { key: "usTreasury10y", label: "미국채 10년물", symbol: "IEF", provider: "yahoo" },
+  { key: "kospi", label: "KOSPI", symbol: "KOSPI", provider: "naver" },
+  { key: "usTreasury10y", label: "미국 7-10년국채 ETF (IEF)", symbol: "IEF", provider: "yahoo" },
 ];
 
 const FALLBACK_VALUES: Record<BenchmarkKey, number[]> = {
   sp500: [0, -1.1, -0.2, 2.1, 3.7, 1.9, 5.2, 4.3, 7.1, 6.4, 8.8, 7.6, 9.2],
-  kospi200: [0, -2.0, 1.8, 0.9, 4.4, 3.1, 6.8, 5.3, 9.5, 7.7, 11.1, 9.4, 6.4],
+  kospi: [0, -2.0, 1.8, 0.9, 4.4, 3.1, 6.8, 5.3, 9.5, 7.7, 11.1, 9.4, 6.4],
   usTreasury10y: [0, 0.2, -0.3, 0.1, 0.8, 0.4, 1.1, 1.0, 1.7, 1.4, 2.0, 1.8, 2.2],
 };
 
-function monthLabel(date: Date, index: number, total: number) {
-  return index === total - 1 ? "현재" : `${date.getUTCMonth() + 1}월`;
+function monthLabel(localDate: string, index: number, total: number) {
+  if (index === total - 1) return "현재";
+  const month = Number(localDate.slice(5, 7));
+  return Number.isFinite(month) ? `${month}월` : localDate.slice(0, 7);
 }
 
 function fallbackFor(definition: BenchmarkDefinition): BenchmarkSeries {
@@ -40,15 +44,40 @@ function fallbackFor(definition: BenchmarkDefinition): BenchmarkSeries {
   };
 }
 
-function monthlyLastPoints(timestamps: number[], closes: Array<number | null | undefined>) {
-  const monthMap = new Map<string, MarketRow>();
-  timestamps.forEach((timestamp, index) => {
-    const close = closes[index];
-    if (typeof close !== "number" || !Number.isFinite(close) || close <= 0) return;
-    const date = new Date(timestamp * 1000);
-    monthMap.set(`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`, { timestamp, close });
+function localDateFromTimestamp(timestamp: number, timeZone = "UTC") {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(timestamp * 1000));
+}
+
+function dedupeDailyRows(rows: MarketRow[]) {
+  const dayMap = new Map<string, MarketRow>();
+  rows.forEach((row) => {
+    const existing = dayMap.get(row.localDate);
+    if (!existing || row.timestamp > existing.timestamp) {
+      dayMap.set(row.localDate, row);
+    }
   });
-  return Array.from(monthMap.values()).slice(-13);
+  return Array.from(dayMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/** 일별 종가를 월별로 묶되, 각 월(당월 포함)은 해당 월의 최신 거래일 종가를 사용 */
+function monthlyPointsFromDaily(rows: MarketRow[]) {
+  const daily = dedupeDailyRows(rows);
+  const monthMap = new Map<string, MarketRow>();
+  daily.forEach((row) => {
+    const monthKey = row.localDate.slice(0, 7);
+    const existing = monthMap.get(monthKey);
+    if (!existing || row.timestamp > existing.timestamp) {
+      monthMap.set(monthKey, row);
+    }
+  });
+  return Array.from(monthMap.values())
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-LOOKBACK_MONTHS);
 }
 
 function parsePrice(value: unknown) {
@@ -61,57 +90,111 @@ function toTimestampSeconds(value: unknown) {
   return Number.isFinite(time) ? Math.floor(time / 1000) : null;
 }
 
-function naverIndexUrl(key: "sp500" | "kospi200", page: number) {
-  return key === "sp500"
-    ? `https://api.stock.naver.com/index/.INX/price?pageSize=60&page=${page}`
-    : `https://m.stock.naver.com/api/index/KPI200/price?pageSize=60&page=${page}`;
+function naverIndexUrl(symbol: string, page: number) {
+  if (symbol === ".INX") {
+    return `https://api.stock.naver.com/index/.INX/price?pageSize=60&page=${page}`;
+  }
+  return `https://m.stock.naver.com/api/index/${symbol}/price?pageSize=60&page=${page}`;
 }
 
-async function fetchNaverRows(key: "sp500" | "kospi200", symbol: string): Promise<MarketRow[]> {
+async function fetchNaverRows(symbol: string): Promise<MarketRow[]> {
   const rows: MarketRow[] = [];
-  for (let page = 1; page <= 7; page += 1) {
-    const response = await fetch(naverIndexUrl(key, page), { cache: "no-store", headers: { Accept: "application/json,text/plain,*/*", Referer: "https://m.stock.naver.com/", "User-Agent": "Mozilla/5.0" } });
+  for (let page = 1; page <= 8; page += 1) {
+    const response = await fetch(naverIndexUrl(symbol, page), {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json,text/plain,*/*",
+        Referer: "https://m.stock.naver.com/",
+        "User-Agent": "Mozilla/5.0",
+      },
+    });
     if (!response.ok) throw new Error(`${symbol} ${response.status}`);
     const pageRows: unknown = await response.json();
     if (!Array.isArray(pageRows)) throw new Error(`${symbol} response is not a list`);
-    rows.push(...pageRows.map((row: any) => ({ timestamp: toTimestampSeconds(row?.localTradedAt ?? row?.localTradeAt), close: parsePrice(row?.closePrice) })).filter((row): row is MarketRow => row.timestamp != null && row.close != null));
+    rows.push(
+      ...pageRows
+        .map((row: any) => {
+          const tradedAt = row?.localTradedAt ?? row?.localTradeAt;
+          const timestamp = toTimestampSeconds(tradedAt);
+          const close = parsePrice(row?.closePrice);
+          const localDate = String(tradedAt ?? "").slice(0, 10);
+          return { timestamp, close, localDate };
+        })
+        .filter(
+          (row): row is MarketRow =>
+            row.timestamp != null &&
+            row.close != null &&
+            /^\d{4}-\d{2}-\d{2}$/.test(row.localDate),
+        ),
+    );
     if (pageRows.length < 60) break;
   }
   return rows;
 }
 
 async function fetchYahooRows(symbol: string): Promise<MarketRow[]> {
-  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`, {
+    cache: "no-store",
+    headers: { "User-Agent": "Mozilla/5.0" },
+  });
   if (!response.ok) throw new Error(`${symbol} ${response.status}`);
   const result = (await response.json())?.chart?.result?.[0];
   const timestamps = Array.isArray(result?.timestamp) ? result.timestamp : [];
   const closes = Array.isArray(result?.indicators?.quote?.[0]?.close) ? result.indicators.quote[0].close : [];
-  const rows = timestamps.map((timestamp: unknown, index: number) => ({ timestamp: Number(timestamp), close: Number(closes[index]) })).filter((row: MarketRow) => Number.isFinite(row.timestamp) && Number.isFinite(row.close));
+  const rows = timestamps
+    .map((timestamp: unknown, index: number) => {
+      const ts = Number(timestamp);
+      return {
+        timestamp: ts,
+        close: Number(closes[index]),
+        localDate: localDateFromTimestamp(ts, "America/New_York"),
+      };
+    })
+    .filter((row: MarketRow) => Number.isFinite(row.timestamp) && Number.isFinite(row.close) && row.close > 0);
   if (rows.length === 0) throw new Error(`${symbol} response is empty`);
   return rows;
 }
 
 async function fetchBenchmark(definition: BenchmarkDefinition): Promise<BenchmarkSeries> {
   const rows = definition.provider === "naver"
-    ? await fetchNaverRows(definition.key as "sp500" | "kospi200", definition.symbol)
+    ? await fetchNaverRows(definition.symbol)
     : await fetchYahooRows(definition.symbol);
-  const sampled = monthlyLastPoints(rows.map((row) => row.timestamp), rows.map((row) => row.close));
+  const sampled = monthlyPointsFromDaily(rows);
   if (sampled.length < 6) throw new Error(`${definition.symbol} benchmark data is too short`);
   const base = sampled[0].close;
-  const points = sampled.map((point, index) => ({ date: new Date(point.timestamp * 1000).toISOString().slice(0, 10), label: monthLabel(new Date(point.timestamp * 1000), index, sampled.length), value: Math.round((point.close / base - 1) * 1000) / 10 }));
-  return { ...definition, source: "Naver Finance / Yahoo Finance", asOf: points.at(-1)?.date ?? "", points };
+  const points = sampled.map((point, index) => ({
+    date: point.localDate,
+    label: monthLabel(point.localDate, index, sampled.length),
+    value: Math.round((point.close / base - 1) * 1000) / 10,
+  }));
+  return {
+    ...definition,
+    source: "Naver Finance / Yahoo Finance",
+    asOf: points.at(-1)?.date ?? "",
+    points,
+  };
 }
 
 function mergeSeries(series: BenchmarkSeries[]) {
-  const maxLength = Math.min(13, Math.max(...series.map((item) => item.points.length)));
-  const reference = series.find((item) => item.key === "sp500") ?? series[0];
-  return Array.from({ length: maxLength }, (_, index) => {
-    const row: { date: string; label: string; sp500?: number; kospi200?: number; usTreasury10y?: number } = {
-      date: reference?.points[reference.points.length - maxLength + index]?.date ?? `point-${index}`,
-      label: reference?.points[reference.points.length - maxLength + index]?.label ?? `${index + 1}`,
+  const monthKeys = new Set<string>();
+  series.forEach((item) => {
+    item.points.forEach((point) => monthKeys.add(point.date.slice(0, 7)));
+  });
+  const sortedMonths = Array.from(monthKeys).sort().slice(-LOOKBACK_MONTHS);
+
+  return sortedMonths.map((month, index) => {
+    const row: { date: string; label: string; sp500?: number; kospi?: number; usTreasury10y?: number } = {
+      date: month,
+      label: `${Number(month.slice(5, 7))}월`,
     };
-    series.forEach((item) => { const point = item.points[item.points.length - maxLength + index]; if (point) row[item.key] = point.value; });
-    return { ...row, label: index === maxLength - 1 ? "현재" : row.label };
+    series.forEach((item) => {
+      const point = item.points.find((candidate) => candidate.date.startsWith(month));
+      if (point) row[item.key] = point.value;
+    });
+    const reference = series.find((item) => item.key === "sp500") ?? series[0];
+    const referencePoint = reference?.points.find((candidate) => candidate.date.startsWith(month));
+    if (referencePoint) row.date = referencePoint.date;
+    return { ...row, label: index === sortedMonths.length - 1 ? "현재" : row.label };
   });
 }
 
@@ -126,5 +209,13 @@ export async function GET() {
   });
   const fallback = errors.length > 0;
   if (fallback) console.error("[/api/benchmarks]", errors.join(" | "));
-  return NextResponse.json({ ok: true, source: fallback ? "Naver Finance / Yahoo Finance + fallback" : "Naver Finance / Yahoo Finance", fallback, errors, updatedAt: new Date().toISOString(), series, points: mergeSeries(series) });
+  return NextResponse.json({
+    ok: true,
+    source: fallback ? "Naver Finance / Yahoo Finance + fallback" : "Naver Finance / Yahoo Finance",
+    fallback,
+    errors,
+    updatedAt: new Date().toISOString(),
+    series,
+    points: mergeSeries(series),
+  });
 }

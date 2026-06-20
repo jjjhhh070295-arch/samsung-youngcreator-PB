@@ -440,7 +440,7 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
   const benchmarkOutperformance = /(?:벤치마크|benchmark|kospi|코스피|kospi200|코스피200|s&p|snp|sp500|s&p500|에스앤피).{0,24}(?:보다|대비|이상|초과|상회|넘|높|이기|웃돌)|(?:보다|대비).{0,16}(?:수익률|성과).{0,12}(?:높|초과|상회|이기)|(?:알파|초과수익)/i.test(lower);
   const taxPriority = /(?:세금|절세|세후|비과세|과세이연|분리과세|금융소득종합과세|양도세|이자소득세).{0,24}(?:최대한|가장|최우선|우선|적게|줄|낮|절감|아끼|최소|안\s*내|안내|비과세)|(?:최대한|가장|최우선|우선).{0,16}(?:절세|세금|세후|비과세)|tax\s*(?:first|priority|efficient)/i.test(lower);
   const specificBenchmarkTargets = [
-    /kospi|코스피|kospi200|코스피200/i.test(lower) ? "KOSPI200" : "",
+    /kospi|코스피|kospi200|코스피200/i.test(lower) ? "KOSPI" : "",
     /s&p|snp|sp500|s&p500|에스앤피/i.test(lower) ? "S&P500" : "",
   ].filter(Boolean);
   const benchmarkTargets = specificBenchmarkTargets.length > 0
@@ -754,7 +754,7 @@ function productsFor(
     products.push(`목표수익률 ${preference.targetReturn}% 요구 반영형`);
   }
   if (preference.benchmarkOutperformance) {
-    if (preference.benchmarkTargets.includes("KOSPI200")) products.push("KOSPI200 초과수익 추구 국내 성장주·반도체 바스켓");
+    if (preference.benchmarkTargets.includes("KOSPI")) products.push("KOSPI 초과수익 추구 국내 성장주·반도체 바스켓");
     if (preference.benchmarkTargets.includes("S&P500")) products.push("S&P500 초과수익 추구 미국 성장주·테크 바스켓");
     if (preference.benchmarkTargets.length === 0) products.push("벤치마크 알파 추구 ETF 바스켓");
   }
