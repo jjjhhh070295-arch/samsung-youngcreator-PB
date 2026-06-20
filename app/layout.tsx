@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Header from "@/components/Header";
@@ -10,6 +11,10 @@ export const metadata: Metadata = {
   description:
     "삼성증권 PB센터 — PB 상담을 RRTTLLU 7요인으로 구조화하는 상담 지원 도구. 참고용·투자권유 아님.",
 };
+
+function AppNavFallback() {
+  return <aside className="w-44 shrink-0 border-r border-border bg-white" aria-hidden />;
+}
 
 export default function RootLayout({
   children,
@@ -23,7 +28,9 @@ export default function RootLayout({
           <SplashScreen />
           <Header />
           <div className="flex">
-            <AppNav />
+            <Suspense fallback={<AppNavFallback />}>
+              <AppNav />
+            </Suspense>
             <main className="flex-1 min-w-0">{children}</main>
           </div>
         </ThemeProvider>
