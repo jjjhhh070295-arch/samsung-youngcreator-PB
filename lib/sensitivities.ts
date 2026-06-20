@@ -8,10 +8,8 @@
 //
 //  데이터 출처(프록시):
 //    · 국내주식  ← KOSPI (^KS11)                      [Yahoo Finance]
-//    · 해외주식  ← S&P 500 (^GSPC)                    [Yahoo Finance]
-//    · 채권      ← iShares Core US Aggregate (AGG, 배당재투자 총수익)  [Yahoo Finance]
-//    · 대체투자  ← Gold Futures (GC=F)                [Yahoo Finance]
-//    · 현금      ← 무위험 캐리(요인 무반응, 계수 0 고정)
+//    · 미국주식  ← S&P 500 (^GSPC)                    [Yahoo Finance]
+//    · 채권      ← 미국 10년 국채 가격 민감도 프록시   [Yahoo/FRED]
 //    · 기준금리  ← FEDFUNDS                           [FRED]
 //    · 10년물    ← US 10Y Treasury Yield (^TNX)       [Yahoo/FRED]
 //    · 인플레    ← US CPI (CPIAUCSL) 월간 변화율       [FRED]
@@ -105,7 +103,7 @@ export const FACTOR_META: MacroFactorMeta[] = [
 export const ASSET_SENSITIVITIES: AssetSensitivity[] = [
   {
     key: "kospi",
-    label: "국내주식",
+    label: "국내주식 (KOSPI)",
     betas: { d_fed: -6.9747, d_ust: 0.2034, infl: 0.935, ret_krw: -0.3929, ret_cmd: -0.0597 },
     tvals: { d_fed: -2.22, d_ust: 0.1, infl: 0.51, ret_krw: -2.09, ret_cmd: -0.65 },
     r2: 0.106,
@@ -113,7 +111,7 @@ export const ASSET_SENSITIVITIES: AssetSensitivity[] = [
   },
   {
     key: "spx",
-    label: "해외주식",
+    label: "미국주식 (S&P 500)",
     betas: { d_fed: -4.2883, d_ust: -4.5043, infl: -2.1917, ret_krw: -0.0693, ret_cmd: 0.2898 },
     tvals: { d_fed: -1.49, d_ust: -2.35, infl: -1.31, ret_krw: -0.4, ret_cmd: 3.45 },
     r2: 0.206,
@@ -121,27 +119,11 @@ export const ASSET_SENSITIVITIES: AssetSensitivity[] = [
   },
   {
     key: "bond",
-    label: "채권",
+    label: "채권 (미국채 10년물)",
     betas: { d_fed: 0.0239, d_ust: -6.0265, infl: -0.5304, ret_krw: -0.0372, ret_cmd: 0.0367 },
     tvals: { d_fed: 0.08, d_ust: -28.9, infl: -2.9, ret_krw: -1.99, ret_cmd: 4.01 },
     r2: 0.927,
     monthlyVol: 1.593,
-  },
-  {
-    key: "alt",
-    label: "대체투자",
-    betas: { d_fed: -1.153, d_ust: -8.3454, infl: -1.2279, ret_krw: -0.0239, ret_cmd: 0.1615 },
-    tvals: { d_fed: -0.44, d_ust: -4.77, infl: -0.8, ret_krw: -0.15, ret_cmd: 2.1 },
-    r2: 0.262,
-    monthlyVol: 4.2,
-  },
-  {
-    key: "cash",
-    label: "현금",
-    betas: { d_fed: 0, d_ust: 0, infl: 0, ret_krw: 0, ret_cmd: 0 },
-    tvals: { d_fed: 0, d_ust: 0, infl: 0, ret_krw: 0, ret_cmd: 0 },
-    r2: 0,
-    monthlyVol: 0.05,
   },
 ];
 
@@ -151,13 +133,10 @@ export function findSensitivity(assetClass: string): AssetSensitivity {
   if (direct) return direct;
   // 느슨한 매칭 (예: "국내 주식", "해외주식(ETF)" 등)
   const a = assetClass.replace(/\s/g, "");
-  if (a.includes("국내") && a.includes("주식")) return byKey("kospi");
-  if (a.includes("해외") && a.includes("주식")) return byKey("spx");
-  if (a.includes("채권")) return byKey("bond");
-  if (a.includes("대체") || a.includes("금") || a.includes("리츠")) return byKey("alt");
-  if (a.includes("현금") || a.includes("예금") || a.includes("MMF")) return byKey("cash");
-  // 미매칭 → 현금(무반응)으로 안전 처리
-  return byKey("cash");
+  if ((a.includes("국내") && a.includes("주식")) || a.includes("kospi")) return byKey("kospi");
+  if ((a.includes("미국") && a.includes("주식")) || a.includes("해외주식") || a.includes("s&p500")) return byKey("spx");
+  if (a.includes("채권") || a.includes("미국채10년")) return byKey("bond");
+  throw new Error(`지원하지 않는 매크로 스트레스 자산군: ${assetClass}`);
 }
 
 function byKey(key: string): AssetSensitivity {

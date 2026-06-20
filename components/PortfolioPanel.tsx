@@ -87,16 +87,6 @@ function SignalChip({ s }: { s: AnalyzedReportSignal }) {
   );
 }
 
-const STRESS_ASSET_MAP: Record<WeightKey, string> = {
-  etf: '해외주식',
-  bond: '채권',
-  els: '대체투자',
-  mmf: '현금',
-  gold: '대체투자',
-  dollar: '현금',
-  raw: '대체투자',
-};
-
 const weightLabels: Record<WeightKey, string> = {
   etf: '주식 / ETF',
   bond: '채권 인컴',
@@ -106,6 +96,41 @@ const weightLabels: Record<WeightKey, string> = {
   dollar: '달러',
   raw: '원자재',
 };
+
+const MACRO_STRESS_LABELS = {
+  us: '미국주식 (S&P 500)',
+  kr: '국내주식 (KOSPI)',
+  bond: '채권 (미국채 10년물)',
+} as const;
+
+function buildMacroStressAllocations(
+  holdings: Array<{ bucket: WeightKey; name: string; weight: number }>,
+) {
+  const grouped = new Map<string, number>();
+  const add = (label: string, weight: number) => {
+    grouped.set(label, (grouped.get(label) ?? 0) + weight);
+  };
+
+  for (const holding of holdings) {
+    if (holding.bucket === 'bond') {
+      add(MACRO_STRESS_LABELS.bond, holding.weight);
+      continue;
+    }
+    if (holding.bucket !== 'etf') continue;
+
+    const name = holding.name.replace(/\s/g, '').toLowerCase();
+    const isDomestic = /삼성전자|sk하이닉스|현대차|kodex200|mscikorea|msci한국|ai반도체핵심장비/.test(name);
+    const isUs = /nvidia|microsoft|apple|broadcom|elililly|미국|나스닥|s&p500/.test(name);
+    if (isDomestic) add(MACRO_STRESS_LABELS.kr, holding.weight);
+    else if (isUs) add(MACRO_STRESS_LABELS.us, holding.weight);
+  }
+
+  const total = Array.from(grouped.values()).reduce((sum, weight) => sum + weight, 0);
+  return Array.from(grouped.entries()).map(([assetClass, weight]) => ({
+    assetClass,
+    weight: total > 0 ? Math.round((weight / total) * 1000) / 10 : 0,
+  }));
+}
 
 const barColors: Record<WeightKey, string> = {
   etf: 'bg-blue-600',
@@ -772,18 +797,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
   useEffect(() => {
     if (!onSelectionChange) return;
-    const aggregated: Record<string, number> = {};
-
-    (Object.entries(adjustedWeights) as Array<[WeightKey, number]>).forEach(([asset, weight]) => {
-      if (weight <= 0) return;
-      const assetClass = STRESS_ASSET_MAP[asset] ?? weightLabels[asset];
-      aggregated[assetClass] = (aggregated[assetClass] ?? 0) + weight;
-    });
-
-    const allocations = Object.entries(aggregated).map(([assetClass, weight]) => ({
-      assetClass,
-      weight: Math.round(weight * 10) / 10,
-    }));
+    const allocations = buildMacroStressAllocations(selectedDetailedHoldings);
 
     onSelectionChange({
       id: selectedBase,
@@ -803,6 +817,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     });
   }, [
     adjustedWeights,
+    selectedDetailedHoldings,
     metrics,
     model.rationale,
     onSelectionChange,

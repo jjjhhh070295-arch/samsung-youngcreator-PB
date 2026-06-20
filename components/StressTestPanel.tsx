@@ -43,10 +43,40 @@ import {
 import { runMonteCarloCvar } from "@/lib/stress/monteCarlo";
 import { CHART_COLORS } from "@/lib/theme";
 import { EmptyView } from "./StateViews";
-import BusinessCreditStressTest from "./stress/BusinessCreditStressTest";
 
 interface Props {
   portfolios: Portfolio[];
+}
+
+const MACRO_ASSET_LABELS = {
+  us: "미국주식 (S&P 500)",
+  kr: "국내주식 (KOSPI)",
+  bond: "채권 (미국채 10년물)",
+} as const;
+
+function normalizeMacroPortfolio(portfolio: Portfolio): Portfolio {
+  const grouped = new Map<string, number>();
+
+  for (const allocation of portfolio.allocations) {
+    const compact = allocation.assetClass.replace(/\s/g, "").toLowerCase();
+    let label: string | null = null;
+    if (compact.includes("미국주식") || compact.includes("해외주식") || compact.includes("s&p500")) {
+      label = MACRO_ASSET_LABELS.us;
+    } else if (compact.includes("국내주식") || compact.includes("kospi")) {
+      label = MACRO_ASSET_LABELS.kr;
+    } else if (compact.includes("채권") || compact.includes("미국채10년")) {
+      label = MACRO_ASSET_LABELS.bond;
+    }
+    if (label) grouped.set(label, (grouped.get(label) ?? 0) + allocation.weight);
+  }
+
+  const includedWeight = Array.from(grouped.values()).reduce((sum, weight) => sum + weight, 0);
+  const allocations = Array.from(grouped.entries()).map(([assetClass, weight]) => ({
+    assetClass,
+    weight: includedWeight > 0 ? Math.round((weight / includedWeight) * 1000) / 10 : 0,
+  }));
+
+  return { ...portfolio, allocations };
 }
 
 // 숫자 포맷
@@ -74,12 +104,17 @@ export default function StressTestPanel({ portfolios }: Props) {
   );
 
   // 결과 계산 (슬라이더 변화에 즉시 반응)
-  const results: StressTestResult[] = useMemo(
-    () => (portfolios.length ? runStressTest(portfolios, shock) : []),
-    [portfolios, shock],
+  const macroPortfolios = useMemo(
+    () => portfolios.map(normalizeMacroPortfolio).filter((portfolio) => portfolio.allocations.length > 0),
+    [portfolios],
   );
 
-  const target = portfolios.find((p) => p.id === targetId) ?? portfolios[0];
+  const results: StressTestResult[] = useMemo(
+    () => (macroPortfolios.length ? runStressTest(macroPortfolios, shock) : []),
+    [macroPortfolios, shock],
+  );
+
+  const target = macroPortfolios.find((p) => p.id === targetId) ?? macroPortfolios[0];
   const targetResult = results.find((r) => r.portfolioId === target?.id);
   const proposal: RebalanceProposal | null = useMemo(
     () => (target ? proposeRebalance(target, shock) : null),
@@ -91,22 +126,19 @@ export default function StressTestPanel({ portfolios }: Props) {
   );
   const monteCarloByPortfolio = useMemo(() => {
     return new Map(
-      portfolios.map((portfolio) => [
+      macroPortfolios.map((portfolio) => [
         portfolio.id,
         runMonteCarloCvar(portfolio, shock, { simulations: 5000 }),
       ]),
     );
-  }, [portfolios, shock]);
+  }, [macroPortfolios, shock]);
 
-  if (portfolios.length === 0) {
+  if (macroPortfolios.length === 0) {
     return (
-      <div className="space-y-4">
-        <BusinessCreditStressTest portfolios={portfolios} macroShock={shock} macroPresetId={presetId} />
-        <EmptyView
-          title="포트폴리오를 먼저 생성하세요"
-          hint="매크로 스트레스 테스트는 생성된 포트폴리오를 대상으로 실행합니다."
-        />
-      </div>
+      <EmptyView
+        title="테스트 가능한 자산이 없습니다"
+        hint="미국주식, 국내주식, 채권이 포함된 포트폴리오를 먼저 생성하세요."
+      />
     );
   }
 
@@ -126,7 +158,13 @@ export default function StressTestPanel({ portfolios }: Props) {
 
   return (
     <div className="space-y-4">
-      <BusinessCreditStressTest portfolios={portfolios} macroShock={shock} macroPresetId={presetId} />
+      <div className="card p-4">
+        <h3 className="text-sm font-semibold text-fg">매크로 스트레스 테스트 대상</h3>
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+          미국주식은 S&amp;P 500, 국내주식은 KOSPI, 채권은 미국채 10년물을 대표 지수로 사용합니다.
+          포트폴리오의 다른 자산은 제외하고 이 세 자산군 비중만 100%로 재정규화합니다.
+        </p>
+      </div>
 
       {/* ── 컨트롤: 프리셋 + 슬라이더 ── */}
       <div className="card p-4">
@@ -287,7 +325,7 @@ export default function StressTestPanel({ portfolios }: Props) {
               value={target?.id}
               onChange={(e) => setTargetId(e.target.value)}
             >
-              {portfolios.map((p) => (
+              {macroPortfolios.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
                 </option>
