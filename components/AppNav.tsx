@@ -79,7 +79,7 @@ export default function AppNav() {
   // ── 고객 상세 페이지용 사이드바 ──
   if (isClientPage) {
     return (
-      <aside className="w-44 shrink-0 border-r border-border bg-white sticky top-14 self-start h-[calc(100vh-3.5rem)] flex flex-col overflow-y-auto">
+      <aside className="w-44 shrink-0 border-r border-border bg-[#f0f4fa] sticky top-14 self-start h-[calc(100vh-3.5rem)] flex flex-col overflow-y-auto">
         <button
           className="flex items-center gap-2 px-4 py-3 text-xs text-fg-muted hover:bg-surface-2 border-b border-border shrink-0"
           onClick={() => router.push(`/pb/${pbId}`)}
@@ -103,7 +103,7 @@ export default function AppNav() {
               className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
                 activeSection === s.id
                   ? "bg-[#1428A0] text-white font-semibold"
-                  : "text-fg hover:bg-surface-2"
+                  : "text-fg hover:bg-white"
               }`}
             >
               <span className="flex items-center gap-2">
@@ -127,7 +127,7 @@ export default function AppNav() {
                 className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
                   isActive
                     ? "bg-[#1428A0] text-white font-semibold"
-                    : "text-fg hover:bg-surface-2"
+                    : "text-fg hover:bg-white"
                 }`}
               >
                 <span>{t.label}</span>
@@ -143,7 +143,7 @@ export default function AppNav() {
               className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
                 activeSection === "visualization"
                   ? "bg-[#1428A0] text-white font-semibold"
-                  : "text-fg hover:bg-surface-2"
+                  : "text-fg hover:bg-white"
               }`}
             >
               <span className="flex items-center gap-2">
@@ -185,7 +185,7 @@ export default function AppNav() {
       <Link
         href={href}
         className={`flex items-center justify-between px-4 py-3 text-sm transition-colors ${
-          active ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-surface-2"
+          active ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-white"
         }`}
       >
         <span className="flex items-center gap-2">
@@ -198,7 +198,7 @@ export default function AppNav() {
   };
 
   return (
-    <aside className="w-44 shrink-0 border-r border-border bg-white sticky top-14 self-start h-[calc(100vh-3.5rem)] flex flex-col overflow-y-auto">
+    <aside className="w-44 shrink-0 border-r border-border bg-[#f0f4fa] sticky top-14 self-start h-[calc(100vh-3.5rem)] flex flex-col overflow-y-auto">
       <nav className="flex-1 py-1">
         <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
         {navItem("/", "🏠", "홈")}
