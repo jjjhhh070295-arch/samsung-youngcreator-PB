@@ -14,7 +14,7 @@ import {
 import { getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
-import { formatKRWShort } from "@/lib/format";
+import MarketMiniChart from "@/components/MarketMiniChart";
 
 type MarketTicker = { label: string; sub: string; value: string; change: string; up: boolean };
 type EtfItem = { code: string; name: string; price: number; changeRate: string; up: boolean; flat: boolean };
@@ -47,6 +47,22 @@ export default function HomePage() {
   const [etfs, setEtfs] = useState<EtfItem[]>([]);
   const [rightTab, setRightTab] = useState<"market" | "etf">("market");
   const [marketAt, setMarketAt] = useState<Date | null>(null);
+
+  // 당일 차트 데이터
+  type ChartSeries = { points:{time:string;value:number}[]; prevClose:number|null; delayMinutes:number; startTime:string|null; endTime:string|null };
+  const [chartData, setChartData] = useState<{ kospi: ChartSeries; spx: ChartSeries }>({
+    kospi: {points:[],prevClose:null,delayMinutes:0,startTime:null,endTime:null},
+    spx:   {points:[],prevClose:null,delayMinutes:0,startTime:null,endTime:null},
+  });
+  const [chartLoading, setChartLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/chart", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setChartData(d))
+      .catch(() => {})
+      .finally(() => setChartLoading(false));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,7 +115,6 @@ export default function HomePage() {
     }
   }, [status, pbs, router]);
 
-  const totalAum = clients.reduce((sum, c) => sum + (c.assetSize || 0), 0);
   const clientCount = (pbId: string) => clients.filter((c) => c.assignedPbId === pbId).length;
 
   const handleLogin = async () => {
@@ -138,39 +153,29 @@ export default function HomePage() {
 
   return (
     <div className="px-6 py-6">
-      {/* 히어로 — 좌: 헤드라인+CTA / 우: 시세 패널 */}
-      <div className="mb-10 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.25fr_1fr]">
+      {/* 히어로 — 좌: 브랜딩 + 실시간 차트 / 우: 시세 전광판 */}
+      <div className="mb-10 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.4fr_1fr]">
         {/* 좌 */}
-        <div>
-          <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[#1428A0]">
-            <span className="h-px w-6 bg-[#1428A0]" />
-            SAMSUNG SECURITIES · PRIVATE BANKING
-          </p>
-          <h1 className="mt-2 text-4xl font-black leading-[1.02] tracking-tight text-fg sm:text-5xl">
-            {status === "ready" ? formatKRWShort(totalAum) : "—"}
-          </h1>
-          <p className="mt-1 text-lg font-bold text-fg-muted">관리 자산 규모</p>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-fg-muted">
-            삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.
-          </p>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <div className="rounded-xl border border-border bg-surface px-5 py-2.5">
-              <p className="text-2xl font-black text-[#1428A0]">{clients.length}</p>
-              <p className="text-xs text-fg-muted">관리 고객</p>
-            </div>
-            <div className="rounded-xl border border-border bg-surface px-5 py-2.5">
-              <p className="text-2xl font-black text-[#1428A0]">{pbs.length}</p>
-              <p className="text-xs text-fg-muted">담당 PB</p>
-            </div>
+        <div className="flex flex-col gap-4">
+          <div>
+            <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[#1428A0]">
+              <span className="h-px w-6 bg-[#1428A0]" />
+              SAMSUNG SECURITIES · PRIVATE BANKING
+            </p>
+            <p className="mt-2 text-sm text-fg-muted">
+              삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.
+            </p>
+            <p className="mt-1 text-[11px] text-fg-muted/70">
+              ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
+            </p>
           </div>
-
-          <p className="mt-4 text-[11px] text-fg-muted/70">
-            ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
-          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <MarketMiniChart data={chartData.kospi.points} prevClose={chartData.kospi.prevClose} label="코스피 (KOSPI)" loading={chartLoading} delayMinutes={chartData.kospi.delayMinutes} startTime={chartData.kospi.startTime} endTime={chartData.kospi.endTime} />
+            <MarketMiniChart data={chartData.spx.points} prevClose={chartData.spx.prevClose} label="S&P 500" loading={chartLoading} delayMinutes={chartData.spx.delayMinutes} startTime={chartData.spx.startTime} endTime={chartData.spx.endTime} />
+          </div>
         </div>
 
-        {/* 우 — 시세 패널 */}
+        {/* 우 — 시세 전광판 */}
         <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex gap-1">
