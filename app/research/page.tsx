@@ -107,7 +107,7 @@ export default function ResearchPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 px-6 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <button className="text-xs text-fg-muted hover:text-fg" onClick={() => router.push("/")}>

@@ -2,22 +2,31 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { getLoggedInPbId, clearLoggedInPbId } from "@/lib/auth";
+import { useRouter, useParams } from "next/navigation";
+import { getLoggedInPbId, clearLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
 import { listPbs } from "@/lib/store";
 
 export default function Header() {
   const [pbName, setPbName] = useState<string | null>(null);
   const router = useRouter();
+  const params = useParams();
+  const pbIdFromUrl = params?.pbId as string | undefined;
 
   useEffect(() => {
-    const pbId = getLoggedInPbId();
+    // localStorage 세션 우선, 없으면 URL의 pbId 사용
+    const pbId = getLoggedInPbId() ?? pbIdFromUrl;
     if (!pbId) return;
+
+    // URL에서 복구된 경우 세션도 복구
+    if (!getLoggedInPbId() && pbIdFromUrl) {
+      setLoggedInPbId(pbIdFromUrl);
+    }
+
     listPbs().then((pbs) => {
       const pb = pbs.find((p) => p.id === pbId);
       if (pb) setPbName(pb.name);
     }).catch(() => {});
-  }, []);
+  }, [pbIdFromUrl]);
 
   const handleLogout = () => {
     clearLoggedInPbId();
