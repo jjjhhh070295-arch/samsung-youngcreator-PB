@@ -57,7 +57,7 @@ export interface Client {
   consultationNotes: string; // 최신 전문 텍스트
   ips: IPS; // 최신 RRTTLLU
   cashFlows: CashFlow[]; // 현금흐름 (포트폴리오 입력)
-  portfolios: Portfolio[]; // 포트폴리오 후보 (팀원 더미 → 실구현)
+  portfolios: Portfolio[]; // 7요인·현금흐름·리서치 기반 포트폴리오 후보
   stages: Stages; // 단계별 PB 확정 상태
   createdAt: string;
 }
@@ -76,7 +76,7 @@ export const STAGE_META: {
   { key: "basic", label: "기본 정보", desc: "고객 기본사항 입력", auto: true },
   { key: "factors", label: "7요인 분석", desc: "RRTTLLU 7요인 검토 확정", auto: true },
   { key: "cashflow", label: "현금흐름", desc: "예상 유입/유출 입력", auto: true },
-  { key: "portfolio", label: "포트폴리오", desc: "후보 구성 (더미)", auto: true },
+  { key: "portfolio", label: "포트폴리오", desc: "분석 기반 후보 구성", auto: true },
   { key: "stress", label: "스트레스 테스트", desc: "시나리오 검정 (더미)", auto: false },
   { key: "ips", label: "IPS 문서", desc: "투자정책서 출력 (더미)", auto: false },
 ];
@@ -103,7 +103,7 @@ export interface CashFlow {
   recurring: boolean; // 정기 반복 여부
 }
 
-// ── 포트폴리오 (★팀원 구현 영역 — 더미 스캐폴드) ──
+// ── 포트폴리오 (7요인·현금흐름·리서치 기반 추천) ──
 export interface AssetAllocation {
   assetClass: string; // 예: "국내주식","해외주식","채권","대체투자","현금"
   weight: number; // 비중 %, 합계 100
@@ -122,10 +122,10 @@ export interface Portfolio {
   id: string;
   label: string; // "안정형" | "균형형" | "성장형"
   allocations: AssetAllocation[];
-  expectedReturn: number; // 예상 연수익률 % (더미값)
-  expectedRisk: number; // 예상 변동성 % (더미값)
-  taxNote: string; // 세금 고려 메모 (더미)
-  rationale: string; // 산출 근거 설명 (더미)
+  expectedReturn: number; // 예상 연수익률 %
+  expectedRisk: number; // 예상 변동성 %
+  taxNote: string; // 세금 고려 메모
+  rationale: string; // 산출 근거 설명
   editedByPb: boolean; // PB가 수정했는지
   referencedReports?: ReferencedReport[]; // 확정 시점 참고 리포트(영향 큰 상위 N개)
   confirmedAt?: string; // 확정 시각(ISO) — 이 시점 리서치 기준으로 구조·근거를 박제

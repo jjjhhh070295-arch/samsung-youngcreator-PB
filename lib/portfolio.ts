@@ -1,9 +1,8 @@
-// ★팀원 구현 영역 — 포트폴리오 생성 (현재는 더미 스캐폴드)
+// 포트폴리오 생성 엔진
 //
-// 화면·타입·저장·PB 수정 UI는 동작하게 만들어 두고,
-// 숫자 산출 로직만 더미로 비워둔다. 팀원이 이 함수 본문만 교체하면 실동작한다.
+// 산출 순서: 7요인 분석 → 현금흐름 분석 → 리포트/리서치 분석 → 고객 요구조건 반영 → 포트폴리오 산출.
 
-import type { Client, Portfolio, AssetAllocation, CashFlow, FactorKey } from "./types";
+import { FACTOR_META, type Client, type Portfolio, type AssetAllocation, type CashFlow, type FactorKey } from "./types";
 import {
   FALLBACK_MARKET_RESEARCH,
   scoreResearchSignals,
@@ -19,69 +18,26 @@ function uid(prefix: string): string {
   return prefix + "-" + Math.random().toString(36).slice(2, 8);
 }
 
-// 위험 허용도 점수(risk.score, 1~5)에 따라 주식 비중만 대충 조정하는 단순 규칙.
-// TODO(팀원): RRTTLLU·현금흐름·세금을 반영한 실제 최적화 로직으로 교체.
 export function generatePortfolios(client: Client): Portfolio[] {
-  const riskScore = client.ips?.risk?.score ?? 3; // 근거 없으면 중립 가정(더미)
-  const equityBias = Math.max(0, Math.min(4, riskScore - 1)); // 0~4
-
-  // 3개 후보: 안정형 / 균형형 / 성장형
-  const stable: Portfolio = {
-    id: uid("pf"),
-    label: "안정형",
-    allocations: [
-      alloc("국내주식", 10),
-      alloc("해외주식", 10),
-      alloc("채권", 50),
-      alloc("대체투자", 10),
-      alloc("현금", 20),
-    ],
-    expectedReturn: 4.0,
-    expectedRisk: 5.0,
-    taxNote: "TODO(팀원): 세금(금소세·법인세 등) 반영한 메모로 교체. (더미)",
-    rationale:
-      "TODO(팀원): 실제 최적화 근거로 교체. (더미) 원금 보전 중시, 채권·현금 비중 높음.",
-    editedByPb: false,
-  };
-
-  const balanced: Portfolio = {
-    id: uid("pf"),
-    label: "균형형",
-    allocations: [
-      alloc("국내주식", 20 + equityBias),
-      alloc("해외주식", 20 + equityBias),
-      alloc("채권", 35 - equityBias),
-      alloc("대체투자", 15),
-      alloc("현금", 10 - equityBias),
-    ],
-    expectedReturn: 6.0,
-    expectedRisk: 9.0,
-    taxNote: "TODO(팀원): 세금 메모. (더미)",
-    rationale:
-      "TODO(팀원): 실제 근거로 교체. (더미) 위험점수에 따라 주식 비중 가변.",
-    editedByPb: false,
-  };
-
-  const growth: Portfolio = {
-    id: uid("pf"),
-    label: "성장형",
-    allocations: [
-      alloc("국내주식", 30 + equityBias),
-      alloc("해외주식", 35 + equityBias),
-      alloc("채권", 15 - equityBias),
-      alloc("대체투자", 15),
-      alloc("현금", 5 - equityBias),
-    ],
-    expectedReturn: 8.5,
-    expectedRisk: 14.0,
-    taxNote: "TODO(팀원): 세금 메모. (더미)",
-    rationale:
-      "TODO(팀원): 실제 근거로 교체. (더미) 장기·고위험 감내 시 후보.",
-    editedByPb: false,
-  };
-
-  // 비중 합 100 보정 (더미값이 음수/초과되지 않도록)
-  return [stable, balanced, growth].map(normalizeWeights);
+  const model = buildPortfolioViewModel(client);
+  return model.portfolioOptions.map((option) =>
+    normalizeWeights({
+      id: uid("pf"),
+      label: option.name,
+      allocations: [
+        alloc("주식/ETF", option.weights.etf),
+        alloc("채권", option.weights.bond),
+        alloc("ELS/ELB", option.weights.els),
+        alloc("현금", option.weights.mmf + option.weights.dollar),
+        alloc("대체투자", option.weights.gold + option.weights.raw),
+      ].filter((allocation) => allocation.weight > 0),
+      expectedReturn: option.expectedReturn,
+      expectedRisk: option.volatility,
+      taxNote: model.rationale.tax,
+      rationale: `${model.rationale.client} ${model.rationale.cashflow} ${model.rationale.market} ${model.rationale.preference}`,
+      editedByPb: false,
+    }),
+  );
 }
 
 // 비중 합계를 100으로 맞춘다 (PB 수정 검증에도 재사용).
@@ -214,40 +170,14 @@ export const mockMacroReport: MacroReport = {
   }
 };
 
-export const mockPortfolioOptions: PortfolioOption[] = [
-  {
-    id: 'stable',
-    name: '안정형 포트폴리오 (Stable)',
-    expectedReturn: 4.2,
-    volatility: 2.1,
-    mdd: -1.5,
-    taxReturn: 3.9,
-    weights: { etf: 10, bond: 50, els: 5, mmf: 25, gold: 5, dollar: 5, raw: 0 },
-    mainProducts: ['삼성 국고채 3년 ETF', '대동 Prime 상환사채', '정기예금 연계형 ELB'],
-    detailedHoldings: [],
-  },
-  {
-    id: 'balanced',
-    name: '균형형 포트폴리오 (Balanced)',
-    expectedReturn: 6.8,
-    volatility: 5.4,
-    mdd: -6.2,
-    taxReturn: 6.1,
-    weights: { etf: 35, bond: 35, els: 10, mmf: 10, gold: 5, dollar: 5, raw: 0 },
-    mainProducts: ['KODEX 200', '삼성 단기채권 우량 펀드', '지수연계 노낙인 ELS'],
-    detailedHoldings: [],
-  },
-  {
-    id: 'growth',
-    name: '수익추구형 포트폴리오 (Growth)',
-    expectedReturn: 10.5,
-    volatility: 11.2,
-    mdd: -14.8,
-    taxReturn: 9.2,
-    weights: { etf: 60, bond: 15, els: 10, mmf: 5, gold: 5, dollar: 5, raw: 0 },
-    mainProducts: ['KODEX 미국반도체MV', '삼성 미국S&P500동일가중', '글로벌 테크 ELS'],
-    detailedHoldings: [],
-  }
+const PORTFOLIO_OPTION_META: Array<{
+  id: PortfolioOption["id"];
+  name: string;
+  riskTilt: -1 | 0 | 1;
+}> = [
+  { id: "stable", name: "방어형 추천안", riskTilt: -1 },
+  { id: "balanced", name: "균형형 추천안", riskTilt: 0 },
+  { id: "growth", name: "성장형 추천안", riskTilt: 1 },
 ];
 
 export const mockAssetSuitability: AssetSuitability[] = [
@@ -293,6 +223,13 @@ export interface PortfolioRationale {
   tax: string;
   unique: string;
   preference: string;
+}
+
+export interface PortfolioCalculationStep {
+  order: number;
+  title: string;
+  detail: string;
+  impact: string;
 }
 
 export interface ClientPreferenceProfile {
@@ -370,6 +307,7 @@ export interface PortfolioViewModel {
   executiveConclusion: string;
   recommendedId: PortfolioOption["id"];
   liquidityReserveManwon: number;
+  calculationSteps: PortfolioCalculationStep[];
 }
 
 const factorValue = (client: Client, key: FactorKey, fallback = "미입력") =>
@@ -378,45 +316,23 @@ const factorValue = (client: Client, key: FactorKey, fallback = "미입력") =>
 const factorScore = (client: Client, key: FactorKey, fallback = 3) =>
   client.ips?.[key]?.score ?? fallback;
 
-// 7요인 보강 틸팅 — 기존 adjustedWeights가 안 쓰던 목표수익률·투자기간·법적을 비중에 반영.
-// (risk/tax/liquidity/unique는 adjustedWeights에서 이미 반영 → 중복 방지 위해 여기선 제외)
-// 점수 3=중립이라 미채점/중립이면 변화 0. 최종은 normalizeOptionWeights가 0~100·합100 보정.
-function applySevenFactorTilt(
-  weights: PortfolioOption["weights"],
-  client: Client,
-): PortfolioOption["weights"] {
-  const ret = factorScore(client, "return"); // 1~5 (중립 3)
-  const time = factorScore(client, "timeHorizon"); // 1~5 (중립 3)
-  const legal = factorScore(client, "legal", 1); // 1~5 (제약없음 1)
-  const tax = factorScore(client, "tax"); // 1~5 (중립 3)
-  const liq = factorScore(client, "liquidity"); // 1~5 (중립 3)
-  const uniq = factorScore(client, "unique", 1); // 1~5 (없음 1)
+const clampNumber = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-  // 목표수익률↑ → 위험자산↑·채권↓
-  weights.etf += (ret - 3) * 4;
-  weights.bond -= (ret - 3) * 2;
-  // 투자기간↑ → 위험자산↑·단기현금↓ (길수록 변동성 감내 여력↑)
-  weights.etf += (time - 3) * 3;
-  weights.mmf -= (time - 3) * 2;
-  // 법적 제약↑ → 복잡상품(ELS) 축소 → 채권으로 이전
-  const legalCut = (legal - 1) * 2;
-  weights.els -= legalCut;
-  weights.bond += legalCut;
-  // 세금 민감도↑ → 세후 안정자산(채권·MMF)↑·주식↓ (약하게, 기존 ≥4 점프 위에 점진 가산)
-  weights.bond += (tax - 3) * 1.5;
-  weights.mmf += (tax - 3) * 1;
-  weights.etf -= (tax - 3) * 1.5;
-  // 유동성 필요↑ → 현금성(MMF)↑·주식↓ (약하게)
-  weights.mmf += (liq - 3) * 2.5;
-  weights.etf -= (liq - 3) * 1.5;
-  // 고유 강도↑(집중포지션 등) → 보수적으로: ELS↓·주식 약간↓ → 채권/현금 완충 (약하게)
-  const uniqTilt = (uniq - 1) * 1;
-  weights.els -= uniqTilt;
-  weights.etf -= uniqTilt;
-  weights.bond += uniqTilt * 1.5;
-  weights.mmf += uniqTilt * 0.5;
+function percentOfAssets(amountWon: number, client: Client): number {
+  if (!client.assetSize || client.assetSize <= 0) return 0;
+  return (Math.abs(amountWon) / client.assetSize) * 100;
+}
 
-  return weights;
+function factorScoreSummary(client: Client): Record<FactorKey, number> {
+  return {
+    return: factorScore(client, "return"),
+    risk: factorScore(client, "risk"),
+    timeHorizon: factorScore(client, "timeHorizon"),
+    tax: factorScore(client, "tax"),
+    liquidity: factorScore(client, "liquidity"),
+    legal: factorScore(client, "legal", 1),
+    unique: factorScore(client, "unique", 1),
+  };
 }
 
 const clampWeight = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
@@ -683,102 +599,169 @@ function topSignalScore(scores: ReturnType<typeof scoreResearchSignals>, signal:
   return scores.find((score) => score.signal === signal)?.score ?? 0;
 }
 
-function adjustedWeights(
-  base: PortfolioOption["weights"],
+function liquidityReservePercent(
+  client: Client,
+  cashflow: CashflowPortfolioSummary,
+  preference: ClientPreferenceProfile,
+  riskTilt: -1 | 0 | 1,
+): number {
+  const scores = factorScoreSummary(client);
+  const scheduledPct = percentOfAssets(cashflow.scheduledOutflow, client);
+  const taxPct = percentOfAssets(cashflow.taxOutflow, client);
+  const annualDeficitPct = percentOfAssets(Math.max(0, -cashflow.monthlyNet) * 12, client);
+  const uniqueText = factorValue(client, "unique", "");
+  const hasNearLiquidityNeed =
+    Boolean(cashflow.nearestOutflow) || /증여|상속|ipo|m&a|매각|출자|법인세|양도세/i.test(uniqueText);
+
+  const floor = preference.rejectsOtherProducts && cashflow.taxOutflow === 0 ? 0 : 4;
+  const cap = preference.taxPriority || scores.liquidity >= 5 ? 48 : 42;
+  const reserve =
+    3 +
+    (scores.liquidity - 1) * 3.2 +
+    (scores.tax >= 4 ? 4 : 0) +
+    (client.clientType === "corporate" ? 3 : 0) +
+    (hasNearLiquidityNeed ? 4 : 0) +
+    scheduledPct * 0.34 +
+    taxPct * 0.7 +
+    annualDeficitPct * 0.45 -
+    (scores.timeHorizon - 3) * 1.8 -
+    riskTilt * 2.2 -
+    (preference.stockOnly && !preference.taxPriority ? 3 : 0);
+
+  return clampNumber(reserve, floor, cap);
+}
+
+function dollarReservePercent(
+  signals: ReturnType<typeof scoreResearchSignals>,
+  preference: ClientPreferenceProfile,
+  riskTilt: -1 | 0 | 1,
+): number {
+  if (preference.rejectsOtherProducts && !preference.overseasSingleStock) return 0;
+  const dollarSignal = topSignalScore(signals, "dollar");
+  const riskSignal = topSignalScore(signals, "risk");
+  const reserve =
+    1.5 +
+    Math.max(0, dollarSignal) * 0.45 +
+    Math.max(0, riskSignal) * 0.18 +
+    (preference.overseasSingleStock ? 3 : 0) +
+    (preference.benchmarkTargets.includes("S&P500") ? 2 : 0) +
+    riskTilt * 0.8;
+
+  return clampNumber(reserve, 0, preference.overseasSingleStock ? 14 : 10);
+}
+
+function assetScoresFromAnalysis(
+  client: Client,
+  cashflow: CashflowPortfolioSummary,
+  signals: ReturnType<typeof scoreResearchSignals>,
+  preference: ClientPreferenceProfile,
+  riskTilt: -1 | 0 | 1,
+): Omit<PortfolioOption["weights"], "mmf" | "dollar"> {
+  const scores = factorScoreSummary(client);
+  const equitySignal = topSignalScore(signals, "equity");
+  const bondSignal = topSignalScore(signals, "bond");
+  const riskSignal = topSignalScore(signals, "risk");
+  const goldSignal = topSignalScore(signals, "gold");
+  const taxPct = percentOfAssets(cashflow.taxOutflow, client);
+  const scheduledPct = percentOfAssets(cashflow.scheduledOutflow, client);
+
+  const growthCapacity =
+    (scores.risk - 3) * 14 +
+    (scores.return - 3) * 9 +
+    (scores.timeHorizon - 3) * 7 -
+    (scores.tax - 3) * 5 -
+    (scores.liquidity - 3) * 8 -
+    Math.max(0, scores.legal - 2) * 5 -
+    Math.max(0, scores.unique - 3) * 4 -
+    Math.min(14, scheduledPct * 0.25 + taxPct * 0.35) +
+    riskTilt * 11;
+
+  const etf =
+    42 +
+    growthCapacity +
+    Math.max(0, equitySignal) * 2.2 +
+    (preference.stockOnly ? 42 : 0) +
+    (preference.overseasSingleStock ? 16 : 0) +
+    (preference.targetReturn ? clampNumber(preference.targetReturn - 8, 0, 22) : 0) +
+    (preference.benchmarkOutperformance ? (preference.highRiskAccepted ? 36 : 24) : 0) -
+    (preference.taxPriority ? 24 : 0);
+
+  const bond =
+    46 -
+    growthCapacity * 0.5 +
+    Math.max(0, bondSignal) * 2.1 +
+    (scores.tax - 3) * 7 +
+    (scores.liquidity - 3) * 4 +
+    Math.max(0, scores.legal - 1) * 6 +
+    (client.clientType === "corporate" ? 10 : 0) +
+    (preference.taxPriority ? 44 : 0) +
+    (riskSignal >= 6 ? riskSignal * 1.4 : 0) -
+    (preference.stockOnly ? 30 : 0) -
+    (preference.benchmarkOutperformance ? 12 : 0);
+
+  const els =
+    13 +
+    (scores.risk - 3) * 3 -
+    Math.max(0, scores.legal - 1) * 6 -
+    Math.max(0, scores.liquidity - 3) * 4 -
+    (scores.tax >= 4 ? 5 : 0) -
+    (riskSignal >= 7 ? 5 : 0) -
+    (preference.taxPriority ? 10 : 0) -
+    (preference.stockOnly ? 12 : 0);
+
+  const gold =
+    8 +
+    Math.max(0, goldSignal) * 1.5 +
+    Math.max(0, riskSignal) * 0.55 +
+    (scores.tax >= 4 ? 1 : 0) -
+    (preference.stockOnly ? 4 : 0);
+
+  const raw =
+    3 +
+    Math.max(0, goldSignal - 4) * 0.9 +
+    (scores.risk >= 4 ? 2 : 0) -
+    (scores.liquidity >= 4 ? 2 : 0) -
+    (preference.taxPriority || preference.rejectsOtherProducts ? 4 : 0);
+
+  if (preference.rejectsOtherProducts) {
+    return { etf: Math.max(etf, 100), bond: 0, els: 0, gold: 0, raw: 0 };
+  }
+
+  return {
+    etf: Math.max(0, etf),
+    bond: Math.max(0, bond),
+    els: Math.max(0, els),
+    gold: Math.max(0, gold),
+    raw: Math.max(0, raw),
+  };
+}
+
+function weightsFromAnalysis(
   client: Client,
   cashflow: CashflowPortfolioSummary,
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
 ): PortfolioOption["weights"] {
-  const riskScore = factorScore(client, "risk");
-  const taxScore = factorScore(client, "tax");
-  const liquidityScore = factorScore(client, "liquidity");
-  const uniqueText = factorValue(client, "unique", "");
-  const hasLargeTax = cashflow.taxOutflow > client.assetSize * 0.03 || cashflow.taxOutflow >= 500_000_000;
-  const hasNearLiquidityNeed = Boolean(cashflow.nearestOutflow) || /증여|상속|ipo|m&a|매각|출자|법인세/i.test(uniqueText);
+  const mmf = liquidityReservePercent(client, cashflow, preference, riskTilt);
+  const dollar = dollarReservePercent(signals, preference, riskTilt);
+  const remaining = Math.max(0, 100 - mmf - dollar);
+  const scores = assetScoresFromAnalysis(client, cashflow, signals, preference, riskTilt);
+  const scoreSum = Object.values(scores).reduce((sum, score) => sum + Math.max(0, score), 0);
 
-  const weights = { ...base };
-
-  weights.etf += riskTilt * 6 + (riskScore - 3) * 4 + Math.min(8, topSignalScore(signals, "equity"));
-  weights.bond += -riskTilt * 5 + Math.min(8, topSignalScore(signals, "bond")) + (taxScore >= 4 ? 4 : 0);
-  weights.mmf += Math.min(10, topSignalScore(signals, "liquidity")) + (hasNearLiquidityNeed ? 6 : 0);
-  weights.dollar += Math.min(6, Math.ceil(topSignalScore(signals, "dollar") / 2));
-  weights.gold += Math.min(5, Math.ceil(topSignalScore(signals, "gold") / 3));
-  weights.raw += topSignalScore(signals, "gold") > 6 ? 2 : 0;
-
-  if (client.clientType === "corporate") {
-    weights.bond += 3;
-    weights.mmf += 4;
-    weights.els -= 2;
+  if (scoreSum <= 0) {
+    return normalizeOptionWeights({ etf: 0, bond: remaining, els: 0, mmf, gold: 0, dollar, raw: 0 });
   }
 
-  if (taxScore >= 4 || hasLargeTax) {
-    weights.mmf += 5;
-    weights.bond += 4;
-    weights.etf -= 6;
-  }
-
-  if (liquidityScore >= 4 || hasNearLiquidityNeed) {
-    weights.mmf += 5;
-    weights.els -= 2;
-  }
-
-  if (topSignalScore(signals, "risk") >= 8) {
-    weights.etf -= 5;
-    weights.bond += 3;
-    weights.mmf += 4;
-  }
-
-  if (preference.stockOnly) {
-    weights.etf += preference.overseasSingleStock ? 35 : 22;
-    weights.bond -= 20;
-    weights.els -= 10;
-    weights.gold -= 4;
-    weights.raw = 0;
-    weights.dollar = preference.overseasSingleStock ? Math.max(weights.dollar, 4) : weights.dollar;
-  }
-
-  if (preference.rejectsOtherProducts) {
-    weights.bond = 0;
-    weights.els = 0;
-    weights.gold = 0;
-    weights.raw = 0;
-    weights.dollar = 0;
-    weights.mmf = 0;
-    weights.etf = 100 - weights.dollar - weights.mmf;
-  }
-
-  if (preference.targetReturn && preference.targetReturn >= 15) {
-    weights.etf += Math.min(18, Math.round(preference.targetReturn - 10));
-    weights.bond -= 8;
-    weights.mmf -= preference.rejectsOtherProducts ? 0 : 4;
-  }
-
-  if (preference.benchmarkOutperformance) {
-    weights.etf += preference.highRiskAccepted ? 28 + riskTilt * 5 : 18 + riskTilt * 4;
-    weights.bond -= preference.highRiskAccepted ? 15 : 10;
-    weights.mmf -= preference.highRiskAccepted ? 8 : 4;
-    weights.els -= 3;
-    weights.gold -= 2;
-    weights.raw += preference.benchmarkTargets.includes("KOSPI200") ? 2 : 0;
-    weights.dollar += preference.benchmarkTargets.includes("S&P500") ? 3 : 0;
-  }
-
-  if (preference.taxPriority) {
-    weights.bond += 18 - riskTilt * 2;
-    weights.mmf += 8;
-    weights.etf += riskTilt === 1 ? 4 : -4;
-    weights.els -= 8;
-    weights.gold -= 2;
-    weights.raw = 0;
-    weights.dollar = Math.max(3, weights.dollar - 2);
-  }
-
-  // 7요인 보강(목표수익률·투자기간·법적) — 정규화 직전 한 줄로 적용
-  applySevenFactorTilt(weights, client);
-
-  return normalizeOptionWeights(weights);
+  return normalizeOptionWeights({
+    etf: (remaining * scores.etf) / scoreSum,
+    bond: (remaining * scores.bond) / scoreSum,
+    els: (remaining * scores.els) / scoreSum,
+    mmf,
+    gold: (remaining * scores.gold) / scoreSum,
+    dollar,
+    raw: (remaining * scores.raw) / scoreSum,
+  });
 }
 
 function productsFor(
@@ -1013,26 +996,94 @@ export function preferenceAdjustedMetrics(
   return metrics;
 }
 
-function optionFromBase(
-  base: PortfolioOption,
+function optionFromAnalysis(
+  meta: (typeof PORTFOLIO_OPTION_META)[number],
   client: Client,
   cashflow: CashflowPortfolioSummary,
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
-  riskTilt: -1 | 0 | 1,
 ): PortfolioOption {
-  const weights = adjustedWeights(base.weights, client, cashflow, signals, preference, riskTilt);
-  const metrics = preferenceAdjustedMetrics(weights, preference, riskTilt);
+  const weights = weightsFromAnalysis(client, cashflow, signals, preference, meta.riskTilt);
+  const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt);
   return {
-    ...base,
+    id: meta.id,
+    name: meta.name,
     weights,
     expectedReturn: metrics.expectedReturn,
     volatility: metrics.volatility,
     mdd: metrics.mdd,
     taxReturn: metrics.taxReturn,
     mainProducts: productsFor(weights, signals, preference),
-    detailedHoldings: buildDetailedHoldings(weights, preference, base.id),
+    detailedHoldings: buildDetailedHoldings(weights, preference, meta.id),
   };
+}
+
+function buildCalculationSteps(
+  client: Client,
+  cashflow: CashflowPortfolioSummary,
+  signals: ReturnType<typeof scoreResearchSignals>,
+  preference: ClientPreferenceProfile,
+  recommendedOption: PortfolioOption,
+): PortfolioCalculationStep[] {
+  const scores = factorScoreSummary(client);
+  const factorSummary = FACTOR_META.map((factor) => `${factor.label} ${scores[factor.key]}점`).join(" · ");
+  const cashPressurePct = percentOfAssets(
+    cashflow.scheduledOutflow + Math.max(0, -cashflow.monthlyNet) * 12,
+    client,
+  );
+  const topSignals = signals
+    .slice(0, 3)
+    .map((signal) => `${signal.label} ${signal.score > 0 ? "+" : ""}${signal.score}`)
+    .join(" · ");
+  const requirementText = preference.hasRequirement
+    ? preference.tags.join(" · ")
+    : "별도 강한 요구조건 없음";
+  const assetLabels: Record<keyof PortfolioOption["weights"], string> = {
+    etf: "주식/ETF",
+    bond: "채권",
+    els: "ELS/ELB",
+    mmf: "MMF/RP",
+    gold: "금",
+    dollar: "달러",
+    raw: "원자재",
+  };
+  const allocationText = (Object.entries(recommendedOption.weights) as Array<[keyof PortfolioOption["weights"], number]>)
+    .filter(([, weight]) => weight > 0)
+    .map(([asset, weight]) => `${assetLabels[asset]} ${weight}%`)
+    .join(" · ");
+
+  return [
+    {
+      order: 1,
+      title: "7요인 분석",
+      detail: factorSummary,
+      impact: "목표수익률·위험·기간은 성장예산을, 세금·유동성·법적·고유상황은 방어예산과 상품 제약을 결정했습니다.",
+    },
+    {
+      order: 2,
+      title: "현금흐름 분석",
+      detail: `월 순현금흐름 ${formatKRWShortLocal(cashflow.monthlyNet)}, 세금성 예정 유출 ${formatKRWShortLocal(cashflow.taxOutflow)}, 전체 필요현금 압력 ${Math.round(cashPressurePct)}%`,
+      impact: "필요 현금과 세금 납부 재원은 먼저 MMF/RP·달러성 현금 버킷으로 분리했습니다.",
+    },
+    {
+      order: 3,
+      title: "리포트 및 리서치 분석",
+      detail: topSignals || "리서치 신호 중립",
+      impact: "최신 리서치 신호는 주식·채권·달러·금/원자재의 상대 점수에만 반영하고, 현금흐름 제약을 넘지 않게 제한했습니다.",
+    },
+    {
+      order: 4,
+      title: "고객 요구조건 반영",
+      detail: requirementText,
+      impact: "명시 요구조건은 자산군 점수에 가산/차감하고, 현금화 일정과 충돌하는 경우 PB 확인 경고로 남겼습니다.",
+    },
+    {
+      order: 5,
+      title: "포트폴리오 산출",
+      detail: `${recommendedOption.name}: ${allocationText}`,
+      impact: "앞 단계의 점수와 제약을 정규화해 최종 비중을 계산했습니다. 고정 포트폴리오를 먼저 놓고 사후 조정하지 않습니다.",
+    },
+  ];
 }
 
 function clientSummaryFrom(client: Client, cashflow: CashflowPortfolioSummary): ClientSummary {
@@ -1365,23 +1416,27 @@ export function buildPortfolioViewModel(
   const researchSignals = scoreResearchSignals(items);
   const cashflowSummary = summarizeCashflows(client.cashFlows);
   const preferenceProfile = parsePreferenceProfile(client);
-  const portfolioOptions = [
-    optionFromBase(mockPortfolioOptions[0], client, cashflowSummary, researchSignals, preferenceProfile, -1),
-    optionFromBase(mockPortfolioOptions[1], client, cashflowSummary, researchSignals, preferenceProfile, 0),
-    optionFromBase(mockPortfolioOptions[2], client, cashflowSummary, researchSignals, preferenceProfile, 1),
-  ];
+  const portfolioOptions = PORTFOLIO_OPTION_META.map((meta) =>
+    optionFromAnalysis(meta, client, cashflowSummary, researchSignals, preferenceProfile),
+  );
+  const scores = factorScoreSummary(client);
+  const taxPressurePct = percentOfAssets(cashflowSummary.taxOutflow, client);
+  const cashPressurePct = percentOfAssets(
+    cashflowSummary.scheduledOutflow + Math.max(0, -cashflowSummary.monthlyNet) * 12,
+    client,
+  );
   const recommendedId =
     preferenceProfile.taxPriority
       ? "stable"
+      : scores.liquidity >= 4 || scores.legal >= 4 || taxPressurePct >= 5 || cashPressurePct >= 25
+        ? "stable"
       : preferenceProfile.stockOnly || preferenceProfile.benchmarkOutperformance || (preferenceProfile.targetReturn ?? 0) >= 15
       ? "growth"
-      : factorScore(client, "risk") >= 4 && cashflowSummary.taxOutflow < client.assetSize * 0.03
+      : scores.risk >= 4 && scores.timeHorizon >= 4 && taxPressurePct < 3 && cashPressurePct < 15
       ? "growth"
-      : cashflowSummary.taxOutflow > client.assetSize * 0.05 || factorScore(client, "liquidity") >= 4
-        ? "stable"
-        : "balanced";
+      : "balanced";
   const topResearch = items.slice(0, 4).map((item) => `${item.source} '${item.title}'`).join(", ");
-  const highSignal = researchSignals[0];
+  const highSignal = researchSignals[0] ?? { label: "중립", score: 0, signal: "risk" as ResearchSignal };
   const clientSummary = clientSummaryFrom(client, cashflowSummary);
   const macroReport = macroReportFrom(items, researchSignals);
   const taxSavingPlan = buildKodexTaxSavingPlan(client, cashflowSummary, preferenceProfile);
@@ -1405,8 +1460,19 @@ export function buildPortfolioViewModel(
 
   const recommendedOption = portfolioOptions.find((option) => option.id === recommendedId) ?? portfolioOptions[1];
   const liquidityReserveManwon = Math.max(
-    5_000,
-    Math.min(30_000, Math.round((cashflowSummary.taxOutflow || client.assetSize * 0.03) / 10_000)),
+    1_000,
+    Math.min(
+      30_000,
+      Math.round(((client.assetSize || 0) * (recommendedOption.weights.mmf + recommendedOption.weights.dollar)) / 100 / 10_000) ||
+        Math.round((cashflowSummary.taxOutflow || client.assetSize * 0.03) / 10_000),
+    ),
+  );
+  const calculationSteps = buildCalculationSteps(
+    client,
+    cashflowSummary,
+    researchSignals,
+    preferenceProfile,
+    recommendedOption,
   );
 
   return {
@@ -1421,8 +1487,9 @@ export function buildPortfolioViewModel(
     preferenceProfile,
     taxSavingPlan,
     taxPainPoints,
-    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 최신 리서치의 ${highSignal.label} 신호와 ${preferenceProfile.hasRequirement ? "고객 고유 요구조건" : "고객 7요인"}을 함께 반영하되, ${preferenceProfile.taxPriority ? "세후 효율과 절세 가능성" : `${client.name} 고객의 세금·현금화 일정`}을 우선 점검했습니다.`,
+    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 7요인 분석, 현금흐름 분석, 최신 리서치의 ${highSignal.label} 신호, ${preferenceProfile.hasRequirement ? "고객 고유 요구조건" : "고객 입력 조건"}을 순서대로 반영해 비중을 산출했습니다.`,
     recommendedId,
     liquidityReserveManwon,
+    calculationSteps,
   };
 }

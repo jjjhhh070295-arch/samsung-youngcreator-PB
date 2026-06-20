@@ -658,7 +658,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       }),
     [selectedResearchItems, analyzedById],
   );
-  const selectedExecutiveConclusion = `${currentPortfolioName} 조율안입니다. ${selectedProfile.clientMessage} 최신 리서치, 고객 현금흐름${model.preferenceProfile.hasRequirement ? ', 고유 요구조건' : ''}을 같이 반영해 현재 비중을 산출했습니다.`;
+  const selectedExecutiveConclusion = `${currentPortfolioName}입니다. 7요인, 현금흐름, 최신 리서치${model.preferenceProfile.hasRequirement ? ', 고유 요구조건' : ''}을 순서대로 반영해 현재 비중을 산출했습니다. ${selectedProfile.clientMessage}`;
 
   useEffect(() => {
     if (!onSelectionChange) return;
@@ -728,7 +728,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </span>
           <h1 className="mt-1 text-xl font-bold tracking-tight">VIP 맞춤형 자산배분 제안 시스템</h1>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-300">
-            최신 리서치 최대 20개와 고객의 7요인, 현금흐름, 세금 납부 일정을 함께 반영합니다.
+            7요인 분석 → 현금흐름 분석 → 리포트 및 리서치 분석 → 포트폴리오 산출 순서로 추천합니다.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-slate-300">
@@ -741,6 +741,30 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </div>
 
+      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-gold-500"></span>
+            <h3 className="text-base font-bold text-fg">단계별 산출 흐름</h3>
+          </div>
+          <span className="text-[11px] font-medium text-fg-muted">분석 입력값 기반 추천 엔진</span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-5">
+          {model.calculationSteps.map((step) => (
+            <div key={step.order} className="rounded-xl border border-border bg-surface-2 p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-navy-800 text-[11px] font-black text-gold-300">
+                  {step.order}
+                </span>
+                <p className="text-xs font-black text-fg">{step.title}</p>
+              </div>
+              <p className="text-[11px] font-semibold leading-relaxed text-fg">{step.detail}</p>
+              <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">{step.impact}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
         {/* 왼쪽 2열: Recommended Conclusion + KPI 카드 (Compact 디자인 적용) */}
         <div className="xl:col-span-7 overflow-hidden rounded-xl border border-border bg-slate-900 shadow-sm">
@@ -751,7 +775,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider">
                     Recommended Conclusion
                   </span>
-                  <h2 className="text-xl font-black text-white mt-1">{currentPortfolioName} 조율안</h2>
+                  <h2 className="text-xl font-black text-white mt-1">{currentPortfolioName}</h2>
                 </div>
                 <div className="flex flex-wrap gap-1">
                   <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-200 border border-slate-700">
@@ -1082,7 +1106,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
-          <h3 className="text-base font-bold text-fg">추천 포트폴리오 3개안 비교</h3>
+          <h3 className="text-base font-bold text-fg">분석 기반 추천안 3개 비교</h3>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
