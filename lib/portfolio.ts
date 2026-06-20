@@ -236,7 +236,7 @@ export interface TaxSavingPlan {
 export interface TaxPainPoint {
   id: string;
   label: string;
-  severity: "상" | "중" | "점검";
+  severity: "상" | "중" | "점검" | "높음" | "중간" | "낮음";
   whyItMatters: string;
   portfolioResponse: string;
   source: { label: string; url: string };
@@ -1265,7 +1265,22 @@ function buildTaxPainPoints(
     });
   }
 
-  return points.slice(0, 6);
+  // Do not surface pension/IRP product recommendations for high-asset clients.
+  // This section identifies advisory needs only; it does not prescribe a tax plan.
+  return points
+    .filter((point) => point.id !== "pension-accounts")
+    .map((point) => ({
+      ...point,
+      severity: (point.severity === "상" ? "높음" : point.severity === "중" ? "중간" : "낮음") as TaxPainPoint["severity"],
+      portfolioResponse: point.id === "inheritance-gift"
+        ? "삼성 패밀리오피스 컨설팅 검토 필요 (증여·상속 구조 상담)"
+        : point.id === "real-estate-tax"
+          ? "부동산 보유·양도 구조 전문 상담 필요"
+          : point.id === "financial-income"
+            ? "금융소득 과세 구조 점검 필요"
+            : "삼성 WM센터 전문 세무 상담 권고",
+    }))
+    .slice(0, 6);
 }
 
 function riskAssetWeight(holdings: PensionHolding[]) {

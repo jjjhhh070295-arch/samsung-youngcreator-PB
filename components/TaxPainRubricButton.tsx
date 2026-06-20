@@ -1,0 +1,9 @@
+"use client";
+import { useState } from "react";
+import { TAX_PAIN_RUBRICS } from "@/lib/taxPainRubric";
+
+export default function TaxPainRubricButton({ id, label = "판단 기준" }: { id?: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const rubrics = id ? [TAX_PAIN_RUBRICS[id]].filter(Boolean) : Object.values(TAX_PAIN_RUBRICS);
+  return <><button type="button" onClick={() => setOpen(true)} className="rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-bold text-fg-muted hover:border-emerald-400 hover:text-emerald-700">{label}</button>{open && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onMouseDown={() => setOpen(false)}><div role="dialog" aria-modal="true" className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl border border-border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}><div className="mb-4 flex justify-between gap-4"><div><h2 className="text-base font-black text-fg">세금 고민 판단 기준</h2><p className="mt-1 text-xs text-fg-muted">고객 상황을 분류하기 위한 참고 기준입니다.</p></div><button type="button" onClick={() => setOpen(false)} className="text-xs font-bold text-fg-muted">닫기</button></div><div className="space-y-4">{rubrics.map((rubric) => <section key={rubric.id} className="rounded-xl border border-border p-3"><h3 className="text-sm font-bold text-fg">{rubric.title}</h3><p className="mt-1 text-xs text-fg-muted">{rubric.description}</p><div className="mt-3 overflow-hidden rounded-lg border border-border"><table className="w-full text-left text-xs"><tbody className="divide-y divide-border">{rubric.levels.map((level) => <tr key={level.severity}><th className="w-16 bg-surface-2 px-3 py-2 text-fg">{level.severity}</th><td className="px-3 py-2 text-fg-muted">{level.criteria.join(" · ")}</td></tr>)}</tbody></table></div></section>)}</div><p className="mt-4 text-[11px] text-fg-muted">상담 보조용 추정 기준이며 세무 확정 판단은 아닙니다.</p></div></div>}</>;
+}

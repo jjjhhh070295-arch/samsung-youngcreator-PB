@@ -23,6 +23,8 @@ import {
   type ResearchSignal,
 } from '@/lib/portfolioResearch';
 import { listPbs } from '@/lib/store';
+import TaxPainRubricButton from '@/components/TaxPainRubricButton';
+import WmExpertPanel from '@/components/WmExpertPanel';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -1328,9 +1330,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
               <h3 className="text-base font-bold text-fg">고액자산가 주요 세금 고충 참고</h3>
             </div>
-            <span className="text-[11px] font-medium text-fg-muted">
-              국세청·세무전문 자료 기반 체크리스트
-            </span>
+            <TaxPainRubricButton label="세금 고충 판단 기준 전체 확인" />
           </div>
 
           <p className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-900">
@@ -1345,9 +1345,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   <p className="text-xs font-bold text-fg">{point.label}</p>
                   <span
                     className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                      point.severity === "상"
+                      point.severity === "높음"
                         ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : point.severity === "중"
+                        : point.severity === "중간"
                           ? "border-amber-200 bg-amber-50 text-amber-700"
                           : "border-border bg-surface text-fg-muted"
                     }`}
@@ -1356,9 +1356,15 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   </span>
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">{point.whyItMatters}</p>
-                <p className="mt-2 rounded-lg bg-surface px-3 py-2 text-[11px] leading-relaxed text-emerald-800">
-                  반영: {point.portfolioResponse}
-                </p>
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface px-3 py-2">
+                  <p className="text-[11px] leading-relaxed text-emerald-800">상담 사유: {point.portfolioResponse}</p>
+                  <TaxPainRubricButton id={point.id} />
+                </div>
+                {(point.severity === "높음" || point.severity === "중간") && (
+                  <p className="mt-2 text-[11px] font-bold text-emerald-800">
+                    {point.id === "inheritance-gift" ? "삼성 패밀리오피스 컨설팅 권고" : "삼성 WM센터 전문 세무 상담 권고"}
+                  </p>
+                )}
                 <a
                   href={point.source.url}
                   target="_blank"
@@ -1373,7 +1379,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </section>
       )}
 
-      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+      <WmExpertPanel taxPainPoints={model.taxPainPoints} />
+
+      <section className="hidden rounded-2xl border border-border bg-surface p-5 shadow-sm" aria-hidden="true">
         <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-green-600"></span>
