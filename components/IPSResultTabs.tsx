@@ -7,6 +7,7 @@ import { FACTOR_META, computeStages } from "@/lib/types";
 import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
 import StressTestPanel from "./StressTestPanel";
+import ScoreRubricButton from "./ScoreRubricButton";
 
 interface Props {
   client: Client;
@@ -231,7 +232,8 @@ export default function IPSResultTabs({
       {/* 7요인 */}
       {tab === "factors" && (
         <div>
-          <div className="mb-3 flex items-center justify-end">
+          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+            <ScoreRubricButton label="AI점수 기준표 확인" className="btn-outline text-xs" />
             <StageToggle k="factors" />
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
