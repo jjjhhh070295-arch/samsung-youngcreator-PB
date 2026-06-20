@@ -11,7 +11,7 @@
 //
 //  민감도 계수는 최근 ~10년 월간 데이터 다중회귀(OLS) 추정치. (lib/sensitivities.ts)
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -48,6 +48,23 @@ interface Props {
   portfolios: Portfolio[];
 }
 
+type MacroLevel = {
+  value: number;
+  asOf: string;
+  source: string;
+  fallback?: boolean;
+};
+
+type MacroLevels = Record<MacroFactorId, MacroLevel>;
+
+const FALLBACK_MACRO_LEVELS: MacroLevels = {
+  d_fed: { value: 4.5, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
+  d_ust: { value: 4.3, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
+  infl: { value: 2.5, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
+  ret_krw: { value: 1400, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
+  ret_cmd: { value: 30, asOf: "임시 기준", source: "GSG 임시값", fallback: true },
+};
+
 const MACRO_ASSET_LABELS = {
   us: "미국주식 (S&P 500)",
   kr: "국내주식 (KOSPI)",
@@ -79,6 +96,43 @@ function normalizeMacroPortfolio(portfolio: Portfolio): Portfolio {
   return { ...portfolio, allocations };
 }
 
+function absoluteRange(id: MacroFactorId, base: number, meta: (typeof FACTOR_META)[number]) {
+  const span = Math.max(Math.abs(meta.min), Math.abs(meta.max));
+  if (id === "ret_krw" || id === "ret_cmd") {
+    return { min: base * (1 - span / 100), max: base * (1 + span / 100) };
+  }
+  return { min: base - span, max: base + span };
+}
+
+function absoluteFromShock(id: MacroFactorId, base: number, shock: number) {
+  if (id === "ret_krw" || id === "ret_cmd") return base * (1 + shock / 100);
+  return base + shock;
+}
+
+function shockFromAbsolute(id: MacroFactorId, base: number, absolute: number) {
+  if (id === "ret_krw" || id === "ret_cmd") {
+    return base === 0 ? 0 : ((absolute / base) - 1) * 100;
+  }
+  return absolute - base;
+}
+
+function absoluteStep(id: MacroFactorId, meta: (typeof FACTOR_META)[number]) {
+  if (id === "ret_krw") return 1;
+  if (id === "ret_cmd") return 0.1;
+  return meta.step;
+}
+
+function formatMacroLevel(id: MacroFactorId, value: number) {
+  if (id === "ret_krw") return `${Math.round(value).toLocaleString("ko-KR")}원`;
+  if (id === "ret_cmd") return `$${value.toFixed(2)}`;
+  return `${value.toFixed(2)}%`;
+}
+
+function formatShock(id: MacroFactorId, value: number) {
+  const unit = id === "d_fed" || id === "d_ust" || id === "infl" ? "%p" : "%";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}${unit}`;
+}
+
 // 숫자 포맷
 const fmt = (n: number, d = 1) =>
   (n >= 0 ? "+" : "") + n.toFixed(d);
@@ -94,8 +148,40 @@ function confidenceLabel(r2: number): { txt: string; cls: string } {
 export default function StressTestPanel({ portfolios }: Props) {
   const [shock, setShock] = useState<ScenarioShock>(zeroShock());
   const [presetId, setPresetId] = useState<string>("none");
+  const [macroLevels, setMacroLevels] = useState<MacroLevels>(FALLBACK_MACRO_LEVELS);
+  const [macroLevelsUpdatedAt, setMacroLevelsUpdatedAt] = useState<string>("");
   // 어떤 포트폴리오를 대상으로 조정안을 만들지 (기본: 첫 번째)
   const [targetId, setTargetId] = useState<string>(portfolios[0]?.id ?? "");
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLevels = async () => {
+      try {
+        const response = await fetch("/api/macro-levels", { cache: "no-store" });
+        if (!response.ok) throw new Error("macro levels request failed");
+        const payload = await response.json();
+        if (cancelled) return;
+        setMacroLevels((previous) => {
+          const next = { ...previous };
+          for (const id of FACTOR_IDS) {
+            const level = payload?.levels?.[id];
+            if (level && Number.isFinite(level.value)) next[id] = { ...level, fallback: false };
+          }
+          return next;
+        });
+        setMacroLevelsUpdatedAt(payload?.updatedAt ?? new Date().toISOString());
+      } catch {
+        if (!cancelled) setMacroLevelsUpdatedAt("");
+      }
+    };
+
+    loadLevels();
+    const timer = window.setInterval(loadLevels, 60 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   // 충격이 하나라도 설정됐는지
   const anyShock = useMemo(
@@ -142,8 +228,9 @@ export default function StressTestPanel({ portfolios }: Props) {
     );
   }
 
-  const onSlider = (id: MacroFactorId, v: number) => {
-    setShock((prev) => ({ ...prev, [id]: v }));
+  const onSlider = (id: MacroFactorId, absolute: number) => {
+    const nextShock = shockFromAbsolute(id, macroLevels[id].value, absolute);
+    setShock((prev) => ({ ...prev, [id]: nextShock }));
     setPresetId("custom");
   };
   const applyPreset = (id: string) => {
@@ -189,9 +276,20 @@ export default function StressTestPanel({ portfolios }: Props) {
           </button>
         </div>
 
+        <div className="mb-4 rounded-md border border-border/70 bg-surface-2 px-3 py-2 text-[11px] text-fg-muted">
+          슬라이더 가운데가 최신 시장값입니다. 왼쪽은 현재보다 하락, 오른쪽은 현재보다 상승입니다.
+          {macroLevelsUpdatedAt && (
+            <span className="ml-1">
+              조회 시각 {new Date(macroLevelsUpdatedAt).toLocaleString("ko-KR")}
+            </span>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
           {FACTOR_META.map((f) => {
-            const v = shock[f.id];
+            const level = macroLevels[f.id];
+            const range = absoluteRange(f.id, level.value, f);
+            const absoluteValue = absoluteFromShock(f.id, level.value, shock[f.id]);
             return (
               <div key={f.id}>
                 <div className="mb-1 flex items-baseline justify-between">
@@ -203,36 +301,39 @@ export default function StressTestPanel({ portfolios }: Props) {
                   </label>
                   <span
                     className={`tabular-nums text-sm font-semibold ${
-                      v === 0
+                      shock[f.id] === 0
                         ? "text-fg-muted"
-                        : v > 0
+                        : shock[f.id] > 0
                           ? "text-gold-600 dark:text-gold-300"
                           : "text-sky-600 dark:text-sky-300"
                     }`}
                   >
-                    {fmt(v, f.step < 1 ? 2 : 0)}
-                    {f.unit}
+                    {formatMacroLevel(f.id, absoluteValue)}
+                    <span className="ml-1 text-[10px] font-normal text-fg-muted">
+                      ({formatShock(f.id, shock[f.id])})
+                    </span>
                   </span>
                 </div>
                 <input
                   type="range"
-                  min={f.min}
-                  max={f.max}
-                  step={f.step}
-                  value={v}
+                  min={range.min}
+                  max={range.max}
+                  step={absoluteStep(f.id, f)}
+                  value={absoluteValue}
                   onChange={(e) => onSlider(f.id, Number(e.target.value))}
                   className="w-full accent-gold-500"
                 />
-                <div className="mt-0.5 flex justify-between text-[10px] text-fg-muted/70">
-                  <span>
-                    {f.min}
-                    {f.unit}
+                <div className="mt-1 grid grid-cols-3 items-start text-[10px] text-fg-muted/70">
+                  <span className="text-left">{formatMacroLevel(f.id, range.min)}</span>
+                  <span className="text-center font-semibold text-fg-muted">
+                    현재 {formatMacroLevel(f.id, level.value)}
                   </span>
-                  <span>
-                    +{f.max}
-                    {f.unit}
-                  </span>
+                  <span className="text-right">{formatMacroLevel(f.id, range.max)}</span>
                 </div>
+                <p className="mt-1 text-[10px] text-fg-muted/70">
+                  기준일 {level.asOf} · {level.source}
+                  {level.fallback ? " · 임시값" : ""}
+                </p>
                 <p className="mt-1 text-[11px] leading-tight text-fg-muted">{f.hint}</p>
               </div>
             );
