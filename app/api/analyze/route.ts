@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { emptyIPS, FACTOR_KEYS, type IPS, type IPSFactor } from "@/lib/types";
 import { isTagFactor, matchTagsInText, tagOptionsForPrompt } from "@/lib/rrttlluScoring";
 import { rubricForPrompt } from "@/lib/scoring";
@@ -126,19 +125,46 @@ function normalizeToIPS(raw: any): IPS {
   return ips;
 }
 
-async function callClaude(client: Anthropic, notes: string, strict: boolean) {
+async function callClaude(apiKey: string, notes: string, strict: boolean, attempt = 0): Promise<string> {
   const userText = strict
     ? `다음 상담 기록을 분석하라. 반드시 JSON만 출력하고 다른 텍스트는 절대 쓰지 마라.\n\n상담 기록:\n${notes}`
     : `다음 상담 기록을 RRTTLLU 7요인으로 분석하라.\n\n상담 기록:\n${notes}`;
 
-  const msg = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userText }],
-  });
-  const block = msg.content.find((b) => b.type === "text");
-  return block && block.type === "text" ? block.text : "";
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userText }],
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    const data = await res.json() as any;
+
+    if (!res.ok) {
+      const err: any = new Error(data?.error?.message ?? `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+
+    const block = data.content?.find((b: any) => b.type === "text");
+    return block?.text ?? "";
+  } catch (e: any) {
+    const isPrematureClose = /premature close|network|econnreset|socket|abort/i.test(String(e?.message ?? ""));
+    if (isPrematureClose && attempt === 0) {
+      await new Promise((r) => setTimeout(r, 1500));
+      return callClaude(apiKey, notes, strict, 1);
+    }
+    throw e;
+  }
 }
 
 export async function POST(req: Request) {
@@ -164,15 +190,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const client = new Anthropic({ apiKey });
-
     // ── 1차 시도 ──
-    let text = await callClaude(client, notes, false);
+    let text = await callClaude(apiKey, notes, false);
     let parsed = extractJson(text);
 
     // ── 2차: "JSON만" 강조 재요청 ──
     if (!parsed) {
-      text = await callClaude(client, notes, true);
+      text = await callClaude(apiKey, notes, true);
       parsed = extractJson(text);
     }
 
