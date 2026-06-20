@@ -85,7 +85,7 @@ export default function PBPage() {
     );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-6 py-6">
       {/* 헤더 */}
       <div>
         <Link href="/" className="text-xs text-fg-muted hover:text-fg">
@@ -160,7 +160,7 @@ export default function PBPage() {
         open={pbFormOpen}
         initial={pb}
         onSubmit={async (name) => {
-          await updatePb(pb.id, name);
+          await updatePb(pb.id, { name });
           await load();
         }}
         onClose={() => setPbFormOpen(false)}

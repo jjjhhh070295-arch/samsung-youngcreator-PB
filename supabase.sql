@@ -28,6 +28,12 @@ create table if not exists clients (
   created_at timestamptz default now()
 );
 
+-- PB 인증 컬럼 추가 (이미 있으면 무시됨)
+alter table pbs add column if not exists employee_id text default '';
+alter table pbs add column if not exists password text default '';
+-- 기존 PB: 사원번호=code, 비밀번호=1234 로 초기화
+update pbs set employee_id = code, password = '1234' where employee_id = '' or employee_id is null;
+
 -- 기존 프로젝트에 stages 칸이 없으면 추가 (이미 있으면 무시됨)
 alter table clients add column if not exists stages jsonb default '{}';
 alter table clients add column if not exists linked_client_id uuid references clients(id) on delete set null;

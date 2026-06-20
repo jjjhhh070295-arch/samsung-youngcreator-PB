@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Header from "@/components/Header";
+import AppNav from "@/components/AppNav";
 import SplashScreen from "@/components/SplashScreen";
 
 export const metadata: Metadata = {
@@ -21,7 +22,10 @@ export default function RootLayout({
         <ThemeProvider>
           <SplashScreen />
           <Header />
-          <main className="w-full max-w-none px-6 py-6">{children}</main>
+          <div className="flex">
+            <AppNav />
+            <main className="flex-1 min-w-0">{children}</main>
+          </div>
         </ThemeProvider>
       </body>
     </html>

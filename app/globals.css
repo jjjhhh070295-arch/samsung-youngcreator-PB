@@ -4,23 +4,22 @@
 
 /* ── CSS 변수 기반 테마 토큰 ── */
 :root {
-  --bg: 238 242 248;          /* 밝은 배경 */
-  --surface: 255 255 255;
-  --surface-2: 244 247 251;
-  --border: 214 224 239;
-  --fg: 10 37 64;             /* 네이비 텍스트 */
-  --fg-muted: 90 110 140;
+  --bg: 245 247 252;          /* 본문 배경 (거의 흰색) */
+  --surface: 255 255 255;     /* 카드·패널 흰색 */
+  --surface-2: 240 243 250;
+  --border: 220 228 245;
+  --fg: 15 23 42;             /* 본문 텍스트 (거의 검정) */
+  --fg-muted: 100 116 139;
   --font-sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic";
 }
 
 .dark {
-  /* 바이낸스 다크 팔레트 */
-  --bg: 11 14 17;            /* #0B0E11 거의 검정 */
-  --surface: 24 26 32;       /* #181A20 패널 */
-  --surface-2: 30 35 41;     /* #1E2329 살짝 밝은 패널 */
-  --border: 43 49 57;        /* #2B3139 */
-  --fg: 234 236 239;         /* #EAECEF */
-  --fg-muted: 132 142 156;   /* #848E9C */
+  --bg: 245 247 252;
+  --surface: 255 255 255;
+  --surface-2: 240 243 250;
+  --border: 220 228 245;
+  --fg: 15 23 42;
+  --fg-muted: 100 116 139;
 }
 
 * {
@@ -50,10 +49,10 @@ body {
     @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-navy-800 text-white hover:bg-navy-700 dark:bg-navy-600 dark:hover:bg-navy-500;
+    @apply btn bg-navy-500 text-white hover:bg-navy-600 dark:bg-navy-500 dark:hover:bg-navy-400;
   }
   .btn-gold {
-    @apply btn bg-gold-400 text-navy-900 hover:bg-gold-500 font-semibold;
+    @apply btn bg-white text-navy-900 hover:bg-gold-100 font-semibold dark:bg-white dark:text-navy-900 dark:hover:bg-gold-100;
   }
   .btn-outline {
     @apply btn border border-border bg-transparent text-fg hover:bg-surface-2;
@@ -65,7 +64,7 @@ body {
     @apply btn bg-red-600 text-white hover:bg-red-700;
   }
   .input {
-    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition-shadow placeholder:text-fg-muted/60 focus:ring-2 focus:ring-gold-400/60 disabled:bg-surface-2 disabled:opacity-70;
+    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition-shadow placeholder:text-fg-muted/60 focus:ring-2 focus:ring-navy-500/60 disabled:bg-surface-2 disabled:opacity-70;
   }
   .label {
     @apply mb-1 block text-xs font-medium text-fg-muted;

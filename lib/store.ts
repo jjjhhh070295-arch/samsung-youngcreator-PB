@@ -20,7 +20,14 @@ export const usingLocalFallback = !isSupabaseConfigured;
 // ───────────────────────── 변환기 (row ↔ 모델) ─────────────────────────
 
 function rowToPb(r: any): PB {
-  return { id: r.id, code: r.code, name: r.name, createdAt: r.created_at };
+  return {
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    employeeId: r.employee_id ?? "",
+    password: r.password ?? "",
+    createdAt: r.created_at,
+  };
 }
 
 function rowToClient(r: any): Client {
@@ -231,6 +238,8 @@ function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
       id: SAMPLE_PB_ID,
       code: "PB-001",
       name: "데모 PB",
+      employeeId: "PB-001",
+      password: "1234",
       createdAt: nowIso,
     } satisfies PB);
 
@@ -336,13 +345,15 @@ export async function listPbs(): Promise<PB[]> {
   return (data ?? []).map(rowToPb);
 }
 
-export async function createPb(name: string): Promise<PB> {
+export async function createPb(data: { name: string; employeeId: string; password: string }): Promise<PB> {
   if (usingLocalFallback) {
     const db = loadLocal();
     const pb: PB = {
       id: uid(),
       code: nextPbCode(db.pbs),
-      name,
+      name: data.name,
+      employeeId: data.employeeId,
+      password: data.password,
       createdAt: new Date().toISOString(),
     };
     db.pbs.push(pb);
@@ -351,24 +362,32 @@ export async function createPb(name: string): Promise<PB> {
   }
   const existing = await listPbs();
   const code = nextPbCode(existing);
-  const { data, error } = await supabase!
+  const { data: row, error } = await supabase!
     .from("pbs")
-    .insert({ code, name })
+    .insert({ code, name: data.name, employee_id: data.employeeId, password: data.password })
     .select()
     .single();
   if (error) throw error;
-  return rowToPb(data);
+  return rowToPb(row);
 }
 
-export async function updatePb(id: string, name: string): Promise<void> {
+export async function updatePb(id: string, data: { name?: string; employeeId?: string; password?: string }): Promise<void> {
   if (usingLocalFallback) {
     const db = loadLocal();
     const pb = db.pbs.find((p) => p.id === id);
-    if (pb) pb.name = name;
+    if (pb) {
+      if (data.name !== undefined) pb.name = data.name;
+      if (data.employeeId !== undefined) pb.employeeId = data.employeeId;
+      if (data.password !== undefined) pb.password = data.password;
+    }
     saveLocal(db);
     return;
   }
-  const { error } = await supabase!.from("pbs").update({ name }).eq("id", id);
+  const row: any = {};
+  if (data.name !== undefined) row.name = data.name;
+  if (data.employeeId !== undefined) row.employee_id = data.employeeId;
+  if (data.password !== undefined) row.password = data.password;
+  const { error } = await supabase!.from("pbs").update(row).eq("id", id);
   if (error) throw error;
 }
 

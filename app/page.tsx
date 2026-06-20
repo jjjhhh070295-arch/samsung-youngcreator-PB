@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { PB, Client } from "@/lib/types";
 import {
   listPbs,
@@ -8,27 +9,16 @@ import {
   createPb,
   updatePb,
   deletePb,
-  createClient,
-  updateClient,
-  deleteClient,
-  nextClientCode,
   usingLocalFallback,
 } from "@/lib/store";
-import PBCard from "@/components/PBCard";
+import { getLoggedInPbId, setLoggedInPbId, initDefaultCredentials, getPbCredentials } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
-import ClientTable from "@/components/ClientTable";
-import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
-import ViewToggle from "@/components/ViewToggle";
-import ConfirmModal from "@/components/ConfirmModal";
-import { LoadingView, ErrorView, EmptyView } from "@/components/StateViews";
+import { LoadingView, ErrorView } from "@/components/StateViews";
 import { formatKRWShort } from "@/lib/format";
-
-type ViewMode = "pb" | "client";
 
 type MarketTicker = { label: string; sub: string; value: string; change: string; up: boolean };
 type EtfItem = { code: string; name: string; price: number; changeRate: string; up: boolean; flat: boolean };
 
-// 로딩 중·실패 시 보여줄 폴백(예시) 값
 const DUMMY_MARKET: MarketTicker[] = [
   { label: "코스피", sub: "KOSPI", value: "2,545.98", change: "+0.87%", up: true },
   { label: "S&P 500", sub: "S&P 500", value: "5,602.23", change: "+1.24%", up: true },
@@ -38,26 +28,24 @@ const DUMMY_MARKET: MarketTicker[] = [
 ];
 
 export default function HomePage() {
-  const [view, setView] = useState<ViewMode>("pb");
+  const router = useRouter();
+
   const [pbs, setPbs] = useState<PB[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
-
-  // PB 관리 모달
   const [pbManageOpen, setPbManageOpen] = useState(false);
 
-  // 고객 폼/삭제 상태
-  const [clientFormOpen, setClientFormOpen] = useState(false);
-  const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [deleteClientTarget, setDeleteClientTarget] = useState<Client | null>(null);
+  // 로그인 폼 상태
+  const [loginEmpId, setLoginEmpId] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
 
-  // 증시·금리 티커 (실시간 /api/market, 실패 시 더미 폴백)
+  // 시세
   const [market, setMarket] = useState<MarketTicker[]>(DUMMY_MARKET);
   const [marketLive, setMarketLive] = useState(false);
-  // 삼성자산운용 KODEX 인기 ETF (/api/etf)
   const [etfs, setEtfs] = useState<EtfItem[]>([]);
   const [rightTab, setRightTab] = useState<"market" | "etf">("market");
-
   const [marketAt, setMarketAt] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -80,12 +68,9 @@ export default function HomePage() {
         })
         .catch(() => {});
     };
-    loadMarket(); // 최초 1회
-    const id = setInterval(loadMarket, 60_000); // 60초마다 자동 갱신
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+    loadMarket();
+    const id = setInterval(loadMarket, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   const load = useCallback(async () => {
@@ -105,113 +90,101 @@ export default function HomePage() {
     load();
   }, [load]);
 
-  const clientCount = (pbId: string) =>
-    clients.filter((c) => c.assignedPbId === pbId).length;
+  // PB 로드 완료 시 기본 자격증명 초기화 + 이미 로그인돼 있으면 PB 페이지로
+  useEffect(() => {
+    if (status !== "ready") return;
+    initDefaultCredentials(pbs);
+    const pbId = getLoggedInPbId();
+    if (pbId && pbs.some((p) => p.id === pbId)) {
+      router.replace(`/pb/${pbId}`);
+    }
+  }, [status, pbs, router]);
 
-  // 히어로용 집계
   const totalAum = clients.reduce((sum, c) => sum + (c.assetSize || 0), 0);
+  const clientCount = (pbId: string) => clients.filter((c) => c.assignedPbId === pbId).length;
 
-  const handleCreatePb = async (name: string) => {
-    await createPb(name);
+  const handleLogin = async () => {
+    setLoginError("");
+    setLoginBusy(true);
+    try {
+      // 사원번호로 PB 찾기
+      const creds = Object.entries(
+        pbs.reduce((acc, pb) => {
+          const c = getPbCredentials(pb.id);
+          if (c) acc[pb.id] = c;
+          return acc;
+        }, {} as Record<string, { employeeId: string; password: string }>)
+      ).find(([, c]) => c.employeeId === loginEmpId.trim() && c.password === password);
+
+      if (!creds) {
+        setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다.");
+        return;
+      }
+      setLoggedInPbId(creds[0]);
+      router.push(`/pb/${creds[0]}`);
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const handleCreatePb = async (data: { name: string; employeeId: string; password: string }) => {
+    const pb = await createPb(data);
+    await load();
+    return pb;
+  };
+
+  const handleUpdatePb = async (id: string, data: { name?: string; employeeId?: string; password?: string }) => {
+    await updatePb(id, data);
     await load();
   };
-  const handleRenamePb = async (id: string, name: string) => {
-    await updatePb(id, name);
-    await load();
-  };
+
   const handleDeletePb = async (id: string) => {
     await deletePb(id);
     await load();
   };
 
-  const submitClient = async (v: ClientFormValue) => {
-    if (editingClient) {
-      await updateClient(editingClient.id, {
-        code: v.code,
-        clientType: v.clientType,
-        name: v.name,
-        birthDate: v.birthDate,
-        assignedPbId: v.assignedPbId,
-        assetSize: v.assetSize,
-        linkedClientId: v.linkedClientId,
-        ownershipPct: v.ownershipPct,
-        isMajorityShareholder: v.isMajorityShareholder,
-        accountSeparation: v.accountSeparation,
-      });
-    } else {
-      await createClient(v);
-    }
-    await load();
-  };
-
-  const confirmDeleteClient = async () => {
-    if (!deleteClientTarget) return;
-    await deleteClient(deleteClientTarget.id);
-    setDeleteClientTarget(null);
-    await load();
-  };
-
   return (
-    <div>
-      {/* 히어로 — 바이낸스식 2단 (좌: 헤드라인+CTA / 우: 시세 패널) */}
-      <div className="mb-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.25fr_1fr]">
+    <div className="px-6 py-6">
+      {/* 히어로 — 좌: 헤드라인+CTA / 우: 시세 패널 */}
+      <div className="mb-10 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.25fr_1fr]">
         {/* 좌 */}
         <div>
-          <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-gold-400">
-            <span className="h-px w-6 bg-gold-400" />
+          <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[#1428A0]">
+            <span className="h-px w-6 bg-[#1428A0]" />
             SAMSUNG SECURITIES · PRIVATE BANKING
           </p>
           <h1 className="mt-2 text-4xl font-black leading-[1.02] tracking-tight text-fg sm:text-5xl">
-            {formatKRWShort(totalAum)}
+            {status === "ready" ? formatKRWShort(totalAum) : "—"}
           </h1>
           <p className="mt-1 text-lg font-bold text-fg-muted">관리 자산 규모</p>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-fg-muted">
             삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.
           </p>
 
-          {/* 스탯 칩 */}
           <div className="mt-4 flex flex-wrap gap-3">
             <div className="rounded-xl border border-border bg-surface px-5 py-2.5">
-              <p className="text-2xl font-black text-gold-400">{clients.length}</p>
+              <p className="text-2xl font-black text-[#1428A0]">{clients.length}</p>
               <p className="text-xs text-fg-muted">관리 고객</p>
             </div>
             <div className="rounded-xl border border-border bg-surface px-5 py-2.5">
-              <p className="text-2xl font-black text-gold-400">{pbs.length}</p>
+              <p className="text-2xl font-black text-[#1428A0]">{pbs.length}</p>
               <p className="text-xs text-fg-muted">담당 PB</p>
             </div>
           </div>
 
-          {/* CTA */}
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              className="btn-gold px-6 py-2.5"
-              onClick={() => {
-                setEditingClient(null);
-                setClientFormOpen(true);
-              }}
-            >
-              + 고객 추가
-            </button>
-            <button className="btn-outline px-6 py-2.5" onClick={() => setPbManageOpen(true)}>
-              PB 관리
-            </button>
-          </div>
           <p className="mt-4 text-[11px] text-fg-muted/70">
             ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
           </p>
         </div>
 
-        {/* 우 — 시세 패널 (증시·금리 / KODEX ETF 탭) */}
+        {/* 우 — 시세 패널 */}
         <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
-          {/* 탭 헤더 */}
           <div className="mb-3 flex items-center justify-between">
             <div className="flex gap-1">
               <button
                 onClick={() => setRightTab("market")}
                 className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
-                  rightTab === "market"
-                    ? "bg-surface-2 text-fg"
-                    : "text-fg-muted hover:text-fg"
+                  rightTab === "market" ? "bg-surface-2 text-fg" : "text-fg-muted hover:text-fg"
                 }`}
               >
                 증시 · 금리
@@ -240,9 +213,7 @@ export default function HomePage() {
                       </span>
                     )}
                   </>
-                ) : (
-                  "예시"
-                )}
+                ) : "예시"}
               </span>
             ) : (
               <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-fg-muted">
@@ -251,7 +222,6 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* 증시·금리 */}
           {rightTab === "market" && (
             <div className="space-y-0.5">
               {market.map((m) => (
@@ -274,7 +244,6 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* KODEX ETF */}
           {rightTab === "etf" &&
             (etfs.length === 0 ? (
               <p className="py-8 text-center text-sm text-fg-muted">불러오는 중…</p>
@@ -291,11 +260,7 @@ export default function HomePage() {
                     <p className="min-w-0 truncate text-sm font-semibold text-fg">{e.name}</p>
                     <div className="shrink-0 text-right">
                       <p className="text-sm font-semibold text-fg">{e.price.toLocaleString()}원</p>
-                      <p
-                        className={`text-[11px] font-medium ${
-                          e.flat ? "text-fg-muted" : e.up ? "text-green-500" : "text-red-500"
-                        }`}
-                      >
+                      <p className={`text-[11px] font-medium ${e.flat ? "text-fg-muted" : e.up ? "text-green-500" : "text-red-500"}`}>
                         {e.changeRate}
                       </p>
                     </div>
@@ -306,113 +271,91 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* 보기 토글 */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-fg">상담 관리 대시보드</h2>
-          <p className="text-sm text-fg-muted">PB·고객을 선택해 상담을 진행하세요.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ViewToggle
-            options={[
-              { value: "pb", label: "PB 기준" },
-              { value: "client", label: "고객 기준" },
-            ]}
-            value={view}
-            onChange={setView}
-          />
-        </div>
-      </div>
-
-      {usingLocalFallback && (
-        <div className="mb-4 rounded-lg border border-gold-300 bg-gold-50 px-4 py-2.5 text-xs text-gold-800 dark:border-gold-700 dark:bg-gold-900/30 dark:text-gold-200">
-          ⚠️ Supabase 키가 없어 <b>로컬(브라우저) 모드</b>로 동작 중입니다. 데이터는
-          이 브라우저에만 저장되고 팀원과 공유되지 않습니다. `.env.local`에 Supabase
-          키를 넣으면 공유 DB로 전환됩니다.
-        </div>
-      )}
-
+      {/* 로그인 영역 */}
       {status === "loading" && <LoadingView />}
       {status === "error" && <ErrorView onRetry={load} />}
 
-      {status === "ready" && view === "pb" && (
-        <>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-fg-muted">PB 폴더</h2>
-            <button className="btn-gold text-sm" onClick={() => setPbManageOpen(true)}>
-              PB 정보 수정
-            </button>
-          </div>
-          {pbs.length === 0 ? (
-            <EmptyView
-              title="아직 등록된 PB가 없어요"
-              hint="오른쪽 위 'PB 정보 수정' 버튼에서 PB를 추가하세요."
-              action={
-                <button className="btn-gold text-sm" onClick={() => setPbManageOpen(true)}>
-                  PB 정보 수정
-                </button>
-              }
-            />
-          ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {pbs.map((pb) => (
-                <PBCard key={pb.id} pb={pb} clientCount={clientCount(pb.id)} />
-              ))}
+      {status === "ready" && (
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1fr]">
+          {/* 로그인 폼 */}
+          <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
+            <div className="mb-6">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1428A0] text-sm font-black text-white">
+                  S
+                </span>
+                <span className="text-base font-bold text-fg">PB 로그인</span>
+              </div>
+              <p className="text-xs text-fg-muted">본인의 사원번호와 비밀번호로 로그인하세요.</p>
             </div>
-          )}
-        </>
-      )}
 
-      {status === "ready" && view === "client" && (
-        <>
-          <div className="mb-1 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-fg-muted">전체 고객</h2>
-            <button
-              className="btn-gold text-sm"
-              onClick={() => {
-                setEditingClient(null);
-                setClientFormOpen(true);
-              }}
-            >
-              + 고객 추가
-            </button>
+            <div className="space-y-3">
+              <div>
+                <label className="label">사원번호</label>
+                <input
+                  className="input"
+                  value={loginEmpId}
+                  placeholder="사원번호 입력 (예: PB-001)"
+                  onChange={(e) => { setLoginEmpId(e.target.value); setLoginError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                />
+              </div>
+              <div>
+                <label className="label">비밀번호</label>
+                <input
+                  className="input"
+                  type="password"
+                  value={password}
+                  placeholder="비밀번호 입력"
+                  onChange={(e) => { setPassword(e.target.value); setLoginError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                />
+              </div>
+
+              {loginError && (
+                <p className="text-xs text-red-500">{loginError}</p>
+              )}
+
+              <button
+                className="w-full rounded-lg bg-[#1428A0] py-3 text-sm font-bold text-white hover:bg-[#1020c0] transition-colors disabled:opacity-50"
+                onClick={handleLogin}
+                disabled={loginBusy || !loginEmpId.trim() || !password}
+              >
+                {loginBusy ? "로그인 중…" : "로그인"}
+              </button>
+
+              <p className="text-center text-[11px] text-fg-muted">
+                사원번호는 관리자에게 문의하세요
+              </p>
+            </div>
           </div>
-          <p className="mb-3 text-xs text-fg-muted">
-            고객을 먼저 추가한 뒤, 행의 <b className="text-gold-600 dark:text-gold-300">[수정]</b>에서
-            담당 PB를 연결할 수 있습니다. (담당 PB는 비워둬도 됩니다)
-          </p>
-          {clients.length === 0 ? (
-            <EmptyView
-              title="아직 등록된 고객이 없어요"
-              hint="오른쪽 위 '+ 고객 추가' 버튼으로 고객을 등록하세요. 담당 PB는 나중에 연결할 수 있어요."
-              action={
-                <button
-                  className="btn-gold text-sm"
-                  onClick={() => {
-                    setEditingClient(null);
-                    setClientFormOpen(true);
-                  }}
-                >
-                  + 고객 추가
-                </button>
-              }
-            />
-          ) : (
-            <ClientTable
-              clients={clients}
-              pbs={pbs}
-              searchable
-              rowHref={(c) =>
-                c.assignedPbId ? `/pb/${c.assignedPbId}/${c.id}` : `/client/${c.id}`
-              }
-              onEdit={(c) => {
-                setEditingClient(c);
-                setClientFormOpen(true);
-              }}
-              onDelete={(c) => setDeleteClientTarget(c)}
-            />
-          )}
-        </>
+
+          {/* 관리자 패널 */}
+          <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
+            <div className="mb-6">
+              <p className="text-base font-bold text-fg">관리자</p>
+              <p className="text-xs text-fg-muted">PB 계정 등록 및 관리</p>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3">
+                <span className="text-sm text-fg">등록된 PB</span>
+                <span className="text-lg font-black text-[#1428A0]">{pbs.length}명</span>
+              </div>
+              <button
+                className="w-full rounded-lg border border-[#1428A0] py-3 text-sm font-bold text-[#1428A0] hover:bg-[#1428A0] hover:text-white transition-colors"
+                onClick={() => setPbManageOpen(true)}
+              >
+                PB 계정 관리
+              </button>
+            </div>
+
+            {usingLocalFallback && (
+              <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700 border border-amber-200">
+                ⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       <PBManageModal
@@ -420,34 +363,9 @@ export default function HomePage() {
         pbs={pbs}
         clientCountOf={clientCount}
         onCreate={handleCreatePb}
-        onRename={handleRenamePb}
+        onUpdate={handleUpdatePb}
         onDelete={handleDeletePb}
         onClose={() => setPbManageOpen(false)}
-      />
-
-      <ClientForm
-        open={clientFormOpen}
-        initial={editingClient}
-        pbs={pbs}
-        clients={clients}
-        suggestedCode={nextClientCode(clients)}
-        onSubmit={submitClient}
-        onClose={() => setClientFormOpen(false)}
-      />
-
-      <ConfirmModal
-        open={!!deleteClientTarget}
-        title="고객을 삭제할까요?"
-        danger
-        confirmLabel="삭제"
-        description={
-          <>
-            <b>{deleteClientTarget?.name}</b> ({deleteClientTarget?.code})와 관련 상담
-            이력이 <b>모두 삭제</b>됩니다. 되돌릴 수 없습니다.
-          </>
-        }
-        onConfirm={confirmDeleteClient}
-        onCancel={() => setDeleteClientTarget(null)}
       />
     </div>
   );

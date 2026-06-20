@@ -13,16 +13,18 @@ interface Props {
   client: Client;
   pbId: string;
   clientId: string;
-  onEdit: () => void; // 7요인 수정 (상담 모달)
+  tab: Tab;
+  onSetTab: (t: Tab) => void;
+  onEdit: () => void;
   onSaveCashFlows: (flows: CashFlow[]) => Promise<void> | void;
   onSavePortfolios: (portfolios: Portfolio[]) => Promise<void> | void;
-  onFinalizePortfolio: (portfolio: Portfolio) => Promise<void> | void; // 최종 확정(저장+단계)
-  onUnfinalizePortfolio: () => Promise<void> | void; // 확정 해제
-  onToggleStage: (key: StageKey) => Promise<void> | void; // 스트레스/IPS 완료 토글
+  onFinalizePortfolio: (portfolio: Portfolio) => Promise<void> | void;
+  onUnfinalizePortfolio: () => Promise<void> | void;
+  onToggleStage: (key: StageKey) => Promise<void> | void;
   linkedClient?: Client | null;
 }
 
-type Tab =
+export type Tab =
   | "basic"
   | "factors"
   | "flags"
@@ -51,6 +53,8 @@ export default function IPSResultTabs({
   client,
   pbId,
   clientId,
+  tab,
+  onSetTab,
   onEdit,
   onSaveCashFlows,
   onSavePortfolios,
@@ -61,7 +65,6 @@ export default function IPSResultTabs({
 }: Props) {
   const router = useRouter();
   const ips = client.ips;
-  const [tab, setTab] = useState<Tab>("factors");
   const done = computeStages(client);
 
   // 포트폴리오 패널에서 현재 선택·편집 중인 포트폴리오 (최종 확정 저장용)
@@ -142,17 +145,6 @@ export default function IPSResultTabs({
     return list;
   }, [ips]);
 
-  const tabs: { key: Tab; label: string; badge?: number; done?: boolean }[] = [
-    { key: "basic", label: "기본정보", done: done.basic },
-    { key: "factors", label: "7요인", done: done.factors },
-    { key: "flags", label: "플래그", badge: flags.length },
-    { key: "questions", label: "추가질문", badge: questions.length },
-    { key: "cashflow", label: "현금흐름", done: done.cashflow },
-    { key: "portfolio", label: "포트폴리오", done: done.portfolio },
-    { key: "stress", label: "스트레스", done: done.stress },
-    { key: "ips", label: "IPS", done: done.ips },
-  ];
-
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
     <button
@@ -165,38 +157,6 @@ export default function IPSResultTabs({
 
   return (
     <div>
-      {/* 탭 바 */}
-      <div className="mb-4 flex flex-wrap items-center gap-1 rounded-xl border border-border bg-surface-2 p-1">
-        {tabs.map((t) => {
-          const active = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors ${
-                active ? "bg-navy-800 text-white shadow-sm dark:bg-navy-600" : "text-fg-muted hover:text-fg"
-              }`}
-            >
-              {t.done && <span className={active ? "text-gold-300" : "text-gold-500"}>✓</span>}
-              {t.label}
-              {t.badge != null && t.badge > 0 && (
-                <span
-                  className={`rounded-full px-1.5 text-[11px] ${
-                    active ? "bg-gold-400 text-navy-900" : "bg-gold-200 text-gold-900"
-                  }`}
-                >
-                  {t.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-        {tab === "factors" && (
-          <button className="btn-outline ml-auto text-xs" onClick={onEdit}>
-            상담으로 7요인 수정
-          </button>
-        )}
-      </div>
 
       {/* 기본정보 */}
       {tab === "basic" && (
@@ -262,6 +222,9 @@ export default function IPSResultTabs({
               label="AI점수 기준표 확인"
               className="shrink-0 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700"
             />
+            <button className="btn-outline text-xs" onClick={onEdit}>
+              상담으로 7요인 수정
+            </button>
             <StageToggle k="factors" />
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -389,7 +352,7 @@ export default function IPSResultTabs({
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-500 text-navy-900">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-500 text-white">
                       ✓
                     </span>
                     <div>
@@ -462,7 +425,7 @@ export default function IPSResultTabs({
               <p className="text-xs text-fg-muted">
                 포트폴리오 탭에서 최종 확정해야 그 구성으로 스트레스 테스트를 진행할 수 있습니다.
               </p>
-              <button className="btn-outline mt-1 text-xs" onClick={() => setTab("portfolio")}>
+              <button className="btn-outline mt-1 text-xs" onClick={() => onSetTab("portfolio")}>
                 포트폴리오 탭으로
               </button>
             </div>

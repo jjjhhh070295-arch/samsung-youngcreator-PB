@@ -4,14 +4,14 @@
 
 export const COLORS = {
   navy: {
-    base: "#0A2540",
-    mid: "#16386b",
-    light: "#4f72a8",
+    base: "#0e1580",
+    mid: "#2c3ee8",
+    light: "#8a9bff",
   },
   gold: {
-    base: "#C9A227",
-    bright: "#D4AF37",
-    soft: "#e0c454",
+    base: "#e0e5ff",
+    bright: "#ffffff",
+    soft: "#f0f2ff",
   },
   neutral: {
     grayLine: "#94a3b8",
@@ -19,20 +19,19 @@ export const COLORS = {
   },
 } as const;
 
-// 레이더/추세 차트의 7요인 색 (골드 계열 강조 + 네이비)
+// 레이더/추세 차트의 7요인 색 (블루+화이트 계열)
 export const CHART_COLORS = {
   primary: COLORS.navy.mid,
-  accent: COLORS.gold.bright,
+  accent: COLORS.navy.light,
   muted: COLORS.neutral.grayLine,
-  // 추세 그래프에서 요인별로 구분할 7색 (서로 뚜렷이 구분되도록)
   series: [
-    "#16386b", // return — 네이비
-    "#D4AF37", // risk — 골드
+    "#2c3ee8", // return — 메인 블루
+    "#ffffff", // risk — 흰색
     "#2a9d8f", // timeHorizon — 틸
     "#e76f51", // tax — 코랄
-    "#6a4c93", // liquidity — 퍼플
+    "#8a9bff", // liquidity — 라이트 블루
     "#43936c", // legal — 그린
-    "#e98a1e", // unique — 오렌지
+    "#b0baf0", // unique — 연보라
   ],
 } as const;
 

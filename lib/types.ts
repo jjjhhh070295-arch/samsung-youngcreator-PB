@@ -4,6 +4,8 @@ export interface PB {
   id: string;
   code: string; // "PB-001"
   name: string;
+  employeeId: string; // 사원번호
+  password: string;   // 비밀번호 (프로토타입: plaintext)
   createdAt: string;
 }
 

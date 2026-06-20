@@ -118,7 +118,7 @@ export default function ClientTable({
             onClick={() => setFilter(f)}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               filter === f
-                ? "bg-gold-500 text-navy-900"
+                ? "bg-gold-500 text-white"
                 : "bg-surface-2 text-fg-muted hover:text-fg"
             }`}
           >
@@ -155,7 +155,7 @@ export default function ClientTable({
               >
                 자산규모{arrow("assetSize")}
               </th>
-              {(rowHref || onEdit || onDelete) && <th className="px-3 py-2" />}
+              {(onEdit || onDelete) && <th className="px-3 py-2" />}
             </tr>
           </thead>
           <tbody>
@@ -195,20 +195,9 @@ export default function ClientTable({
                 <td className="whitespace-nowrap px-3 py-2.5 text-right font-medium text-fg">
                   {formatKRW(c.assetSize)}
                 </td>
-                {(rowHref || onEdit || onDelete) && (
+                {(onEdit || onDelete) && (
                   <td className="whitespace-nowrap px-3 py-2.5 text-right">
                     <div className="flex justify-end gap-1">
-                      {rowHref && (
-                        <button
-                          className="btn-gold h-7 px-2.5 text-xs"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            go(c);
-                          }}
-                        >
-                          상담 →
-                        </button>
-                      )}
                       {onEdit && (
                         <button
                           className="btn-ghost h-7 px-2 text-xs"

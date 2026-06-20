@@ -48,9 +48,9 @@ export default function Sidebar({ open, onClose }: Props) {
         }`}
       >
         {/* 상단 */}
-        <div className="flex items-center justify-between border-b border-border bg-navy-800 px-4 py-3 text-white dark:bg-navy-900">
+        <div className="flex items-center justify-between border-b border-[#0f1e7a] bg-[#1428A0] px-4 py-3 text-white">
           <span className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-gold-400 text-sm font-black text-navy-900">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-sm font-black text-[#1428A0]">
               S
             </span>
             <span className="text-sm font-bold">삼성증권 PB센터</span>
