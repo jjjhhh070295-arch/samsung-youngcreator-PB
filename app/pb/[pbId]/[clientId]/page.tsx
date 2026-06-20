@@ -21,11 +21,17 @@ import IPSRadar from "@/components/IPSRadar";
 import TrendChart from "@/components/TrendChart";
 import ConsultationHistory from "@/components/ConsultationHistory";
 import { LoadingView, ErrorView } from "@/components/StateViews";
+import HoldingsExtractor from "@/components/HoldingsExtractor";
+import RealEstateModule from "@/components/RealEstateModule";
+import AssetAllocationBar from "@/components/AssetAllocationBar";
+import PartyRelationshipModule from "@/components/PartyRelationshipModule";
+import TransferEventModule from "@/components/TransferEventModule";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const activeView = searchParams?.get("view") ?? "home";
   const activeTab = (searchParams?.get("tab") ?? "factors") as Tab;
 
   const [client, setClient] = useState<Client | null>(null);
@@ -60,8 +66,16 @@ export default function ClientDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash) return;
+    const el = document.getElementById(hash.replace("#", ""));
+    if (el) el.scrollIntoView({ behavior: "smooth" });
+  }, [activeView]);
+
   const handleSetTab = (t: Tab) => {
-    router.push(`/pb/${pbId}/${clientId}?tab=${t}`, { scroll: false });
+    router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=${t}`, { scroll: false });
   };
 
   const saveCashFlows = async (flows: CashFlow[]) => {
@@ -136,8 +150,9 @@ export default function ClientDetailPage() {
   return (
     <div className="px-8 py-6 space-y-10">
 
-        {/* 기본 정보 */}
-        <section id="basic">
+      {/* 기본 정보 */}
+      {activeView === "home" && <>
+        <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
             <span>👤</span> 기본 정보
           </h2>
@@ -160,16 +175,13 @@ export default function ClientDetailPage() {
                 {(linkedClient || client.accountSeparation) && (
                   <p className="mt-1 text-xs text-fg-muted">
                     {linkedClient && (
-                      <>
-                        연동 고객 <b className="text-fg">{linkedClient.name}</b>
+                      <>연동 고객 <b className="text-fg">{linkedClient.name}</b>
                         {client.ownershipPct != null && ` · 지분율 ${client.ownershipPct}%`}
                       </>
                     )}
                     {linkedClient && client.accountSeparation && " · "}
                     {client.accountSeparation && (
-                      <>
-                        통장 분리 <b className="text-fg">{ACCOUNT_SEPARATION_LABEL[client.accountSeparation]}</b>
-                      </>
+                      <>통장 분리 <b className="text-fg">{ACCOUNT_SEPARATION_LABEL[client.accountSeparation]}</b></>
                     )}
                   </p>
                 )}
@@ -179,11 +191,57 @@ export default function ClientDetailPage() {
                 <button className="btn-ghost text-sm text-red-500" onClick={() => setDeleteOpen(true)}>삭제</button>
               </div>
             </div>
+            <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} />
           </div>
         </section>
 
-        {/* 상담 진행 */}
-        <section id="consultation">
+        {/* MTS 보유종목 추출 */}
+        <section>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+            <span>📊</span> 보유종목 (MTS 캡쳐 추출)
+          </h2>
+          <div className="card p-5">
+            <HoldingsExtractor clientId={clientId} />
+          </div>
+        </section>
+
+        {/* 부동산 자산 */}
+        <section>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+            <span>🏠</span> 부동산 자산
+          </h2>
+          <div className="card p-5">
+            <RealEstateModule clientId={clientId} />
+          </div>
+        </section>
+
+        {/* 관계 네트워크 */}
+        <section>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+            <span>🔗</span> 관계 네트워크
+          </h2>
+          <div className="card p-5">
+            <PartyRelationshipModule
+              partyId={clientId}
+              partyType={client.clientType === "corporate" ? "corporate" : "individual"}
+            />
+          </div>
+        </section>
+
+        {/* 증여·상속 이력 */}
+        <section>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+            <span>📋</span> 증여·상속 이력
+          </h2>
+          <div className="card p-5">
+            <TransferEventModule partyId={clientId} partyName={client.name} />
+          </div>
+        </section>
+      </>}
+
+      {/* 상담 진행 */}
+      {activeView === "consultation" && (<>
+        <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
             <span>📝</span> 상담 진행
           </h2>
@@ -205,10 +263,7 @@ export default function ClientDetailPage() {
                 >
                   이력 {consultations.length}건 {historyOpen ? "▲" : "▼"}
                 </button>
-                <button
-                  className="btn-primary text-sm px-4"
-                  onClick={() => setModalOpen(true)}
-                >
+                <button className="btn-primary text-sm px-4" onClick={() => setModalOpen(true)}>
                   + 새 상담
                 </button>
               </div>
@@ -221,47 +276,52 @@ export default function ClientDetailPage() {
           </div>
         </section>
 
-        {/* 7요인 분석 */}
-        <section id="process">
+        <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>📊</span> 7요인 분석
+            <span>📈</span> 성향 변화 추세
           </h2>
-          <IPSResultTabs
-            client={client}
-            pbId={pbId}
-            clientId={clientId}
-            tab={activeTab}
-            onSetTab={handleSetTab}
-            onEdit={() => setModalOpen(true)}
-            onSaveCashFlows={saveCashFlows}
-            onSavePortfolios={savePortfolios}
-            onFinalizePortfolio={finalizePortfolio}
-            onUnfinalizePortfolio={unfinalizePortfolio}
-            onToggleStage={toggleStage}
-            linkedClient={linkedClient}
-          />
+          <div className="card p-4">
+            <TrendChart consultations={consultations} />
+          </div>
         </section>
+      </>)}
 
-        {/* 성향 시각화 */}
-        <section id="visualization">
+      {/* 분석 */}
+      {activeView === "analysis" && (
+        <IPSResultTabs
+          client={client}
+          pbId={pbId}
+          clientId={clientId}
+          tab={activeTab}
+          onSetTab={handleSetTab}
+          onEdit={() => setModalOpen(true)}
+          onSaveCashFlows={saveCashFlows}
+          onSavePortfolios={savePortfolios}
+          onFinalizePortfolio={finalizePortfolio}
+          onUnfinalizePortfolio={unfinalizePortfolio}
+          onToggleStage={toggleStage}
+          linkedClient={linkedClient}
+        />
+      )}
+
+      {/* 성향 시각화 */}
+      {activeView === "visualization" && (
+        <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
             <span>📈</span> 성향 시각화
           </h2>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div>
               <p className="text-xs text-fg-muted mb-2">현재 성향 (레이더)</p>
-              <div className="card p-4">
-                <IPSRadar ips={client.ips} />
-              </div>
+              <div className="card p-4"><IPSRadar ips={client.ips} /></div>
             </div>
             <div>
               <p className="text-xs text-fg-muted mb-2">성향 변화 추세</p>
-              <div className="card p-4">
-                <TrendChart consultations={consultations} />
-              </div>
+              <div className="card p-4"><TrendChart consultations={consultations} /></div>
             </div>
           </div>
         </section>
+      )}
 
       {/* 모달들 */}
       <ConsultationModal

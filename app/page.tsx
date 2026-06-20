@@ -34,6 +34,7 @@ export default function HomePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [pbManageOpen, setPbManageOpen] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   // 로그인 폼 상태
   const [loginEmpId, setLoginEmpId] = useState("");
@@ -96,8 +97,9 @@ export default function HomePage() {
       setPbs(p);
       setClients(c);
       setStatus("ready");
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setLoadError(e?.message ?? String(e));
       setStatus("error");
     }
   }, []);
@@ -271,7 +273,12 @@ export default function HomePage() {
 
       {/* 로그인 영역 */}
       {status === "loading" && <LoadingView />}
-      {status === "error" && <ErrorView onRetry={load} />}
+      {status === "error" && (
+        <ErrorView
+          message={loadError || "불러오기에 실패했습니다."}
+          onRetry={load}
+        />
+      )}
 
       {status === "ready" && (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1fr]">

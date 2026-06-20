@@ -271,29 +271,95 @@ export function dateRecencyWeight(date?: string | null): number {
   return 1; // 그 이상(하한 통과분) — 최소 가중
 }
 
+// 리포트 수집·집계 공통 시간 윈도우.
+// 크롤 단계(withinAgeFloor)와 스냅샷 DB 쿼리가 동일 값을 참조해 "화면 = 백테스트" 일치를 보장.
+export const WINDOW_DAYS = 30;
+
+// 스냅샷에 기록되는 점수 계산 알고리즘 버전.
+// 로직이 바뀔 때마다 이 값만 올리면 백테스트 시 버전별로 분리 가능.
+//
+// 버전 이력:
+//   v1-legacy              position-based recency weight, 소스 캡 없음
+//   v2-normalized-capfactor MAX_SOURCE_WEIGHT=0.25 캡 + pre-cap 절댓값 가중평균 정규화 × SIGNAL_SCALE=10
+//   v3-capfactor-unified   스냅샷 route도 scoreResearchSignals 통일 — 화면 = 백테스트 점수 일치
+export const SCORING_VERSION = "v3-capfactor-unified" as const;
+
+// 단일 소스가 해당 자산군 점수에서 차지할 수 있는 최대 비중.
+// 절댓값 기준으로 초과분은 버림 — 재배분 없음 (재배분 시 소수 소스 과잉 증폭 발생).
+const MAX_SOURCE_WEIGHT = 0.25;
+
+// 정규화 후 출력 스케일.
+// capFactor(컨센서스 강도) ∈ [-1, +1] 를 이 값으로 스케일해서 최종 점수를 만든다.
+// ≥5 = 50% 컨센서스(ETF 바스켓), ≥8 = 80% 컨센서스(고위험 신호) — 기존 임계값 그대로 유지.
+const SIGNAL_SCALE = 10;
+
 export function scoreResearchSignals(items: MarketResearchItem[]): ResearchSignalScore[] {
-  const scores = new Map<ResearchSignal, number>();
+  // 1단계: signal → source → 가중 합산
+  const sourceScores = new Map<ResearchSignal, Map<string, number>>();
+
   items.forEach((item) => {
-    const recencyWeight = dateRecencyWeight(item.date); // 날짜 기반: 오래된 리포트는 가산점↓
+    const recencyWeight = dateRecencyWeight(item.date);
+    const source = item.source.split(" · ")[0]; // 증권사명만 추출 (지점·팀 제거)
+
     if (item.analysis && item.analysis.length > 0) {
-      // LLM 분석 있음: 방향(±)×강도×최신 — "강세/약세"와 "강도"를 반영.
       for (const a of item.analysis) {
-        scores.set(a.signal, (scores.get(a.signal) ?? 0) + a.direction * a.strength * recencyWeight);
+        if (!sourceScores.has(a.signal)) sourceScores.set(a.signal, new Map());
+        const bySource = sourceScores.get(a.signal)!;
+        bySource.set(source, (bySource.get(source) ?? 0) + a.direction * a.strength * recencyWeight);
       }
     } else {
-      // 분석 없음(폴백): 기존 키워드 방식 — 등장 빈도×최신 (방향·강도 없음).
       item.signals.forEach((signal) => {
-        scores.set(signal, (scores.get(signal) ?? 0) + recencyWeight);
+        if (!sourceScores.has(signal)) sourceScores.set(signal, new Map());
+        const bySource = sourceScores.get(signal)!;
+        bySource.set(source, (bySource.get(source) ?? 0) + recencyWeight);
       });
     }
   });
 
+  // 2단계: 소스 비중 캡 → 정규화 → signal별 최종 점수
+  //
+  // 정규화 방식: cappedSum / totalAbsBeforeCap (pre-cap 절댓값 가중평균)
+  //   소스가 집중될수록 cap이 cappedSum을 줄이지만 분모는 고정 → capFactor↓
+  //   소스가 고르게 분산될수록 cap이 거의 안 발동 → capFactor ≈ 1.0
+  //   결과: "컨센서스 강도" [-1, +1] × SIGNAL_SCALE → 출력 점수
+  const scores = new Map<ResearchSignal, number>();
+
+  for (const [signal, bySource] of Array.from(sourceScores.entries())) {
+    const totalAbsBeforeCap = Array.from(bySource.values()).reduce((s, v) => s + Math.abs(v), 0);
+    let cappedSum = 0;
+    const logParts: string[] = [];
+    const cappedParts: string[] = [];
+
+    for (const [src, raw] of Array.from(bySource.entries())) {
+      const share = totalAbsBeforeCap > 0 ? Math.abs(raw) / totalAbsBeforeCap : 0;
+      logParts.push(`${src}:${raw.toFixed(1)}(${(share * 100).toFixed(0)}%)`);
+      if (share > MAX_SOURCE_WEIGHT) {
+        const capped = Math.sign(raw) * totalAbsBeforeCap * MAX_SOURCE_WEIGHT;
+        cappedParts.push(`${src} ${raw.toFixed(1)}→${capped.toFixed(1)}`);
+        cappedSum += capped;
+      } else {
+        cappedSum += raw;
+      }
+    }
+
+    const capFactor = totalAbsBeforeCap > 0 ? cappedSum / totalAbsBeforeCap : 0;
+    const scaledScore = capFactor * SIGNAL_SCALE;
+
+    console.log(
+      `[scoreResearch][${signal}] ${logParts.join(" ")}` +
+      (cappedParts.length > 0
+        ? ` | CAP: ${cappedParts.join(", ")} → factor=${capFactor.toFixed(3)} score=${scaledScore.toFixed(1)}`
+        : ` | no cap → factor=${capFactor.toFixed(3)} score=${scaledScore.toFixed(1)}`),
+    );
+
+    scores.set(signal, scaledScore);
+  }
+
   return (Object.keys(SIGNAL_LABELS) as ResearchSignal[])
     .map((signal) => ({
       signal,
-      // [-8, +12] 클램프: 양수는 기존 Math.min 캡(8/10 등)과 동일하게 동작(키워드 모드 호환 유지),
-      // 음수(축소 신호)만 새로 허용. 최종 비중은 normalizeOptionWeights가 0~100으로 정규화.
-      score: Math.max(-8, Math.min(12, Math.round(scores.get(signal) ?? 0))),
+      // [-SIGNAL_SCALE, +SIGNAL_SCALE] 클램프. 최종 비중은 normalizeOptionWeights가 0~100으로 정규화.
+      score: Math.max(-SIGNAL_SCALE, Math.min(SIGNAL_SCALE, Math.round(scores.get(signal) ?? 0))),
       label: SIGNAL_LABELS[signal],
     }))
     .sort((a, b) => b.score - a.score);

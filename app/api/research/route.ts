@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   FALLBACK_MARKET_RESEARCH,
   RESEARCH_SOURCES,
+  WINDOW_DAYS,
   inferSignals,
   type MarketResearchItem,
   type ResearchSource,
@@ -10,20 +11,20 @@ import { getCachedAnalyses } from "@/lib/researchSignalsStore";
 
 export const dynamic = "force-dynamic";
 
-const MAX_ITEMS = 30;
-const PER_SOURCE_CAP = 4; // 한 출처(증권사)당 최대 건수 — 다양성 확보
-const MAX_AGE_DAYS = 30; // 날짜 하한 — 이보다 오래된 리포트는 제외(과거 데이터 유입 차단)
+const MAX_SAFE_ITEMS = 500; // 폭주 방지 안전 상한 — 정상 크롤에서 도달 불가
+const PER_SOURCE_CAP = 4;   // 한 출처(증권사)당 최대 건수 — 다양성 확보
+// WINDOW_DAYS: portfolioResearch에서 import — 크롤·스냅샷·집계가 같은 값 참조
 
 // 자동 분석 쿨다운 — 사이트 로드 때 새 리포트가 있으면 1회만 ingest, 잦은 재실행(토큰 낭비) 방지
 const AUTO_INGEST_COOLDOWN_MS = 10 * 60 * 1000;
 let lastAutoIngest = 0;
 
-// 날짜가 하한(MAX_AGE_DAYS) 이내인지. 날짜 없으면(크롤 상단 최신으로 간주) 통과.
+// 날짜가 시간 윈도우(WINDOW_DAYS) 이내인지. 날짜 없으면(크롤 상단 최신으로 간주) 통과.
 function withinAgeFloor(item: MarketResearchItem): boolean {
   if (!item.date) return true;
   const t = new Date(item.date).getTime();
   if (isNaN(t)) return true;
-  return (Date.now() - t) / 86_400_000 <= MAX_AGE_DAYS;
+  return (Date.now() - t) / 86_400_000 <= WINDOW_DAYS;
 }
 
 function decodeHtmlEntity(value: string) {
@@ -340,7 +341,7 @@ async function fetchSource(source: ResearchSource) {
 function uniqueLatest(items: MarketResearchItem[]) {
   const seen = new Set<string>();
   const sorted = items
-    .filter(withinAgeFloor) // 30일 하한 — 과거 리포트 제외(2차 채움에서도 안 끌려옴)
+    .filter(withinAgeFloor) // WINDOW_DAYS 밖 리포트 제거
     .filter((item) => {
       const key = `${item.source}|${item.title}`;
       if (seen.has(key)) return false;
@@ -358,14 +359,13 @@ function uniqueLatest(items: MarketResearchItem[]) {
     if ((sourceCounts.get(group) ?? 0) >= PER_SOURCE_CAP) continue;
     picked.push(item);
     sourceCounts.set(group, (sourceCounts.get(group) ?? 0) + 1);
-    if (picked.length >= MAX_ITEMS) return picked;
+    if (picked.length >= MAX_SAFE_ITEMS) break; // 폭주 방지 상한
   }
 
-  for (const item of sorted) {
-    if (picked.some((pickedItem) => pickedItem.id === item.id)) continue;
-    picked.push(item);
-    if (picked.length >= MAX_ITEMS) break;
-  }
+  console.log(
+    `[uniqueLatest] window=${WINDOW_DAYS}d raw=${items.length} → deduped=${sorted.length} → picked=${picked.length}` +
+    ` (sources: ${Array.from(sourceCounts.entries()).map(([k, v]) => `${k}:${v}`).join(", ")})`,
+  );
 
   return picked;
 }
@@ -376,7 +376,7 @@ export async function GET(req: Request) {
 
   const settled = await Promise.allSettled(RESEARCH_SOURCES.map(fetchSource));
   const fetched = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-  const fallbackNeeded = fetched.length < MAX_ITEMS;
+  const fallbackNeeded = fetched.length === 0; // 크롤 결과가 전혀 없을 때만 폴백
   const picked = uniqueLatest(fallbackNeeded ? [...fetched, ...FALLBACK_MARKET_RESEARCH] : fetched);
 
   // 캐시된 LLM 분석(방향·강도)을 주입 → 포트폴리오 엔진이 방향/강도까지 반영해 가중치 계산.
@@ -401,8 +401,10 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     updatedAt: new Date().toISOString(),
+    windowDays: WINDOW_DAYS,
     sourceCount: RESEARCH_SOURCES.length,
     fetchedCount: fetched.length,
+    pickedCount: picked.length, // 윈도우 통과 후 실제 사용 건수
     fallbackUsed: fallbackNeeded,
     sources: RESEARCH_SOURCES,
     items,

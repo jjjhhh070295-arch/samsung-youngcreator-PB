@@ -38,8 +38,8 @@ export default function AppNav() {
   const isClientPage = !!(pbId && clientId && !pathname.includes("/ips") && !pathname.includes("/portfolio"));
 
   const [client, setClient] = useState<Client | null>(null);
-  const [activeSection, setActiveSection] = useState("basic");
 
+  const activeView = searchParams?.get("view") ?? "home";
   const activeTab = searchParams?.get("tab") ?? "factors";
 
   useEffect(() => {
@@ -47,33 +47,10 @@ export default function AppNav() {
     getClient(clientId).then(setClient).catch(() => {});
   }, [clientId]);
 
-  useEffect(() => {
-    if (!isClientPage) return;
-    const ids = ["basic", "consultation", "process", "visualization"];
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) setActiveSection(e.target.id);
-        }
-      },
-      { rootMargin: "-20% 0px -60% 0px" }
-    );
-    ids.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, [isClientPage, client]);
-
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setActiveSection(id);
-  };
-
-  const goToTab = (tabId: string) => {
-    document.getElementById("process")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    router.push(`/pb/${pbId}/${clientId}?tab=${tabId}`, { scroll: false });
-    setActiveSection("process");
+  const goTo = (view: string, tab?: string) => {
+    const params = new URLSearchParams({ view });
+    if (tab) params.set("tab", tab);
+    router.push(`/pb/${pbId}/${clientId}?${params.toString()}`);
   };
 
   // ── 고객 상세 페이지용 사이드바 ──
@@ -96,34 +73,35 @@ export default function AppNav() {
 
         <nav className="flex-1 py-1">
           {/* 기본정보 · 상담진행 */}
-          {MAIN_SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => scrollTo(s.id)}
-              className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                activeSection === s.id
-                  ? "bg-[#1428A0] text-white font-semibold"
-                  : "text-fg hover:bg-white"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <span>{s.icon}</span>
-                <span>{s.label}</span>
-              </span>
-              <span className={activeSection === s.id ? "text-white/60" : "text-fg-muted"}>›</span>
-            </button>
-          ))}
+          {MAIN_SECTIONS.map((s) => {
+            const isActive = (s.id === "basic" && activeView === "home") || (s.id === "consultation" && activeView === "consultation");
+            return (
+              <button
+                key={s.id}
+                onClick={() => goTo(s.id === "consultation" ? "consultation" : "home")}
+                className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
+                  isActive ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-white"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span>{s.icon}</span>
+                  <span>{s.label}</span>
+                </span>
+                <span className={isActive ? "text-white/60" : "text-fg-muted"}>›</span>
+              </button>
+            );
+          })}
 
           {/* 분석 탭 */}
           <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
             분석
           </p>
           {ANALYSIS_TABS.map((t) => {
-            const isActive = activeSection === "process" && activeTab === t.id;
+            const isActive = activeView === "analysis" && activeTab === t.id;
             return (
               <button
                 key={t.id}
-                onClick={() => goToTab(t.id)}
+                onClick={() => goTo("analysis", t.id)}
                 className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
                   isActive
                     ? "bg-[#1428A0] text-white font-semibold"
@@ -139,9 +117,9 @@ export default function AppNav() {
           {/* 성향 시각화 */}
           <div className="border-t border-border mt-2 pt-1">
             <button
-              onClick={() => scrollTo("visualization")}
+              onClick={() => goTo("visualization")}
               className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                activeSection === "visualization"
+                activeView === "visualization"
                   ? "bg-[#1428A0] text-white font-semibold"
                   : "text-fg hover:bg-white"
               }`}
@@ -150,7 +128,7 @@ export default function AppNav() {
                 <span>📈</span>
                 <span>성향시각화</span>
               </span>
-              <span className={activeSection === "visualization" ? "text-white/60" : "text-fg-muted"}>›</span>
+              <span className={activeView === "visualization" ? "text-white/60" : "text-fg-muted"}>›</span>
             </button>
           </div>
 

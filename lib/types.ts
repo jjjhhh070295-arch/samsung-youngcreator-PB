@@ -1,5 +1,163 @@
 // ── 데이터 모델 (BLUEPRINT §4) ──
 
+// ── Party 데이터 모델 ──
+export type PartyType = "individual" | "corporate";
+
+export interface Party {
+  id: string;
+  partyType: PartyType;
+  displayName: string;
+  isClient: boolean;
+  pbId: string | null;
+  code: string | null;
+  assetSize: number;
+  consultationNotes: string;
+  createdAt: string;
+}
+
+export interface Individual {
+  partyId: string;
+  birthDate: string | null;
+  subType: "individual" | "sole_proprietor";
+  notes: string | null;
+}
+
+export interface Corporate {
+  partyId: string;
+  bizRegNo: string | null;
+  corpRegNo: string | null;
+  establishedAt: string | null;
+  repPartyId: string | null;
+  ownershipPct: number | null;
+  isMajorityShareholder: boolean | null;
+  accountSeparation: string | null;
+  notes: string | null;
+}
+
+// ── Party Relationships (명세서 §3) ──
+export type RelationType = "owns" | "spouse" | "child" | "parent" | "sibling" | "heir";
+
+export const RELATION_TYPE_LABEL: Record<RelationType, string> = {
+  owns: "소유 법인",
+  spouse: "배우자",
+  child: "자녀",
+  parent: "부모",
+  sibling: "형제/자매",
+  heir: "상속인",
+};
+
+export interface PartyRelationship {
+  id: string;
+  fromPartyId: string;
+  toPartyId: string;
+  relationType: RelationType;
+  ownershipPct: number | null;
+  validFrom: string;
+  validTo: string | null;
+  createdAt: string;
+}
+
+// ── 실질 지배자산 (명세서 §7-1) ──
+export interface EffectiveAssetItem {
+  corporatePartyId: string;
+  corporateName: string;
+  ownershipPct: number;
+  totalAssets: number;
+  effectiveAssets: number;  // totalAssets × ownershipPct / 100
+}
+
+export interface EffectiveAssets {
+  directStocks: number;
+  directRealEstate: number;
+  directTotal: number;
+  indirect: EffectiveAssetItem[];
+  indirectTotal: number;
+  grandTotal: number;
+}
+
+
+// ── 증여·상속 이벤트 (명세서 §5) ──
+export type TransferEventType = "gift" | "inheritance";
+export type AssetKind = "cash" | "stock" | "real_estate" | "corp_share" | "other";
+
+export const TRANSFER_EVENT_LABEL: Record<TransferEventType, string> = {
+  gift: "증여",
+  inheritance: "상속",
+};
+
+export const ASSET_KIND_LABEL: Record<AssetKind, string> = {
+  cash: "현금",
+  stock: "주식",
+  real_estate: "부동산",
+  corp_share: "법인 지분",
+  other: "기타",
+};
+
+export interface TransferEvent {
+  id: string;
+  eventType: TransferEventType;
+  fromPartyId: string | null;
+  toPartyId: string;
+  assetKind: AssetKind | null;
+  assetRef: string | null;
+  amount: number | null;
+  eventDate: string;
+  note: string | null;
+  createdAt: string;
+  // 조회 시 join 추가
+  fromPartyName?: string;
+  toPartyName?: string;
+}
+
+// §7-3 증여 10년 합산 — (증여자, 수증자) 쌍 단위
+export interface GiftPairSummary {
+  fromPartyId: string;
+  toPartyId: string;
+  fromPartyName: string;
+  toPartyName: string;
+  totalAmount: number;
+  eventCount: number;
+  latestEventDate: string;
+}
+
+// ── 가문 (명세서 §4) ──
+export interface Household {
+  id: string;
+  name: string;
+  headPartyId: string | null;
+  pbId: string | null;
+  createdAt: string;
+}
+
+export interface HouseholdMember {
+  householdId: string;
+  partyId: string;
+  role: string | null;
+  joinedAt: string;
+}
+
+// §7-2 가문 총자산 — 구성원별 기여분
+export interface HouseholdMemberAsset {
+  partyId: string;
+  partyName: string;
+  partyType: string;
+  role: string | null;
+  directStocks: number;
+  directRealEstate: number;
+  directTotal: number;
+  /** 가문 밖 법인 간접보유분 (이중계상 제외됨) */
+  indirectViaExternalCorps: number;
+  /** 이 구성원이 가문 총자산에 기여하는 금액 */
+  contribution: number;
+}
+
+export interface HouseholdAssets {
+  householdId: string;
+  householdName: string;
+  members: HouseholdMemberAsset[];
+  grandTotal: number;
+}
+
 export interface PB {
   id: string;
   code: string; // "PB-001"

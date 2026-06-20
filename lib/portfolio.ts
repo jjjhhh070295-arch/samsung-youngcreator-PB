@@ -1418,7 +1418,7 @@ export function buildPortfolioViewModel(
   client: Client,
   researchItems: MarketResearchItem[] = FALLBACK_MARKET_RESEARCH,
 ): PortfolioViewModel {
-  const items = researchItems.length > 0 ? researchItems.slice(0, 30) : FALLBACK_MARKET_RESEARCH;
+  const items = researchItems.length > 0 ? researchItems : FALLBACK_MARKET_RESEARCH;
   const researchSignals = scoreResearchSignals(items);
   const cashflowSummary = summarizeCashflows(client.cashFlows);
   const preferenceProfile = parsePreferenceProfile(client);

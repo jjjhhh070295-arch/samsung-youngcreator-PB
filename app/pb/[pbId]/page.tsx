@@ -19,6 +19,7 @@ import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import PBForm from "@/components/PBForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import { LoadingView, ErrorView, EmptyView } from "@/components/StateViews";
+import HouseholdModule from "@/components/HouseholdModule";
 
 export default function PBPage() {
   const { pbId } = useParams<{ pbId: string }>();
@@ -142,6 +143,14 @@ export default function PBPage() {
             rowHref={(c) => `/pb/${pbId}/${c.id}`}
           />
         )}
+      </div>
+
+      {/* 가문 관리 */}
+      <div>
+        <h2 className="text-sm font-semibold text-fg-muted mb-3">가문 관리</h2>
+        <div className="card p-5">
+          <HouseholdModule pbId={pbId} />
+        </div>
       </div>
 
       {/* 모달들 */}
