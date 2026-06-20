@@ -233,7 +233,10 @@ export default function IPSResultTabs({
       {tab === "factors" && (
         <div>
           <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-            <ScoreRubricButton label="AI점수 기준표 확인" className="btn-outline text-xs" />
+            <ScoreRubricButton
+              label="AI점수 기준표 확인"
+              className="shrink-0 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700"
+            />
             <StageToggle k="factors" />
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

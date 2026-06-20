@@ -126,50 +126,6 @@ export interface AssetSuitability {
   reason: string;
 }
 
-// ==========================================
-// MOCK DATA
-// ==========================================
-
-export const mockClientSummary: ClientSummary = {
-  clientType: '자산가형 Young Creator',
-  riskPropensity: '적극투자형 (Risk Chaser)',
-  investmentPeriod: '3년 ~ 5년 (중장기)',
-  liquidityNeed: '중 (1년 내 스타트업 추가 출자 가능성 존재)',
-  taxSensitivity: '높음 (금융소득종합과세 대상자)',
-  keyRequirements: [
-    '증시 변동성을 방어하면서도 알파 수익 추구',
-    '절세 효과를 극대화할 수 있는 채권 및 ISA 활용 희망',
-    '향후 사업 자금 활용을 위한 일정 수준의 유동성 버퍼 필요'
-  ]
-};
-
-export const mockMacroReport: MacroReport = {
-  title: '삼성증권 6월 글로벌 자산배부 전략 리포트',
-  date: '2026-06-01',
-  factors: {
-    interestRate: {
-      label: '금리 (Interest Rate)',
-      outlook: '연준 기준금리 동결 후 하반기 완만한 인하 기조 전망',
-      implication: '듀레이션이 긴 채권 자산의 점진적 비중 확대 유효'
-    },
-    exchangeRate: {
-      label: '환율 (FX)',
-      outlook: '달러/원 환율 1,320원 ~ 1,360원 박스권 상단 정체',
-      implication: '환헤지(H) 상품 중심 접근 및 달러 분할 매수 분리'
-    },
-    inflation: {
-      label: '인플레이션 (Inflation)',
-      outlook: '헤드라인 CPI 둔화세 완만하나 근원 물가 하방 경직성 존재',
-      implication: '실물 자산(금, 원자재)의 위험 헤지용 일부 편입 권장'
-    },
-    stockMarket: {
-      label: '주식시장 (Equity Market)',
-      outlook: 'AI 및 반도체 섹터 주도 차별화 장세, 고밸류 부담 존재',
-      implication: '지수 추종보다는 핵심 테마 ETF 및 배당 성장주 위주 대응'
-    }
-  }
-};
-
 const PORTFOLIO_OPTION_META: Array<{
   id: PortfolioOption["id"];
   name: string;
@@ -178,16 +134,6 @@ const PORTFOLIO_OPTION_META: Array<{
   { id: "stable", name: "방어형 추천안", riskTilt: -1 },
   { id: "balanced", name: "균형형 추천안", riskTilt: 0 },
   { id: "growth", name: "성장형 추천안", riskTilt: 1 },
-];
-
-export const mockAssetSuitability: AssetSuitability[] = [
-  { category: 'ETF', status: '적합', reason: '시장 트렌드 대응 및 글로벌 분산 투자에 최적화' },
-  { category: '채권', status: '적합', reason: '절세 혜택 및 금리 인하 분위기 속 자본차익 기대 가능' },
-  { category: 'ELS/ELB', status: '주의', reason: '기초자산 변동성 점검 필요, 조기상환 조건 확인 필수' },
-  { category: 'MMF/RP', status: '적합', reason: '창업 및 추가 출자 대기를 위한 단기 유동성 확보에 필수적' },
-  { category: '금', status: '주의', reason: '인플레이션 헤지 수단이나 포트폴리오의 5% 내외 제한 편입 권장' },
-  { category: '달러', status: '주의', reason: '환율 박스권 상단으로 대량 매수보다는 포지션 유지 관점' },
-  { category: '원자재', status: '비추천', reason: '현재 원자재 시장 변동성이 극대화되어 적극투자형에게도 제한적 접근 필요' }
 ];
 
 // 간단한 시뮬레이션 계산 로직 (PB 편집 시 지표 연동용)
