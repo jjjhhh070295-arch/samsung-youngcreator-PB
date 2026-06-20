@@ -11,7 +11,7 @@ import {
   deletePb,
   usingLocalFallback,
 } from "@/lib/store";
-import { getLoggedInPbId, setLoggedInPbId, initDefaultCredentials, getPbCredentials } from "@/lib/auth";
+import { getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import { formatKRWShort } from "@/lib/format";
@@ -90,10 +90,9 @@ export default function HomePage() {
     load();
   }, [load]);
 
-  // PB 로드 완료 시 기본 자격증명 초기화 + 이미 로그인돼 있으면 PB 페이지로
+  // 이미 로그인돼 있으면 PB 페이지로
   useEffect(() => {
     if (status !== "ready") return;
-    initDefaultCredentials(pbs);
     const pbId = getLoggedInPbId();
     if (pbId && pbs.some((p) => p.id === pbId)) {
       router.replace(`/pb/${pbId}`);
@@ -107,21 +106,15 @@ export default function HomePage() {
     setLoginError("");
     setLoginBusy(true);
     try {
-      // 사원번호로 PB 찾기
-      const creds = Object.entries(
-        pbs.reduce((acc, pb) => {
-          const c = getPbCredentials(pb.id);
-          if (c) acc[pb.id] = c;
-          return acc;
-        }, {} as Record<string, { employeeId: string; password: string }>)
-      ).find(([, c]) => c.employeeId === loginEmpId.trim() && c.password === password);
-
-      if (!creds) {
+      const found = pbs.find(
+        (pb) => pb.employeeId === loginEmpId.trim() && pb.password === password
+      );
+      if (!found) {
         setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다.");
         return;
       }
-      setLoggedInPbId(creds[0]);
-      router.push(`/pb/${creds[0]}`);
+      setLoggedInPbId(found.id);
+      router.push(`/pb/${found.id}`);
     } finally {
       setLoginBusy(false);
     }

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { PB } from "@/lib/types";
-import { setPbCredentials, getEmployeeId } from "@/lib/auth";
 
 interface Props {
   open: boolean;
@@ -54,8 +53,7 @@ export default function PBManageModal({
     if (!newName.trim() || !newEmployeeId.trim() || !newPassword.trim()) return;
     setBusy(true);
     try {
-      const pb = await onCreate({ name: newName.trim(), employeeId: newEmployeeId.trim(), password: newPassword.trim() });
-      setPbCredentials(pb.id, newEmployeeId.trim(), newPassword.trim());
+      await onCreate({ name: newName.trim(), employeeId: newEmployeeId.trim(), password: newPassword.trim() });
       setNewName(""); setNewEmployeeId(""); setNewPassword("");
     } finally {
       setBusy(false);
@@ -66,13 +64,10 @@ export default function PBManageModal({
     if (!editName.trim()) return;
     setBusy(true);
     try {
-      await onUpdate(id, { name: editName.trim() });
-      const newEmpId = editEmployeeId.trim();
-      const newPwd = editPassword.trim();
-      if (newEmpId || newPwd) {
-        const current = getEmployeeId(id);
-        setPbCredentials(id, newEmpId || current, newPwd || "1234");
-      }
+      const patch: { name?: string; employeeId?: string; password?: string } = { name: editName.trim() };
+      if (editEmployeeId.trim()) patch.employeeId = editEmployeeId.trim();
+      if (editPassword.trim()) patch.password = editPassword.trim();
+      await onUpdate(id, patch);
       setEditingId(null);
     } finally {
       setBusy(false);
