@@ -1,805 +1,200 @@
 "use client";
-
-// 스트레스 테스트 — 5개 매크로 요인 슬라이더 + 백테스트 기반 민감도 검정
-//
-//  현재 포트폴리오(allocations)를 기준으로:
-//   1) 요인별 강도(슬라이더)를 설정 → 충격 시나리오 구성
-//   2) 자산군별 충격 수익·기여도 분해
-//   3) 충격 후 비중 변화(드리프트)
-//   4) 스트레스 대응 조정 포트폴리오 제안
-//   5) 각 자산군·요인의 통계 신뢰도(R²·t값) 표기
-//
-//  민감도 계수는 최근 ~10년 월간 데이터 다중회귀(OLS) 추정치. (lib/sensitivities.ts)
-
 import { useEffect, useMemo, useState } from "react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-  Cell,
-  ResponsiveContainer,
-} from "recharts";
-import type {
-  Portfolio,
-  ScenarioShock,
-  MacroFactorId,
-  StressTestResult,
-  RebalanceProposal,
-} from "@/lib/types";
-import {
-  FACTOR_META,
-  SAMPLE_INFO,
-  ASSET_SENSITIVITIES,
-  FACTOR_IDS,
-  zeroShock,
-  PRESET_SCENARIOS,
-  runStressTest,
-  proposeRebalance,
-} from "@/lib/stresstest";
-import { runMonteCarloCvar } from "@/lib/stress/monteCarlo";
-import { CHART_COLORS } from "@/lib/theme";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { MacroFactorId, Portfolio, ScenarioShock } from "@/lib/types";
+import type { MacroStressResponse } from "@/lib/macroStress/types";
+import { FACTOR_IDS, FACTOR_META, PRESET_SCENARIOS, zeroShock } from "@/lib/stresstest";
 import { EmptyView } from "./StateViews";
 
-interface Props {
-  portfolios: Portfolio[];
-}
-
-type MacroLevel = {
-  value: number;
-  asOf: string;
-  source: string;
-  fallback?: boolean;
-};
-
+interface Props { portfolios: Portfolio[] }
+type MacroLevel = { value:number; asOf:string; source:string; fallback?:boolean };
 type MacroLevels = Record<MacroFactorId, MacroLevel>;
 
 const FALLBACK_MACRO_LEVELS: MacroLevels = {
-  d_fed: { value: 4.5, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
-  d_ust: { value: 4.3, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
-  infl: { value: 2.5, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
-  ret_krw: { value: 1400, asOf: "임시 기준", source: "조회 실패 시 임시값", fallback: true },
-  ret_cmd: { value: 30, asOf: "임시 기준", source: "GSG 임시값", fallback: true },
+  d_fed:{value:4.5,asOf:"fallback",source:"temporary",fallback:true},
+  d_ust:{value:4.3,asOf:"fallback",source:"temporary",fallback:true},
+  infl:{value:2.5,asOf:"fallback",source:"temporary",fallback:true},
+  ret_krw:{value:1400,asOf:"fallback",source:"temporary",fallback:true},
+  ret_cmd:{value:30,asOf:"fallback",source:"GSG",fallback:true},
+  d_vix:{value:20,asOf:"fallback",source:"VIX",fallback:true},
 };
+const LABELS={us:"\uBBF8\uAD6D\uC8FC\uC2DD (S&P 500)",kr:"\uAD6D\uB0B4\uC8FC\uC2DD (KOSPI)",bond:"\uCC44\uAD8C (\uBBF8\uAD6D\uCC44 10\uB144\uBB3C)"} as const;
 
-const MACRO_ASSET_LABELS = {
-  us: "미국주식 (S&P 500)",
-  kr: "국내주식 (KOSPI)",
-  bond: "채권 (미국채 10년물)",
-} as const;
+function normalizePortfolio(portfolio:Portfolio):Portfolio {
+  const grouped=new Map<string,number>();
+  for(const allocation of portfolio.allocations){
+    const value=allocation.assetClass.replace(/\s/g,"").toLowerCase(); let label:string|null=null;
+    if(value.includes("\uBBF8\uAD6D\uC8FC\uC2DD")||value.includes("\uD574\uC678\uC8FC\uC2DD")||value.includes("s&p500"))label=LABELS.us;
+    else if(value.includes("\uAD6D\uB0B4\uC8FC\uC2DD")||value.includes("kospi"))label=LABELS.kr;
+    else if(value.includes("\uCC44\uAD8C")||value.includes("\uBBF8\uAD6D\uCC4410\uB144"))label=LABELS.bond;
+    if(label)grouped.set(label,(grouped.get(label)??0)+allocation.weight);
+  }
+  const total=Array.from(grouped.values()).reduce((sum,value)=>sum+value,0);
+  return {...portfolio,allocations:Array.from(grouped,([assetClass,weight])=>({assetClass,weight:total?Math.round(weight/total*1000)/10:0}))};
+}
+function absoluteFromShock(id:MacroFactorId,base:number,shock:number){
+  if(id==="ret_krw"||id==="ret_cmd")return base*(1+shock/100);
+  if(id==="d_vix")return Math.max(.01,base+shock);
+  return base+shock;
+}
+function shockFromAbsolute(id:MacroFactorId,base:number,value:number){
+  if(id==="ret_krw"||id==="ret_cmd")return base?value/base*100-100:0;
+  return value-base;
+}
+function displayValue(id:MacroFactorId,value:number){
+  if(id==="ret_krw")return Math.round(value).toLocaleString("ko-KR")+"\uC6D0";
+  if(id==="ret_cmd")return "$"+value.toFixed(2);
+  if(id==="d_vix")return value.toFixed(2);
+  return value.toFixed(2)+"%";
+}
+function displayShock(id:MacroFactorId,value:number){
+  const unit=id==="d_vix"?"pt":id==="d_fed"||id==="d_ust"||id==="infl"?"%p":"%";
+  return (value>=0?"+":"")+value.toFixed(2)+unit;
+}
 
-function normalizeMacroPortfolio(portfolio: Portfolio): Portfolio {
-  const grouped = new Map<string, number>();
+export default function StressTestPanel({portfolios}:Props){
+  const [shock,setShock]=useState<ScenarioShock>(zeroShock());
+  const [presetId,setPresetId]=useState("none");
+  const [scenarioOpen,setScenarioOpen]=useState(false);
+  const [levels,setLevels]=useState<MacroLevels>(FALLBACK_MACRO_LEVELS);
+  const [updatedAt,setUpdatedAt]=useState("");
+  const [analysis,setAnalysis]=useState<MacroStressResponse|null>(null);
+  const [analysisStatus,setAnalysisStatus]=useState<"idle"|"loading"|"error">("idle");
+  const macroPortfolios=useMemo(()=>portfolios.map(normalizePortfolio).filter(p=>p.allocations.length>0),[portfolios]);
+  const target=macroPortfolios[0];
+  const targetWeights={sp500:(target?.allocations.find(item=>item.assetClass===LABELS.us)?.weight??0)/100,kospi:(target?.allocations.find(item=>item.assetClass===LABELS.kr)?.weight??0)/100,treasury:(target?.allocations.find(item=>item.assetClass===LABELS.bond)?.weight??0)/100};
 
-  for (const allocation of portfolio.allocations) {
-    const compact = allocation.assetClass.replace(/\s/g, "").toLowerCase();
-    let label: string | null = null;
-    if (compact.includes("미국주식") || compact.includes("해외주식") || compact.includes("s&p500")) {
-      label = MACRO_ASSET_LABELS.us;
-    } else if (compact.includes("국내주식") || compact.includes("kospi")) {
-      label = MACRO_ASSET_LABELS.kr;
-    } else if (compact.includes("채권") || compact.includes("미국채10년")) {
-      label = MACRO_ASSET_LABELS.bond;
+  useEffect(()=>{
+    let cancelled=false;
+    const load=async()=>{try{const response=await fetch("/api/macro-levels",{cache:"no-store"});if(!response.ok)throw new Error();const payload=await response.json();if(cancelled)return;setLevels(previous=>{const next={...previous};for(const id of FACTOR_IDS){const level=payload?.levels?.[id];if(level&&Number.isFinite(level.value))next[id]={...level,fallback:false};}return next;});setUpdatedAt(payload?.updatedAt??new Date().toISOString());}catch{if(!cancelled)setUpdatedAt("");}};
+    load();const timer=window.setInterval(load,60*60*1000);return()=>{cancelled=true;window.clearInterval(timer)};
+  },[]);
+
+  const requestKey=useMemo(()=>{
+    if(!target||presetId==="none")return "";
+    const weights=new Map(target.allocations.map(allocation=>[allocation.assetClass,allocation.weight/100]));
+    const query=new URLSearchParams({us:String(weights.get(LABELS.us)??0),kr:String(weights.get(LABELS.kr)??0),bond:String(weights.get(LABELS.bond)??0),scenario:presetId});
+    if(presetId==="custom"){
+      query.set("d_fed",String(shock.d_fed));query.set("d_ust",String(shock.d_ust));query.set("ret_krw",String(shock.ret_krw/100));query.set("infl",String((levels.infl.value+shock.infl)/100));query.set("ret_cmd",String(shock.ret_cmd/100));query.set("d_vix",String(shock.d_vix));
     }
-    if (label) grouped.set(label, (grouped.get(label) ?? 0) + allocation.weight);
-  }
+    return query.toString();
+  },[target,presetId,shock,levels.infl.value]);
 
-  const includedWeight = Array.from(grouped.values()).reduce((sum, weight) => sum + weight, 0);
-  const allocations = Array.from(grouped.entries()).map(([assetClass, weight]) => ({
-    assetClass,
-    weight: includedWeight > 0 ? Math.round((weight / includedWeight) * 1000) / 10 : 0,
-  }));
+  useEffect(()=>{
+    if(!requestKey){setAnalysis(null);setAnalysisStatus("idle");return;}
+    const controller=new AbortController();
+    const timer=window.setTimeout(async()=>{try{setAnalysisStatus("loading");const response=await fetch("/api/macro-stress?"+requestKey,{signal:controller.signal,cache:"no-store"});if(!response.ok)throw new Error();const payload:MacroStressResponse=await response.json();setAnalysis(payload);setAnalysisStatus("idle");if(payload.scenario.dataStatus==="actual"){
+      const center=payload.scenario.center,next={d_fed:center.d_fed,d_ust:center.d_ust,ret_krw:center.ret_krw*100,infl:center.infl*100-levels.infl.value,ret_cmd:center.ret_cmd*100,d_vix:center.d_vix};
+      setShock(previous=>FACTOR_IDS.every(id=>Math.abs(previous[id]-next[id])<1e-8)?previous:next);
+    }}catch(error){if((error as Error).name!=="AbortError")setAnalysisStatus("error");}},presetId==="custom"?700:0);
+    return()=>{window.clearTimeout(timer);controller.abort();};
+  },[requestKey,presetId,levels.infl.value]);
 
-  return { ...portfolio, allocations };
-}
+  if(!macroPortfolios.length)return <EmptyView title={"\uD14C\uC2A4\uD2B8 \uAC00\uB2A5\uD55C \uC790\uC0B0\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"} hint={"\uBBF8\uAD6D\uC8FC\uC2DD, \uAD6D\uB0B4\uC8FC\uC2DD, \uCC44\uAD8C\uC774 \uD3EC\uD568\uB41C \uD3EC\uD2B8\uD3F4\uB9AC\uC624\uB97C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694."}/>;
 
-function absoluteRange(id: MacroFactorId, base: number, meta: (typeof FACTOR_META)[number]) {
-  const span = Math.max(Math.abs(meta.min), Math.abs(meta.max));
-  if (id === "ret_krw" || id === "ret_cmd") {
-    return { min: base * (1 - span / 100), max: base * (1 + span / 100) };
-  }
-  return { min: base - span, max: base + span };
-}
+  const applyPreset=(id:string)=>{setPresetId(id);setScenarioOpen(false);};
+  const reset=()=>{setPresetId("none");setScenarioOpen(false);setShock(zeroShock())};
 
-function absoluteFromShock(id: MacroFactorId, base: number, shock: number) {
-  if (id === "ret_krw" || id === "ret_cmd") return base * (1 + shock / 100);
-  return base + shock;
-}
-
-function shockFromAbsolute(id: MacroFactorId, base: number, absolute: number) {
-  if (id === "ret_krw" || id === "ret_cmd") {
-    return base === 0 ? 0 : ((absolute / base) - 1) * 100;
-  }
-  return absolute - base;
-}
-
-function absoluteStep(id: MacroFactorId, meta: (typeof FACTOR_META)[number]) {
-  if (id === "ret_krw") return 1;
-  if (id === "ret_cmd") return 0.1;
-  return meta.step;
-}
-
-function formatMacroLevel(id: MacroFactorId, value: number) {
-  if (id === "ret_krw") return `${Math.round(value).toLocaleString("ko-KR")}원`;
-  if (id === "ret_cmd") return `$${value.toFixed(2)}`;
-  return `${value.toFixed(2)}%`;
-}
-
-function formatShock(id: MacroFactorId, value: number) {
-  const unit = id === "d_fed" || id === "d_ust" || id === "infl" ? "%p" : "%";
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}${unit}`;
-}
-
-// 숫자 포맷
-const fmt = (n: number, d = 1) =>
-  (n >= 0 ? "+" : "") + n.toFixed(d);
-const fmtAbs = (n: number, d = 1) => n.toFixed(d);
-
-// 신뢰도(R²) → 한글 등급
-function confidenceLabel(r2: number): { txt: string; cls: string } {
-  if (r2 >= 0.5) return { txt: "높음", cls: "text-emerald-600 dark:text-emerald-300" };
-  if (r2 >= 0.2) return { txt: "보통", cls: "text-amber-600 dark:text-amber-300" };
-  return { txt: "낮음", cls: "text-red-500" };
-}
-
-export default function StressTestPanel({ portfolios }: Props) {
-  const [shock, setShock] = useState<ScenarioShock>(zeroShock());
-  const [presetId, setPresetId] = useState<string>("none");
-  const [macroLevels, setMacroLevels] = useState<MacroLevels>(FALLBACK_MACRO_LEVELS);
-  const [macroLevelsUpdatedAt, setMacroLevelsUpdatedAt] = useState<string>("");
-  // 어떤 포트폴리오를 대상으로 조정안을 만들지 (기본: 첫 번째)
-  const [targetId, setTargetId] = useState<string>(portfolios[0]?.id ?? "");
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadLevels = async () => {
-      try {
-        const response = await fetch("/api/macro-levels", { cache: "no-store" });
-        if (!response.ok) throw new Error("macro levels request failed");
-        const payload = await response.json();
-        if (cancelled) return;
-        setMacroLevels((previous) => {
-          const next = { ...previous };
-          for (const id of FACTOR_IDS) {
-            const level = payload?.levels?.[id];
-            if (level && Number.isFinite(level.value)) next[id] = { ...level, fallback: false };
-          }
-          return next;
-        });
-        setMacroLevelsUpdatedAt(payload?.updatedAt ?? new Date().toISOString());
-      } catch {
-        if (!cancelled) setMacroLevelsUpdatedAt("");
-      }
-    };
-
-    loadLevels();
-    const timer = window.setInterval(loadLevels, 60 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  // 충격이 하나라도 설정됐는지
-  const anyShock = useMemo(
-    () => FACTOR_IDS.some((id) => shock[id] !== 0),
-    [shock],
-  );
-
-  // 결과 계산 (슬라이더 변화에 즉시 반응)
-  const macroPortfolios = useMemo(
-    () => portfolios.map(normalizeMacroPortfolio).filter((portfolio) => portfolio.allocations.length > 0),
-    [portfolios],
-  );
-
-  const results: StressTestResult[] = useMemo(
-    () => (macroPortfolios.length ? runStressTest(macroPortfolios, shock) : []),
-    [macroPortfolios, shock],
-  );
-
-  const target = macroPortfolios.find((p) => p.id === targetId) ?? macroPortfolios[0];
-  const targetResult = results.find((r) => r.portfolioId === target?.id);
-  const proposal: RebalanceProposal | null = useMemo(
-    () => (target ? proposeRebalance(target, shock) : null),
-    [target, shock],
-  );
-  const monteCarlo = useMemo(
-    () => (target ? runMonteCarloCvar(target, shock, { simulations: 5000 }) : null),
-    [target, shock],
-  );
-  const monteCarloByPortfolio = useMemo(() => {
-    return new Map(
-      macroPortfolios.map((portfolio) => [
-        portfolio.id,
-        runMonteCarloCvar(portfolio, shock, { simulations: 5000 }),
-      ]),
-    );
-  }, [macroPortfolios, shock]);
-
-  if (macroPortfolios.length === 0) {
-    return (
-      <EmptyView
-        title="테스트 가능한 자산이 없습니다"
-        hint="미국주식, 국내주식, 채권이 포함된 포트폴리오를 먼저 생성하세요."
-      />
-    );
-  }
-
-  const onSlider = (id: MacroFactorId, absolute: number) => {
-    const nextShock = shockFromAbsolute(id, macroLevels[id].value, absolute);
-    setShock((prev) => ({ ...prev, [id]: nextShock }));
-    setPresetId("custom");
-  };
-  const applyPreset = (id: string) => {
-    setPresetId(id);
-    const p = PRESET_SCENARIOS.find((s) => s.id === id);
-    if (p) setShock({ ...p.shock });
-  };
-  const reset = () => {
-    setShock(zeroShock());
-    setPresetId("none");
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="card p-4">
-        <h3 className="text-sm font-semibold text-fg">매크로 스트레스 테스트 대상</h3>
-        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-          미국주식은 S&amp;P 500, 국내주식은 KOSPI, 채권은 미국채 10년물을 대표 지수로 사용합니다.
-          포트폴리오의 다른 자산은 제외하고 이 세 자산군 비중만 100%로 재정규화합니다.
-        </p>
-      </div>
-
-      {/* ── 컨트롤: 프리셋 + 슬라이더 ── */}
-      <div className="card p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-fg-muted">시나리오 프리셋</span>
-            <select
-              className="input h-9 w-auto"
-              value={presetId}
-              onChange={(e) => applyPreset(e.target.value)}
-            >
-              {presetId === "custom" && <option value="custom">사용자 설정</option>}
-              {PRESET_SCENARIOS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button className="btn-ghost text-xs" onClick={reset}>
-            초기화
-          </button>
-        </div>
-
-        <div className="mb-4 rounded-md border border-border/70 bg-surface-2 px-3 py-2 text-[11px] text-fg-muted">
-          슬라이더 가운데가 최신 시장값입니다. 왼쪽은 현재보다 하락, 오른쪽은 현재보다 상승입니다.
-          {macroLevelsUpdatedAt && (
-            <span className="ml-1">
-              조회 시각 {new Date(macroLevelsUpdatedAt).toLocaleString("ko-KR")}
-            </span>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
-          {FACTOR_META.map((f) => {
-            const level = macroLevels[f.id];
-            const range = absoluteRange(f.id, level.value, f);
-            const absoluteValue = absoluteFromShock(f.id, level.value, shock[f.id]);
-            return (
-              <div key={f.id}>
-                <div className="mb-1 flex items-baseline justify-between">
-                  <label className="text-sm font-medium text-fg">
-                    {f.label}
-                    <span className="ml-1 text-[11px] font-normal text-fg-muted">
-                      {f.labelEn}
-                    </span>
-                  </label>
-                  <span
-                    className={`tabular-nums text-sm font-semibold ${
-                      shock[f.id] === 0
-                        ? "text-fg-muted"
-                        : shock[f.id] > 0
-                          ? "text-gold-600 dark:text-gold-300"
-                          : "text-sky-600 dark:text-sky-300"
-                    }`}
-                  >
-                    {formatMacroLevel(f.id, absoluteValue)}
-                    <span className="ml-1 text-[10px] font-normal text-fg-muted">
-                      ({formatShock(f.id, shock[f.id])})
-                    </span>
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={range.min}
-                  max={range.max}
-                  step={absoluteStep(f.id, f)}
-                  value={absoluteValue}
-                  onChange={(e) => onSlider(f.id, Number(e.target.value))}
-                  className="w-full accent-gold-500"
-                />
-                <div className="mt-1 grid grid-cols-3 items-start text-[10px] text-fg-muted/70">
-                  <span className="text-left">{formatMacroLevel(f.id, range.min)}</span>
-                  <span className="text-center font-semibold text-fg-muted">
-                    현재 {formatMacroLevel(f.id, level.value)}
-                  </span>
-                  <span className="text-right">{formatMacroLevel(f.id, range.max)}</span>
-                </div>
-                <p className="mt-1 text-[10px] text-fg-muted/70">
-                  기준일 {level.asOf} · {level.source}
-                  {level.fallback ? " · 임시값" : ""}
-                </p>
-                <p className="mt-1 text-[11px] leading-tight text-fg-muted">{f.hint}</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {!anyShock ? (
-        <EmptyView
-          title="요인 강도를 조정하세요"
-          hint="위 슬라이더로 금리·인플레·환율·원자재 충격을 설정하거나 프리셋을 선택하면 결과가 즉시 갱신됩니다."
-        />
-      ) : (
-        <>
-          {/* ── 포트폴리오별 충격 후 예상수익·낙폭 요약 ── */}
-          <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border bg-surface-2 text-xs text-fg-muted">
-                <tr>
-                  <th className="px-3 py-2 text-left">포트폴리오</th>
-                  <th className="px-3 py-2 text-right">기존 기대수익</th>
-                  <th className="px-3 py-2 text-right">충격분</th>
-                  <th className="px-3 py-2 text-right">충격 후 예상수익</th>
-                  <th className="px-3 py-2 text-right">예상 낙폭</th>
-                  <th className="px-3 py-2 text-right">VaR 95%</th>
-                  <th className="px-3 py-2 text-right">CVaR 95%</th>
-                  <th className="px-3 py-2 text-right">손실확률</th>
-                  <th className="px-3 py-2 text-center">신뢰도</th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((r) => {
-                  const c = confidenceLabel(r.confidence);
-                  const mc = monteCarloByPortfolio.get(r.portfolioId);
-                  return (
-                    <tr
-                      key={r.portfolioId}
-                      className={`border-b border-border/60 last:border-0 ${
-                        r.portfolioId === target?.id ? "bg-gold-50/50 dark:bg-gold-900/10" : ""
-                      }`}
-                    >
-                      <td className="px-3 py-2 font-medium text-fg">{r.label}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
-                        {fmtAbs(r.baseReturn)}%
-                      </td>
-                      <td
-                        className={`px-3 py-2 text-right tabular-nums ${
-                          r.shockImpact >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-500"
-                        }`}
-                      >
-                        {fmt(r.shockImpact)}%
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold tabular-nums text-fg">
-                        {fmtAbs(r.projectedReturn)}%
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-red-500">
-                        −{fmtAbs(r.projectedDrawdown)}%
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-red-500">
-                        {mc ? `${fmt(mc.var95)}%` : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold tabular-nums text-red-500">
-                        {mc ? `${fmt(mc.cvar95)}%` : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-fg">
-                        {mc ? `${fmtAbs(mc.probabilityOfLoss, 0)}%` : "-"}
-                      </td>
-                      <td className={`px-3 py-2 text-center text-xs font-medium ${c.cls}`}>
-                        {c.txt}
-                        <span className="ml-1 text-[10px] text-fg-muted">
-                          R²{(r.confidence).toFixed(2)}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <p className="px-3 py-2 text-[11px] text-fg-muted">
-              충격분은 설정한 요인 시나리오가 1회 발생했을 때의 단기 수익 영향(%)이며, 예상 낙폭은 충격 손실에 2σ 변동성 버퍼를 더한
-              근사치입니다. 신뢰도는 자산군별 회귀모델 설명력(R²)의 비중가중 평균입니다.
-            </p>
-          </div>
-
-          {/* ── 대상 포트폴리오 선택 ── */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-fg-muted">상세 분석 대상</span>
-            <select
-              className="input h-9 w-auto"
-              value={target?.id}
-              onChange={(e) => setTargetId(e.target.value)}
-            >
-              {macroPortfolios.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {targetResult && (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {/* ── 자산군별 기여도 분해 ── */}
-              <div className="card p-4">
-                <h4 className="mb-1 text-sm font-semibold text-fg">자산군별 충격 기여도</h4>
-                <p className="mb-3 text-[11px] text-fg-muted">
-                  각 자산군의 충격 수익(%) × 비중 = 포트폴리오 수익 기여(%p)
-                </p>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart
-                    layout="vertical"
-                    data={targetResult.contributions.map((c) => ({
-                      name: c.assetClass,
-                      기여: c.contribution,
-                    }))}
-                    margin={{ top: 4, right: 24, left: 8, bottom: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.muted} strokeOpacity={0.25} />
-                    <XAxis type="number" tick={{ fill: "currentColor", fontSize: 11 }} unit="%" />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={64}
-                      tick={{ fill: "currentColor", fontSize: 12 }}
-                    />
-                    <Tooltip
-                      formatter={(v: number) => [`${fmt(v, 2)}%p`, "기여도"]}
-                      contentStyle={{
-                        background: "rgb(var(--surface))",
-                        border: "1px solid rgb(var(--border))",
-                        borderRadius: 8,
-                        fontSize: 12,
-                      }}
-                    />
-                    <ReferenceLine x={0} stroke={CHART_COLORS.muted} />
-                    <Bar dataKey="기여" radius={[0, 4, 4, 0]}>
-                      {targetResult.contributions.map((c, i) => (
-                        <Cell
-                          key={i}
-                          fill={c.contribution >= 0 ? CHART_COLORS.primary : "#dc2626"}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead className="text-fg-muted">
-                      <tr>
-                        <th className="px-2 py-1 text-left">자산군</th>
-                        <th className="px-2 py-1 text-right">비중</th>
-                        <th className="px-2 py-1 text-right">충격 수익</th>
-                        <th className="px-2 py-1 text-right">기여(%p)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {targetResult.contributions.map((c) => (
-                        <tr key={c.assetClass} className="border-t border-border/50">
-                          <td className="px-2 py-1 text-fg">{c.assetClass}</td>
-                          <td className="px-2 py-1 text-right tabular-nums text-fg-muted">
-                            {fmtAbs(c.weight)}%
-                          </td>
-                          <td
-                            className={`px-2 py-1 text-right tabular-nums ${
-                              c.assetReturn >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-500"
-                            }`}
-                          >
-                            {fmt(c.assetReturn)}%
-                          </td>
-                          <td
-                            className={`px-2 py-1 text-right tabular-nums font-medium ${
-                              c.contribution >= 0 ? "text-fg" : "text-red-500"
-                            }`}
-                          >
-                            {fmt(c.contribution, 2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* ── 충격 후 비중 변화 ── */}
-              <div className="card p-4">
-                <h4 className="mb-1 text-sm font-semibold text-fg">충격 후 비중 변화</h4>
-                <p className="mb-3 text-[11px] text-fg-muted">
-                  자산군 가격 변동에 따른 비중 드리프트(리밸런싱 전)
-                </p>
-                <div className="space-y-2.5">
-                  {targetResult.weightShifts.map((w) => (
-                    <div key={w.assetClass}>
-                      <div className="mb-0.5 flex items-baseline justify-between text-xs">
-                        <span className="text-fg">{w.assetClass}</span>
-                        <span className="tabular-nums text-fg-muted">
-                          {fmtAbs(w.before)}% → {fmtAbs(w.after)}%
-                          <span
-                            className={`ml-1.5 font-medium ${
-                              w.delta > 0
-                                ? "text-emerald-600 dark:text-emerald-300"
-                                : w.delta < 0
-                                  ? "text-red-500"
-                                  : "text-fg-muted"
-                            }`}
-                          >
-                            ({fmt(w.delta)}%p)
-                          </span>
-                        </span>
-                      </div>
-                      <div className="relative h-2 w-full overflow-hidden rounded-full bg-surface-2">
-                        <div
-                          className="absolute left-0 top-0 h-full rounded-full bg-navy-light/40"
-                          style={{ width: `${Math.min(100, w.before)}%` }}
-                        />
-                        <div
-                          className={`absolute left-0 top-0 h-full rounded-full ${
-                            w.delta >= 0 ? "bg-gold-500" : "bg-red-400"
-                          }`}
-                          style={{ width: `${Math.min(100, w.after)}%`, opacity: 0.85 }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── 스트레스 대응 조정 제안 ── */}
-          {proposal && target && (
-            <div className="card border-gold-300/60 p-4 dark:border-gold-700/40">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h4 className="text-sm font-semibold text-fg">
-                  스트레스 대응 조정안 — {target.label}
-                </h4>
-                {proposal.improvementDrawdown > 0 && (
-                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                    예상 낙폭 {fmtAbs(proposal.improvementDrawdown)}%p 개선
-                  </span>
-                )}
-              </div>
-              <p className="mb-3 text-xs leading-relaxed text-fg-muted">{proposal.rationale}</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-border text-xs text-fg-muted">
-                    <tr>
-                      <th className="px-3 py-1.5 text-left">자산군</th>
-                      <th className="px-3 py-1.5 text-right">현재 비중</th>
-                      <th className="px-3 py-1.5 text-right">조정 비중</th>
-                      <th className="px-3 py-1.5 text-right">변화</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {target.allocations.map((a) => {
-                      const adj = proposal.allocations.find((x) => x.assetClass === a.assetClass);
-                      const after = adj?.weight ?? a.weight;
-                      const delta = Math.round((after - a.weight) * 10) / 10;
-                      return (
-                        <tr key={a.assetClass} className="border-b border-border/50 last:border-0">
-                          <td className="px-3 py-1.5 text-fg">{a.assetClass}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-fg-muted">
-                            {fmtAbs(a.weight)}%
-                          </td>
-                          <td className="px-3 py-1.5 text-right font-medium tabular-nums text-fg">
-                            {fmtAbs(after)}%
-                          </td>
-                          <td
-                            className={`px-3 py-1.5 text-right tabular-nums ${
-                              delta > 0
-                                ? "text-emerald-600 dark:text-emerald-300"
-                                : delta < 0
-                                  ? "text-red-500"
-                                  : "text-fg-muted"
-                            }`}
-                          >
-                            {delta === 0 ? "—" : `${fmt(delta)}%p`}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t border-border text-xs">
-                      <td className="px-3 py-1.5 text-fg-muted">시나리오 예상수익 / 낙폭</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-fg-muted" colSpan={1}>
-                        {targetResult && `${fmtAbs(targetResult.projectedReturn)}% / −${fmtAbs(targetResult.projectedDrawdown)}%`}
-                      </td>
-                      <td className="px-3 py-1.5 text-right font-medium tabular-nums text-fg" colSpan={2}>
-                        {fmtAbs(proposal.projectedReturn)}% / −{fmtAbs(proposal.projectedDrawdown)}%
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* ── 모델 신뢰도 상세 (자산군 × 요인 t-통계량) ── */}
-          {monteCarlo && (
-            <div className="card p-4">
-              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h4 className="text-sm font-semibold text-fg">
-                    몬테카를로 + CVaR tail risk 점검
-                  </h4>
-                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-                    {monteCarlo.label} 기준 {monteCarlo.simulations.toLocaleString()}회 시뮬레이션한
-                    12개월 수익률 분포입니다. 스튜던트-t tail risk, 자산군 변동성, 단순 스트레스 상관 가정을 반영합니다.
-                  </p>
-                </div>
-                <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-fg-muted">
-                  95% tail risk 구간
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                <div className="rounded-lg border border-border/70 p-3">
-                  <p className="text-[11px] text-fg-muted">평균 수익률</p>
-                  <p className={`mt-1 text-lg font-semibold tabular-nums ${monteCarlo.meanReturn >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-500"}`}>
-                    {fmt(monteCarlo.meanReturn)}%
-                  </p>
-                </div>
-                <div className="rounded-lg border border-border/70 p-3">
-                  <p className="text-[11px] text-fg-muted">VaR 95%</p>
-                  <p className="mt-1 text-lg font-semibold tabular-nums text-red-500">
-                    {fmt(monteCarlo.var95)}%
-                  </p>
-                </div>
-                <div className="rounded-lg border border-border/70 p-3">
-                  <p className="text-[11px] text-fg-muted">CVaR 95%</p>
-                  <p className="mt-1 text-lg font-semibold tabular-nums text-red-500">
-                    {fmt(monteCarlo.cvar95)}%
-                  </p>
-                </div>
-                <div className="rounded-lg border border-border/70 p-3">
-                  <p className="text-[11px] text-fg-muted">손실확률</p>
-                  <p className="mt-1 text-lg font-semibold tabular-nums text-fg">
-                    {fmtAbs(monteCarlo.probabilityOfLoss, 0)}%
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-medium text-fg-muted">시뮬레이션 수익률 분포</p>
-                    <p className="text-[11px] text-fg-muted">
-                      최악 {fmt(monteCarlo.worstReturn)}% / 최고 {fmt(monteCarlo.bestReturn)}%
-                    </p>
-                  </div>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={monteCarlo.histogram} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.muted} strokeOpacity={0.2} />
-                      <XAxis dataKey="bucket" tick={{ fill: "currentColor", fontSize: 10 }} interval={1} />
-                      <YAxis tick={{ fill: "currentColor", fontSize: 11 }} allowDecimals={false} />
-                      <Tooltip
-                        formatter={(v: number) => [`${v.toLocaleString()}개 경로`, "빈도"]}
-                        contentStyle={{
-                          background: "rgb(var(--surface))",
-                          border: "1px solid rgb(var(--border))",
-                          borderRadius: 8,
-                          fontSize: 12,
-                        }}
-                      />
-                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                        {monteCarlo.histogram.map((bucket) => (
-                          <Cell
-                            key={bucket.bucket}
-                            fill={bucket.bucket.includes("-") || bucket.bucket.includes("<") ? "#dc2626" : CHART_COLORS.primary}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div className="rounded-lg border border-border/70 p-3">
-                  <h5 className="text-xs font-semibold text-fg">해석 방법</h5>
-                  <div className="mt-2 space-y-2 text-xs leading-relaxed text-fg-muted">
-                    <p>
-                      VaR 95%는 하위 5% 경계 수익률입니다. CVaR 95%는 그보다 더 나쁜 최악 5%
-                      구간의 평균 수익률이므로 더 보수적인 tail risk 지표입니다.
-                    </p>
-                    <p>
-                      -10% 이하 손실확률:{" "}
-                      <span className="font-semibold tabular-nums text-fg">
-                        {fmtAbs(monteCarlo.probabilityBelowMinus10)}%
-                      </span>
-                      . 변동성 추정치:{" "}
-                      <span className="font-semibold tabular-nums text-fg">
-                        {fmtAbs(monteCarlo.volatility)}%
-                      </span>
-                      .
-                    </p>
-                    <p>
-                      이 값은 보장된 예측이 아니라 PB 검토를 돕는 참고 지표입니다. 선택한 시나리오 주변에서
-                      가능한 손익 분포와 tail risk를 보여줘 기존 베타 기반 충격 분석을 보완합니다.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <details className="card p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-fg">
-              모델 신뢰도 상세 (회귀 추정 계수·t값)
-            </summary>
-            <p className="mb-3 mt-2 text-[11px] text-fg-muted">
-              표본 {SAMPLE_INFO.start}~{SAMPLE_INFO.end} (월간 n={SAMPLE_INFO.n}). 각 칸은 요인 1단위 충격당 자산군 월수익 반응(%),
-              괄호는 t-통계량. |t|≥1.96 (★)이면 5% 유의. R²는 모델 설명력. {SAMPLE_INFO.note}
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="border-b border-border text-fg-muted">
-                  <tr>
-                    <th className="px-2 py-1.5 text-left">자산군</th>
-                    {FACTOR_META.map((f) => (
-                      <th key={f.id} className="px-2 py-1.5 text-right">
-                        {f.label}
-                      </th>
-                    ))}
-                    <th className="px-2 py-1.5 text-right">R²</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ASSET_SENSITIVITIES.map((s) => (
-                    <tr key={s.key} className="border-b border-border/40 last:border-0">
-                      <td className="px-2 py-1.5 font-medium text-fg">{s.label}</td>
-                      {FACTOR_META.map((f) => {
-                        const b = s.betas[f.id];
-                        const t = s.tvals[f.id];
-                        const sig = Math.abs(t) >= 1.96;
-                        return (
-                          <td
-                            key={f.id}
-                            className={`px-2 py-1.5 text-right tabular-nums ${
-                              sig ? "text-fg" : "text-fg-muted/60"
-                            }`}
-                          >
-                            {b.toFixed(2)}
-                            <span className="ml-0.5 text-[10px]">
-                              ({t.toFixed(1)}
-                              {sig ? "★" : ""})
-                            </span>
-                          </td>
-                        );
-                      })}
-                      <td
-                        className={`px-2 py-1.5 text-right font-medium tabular-nums ${confidenceLabel(s.r2).cls}`}
-                      >
-                        {s.r2.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-
-          <p className="text-[11px] leading-relaxed text-fg-muted">
-            ⚠ 본 결과는 과거 데이터 기반 통계 추정치로 미래 수익을 보장하지 않으며, PB의 정성적 판단을 보조하는 참고 지표입니다.
-            요인 간 상관·비선형 효과는 단순화되어 있습니다.
-          </p>
-        </>
-      )}
+  return <div className="space-y-4">
+    <div className="card p-4">
+      <h3 className="text-sm font-semibold text-fg">{"\uB9E4\uD06C\uB85C \uC2A4\uD2B8\uB808\uC2A4 \uD14C\uC2A4\uD2B8 \uB300\uC0C1"}</h3>
+      <p className="mt-1 text-xs leading-relaxed text-fg-muted">{target?.label}<span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>S&P 500 {(targetWeights.sp500*100).toFixed(1)}%<span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>KOSPI {(targetWeights.kospi*100).toFixed(1)}%<span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>{"\uBBF8\uAD6D\uCC44"} {(targetWeights.treasury*100).toFixed(1)}%</p>
     </div>
-  );
+    <div className="card p-4">
+      <div className="mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button type="button" className="btn-ghost flex items-center gap-2 text-xs" aria-expanded={scenarioOpen} onClick={()=>setScenarioOpen(open=>!open)}>
+            <span>{"\uC5ED\uC0AC\uC801 \uC704\uAE30 \uC2DC\uB098\uB9AC\uC624"}</span>
+            {presetId!=="none"&&presetId!=="custom"&&<span className="font-semibold text-fg">{PRESET_SCENARIOS.find(item=>item.id===presetId)?.name}</span>}
+            <span aria-hidden="true" className={"text-[10px] transition-transform "+(scenarioOpen?"rotate-180":"")}>&#9662;</span>
+          </button>
+          <button type="button" className="btn-ghost text-xs" onClick={reset}>{"\uCD08\uAE30\uD654"}</button>
+        </div>
+        {scenarioOpen&&<div className="mt-2 flex flex-wrap gap-2 rounded-md border border-border/70 bg-surface-2 p-2">
+          {PRESET_SCENARIOS.map(scenario=><button key={scenario.id} type="button" className={presetId===scenario.id?"btn-primary text-xs":"btn-ghost text-xs"} onClick={()=>applyPreset(scenario.id)}>{scenario.name}</button>)}
+        </div>}
+      </div>
+      <div className="mb-4 rounded-md border border-border/70 bg-surface-2 px-3 py-2 text-[11px] text-fg-muted">
+        {"\uAC00\uC6B4\uB370\uAC00 \uCD5C\uC2E0 \uC2DC\uC7A5\uAC12\uC785\uB2C8\uB2E4. \uC67C\uCABD\uC740 \uD604\uC7AC\uBCF4\uB2E4 \uD558\uB77D, \uC624\uB978\uCABD\uC740 \uC0C1\uC2B9\uC785\uB2C8\uB2E4."}
+        {updatedAt&&<span className="ml-1">{"\uC870\uD68C \uC2DC\uAC01 "}{new Date(updatedAt).toLocaleString("ko-KR")}</span>}
+      </div>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
+        {FACTOR_META.map(meta=>{
+          const level=levels[meta.id],absolute=absoluteFromShock(meta.id,level.value,shock[meta.id]);
+          const isVix=meta.id==="d_vix";
+          const span=Math.max(Math.abs(meta.min),Math.abs(meta.max),presetId!=="custom"?Math.abs(shock[meta.id]):0);
+          const range=isVix?{min:-1,max:1}:{min:meta.id==="ret_krw"||meta.id==="ret_cmd"?level.value*(1-span/100):level.value-span,max:meta.id==="ret_krw"||meta.id==="ret_cmd"?level.value*(1+span/100):level.value+span};
+          const sliderValue=isVix?Math.max(-1,Math.min(1,Math.log(absolute/level.value)/Math.log(4))):absolute;
+          const left=isVix?level.value/4:range.min,right=isVix?level.value*4:range.max;
+          return <div key={meta.id}>
+            <div className="mb-1 flex items-baseline justify-between"><label className="text-sm font-medium text-fg">{meta.label}<span className="ml-1 text-[11px] font-normal text-fg-muted">{meta.labelEn}</span></label><span className="text-sm font-semibold tabular-nums text-fg">{displayValue(meta.id,absolute)}<span className="ml-1 text-[10px] font-normal text-fg-muted">({displayShock(meta.id,shock[meta.id])})</span></span></div>
+            <input type="range" min={range.min} max={range.max} step={isVix?.01:meta.id==="ret_krw"?1:meta.id==="ret_cmd"?.1:meta.step} value={sliderValue} onChange={event=>{const raw=Number(event.target.value),nextAbsolute=isVix?level.value*Math.pow(4,raw):raw;setShock(previous=>({...previous,[meta.id]:shockFromAbsolute(meta.id,level.value,nextAbsolute)}));setPresetId("custom")}} className="w-full accent-gold-500"/>
+            <div className="mt-1 grid grid-cols-3 text-[10px] text-fg-muted/70"><span>{displayValue(meta.id,left)}</span><span className="text-center font-semibold text-fg-muted">{"\uD604\uC7AC "}{displayValue(meta.id,level.value)}</span><span className="text-right">{displayValue(meta.id,right)}</span></div>
+            <p className="mt-1 text-[10px] text-fg-muted/70">{"\uAE30\uC900\uC77C "}{level.asOf}<span aria-hidden="true" className="mx-1 text-fg-muted/40">&middot;</span>{level.source}{level.fallback?<><span aria-hidden="true" className="mx-1 text-fg-muted/40">&middot;</span>fallback</>:null}</p>
+            <p className="mt-1 text-[11px] leading-tight text-fg-muted">{meta.hint}</p>
+          </div>})}
+      </div>
+    </div>
+    {analysisStatus==="loading"&&<div className="card p-5 text-center text-sm text-fg-muted">{"\uC7A5\uAE30 \uD45C\uBCF8 \uD68C\uADC0\u00B750,000\uD68C \uBAAC\uD14C\uCE74\uB97C\uB85C\uB97C \uACC4\uC0B0\uD558\uB294 \uC911\uC785\uB2C8\uB2E4..."}</div>}
+    {analysisStatus==="error"&&<div className="card border-red-300 p-4 text-sm text-red-600">{"\uC7A5\uAE30 \uB370\uC774\uD130 \uBD84\uC11D\uC744 \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694."}</div>}
+    {analysis&&<div className="space-y-4">
+      <div className="card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div><h3 className="text-sm font-semibold text-fg">{analysis.scenario.dataStatus==="actual"?"\uC2E4\uC81C \uC5ED\uC0AC \uC2DC\uB098\uB9AC\uC624 \uBD84\uC11D":"\uC0AC\uC6A9\uC790 \uC815\uC758 \uC2DC\uB098\uB9AC\uC624 \uBD84\uC11D"}</h3><p className="mt-1 text-xs text-fg-muted">{analysis.scenario.period}<span aria-hidden="true" className="mx-1 text-fg-muted/40">&middot;</span>{analysis.scenario.months}{"\uAC1C\uC6D4"}<span aria-hidden="true" className="mx-1 text-fg-muted/40">&middot;</span>{"\uD68C\uADC0 \uD45C\uBCF8 "}{analysis.sample.actualStart}~{analysis.sample.actualEnd} ({analysis.sample.months}{"\uAC1C\uC6D4"})</p></div>
+          <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] text-fg-muted">50,000 paths</span>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+          {analysis.scenario.actualReturn!=null&&<div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">{"\uC2E4\uC81C \uB204\uC801\uC218\uC775\uB960"}</p><p className="mt-1 font-semibold tabular-nums text-fg">{(analysis.scenario.actualReturn*100).toFixed(1)}%</p></div>}
+          {analysis.scenario.actualMdd!=null&&<div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">{"\uC2E4\uC81C MDD"}</p><p className="mt-1 font-semibold tabular-nums text-red-500">{(analysis.scenario.actualMdd*100).toFixed(1)}%</p></div>}
+          <div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">CVaR 95%</p><p className="mt-1 font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.cvar95*100).toFixed(1)}%</p></div>
+          <div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">CVaR 99%</p><p className="mt-1 font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.cvar99*100).toFixed(1)}%</p></div>
+          <div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">{"\uD3C9\uADE0 MDD"}</p><p className="mt-1 font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.meanMdd*100).toFixed(1)}%</p></div>
+          <div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">{"\uCD5C\uC545 MDD"}</p><p className="mt-1 font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.worstMdd*100).toFixed(1)}%</p></div>
+          <div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">{"\uC190\uC2E4 \uD655\uB960"}</p><p className="mt-1 font-semibold tabular-nums text-fg">{(analysis.scenario.metrics.lossProbability*100).toFixed(1)}%</p></div>
+        </div>
+      </div>
+      {analysis.scenario.actualAssetMdd&&<div className="card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="text-sm font-semibold text-fg">{"\uC790\uC0B0\uBCC4 \uC2E4\uC81C MDD"}</h4><p className="mt-1 text-[11px] text-fg-muted">{"\uC120\uD0DD\uD55C \uC5ED\uC0AC \uC704\uAE30 \uAE30\uAC04\uC758 \uC6D4\uBCC4 \uC2E4\uC81C \uACBD\uB85C\uC5D0\uC11C \uACE0\uC810 \uB300\uBE44 \uCD5C\uB300 \uD558\uB77D\uD3ED\uC744 \uACC4\uC0B0\uD588\uC2B5\uB2C8\uB2E4."}</p></div><span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] text-fg-muted">{"\uC190\uC2E4\uD3ED \uAE30\uC900"}</span></div>
+        <ResponsiveContainer width="100%" height={220}><BarChart layout="vertical" data={[{name:"S&P 500",loss:Math.abs(analysis.scenario.actualAssetMdd.sp500*100),color:"#1f4e79"},{name:"KOSPI",loss:Math.abs(analysis.scenario.actualAssetMdd.kospi*100),color:"#d4a017"},{name:"\uBBF8\uAD6D\uCC44",loss:Math.abs(analysis.scenario.actualAssetMdd.treasury*100),color:"#0f766e"}]} margin={{top:12,right:24,left:8,bottom:0}}><CartesianGrid strokeDasharray="3 3" opacity={.2}/><XAxis type="number" tickFormatter={value=>value+"%"} tick={{fontSize:10}}/><YAxis type="category" dataKey="name" width={72} tick={{fontSize:11}}/><Tooltip formatter={(value:number)=>["-"+value.toFixed(1)+"%","MDD"]}/><Bar dataKey="loss" radius={[0,4,4,0]}>{["#1f4e79","#d4a017","#0f766e"].map(color=><Cell key={color} fill={color}/>)}</Bar></BarChart></ResponsiveContainer>
+      </div>}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card p-4">
+          <h4 className="text-sm font-semibold text-fg">{"\uC608\uC0C1 \uB099\uD3ED\uACFC \uADFC\uAC70"}</h4>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-md bg-surface-2 p-3"><p className="text-[11px] text-fg-muted">{"\uD3C9\uADE0 \uC608\uC0C1 MDD"}</p><p className="mt-1 text-xl font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.meanMdd*100).toFixed(1)}%</p></div>
+            <div className="rounded-md bg-surface-2 p-3"><p className="text-[11px] text-fg-muted">{"\uBCF4\uC218\uC801 \uC608\uC0C1 MDD (\uD558\uC704 5%)"}</p><p className="mt-1 text-xl font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.mdd95*100).toFixed(1)}%</p></div>
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-fg-muted">{"\uC608\uC0C1 MDD\uB294 \uC120\uD0DD\uD55C \uC81C\uC548 \uD3EC\uD2B8\uD3F4\uB9AC\uC624 \uBE44\uC911\uC5D0 \uC704\uAE30 \uCDA9\uACA9\uC744 \uC911\uC2EC\uAC12\uC73C\uB85C \uB193\uACE0, 1990\uB144 \uC774\uD6C4 \uC6D4\uAC04 \uC694\uC778 \uACF5\uBD84\uC0B0\u00B7OLS \uBCA0\uD0C0\u00B7\uC794\uCC28 \uBCC0\uB3D9\uC744 \uBC18\uC601\uD55C 50,000\uAC1C \uACBD\uB85C\uC5D0\uC11C \uACC4\uC0B0\uD569\uB2C8\uB2E4."}</p>
+          {analysis.scenario.actualMdd!=null&&<p className="mt-2 text-xs text-fg-muted">{"\uBE44\uAD50\uC6A9 \uC2E4\uC81C \uC704\uAE30 MDD: "}<span className="font-semibold text-fg">{(analysis.scenario.actualMdd*100).toFixed(1)}%</span></p>}
+        </div>
+        <div className="card p-4">
+          <h4 className="text-sm font-semibold text-fg">{"\uB9AC\uBC38\uB7F0\uC2F1 \uC81C\uC548\uACFC \uADFC\uAC70"}</h4>
+          <div className="mt-3 space-y-2 text-xs">
+            {([{key:"sp500",label:"S&P 500"},{key:"kospi",label:"KOSPI"},{key:"treasury",label:"\uBBF8\uAD6D\uCC44"}] as const).map(item=>{const before=targetWeights[item.key],after=analysis.scenario.proposedWeights[item.key],delta=(after-before)*100;return <div key={item.key} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border/50 pb-2"><span className="text-fg">{item.label}</span><span className="tabular-nums text-fg-muted">{(before*100).toFixed(0)}% {"\u2192"} {(after*100).toFixed(0)}%</span><span className={delta>0?"text-emerald-600":delta<0?"text-red-500":"text-fg-muted"}>{delta>0?"+":""}{delta.toFixed(0)}%p</span></div>})}
+          </div>
+          <div className="mt-3 rounded-md bg-surface-2 p-3 text-xs leading-relaxed text-fg-muted"><p>CVaR 95% {(analysis.scenario.metrics.cvar95*100).toFixed(1)}% {"\u2192"} {(analysis.scenario.proposedMetrics.cvar95*100).toFixed(1)}%</p><p className="mt-1">{"\uD3C9\uADE0 MDD "}{(analysis.scenario.metrics.meanMdd*100).toFixed(1)}% {"\u2192"} {(analysis.scenario.proposedMetrics.meanMdd*100).toFixed(1)}%</p></div>
+          <p className="mt-3 text-xs leading-relaxed text-fg-muted">{"\uC81C\uC548\uC548\uC740 5%p \uB2E8\uC704 \uBE44\uC911 \uD6C4\uBCF4 \uC911 \uAC01 \uC790\uC0B0\uC758 \uBCC0\uACBD\uD3ED\uC744 \uD604\uC7AC \uB300\uBE44 \uCD5C\uB300 20%p\uB85C \uC81C\uD55C\uD558\uACE0, CVaR\u00B7\uD3C9\uADE0 MDD \uAC1C\uC120\uACFC \uB9E4\uB9E4\uD68C\uC804\uC744 \uD568\uAED8 \uD3C9\uAC00\uD55C \uACB0\uACFC\uC785\uB2C8\uB2E4."}</p>
+        </div>
+        <div className="card p-4 lg:col-span-2"><h4 className="text-sm font-semibold text-fg">{analysis.scenario.dataStatus==="actual"?"\uC704\uAE30 \uAE30\uAC04 \uC2E4\uCE21 \uB9E4\uD06C\uB85C \uCDA9\uACA9":"\uC0AC\uC6A9\uC790 \uC124\uC815 \uCDA9\uACA9"}</h4><div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 md:grid-cols-3">{FACTOR_META.map(meta=>{const raw=analysis.scenario.center[meta.id],value=meta.id==="ret_krw"||meta.id==="ret_cmd"||meta.id==="infl"?raw*100:raw;return <div key={meta.id} className="flex justify-between border-b border-border/50 pb-1 text-xs"><span className="text-fg-muted">{meta.label}</span><span className="font-medium tabular-nums text-fg">{value>=0?"+":""}{value.toFixed(2)}{meta.id==="d_vix"?"pt":meta.id==="ret_krw"||meta.id==="ret_cmd"||meta.id==="infl"?"%":"%p"}</span></div>})}</div></div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card p-4 lg:col-span-2">
+          <h4 className="text-sm font-semibold text-fg">{"\uBAAC\uD14C\uCE74\uB97C\uB85C \uD3EC\uD2B8\uD3F4\uB9AC\uC624 \uC218\uC775\uB960 \uBD84\uD3EC"}</h4>
+          <p className="mt-1 text-[11px] text-fg-muted">{"\uC591\uB05D 1% \uACBD\uB85C\uB294 \uAC00\uC7A5\uC790\uB9AC \uAD6C\uAC04\uC5D0 \uD3EC\uD568\uD574 tail risk\uB97C \uBCF4\uC5EC\uC90D\uB2C8\uB2E4."}</p>
+          <p className="mt-2 rounded-md bg-surface-2 p-2 text-[11px] leading-relaxed text-fg-muted">{"\uD3C9\uC0C1\uC2DC \uBCC0\uB3D9\uC131\uACFC \uC704\uAE30 \uC2DC\uB098\uB9AC\uC624\uC758 MDD\u00B7VaR\u00B7CVaR\uB294 \uCE21\uC815 \uB300\uC0C1\uC774 \uB2E4\uB978 \uC704\uD5D8 \uC9C0\uD45C\uC774\uBBC0\uB85C \uAC12\uC774 \uB2E4\uB974\uAC8C \uB098\uC624\uB294 \uAC83\uC774 \uC815\uC0C1\uC785\uB2C8\uB2E4."}</p>
+          <ResponsiveContainer width="100%" height={240}><BarChart data={analysis.scenario.histogram.map(item=>({return:+(item.mid*100).toFixed(1),count:item.count}))} margin={{top:12,right:12,left:0,bottom:0}}><CartesianGrid strokeDasharray="3 3" opacity={.2}/><XAxis dataKey="return" tickFormatter={value=>value+"%"} tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip formatter={(value:number)=>[value.toLocaleString()+"\uAC1C","\uACBD\uB85C \uC218"]} labelFormatter={value=>"\uC218\uC775\uB960 "+value+"%"}/><Bar dataKey="count" fill="#1f4e79" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer>
+        </div>
+        <div className="card p-4">
+          <h4 className="text-sm font-semibold text-fg">{"\uD604\uC7AC \uB300\uBE44 \uB9AC\uBC38\uB7F0\uC2F1 \uC704\uD5D8 \uBE44\uAD50"}</h4>
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold"><span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-red-700"><span aria-hidden="true" className="h-2 w-2 rounded-sm bg-red-600"/>{"\uD604\uC7AC \uD3EC\uD2B8\uD3F4\uB9AC\uC624"}</span><span className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-1 text-teal-700"><span aria-hidden="true" className="h-2 w-2 rounded-sm bg-teal-700"/>{"\uB9AC\uBC38\uB7F0\uC2F1 \uC81C\uC548"}</span></div>
+          <ResponsiveContainer width="100%" height={230}><BarChart data={[{name:"\uD3C9\uADE0 MDD",current:Math.abs(analysis.scenario.metrics.meanMdd*100),proposed:Math.abs(analysis.scenario.proposedMetrics.meanMdd*100)},{name:"CVaR 95%",current:Math.abs(analysis.scenario.metrics.cvar95*100),proposed:Math.abs(analysis.scenario.proposedMetrics.cvar95*100)},{name:"CVaR 99%",current:Math.abs(analysis.scenario.metrics.cvar99*100),proposed:Math.abs(analysis.scenario.proposedMetrics.cvar99*100)}]} margin={{top:18,right:8,left:0,bottom:0}}><CartesianGrid strokeDasharray="3 3" opacity={.2}/><XAxis dataKey="name" tick={{fontSize:11,fontWeight:600,fill:"currentColor"}}/><YAxis tickFormatter={value=>value+"%"} tick={{fontSize:10,fill:"currentColor"}}/><Tooltip contentStyle={{borderRadius:8,fontSize:12}} formatter={(value:number)=>[value.toFixed(1)+"%"]}/><Bar dataKey="current" fill="#dc2626" radius={[3,3,0,0]}/><Bar dataKey="proposed" fill="#0f766e" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer>
+        </div>
+        <div className="card p-4">
+          <h4 className="text-sm font-semibold text-fg">{"\uC2E4\uC81C\uAC12\uACFC \uD68C\uADC0 \uC608\uCE21 \uBE44\uAD50"}</h4>
+          {analysis.scenario.actualReturn!=null&&analysis.scenario.predictedReturn!=null?<><div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold"><span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-800"><span aria-hidden="true" className="h-2 w-2 rounded-sm bg-[#1f4e79]"/>{"\uC2E4\uC81C \uC218\uC775\uB960"}</span><span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-800"><span aria-hidden="true" className="h-2 w-2 rounded-sm bg-[#d4a017]"/>{"\uD68C\uADC0 \uC608\uCE21"}</span></div><ResponsiveContainer width="100%" height={230}><BarChart data={[{name:"\uC704\uAE30 \uB204\uC801\uC218\uC775\uB960",actual:analysis.scenario.actualReturn*100,predicted:analysis.scenario.predictedReturn*100}]} margin={{top:18,right:8,left:0,bottom:0}}><CartesianGrid strokeDasharray="3 3" opacity={.2}/><XAxis dataKey="name" tick={{fontSize:11,fontWeight:600,fill:"currentColor"}}/><YAxis tickFormatter={value=>value+"%"} tick={{fontSize:10,fill:"currentColor"}}/><Tooltip contentStyle={{borderRadius:8,fontSize:12}} formatter={(value:number)=>[value.toFixed(1)+"%"]}/><Bar dataKey="actual" fill="#1f4e79" radius={[3,3,0,0]}/><Bar dataKey="predicted" fill="#d4a017" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer></>:<div className="flex h-[230px] items-center justify-center text-xs text-fg-muted">{"\uC0AC\uC6A9\uC790 \uC815\uC758 \uC2DC\uB098\uB9AC\uC624\uB294 \uC2E4\uC81C \uBE44\uAD50\uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}</div>}
+        </div>
+      </div>
+      <details className="card p-4"><summary className="cursor-pointer text-sm font-semibold text-fg">{"\uD68C\uADC0 \uC2E0\uB8B0\uB3C4\u00B7\uB370\uC774\uD130 \uADFC\uAC70"}</summary><div className="mt-3 overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-border text-fg-muted"><th className="px-2 py-1 text-left">{"\uC790\uC0B0"}</th><th className="px-2 py-1 text-right">R\u00B2</th><th className="px-2 py-1 text-right">{"\uC794\uCC28 \uD45C\uC900\uD3B8\uCC28"}</th><th className="px-2 py-1 text-right">p&lt;0.05 {"\uC694\uC778 \uC218"}</th></tr></thead><tbody>{analysis.models.map(model=><tr key={model.asset} className="border-b border-border/50"><td className="px-2 py-1">{model.asset}<span className="ml-1 text-[10px] text-fg-muted">{model.sampleStart}~{model.sampleEnd}, n={model.observations}</span></td><td className="px-2 py-1 text-right">{model.r2.toFixed(3)}</td><td className="px-2 py-1 text-right">{(model.residualStd*100).toFixed(2)}%</td><td className="px-2 py-1 text-right">{Object.values(model.pValues).filter(value=>value<.05).length}/6</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1 text-[11px] text-fg-muted">{Object.entries(analysis.sources).map(([key,value])=><p key={key}>{key}: {value}</p>)}{analysis.warnings.map(warning=><p key={warning} className="text-amber-600">{warning}</p>)}</div></details>
+    </div>}
+  </div>;
 }

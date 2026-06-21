@@ -1,52 +1,69 @@
-export type TaxSeverity = "높음" | "중간" | "낮음";
+export type TaxSeverity = "상" | "중" | "하";
 
 export interface TaxPainRubric {
   id: string;
   title: string;
   description: string;
+  scoreGuide: string;
   levels: Array<{ severity: TaxSeverity; criteria: string[] }>;
   heritageConsultingRequiredFrom?: TaxSeverity;
 }
 
 export const TAX_PAIN_RUBRICS: Record<string, TaxPainRubric> = {
   "financial-income": {
-    id: "financial-income", title: "금융소득 종합과세 판단 기준", description: "이자·배당소득의 합계와 다른 소득을 함께 확인합니다.",
+    id: "financial-income",
+    title: "금융소득 종합과세 판단 기준",
+    description: "이자·배당소득 입력 합계가 금융소득종합과세 점검 구간에 가까운지 확인합니다.",
+    scoreGuide: "금액 기준 우선: 연간 금융소득 2,000만원 이상=상, 1,500만~2,000만원=중, 그 미만=하",
     levels: [
-      { severity: "높음", criteria: ["연간 이자·배당소득이 2천만원 이상", "금융소득 증가로 종합소득세율 구간 변동 가능"] },
-      { severity: "중간", criteria: ["금융소득이 2천만원에 근접", "고액 배당·채권 이자 수입이 반복"] },
-      { severity: "낮음", criteria: ["금융소득 규모가 작고 변동 요인이 제한적"] },
+      { severity: "상", criteria: ["연간 이자·배당소득 2,000만원 이상", "종합과세·건보료 영향 우선 점검"] },
+      { severity: "중", criteria: ["연간 이자·배당소득 1,500만~2,000만원", "채권 이자/배당 집중 시 사전 점검"] },
+      { severity: "하", criteria: ["연간 금융소득 1,500만원 미만", "현재 입력 기준 고충 낮음"] },
     ],
   },
   "inheritance-gift": {
-    id: "inheritance-gift", title: "상속·증여 판단 기준", description: "가족 간 이전 계획과 자산 구성, 시점을 종합 확인합니다.", heritageConsultingRequiredFrom: "중간",
+    id: "inheritance-gift",
+    title: "상속·증여 판단 기준",
+    description: "증여·상속세 예상액, 증여 실행금액, 가업승계 키워드와 총자산 규모를 확인합니다.",
+    scoreGuide: "증여·상속 관련 입력 30억원 이상 또는 키워드+총자산 100억원 이상=상, 10억~30억원 또는 가업승계+50억원 이상=중",
+    heritageConsultingRequiredFrom: "중",
     levels: [
-      { severity: "높음", criteria: ["상속 또는 증여 계획이 구체화됨", "사업·부동산·비상장주식 등 평가 이슈가 존재"] },
-      { severity: "중간", criteria: ["가족 이전 또는 공동 보유 논의가 있음", "향후 자산 이전 가능성을 검토 중"] },
-      { severity: "낮음", criteria: ["현재 이전 계획과 관련 자산 이슈가 확인되지 않음"] },
+      { severity: "상", criteria: ["증여세/상속세/증여 실행금액 30억원 이상", "또는 증여·상속 키워드 + 총자산 100억원 이상", "삼성헤리티지 컨설팅 검토"] },
+      { severity: "중", criteria: ["관련 입력 10억~30억원", "또는 가업승계 키워드 + 총자산 50억원 이상", "삼성헤리티지 컨설팅 검토"] },
+      { severity: "하", criteria: ["관련 입력 10억원 미만", "키워드/실행 일정 제한적"] },
     ],
   },
   "stock-capital-gain": {
-    id: "stock-capital-gain", title: "주식 양도소득 판단 기준", description: "대주주·해외주식·비상장주식 등 거래 유형을 확인합니다.",
+    id: "stock-capital-gain",
+    title: "주식 양도소득 판단 기준",
+    description: "대주주·해외주식·비상장주식·IPO 보호예수 관련 세금성 유출 규모를 확인합니다.",
+    scoreGuide: "IPO/보호예수/대주주 신호 + 관련 유출 3억원 이상=상, 고액 주식/해외주식/비상장 키워드 또는 관련 유출 존재=중",
     levels: [
-      { severity: "높음", criteria: ["대주주 또는 비상장주식 거래 가능성", "해외주식 매도·지분 이전 계획"] },
-      { severity: "중간", criteria: ["고액 주식 보유 또는 매도 시점 조정 필요", "가족 간 지분 이동 가능성"] },
-      { severity: "낮음", criteria: ["양도 관련 거래 계획이 제한적"] },
+      { severity: "상", criteria: ["IPO/보호예수/대주주 키워드", "관련 양도세·현금화 유출 3억원 이상"] },
+      { severity: "중", criteria: ["고액 주식/해외주식/비상장/지분 키워드", "또는 관련 세금성 유출 존재"] },
+      { severity: "하", criteria: ["관련 거래 계획 제한적"] },
     ],
   },
   "real-estate-tax": {
-    id: "real-estate-tax", title: "부동산 세금 판단 기준", description: "보유·양도 계획과 주택 수, 법인 보유 여부를 확인합니다.",
+    id: "real-estate-tax",
+    title: "부동산 세금 판단 기준",
+    description: "보유세·양도세 예정 유출과 부동산 보유/양도 키워드를 확인합니다.",
+    scoreGuide: "부동산 양도세/보유세 유출 5억원 이상 또는 다주택·양도 강신호=상, 1억~5억원 또는 부동산 키워드=중",
     levels: [
-      { severity: "높음", criteria: ["다주택·고가 부동산 또는 법인 보유", "양도·증여·상속 일정이 임박"] },
-      { severity: "중간", criteria: ["보유세 또는 양도 계획에 대한 검토 필요", "부동산 관련 현금흐름 영향이 큼"] },
-      { severity: "낮음", criteria: ["부동산 보유·양도 이슈가 제한적"] },
+      { severity: "상", criteria: ["부동산 세금성 유출 5억원 이상", "또는 다주택·양도·법인보유 부동산 키워드"] },
+      { severity: "중", criteria: ["부동산 세금성 유출 1억~5억원", "또는 부동산 보유/매각 키워드"] },
+      { severity: "하", criteria: ["부동산 세금 이벤트 입력 제한적"] },
     ],
   },
   "tax-exempt-products": {
-    id: "tax-exempt-products", title: "비과세·분리과세 상품 판단 기준", description: "개인별 한도, 자격, 보유 구조를 확인합니다.",
+    id: "tax-exempt-products",
+    title: "비과세·분리과세 상품 판단 기준",
+    description: "RRTTLLU 7요인 중 세금 점수와 절세 우선 요구를 확인합니다.",
+    scoreGuide: "7요인 세금 점수 4점 이상=상, 3점 이상 또는 절세 최우선 요구=중, 그 외=하",
     levels: [
-      { severity: "높음", criteria: ["절세가 최우선 목표이며 고액 과세소득 존재", "적용 상품의 자격·한도 검토가 필요"] },
-      { severity: "중간", criteria: ["세후 수익률 개선을 위한 상품 구조 비교 필요"] },
-      { severity: "낮음", criteria: ["현재 세제 활용 우선순위가 낮음"] },
+      { severity: "상", criteria: ["7요인 세금 점수 4~5점", "세후수익률/계좌 한도 우선 비교"] },
+      { severity: "중", criteria: ["7요인 세금 점수 3점", "또는 절세 최우선 요구 감지"] },
+      { severity: "하", criteria: ["세금 점수 1~2점", "현재 세제 활용 우선순위 낮음"] },
     ],
   },
 };

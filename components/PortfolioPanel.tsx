@@ -14,6 +14,7 @@ import type { Client, Portfolio } from '@/lib/types';
 import {
   buildDetailedHoldings,
   buildPortfolioViewModel,
+  getVolatilityRanges,
   preferenceAdjustedMetrics,
   type HeldAssets,
   type PortfolioOption,
@@ -226,7 +227,7 @@ function SignalChip({ s }: { s: AnalyzedReportSignal }) {
 const weightLabels: Record<WeightKey, string> = {
   etf: '주식 / ETF',
   bond: '채권 인컴',
-  els: 'ELS/ELB',
+  els: '채권 인컴',
   mmf: 'MMF/RP',
   gold: '금',
   dollar: '달러',
@@ -271,7 +272,7 @@ function buildMacroStressAllocations(
 const barColors: Record<WeightKey, string> = {
   etf: 'bg-blue-600',
   bond: 'bg-sky-500',
-  els: 'bg-amber-500',
+  els: 'bg-sky-500',
   mmf: 'bg-indigo-600',
   gold: 'bg-yellow-500',
   dollar: 'bg-slate-600',
@@ -372,14 +373,10 @@ function buildBenchmarkChartData(
     const dollarBenchmark = dollar;                      // FX 달러 인덱스 프록시
     const rawBenchmark = commodity;                     // 원자재 인덱스 프록시
     
-    // ELS/ELB의 경우 상품 특성상 주식 벤치마크와 채권 벤치마크를 5:5로 복합 매핑하여 벤치마크 구현
-    const elsBenchmark = stockBenchmark * 0.5 + bondBenchmark * 0.5;
-
     // 2. 수식에 따른 실시간 혼합 벤치마크(Blended Benchmark) 가중평균 연산 (100 기준 규격화)
   const blendedBenchmark =
   (weights.etf / totalWeight) * stockBenchmark +
   (weights.bond / totalWeight) * bondBenchmark +
-  (weights.els / totalWeight) * elsBenchmark +
   (weights.mmf / totalWeight) * cashBenchmark +
   (weights.gold / totalWeight) * goldBenchmark +
   (weights.dollar / totalWeight) * dollarBenchmark +
@@ -421,8 +418,8 @@ function buildSimplifiedBenchmarkChartData(
     0,
   );
   const domesticEquityWeight = Math.max(0, weights.etf - overseasEquityWeight);
-  // ELS, MMF, bonds, and simplified alternative/currency positions use the stable US Treasury proxy.
-  const stableWeight = weights.bond + weights.els + weights.mmf + weights.gold + weights.dollar + weights.raw;
+  // MMF, bonds, and simplified alternative/currency positions use the stable US Treasury proxy.
+  const stableWeight = weights.bond + weights.mmf + weights.gold + weights.dollar + weights.raw;
 
   return sourcePoints.map((point, index) => {
     const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
@@ -750,7 +747,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [weights, setWeights] = useState<PortfolioOption['weights']>(FALLBACK_MARKET_RESEARCH.length ? {
     etf: 35,
     bond: 35,
-    els: 10,
+    els: 0,
     mmf: 10,
     gold: 5,
     dollar: 5,
@@ -758,13 +755,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   } : {
     etf: 35,
     bond: 35,
-    els: 10,
+    els: 0,
     mmf: 10,
     gold: 5,
     dollar: 5,
     raw: 0,
   });
-  const [elsIncluded, setElsIncluded] = useState(true);
   const [liquidityAmount, setLiquidityAmount] = useState(5000);
   const [isSuitabilityOpen, setIsSuitabilityOpen] = useState(false);
   const [hasManualEdit, setHasManualEdit] = useState(false);
@@ -976,15 +972,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     const target = portfolioOptions.find((option) => option.id === model.recommendedId) ?? portfolioOptions[1];
     setSelectedBase(target.id);
     setWeights({ ...target.weights });
-    setElsIncluded(target.weights.els > 0);
     setLiquidityAmount(model.liquidityReserveManwon);
   }, [hasManualEdit, model.liquidityReserveManwon, model.recommendedId, portfolioOptions]);
 
   const adjustedWeights = useMemo(() => {
-    const next = { ...weights };
-    if (!elsIncluded) next.els = 0;
-    return next;
-  }, [elsIncluded, weights]);
+    return { ...weights, els: 0 };
+  }, [weights]);
 
   const benchmarkTargetReturn = useMemo(
     () => latestBenchmarkTarget(benchmarkPoints, model.preferenceProfile),
@@ -1014,6 +1007,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn),
     [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedRiskTilt],
   );
+  const volatilityRanges = useMemo(() => getVolatilityRanges(metrics.volatility), [metrics.volatility]);
   const benchmarkChartData = useMemo(
     () => buildSimplifiedBenchmarkChartData(
       benchmarkPoints,
@@ -1113,7 +1107,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     setHasManualEdit(true);
     setSelectedBase(type);
     setWeights({ ...target.weights });
-    setElsIncluded(target.weights.els > 0);
   };
 
   const handleWeightChange = (asset: WeightKey, value: number) => {
@@ -1277,6 +1270,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">포트폴리오 변동성</span>
                 <span className="mt-0.5 block text-xl font-black text-slate-200">{metrics.volatility}%</span>
+                <span className="mt-1 block text-[9px] leading-relaxed text-slate-400">평상시 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
+                <span className="block text-[9px] leading-relaxed text-amber-200/80">위기 {volatilityRanges.stressLow}~{volatilityRanges.stressHigh}%</span>
+                <span className="mt-1 block text-[9px] text-slate-500" title="대표지수 proxy 변동성·상관관계 기반 연율화 추정치">proxy 기반 연율화 추정치</span>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">시뮬레이션 MDD</span>
@@ -1735,11 +1731,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
               <h3 className="text-base font-bold text-fg">고액자산가 주요 세금 고충 참고</h3>
             </div>
-            <TaxPainRubricButton label="세금 고충 판단 기준 전체 확인" />
+            <TaxPainRubricButton label="AI 세금 고충 기준표 확인" />
           </div>
 
           <p className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-900">
-            실제 고액자산가 상담에서 자주 나오는 세금 이슈를 고객의 현금흐름·고유상황과 대조했습니다.
+            실제 고액자산가 상담에서 자주 나오는 세금 이슈를 고객의 현금흐름·고유상황과 대조해 상/중/하로 정량 분류했습니다.
             확정 절세 판단이 아니라 PB와 세무전문가가 확인해야 할 우선순위입니다.
           </p>
 
@@ -1750,9 +1746,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   <p className="text-xs font-bold text-fg">{point.label}</p>
                   <span
                     className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                      point.severity === "높음"
+                      point.severity === "상"
                         ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : point.severity === "중간"
+                        : point.severity === "중"
                           ? "border-amber-200 bg-amber-50 text-amber-700"
                           : "border-border bg-surface text-fg-muted"
                     }`}
@@ -1761,13 +1757,16 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   </span>
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">{point.whyItMatters}</p>
+                <div className="mt-2 rounded-lg border border-border bg-surface px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
+                  <b className="text-fg">정량 근거</b> {point.basis.join(" · ")}
+                </div>
                 <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface px-3 py-2">
                   <p className="text-[11px] leading-relaxed text-emerald-800">상담 사유: {point.portfolioResponse}</p>
                   <TaxPainRubricButton id={point.id} />
                 </div>
-                {(point.severity === "높음" || point.severity === "중간") && (
+                {(point.severity === "상" || point.severity === "중") && (
                   <p className="mt-2 text-[11px] font-bold text-emerald-800">
-                    {point.id === "inheritance-gift" ? "삼성 패밀리오피스 컨설팅 권고" : "삼성 WM센터 전문 세무 상담 권고"}
+                    {point.id === "inheritance-gift" ? "삼성헤리티지 컨설팅 검토 필요" : "삼성 WM센터 전문 세무 상담 권고"}
                   </p>
                 )}
                 <a
@@ -1947,22 +1946,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             </div>
 
             <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 md:grid-cols-2">
-              <div className="flex items-center justify-between rounded-xl border border-border bg-surface-2 p-3">
-                <div>
-                  <span className="block text-xs font-bold text-fg">구조화 지수 ELS/ELB 포함</span>
-                  <span className="text-[10px] text-fg-muted">비활성화 시 ELS 비중 0% 처리</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={elsIncluded}
-                  onChange={(event) => {
-                    setHasManualEdit(true);
-                    setElsIncluded(event.target.checked);
-                  }}
-                  className="h-4 w-4 rounded border-border text-blue-600 focus:ring-blue-500"
-                />
-              </div>
-
               <div className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-bold text-fg">단기 유동성 분리 확보액</span>

@@ -70,6 +70,7 @@ export async function GET() {
     infl: latestInflationYoY(),
     ret_krw: yahooLatest("KRW=X"),
     ret_cmd: yahooLatest("GSG"),
+    d_vix: fredLatest("VIXCLS"),
   };
 
   const entries = await Promise.all(
