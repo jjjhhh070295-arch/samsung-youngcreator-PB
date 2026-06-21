@@ -1147,6 +1147,71 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </div>
 
+      {/* 자산 3층 구조 요약 카드 */}
+      {model.assetLayer ? (
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <div className="mb-3 flex flex-col gap-1 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
+              <h3 className="text-base font-bold text-fg">실제 보유자산 구조</h3>
+            </div>
+            <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5">
+              이 SET은 투자가능자산 {formatWonShort(model.assetLayer.investableKrw)} 기준으로 산출됩니다
+            </span>
+          </div>
+
+          {model.assetLayer.realEstateWarning && (
+            <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+              <span className="mt-0.5 text-amber-500 text-sm font-black">⚠</span>
+              <p className="text-xs font-semibold text-amber-800">{model.assetLayer.realEstateWarning}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="rounded-lg border border-border bg-surface-2 p-3 text-center">
+              <span className="block text-[10px] font-medium text-fg-muted">총자산</span>
+              <span className="block text-sm font-black text-fg mt-0.5">{formatWonShort(model.assetLayer.totalKrw)}</span>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
+              <span className="block text-[10px] font-medium text-blue-700">투자가능자산</span>
+              <span className="block text-sm font-black text-blue-800 mt-0.5">{formatWonShort(model.assetLayer.investableKrw)}</span>
+              <span className="block text-[9px] text-blue-500 mt-0.5">총자산 - 부동산</span>
+            </div>
+            <div className="rounded-lg border border-border bg-surface-2 p-3 text-center">
+              <span className="block text-[10px] font-medium text-fg-muted">부동산</span>
+              <span className={`block text-sm font-black mt-0.5 ${model.assetLayer.realEstateWarning ? 'text-amber-600' : 'text-fg'}`}>
+                {formatWonShort(model.assetLayer.totalKrw - model.assetLayer.investableKrw)}
+              </span>
+              <span className="block text-[9px] text-fg-muted mt-0.5">운용 제외</span>
+            </div>
+          </div>
+
+          {/* 비중 막대 */}
+          <div>
+            <div className="flex h-3 w-full overflow-hidden rounded-full gap-px">
+              {model.assetLayer.stocksPct > 0 && (
+                <div style={{ width: `${model.assetLayer.stocksPct}%` }} className="bg-blue-600" title={`주식 ${model.assetLayer.stocksPct.toFixed(1)}%`} />
+              )}
+              {model.assetLayer.realEstatePct > 0 && (
+                <div style={{ width: `${model.assetLayer.realEstatePct}%` }} className={model.assetLayer.realEstateWarning ? 'bg-amber-500' : 'bg-amber-400'} title={`부동산 ${model.assetLayer.realEstatePct.toFixed(1)}%`} />
+              )}
+              {model.assetLayer.cashPct > 0 && (
+                <div style={{ width: `${model.assetLayer.cashPct}%` }} className="bg-slate-400" title={`현금·기타 ${model.assetLayer.cashPct.toFixed(1)}%`} />
+              )}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-[10px] text-fg-muted">
+              <span><span className="inline-block w-2 h-2 rounded-sm bg-blue-600 mr-1 align-middle" />주식 {model.assetLayer.stocksPct.toFixed(1)}%</span>
+              <span><span className={`inline-block w-2 h-2 rounded-sm mr-1 align-middle ${model.assetLayer.realEstateWarning ? 'bg-amber-500' : 'bg-amber-400'}`} />부동산 {model.assetLayer.realEstatePct.toFixed(1)}%</span>
+              <span><span className="inline-block w-2 h-2 rounded-sm bg-slate-400 mr-1 align-middle" />현금·기타 {model.assetLayer.cashPct.toFixed(1)}%</span>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <div className="rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-xs text-fg-muted">
+          실제 보유자산 정보 없음 — SET은 등록된 총자산 기준으로 산출됩니다.
+        </div>
+      )}
+
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
