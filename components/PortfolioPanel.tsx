@@ -1122,6 +1122,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">포트폴리오 변동성</span>
                 <span className="mt-0.5 block text-xl font-black text-slate-200">{metrics.volatility}%</span>
+                <span className="mt-1 block text-[9px] leading-relaxed text-slate-400">평상시 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
+                <span className="block text-[9px] leading-relaxed text-amber-200/80">위기 {volatilityRanges.stressLow}~{volatilityRanges.stressHigh}%</span>
+                <span className="mt-1 block text-[9px] text-slate-500" title="대표지수 proxy 변동성·상관관계 기반 연율화 추정치">proxy 기반 연율화 추정치</span>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">시뮬레이션 MDD</span>
@@ -1132,14 +1135,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
 
         {/* 오른쪽 1열: 도넛형 자산비중 프리뷰 카드 */}
-        <div className="xl:col-span-7 -mt-3 rounded-b-xl border-x border-b border-slate-700/50 bg-slate-900 px-5 pb-4 text-xs text-slate-300">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <p><b className="text-slate-100">평상시 range</b> {volatilityRanges.normalLow}% ~ {volatilityRanges.normalHigh}%</p>
-            <p><b className="text-amber-200">위기 국면 range</b> {volatilityRanges.stressLow}% ~ {volatilityRanges.stressHigh}%</p>
-          </div>
-          <p className="mt-2 leading-relaxed text-slate-400">대표지수 proxy의 과거 변동성·상관관계와 현재 자산배분 비중을 적용한 연율화 추정치입니다 (wᵀΣw). ETF는 S&amp;P500/KOSPI200, 채권·ELS·MMF는 채권·현금 proxy를 사용하며 금·달러는 분산·환헤지성 proxy로 별도 반영합니다.</p>
-        </div>
-
         <div className="xl:col-span-5 rounded-xl border border-border bg-surface p-4 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center gap-1.5 pb-2 border-b border-border mb-3">
