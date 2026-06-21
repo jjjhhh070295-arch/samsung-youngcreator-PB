@@ -256,6 +256,7 @@ export default function RealEstateModule({ clientId }: Props) {
     if (!supabase || area.median == null) return;
     const confidence = area.sampleSize >= 3 ? "high" : area.sampleSize >= 1 ? "medium" : "low";
     await supabase.from("client_real_estate").update({
+      area_m2:           area.area,
       market_value:      area.median,
       market_value_low:  area.low,
       market_value_high: area.high,
