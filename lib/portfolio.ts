@@ -1507,12 +1507,16 @@ export function buildPortfolioViewModel(
   };
 
   const recommendedOption = portfolioOptions.find((option) => option.id === recommendedId) ?? portfolioOptions[1];
+  // 유동성 버킷 금액 기준: 투자가능자산(부동산 제외) 우선, 없으면 총자산 폴백
+  const allocationBase = heldAssets && heldAssets.totalKrw > 0
+    ? heldAssets.totalKrw - heldAssets.realEstateKrw  // investableKrw
+    : (client.assetSize || 0);
   const liquidityReserveManwon = Math.max(
     1_000,
     Math.min(
       30_000,
-      Math.round(((client.assetSize || 0) * (recommendedOption.weights.mmf + recommendedOption.weights.dollar)) / 100 / 10_000) ||
-        Math.round((cashflowSummary.taxOutflow || client.assetSize * 0.03) / 10_000),
+      Math.round((allocationBase * (recommendedOption.weights.mmf + recommendedOption.weights.dollar)) / 100 / 10_000) ||
+        Math.round((cashflowSummary.taxOutflow || allocationBase * 0.03) / 10_000),
     ),
   );
   const calculationSteps = buildCalculationSteps(
