@@ -9,6 +9,7 @@ import {
   type MarketResearchItem,
   type ResearchSignal,
 } from "./portfolioResearch";
+import { scoreTaxPainPoints, type TaxPainId } from "./taxPainScoring";
 
 function alloc(assetClass: string, weight: number): AssetAllocation {
   return { assetClass, weight };
@@ -1192,128 +1193,47 @@ function buildTaxPainPoints(
   cashflow: CashflowPortfolioSummary,
   preference: ClientPreferenceProfile,
 ): TaxPainPoint[] {
-  const uniqueText = factorValue(client, "unique", "");
-  const fullText = `${uniqueText} ${factorValue(client, "tax", "")} ${client.consultationNotes ?? ""} ${preference.rawText}`;
-  const financialIncomeAmount = client.cashFlows
-    .filter((flow) => /금융소득|이자|배당/i.test(flow.label) && flow.amount > 0)
-    .reduce((sum, flow) => sum + flow.amount, 0);
-  const assetSize = Math.max(1, client.assetSize || 0);
-  const outflowBy = (pattern: RegExp) =>
-    client.cashFlows
-      .filter((flow) => flow.amount < 0 && pattern.test(`${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""}`))
-      .reduce((sum, flow) => sum + Math.abs(flow.amount), 0);
-  const transferTaxOutflow = outflowBy(/증여|상속|가업승계|승계|inheritance|gift/i);
-  const stockTaxOutflow = outflowBy(/대주주|해외주식|비상장|주식|양도|stock|capital/i);
-  const realEstateTaxOutflow = outflowBy(/부동산|종부|재산세|상가|토지|주택|real.?estate|property/i);
-  const points: TaxPainPoint[] = [];
+  const fullText = [
+    factorValue(client, "unique", ""),
+    factorValue(client, "tax", ""),
+    client.consultationNotes ?? "",
+    preference.rawText,
+  ].join(" ");
 
-  const add = (point: TaxPainPoint) => {
-    if (!points.some((item) => item.id === point.id)) points.push(point);
+  const sourceById: Record<TaxPainId, TaxPainPoint["source"]> = {
+    "financial-income": TAX_PAIN_SOURCES.financialIncome,
+    "inheritance-gift": TAX_PAIN_SOURCES.inheritanceGift,
+    "stock-capital-gain": TAX_PAIN_SOURCES.stockGain,
+    "real-estate-tax": TAX_PAIN_SOURCES.realEstate,
+    "tax-exempt-products": TAX_PAIN_SOURCES.brazilBond,
   };
-  const cappedScore = (value: number) => Math.round(Math.max(0, Math.min(100, value)));
-  const severityOf = (score: number): TaxPainPoint["severity"] =>
-    score >= 70 ? "상" : score >= 35 ? "중" : "하";
-  const pctOfAssets = (amount: number) => (amount / assetSize) * 100;
-  const basis = (score: number, items: string[]) => [`AI 점수 ${cappedScore(score)}점`, ...items];
+  const whyById: Record<TaxPainId, string> = {
+    "financial-income": "이자·배당소득이 커질수록 종합과세 구간과 건강보험료 영향까지 함께 점검해야 합니다.",
+    "inheritance-gift": "상속·증여는 세액과 납부재원 규모가 커져 사전 증여, 평가, 현금화 일정이 포트폴리오 설계에 직접 영향을 줍니다.",
+    "stock-capital-gain": "대주주, 해외주식, 비상장주식, IPO 보호예수는 매도시점과 세금 납부월이 투자 의사결정에 직접 연결됩니다.",
+    "real-estate-tax": "보유세와 부동산 양도세 납부 규모가 커지면 금융자산 현금화 일정과 단기채/MMF 비중을 먼저 정해야 합니다.",
+    "tax-exempt-products": "세금 민감도가 높으면 기대수익률만이 아니라 실제 세후수익률, 계좌 한도, 상품 자격을 함께 비교해야 합니다.",
+  };
+  const responseById: Record<TaxPainId, string> = {
+    "financial-income": "금융소득 과세 구조 점검 필요",
+    "inheritance-gift": "삼성헤리티지 컨설팅 검토 필요 (증여·상속 구조 상담)",
+    "stock-capital-gain": "주식 양도세 신고·매도시점 전문 상담 권고",
+    "real-estate-tax": "부동산 보유·양도 구조 전문 상담 필요",
+    "tax-exempt-products": "비과세·분리과세·과세이연 후보 비교 상담 권고",
+  };
 
-  if (financialIncomeAmount >= 20_000_000 || preference.taxPriority || client.assetSize >= 5_000_000_000) {
-    const score = cappedScore(
-      (financialIncomeAmount / 20_000_000) * 70 +
-        (preference.taxPriority ? 20 : 0) +
-        (client.assetSize >= 5_000_000_000 ? 10 : 0),
-    );
-    add({
-      id: "financial-income",
-      label: "금융소득종합과세와 이자·배당 집중",
-      severity: severityOf(score),
-      basis: basis(score, [
-        `연간 이자·배당 입력 ${formatKRWShortLocal(financialIncomeAmount)}`,
-        "2천만원 이상이면 종합과세 점검 구간",
-      ]),
-      whyItMatters: "고액자산가는 예금·채권·배당 소득이 커지면서 종합과세 구간과 건강보험료 영향까지 함께 고민하는 경우가 많습니다.",
-      portfolioResponse: "이자·배당 과세가 커지는 상품을 줄이고, 개별채권 직접투자·만기 분산·과세이연 계좌를 우선 검토합니다.",
-      source: TAX_PAIN_SOURCES.financialIncome,
-    });
-  }
-
-  if (/증여|상속|가업승계|승계|오너|2세|자녀/i.test(fullText) || transferTaxOutflow > 0) {
-    const score = cappedScore(pctOfAssets(transferTaxOutflow) * 12 + (/증여|상속|가업승계|승계|오너|2세|자녀/i.test(fullText) ? 45 : 0));
-    add({
-      id: "inheritance-gift",
-      label: "상속·증여세와 가업승계 재원",
-      severity: severityOf(score),
-      basis: basis(score, [
-        `관련 예정 유출 ${formatKRWShortLocal(transferTaxOutflow)}`,
-        `총자산 대비 ${pctOfAssets(transferTaxOutflow).toFixed(1)}%`,
-      ]),
-      whyItMatters: "상속·증여는 과세표준이 커질수록 세율 부담이 급격히 커져, 납부재원과 사전 증여 설계가 핵심 고충이 됩니다.",
-      portfolioResponse: "증여세 납부월 이전 현금화 버킷을 분리하고, 잔여 운용자금은 세후 효율이 높은 채권·상장주식·연금계좌 검토안으로 나눕니다.",
-      source: TAX_PAIN_SOURCES.inheritanceGift,
-    });
-  }
-
-  if (/ipo|보호예수|상장|대주주|주식|해외주식|양도세|지분/i.test(fullText) || stockTaxOutflow > 0) {
-    const score = cappedScore(pctOfAssets(stockTaxOutflow) * 14 + (/ipo|보호예수|상장|대주주|비상장|해외주식|지분/i.test(fullText) ? 45 : 0));
-    add({
-      id: "stock-capital-gain",
-      label: "대주주·해외주식 양도소득세",
-      severity: severityOf(score),
-      basis: basis(score, [
-        `주식 양도 관련 예정 유출 ${formatKRWShortLocal(stockTaxOutflow)}`,
-        `총자산 대비 ${pctOfAssets(stockTaxOutflow).toFixed(1)}%`,
-      ]),
-      whyItMatters: "상장주식 대주주, 장외거래, 비상장주식, 해외주식은 양도세 신고·납부 일정과 가족 합산 판단이 포트폴리오 의사결정에 직접 영향을 줍니다.",
-      portfolioResponse: "국내 상장주식은 장내거래·대주주 요건을 점검하고, 해외주식은 손익통산·매도시점·세금 납부월을 반영해 리밸런싱합니다.",
-      source: TAX_PAIN_SOURCES.stockGain,
-    });
-  }
-
-  if (/부동산|종부|재산세|양도|상가|토지|주택/i.test(fullText) || realEstateTaxOutflow > 0 || cashflow.taxOutflow >= 500_000_000) {
-    const score = cappedScore(
-      pctOfAssets(Math.max(realEstateTaxOutflow, cashflow.taxOutflow >= 500_000_000 ? cashflow.taxOutflow : 0)) * 12 +
-        (/부동산|종부|재산세|양도|상가|토지|주택/i.test(fullText) ? 40 : 0),
-    );
-    add({
-      id: "real-estate-tax",
-      label: "종부세·재산세·부동산 양도세",
-      severity: severityOf(score),
-      basis: basis(score, [
-        `부동산/세금성 예정 유출 ${formatKRWShortLocal(Math.max(realEstateTaxOutflow, cashflow.taxOutflow))}`,
-        `총자산 대비 ${pctOfAssets(Math.max(realEstateTaxOutflow, cashflow.taxOutflow)).toFixed(1)}%`,
-      ]),
-      whyItMatters: "고가 부동산과 법인 보유 부동산은 보유세와 양도세 납부 규모가 커져 금융자산 현금화 일정까지 흔드는 경우가 많습니다.",
-      portfolioResponse: "부동산 세금 납부예정액은 MMF/RP·단기채로 먼저 잠그고, 위험자산은 납부 이후 잔여 현금흐름 기준으로 배치합니다.",
-      source: TAX_PAIN_SOURCES.realEstate,
-    });
-  }
-
-  if (preference.taxPriority) {
-    const score = cappedScore(55 + pctOfAssets(cashflow.taxOutflow) * 7 + (financialIncomeAmount >= 20_000_000 ? 15 : 0));
-    add({
-      id: "tax-exempt-products",
-      label: "비과세·분리과세·과세이연 상품 선별",
-      severity: severityOf(score),
-      basis: basis(score, [
-        "절세 최우선 요구 감지",
-        `세금성 예정 유출 ${formatKRWShortLocal(cashflow.taxOutflow)}`,
-      ]),
-      whyItMatters: "세금 최소화가 최우선이면 단순 기대수익률보다 실제 세후수익률, 계좌 한도, 조세조약 요건이 더 중요합니다.",
-      portfolioResponse: "브라질 국채 비과세 요건, 국내 상장주식 장내거래, 개별채권 매매차익, 연금저축·IRP 과세이연을 우선 검토합니다.",
-      source: TAX_PAIN_SOURCES.brazilBond,
-    });
-  }
-
-  // Do not surface pension/IRP product recommendations for high-asset clients.
-  // This section identifies advisory needs only; it does not prescribe a tax plan.
-  return points.map((point) => ({
+  return scoreTaxPainPoints({
+    client,
+    fullText,
+    taxPriority: preference.taxPriority,
+    taxFactorScore: factorScore(client, "tax"),
+    taxOutflowWon: cashflow.taxOutflow,
+  })
+    .map((point) => ({
       ...point,
-      portfolioResponse: point.id === "inheritance-gift"
-        ? "삼성 패밀리오피스 컨설팅 검토 필요 (증여·상속 구조 상담)"
-        : point.id === "real-estate-tax"
-          ? "부동산 보유·양도 구조 전문 상담 필요"
-          : point.id === "financial-income"
-            ? "금융소득 과세 구조 점검 필요"
-            : "삼성 WM센터 전문 세무 상담 권고",
+      whyItMatters: whyById[point.id],
+      portfolioResponse: responseById[point.id],
+      source: sourceById[point.id],
     }))
     .slice(0, 6);
 }

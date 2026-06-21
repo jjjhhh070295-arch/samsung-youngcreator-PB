@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { readSheet } from "read-excel-file/browser";
+import readXlsxFile from "read-excel-file/browser";
 import {
   ACCOUNT_SEPARATION_LABEL,
   CASH_FLOW_ENTITY_LABEL,
@@ -30,11 +30,15 @@ function uid() {
 const ENTITY_OPTIONS: CashFlowEntity[] = ["personal", "corporate", "sole_business", "mixed"];
 
 const CASHFLOW_TEMPLATE_LINKS = [
-  { type: "individual" as const, label: "개인 CSV", href: "/cashflow-templates/cashflow-template-individual.csv" },
-  { type: "corporate" as const, label: "법인 CSV", href: "/cashflow-templates/cashflow-template-corporate.csv" },
-  { type: "sole_proprietor" as const, label: "개인사업자 CSV", href: "/cashflow-templates/cashflow-template-sole-proprietor.csv" },
-  { type: "corporate" as const, label: "법인-대표 연동 CSV", href: "/cashflow-templates/cashflow-template-linked-corporate-rep.csv" },
+  { type: "individual" as const, label: "개인 XLSX", href: "/templates/cashflow/vvip-cashflow-individual.xlsx" },
+  { type: "corporate" as const, label: "법인 XLSX", href: "/templates/cashflow/vvip-cashflow-corporate.xlsx" },
+  { type: "sole_proprietor" as const, label: "개인사업자 XLSX", href: "/templates/cashflow/vvip-cashflow-sole-proprietor.xlsx" },
+  { type: "corporate" as const, label: "법인-대표 연동 XLSX", href: "/templates/cashflow/vvip-cashflow-linked-corporate-rep.xlsx" },
 ];
+
+const XLSX_UPLOAD_SHEET_ALIASES = ["업로드용_키값", "upload", "keyvalue", "업로드", "키값", "현금흐름표"];
+
+const normalizeSheetName = (value: string) => value.toLowerCase().replace(/[\s_\-]/g, "");
 
 const DEFAULT_ENTITY: Record<ClientType, CashFlowEntity> = {
   individual: "personal",
@@ -165,8 +169,42 @@ export default function CashFlowEditor({
       if (ext === "csv" || ext === "tsv") {
         parsedRows = parseCsvRows(await file.text());
       } else if (ext === "xlsx") {
-        const sheetRows = await readSheet(file);
-        parsedRows = sheetRows.map((row) => row.map(cellToText));
+        const sheets = await readXlsxFile(file);
+        const availableSheets = sheets.map((sheet) => sheet.sheet).join(", ");
+        const aliasSet = XLSX_UPLOAD_SHEET_ALIASES.map(normalizeSheetName);
+        const prioritizedSheets = [
+          ...sheets.filter((sheet) => aliasSet.some((alias) => normalizeSheetName(sheet.sheet).includes(alias))),
+          ...sheets.filter((sheet) => !aliasSet.some((alias) => normalizeSheetName(sheet.sheet).includes(alias))),
+        ];
+
+        let parsed: CashflowUploadResult | null = null;
+        for (const sheet of prioritizedSheets) {
+          const candidateRows = sheet.data.map((row) => row.map(cellToText));
+          const candidate = parseCashflowRows(candidateRows, `${file.name} · ${sheet.sheet}`);
+          if (candidate.summary.matchedRows > 0) {
+            parsedRows = candidateRows;
+            parsed = candidate;
+            break;
+          }
+        }
+
+        if (!parsed) {
+          throw new Error(
+            `업로드 가능한 표를 찾지 못했습니다. 사용 가능한 시트: ${availableSheets || "없음"}. ` +
+              "권장 시트명은 '업로드용_키값'이며 헤더는 항목, 값(만원), 납부일, 분류입니다.",
+          );
+        }
+
+        const parsedWithSheet = parsed;
+        setRows(
+          parsedWithSheet.cashFlows.map((flow) => ({
+            ...flow,
+            entity: flow.entity ?? defaultEntity,
+          })),
+        );
+        setUploadResult(parsedWithSheet);
+        setDirty(true);
+        return;
       } else {
         throw new Error("CSV 또는 XLSX 파일만 업로드할 수 있습니다.");
       }
@@ -292,9 +330,10 @@ export default function CashFlowEditor({
               />
             </label>
             <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3">
-              <p className="text-[11px] font-bold text-fg">Google Sheets용 CSV 양식</p>
+              <p className="text-[11px] font-bold text-fg">Google Sheets용 XLSX 양식</p>
               <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                내려받은 CSV를 Google Sheets에서 열어 작성한 뒤 CSV/XLSX로 다시 업로드할 수 있습니다.
+                내려받은 XLSX를 Google Sheets에서 열어 작성하세요. 앱은 <b>업로드용_키값</b> 시트를 우선 읽고,
+                없으면 현금흐름표 본문에서 항목/금액 구조를 탐색합니다.
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {CASHFLOW_TEMPLATE_LINKS.map((template) => {

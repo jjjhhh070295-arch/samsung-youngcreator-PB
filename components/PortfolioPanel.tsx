@@ -1569,7 +1569,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 </div>
                 {(point.severity === "상" || point.severity === "중") && (
                   <p className="mt-2 text-[11px] font-bold text-emerald-800">
-                    {point.id === "inheritance-gift" ? "삼성 패밀리오피스 컨설팅 권고" : "삼성 WM센터 전문 세무 상담 권고"}
+                    {point.id === "inheritance-gift" ? "삼성헤리티지 컨설팅 검토 필요" : "삼성 WM센터 전문 세무 상담 권고"}
                   </p>
                 )}
                 <a
