@@ -34,6 +34,7 @@ interface PortfolioPanelProps {
   pbId: string;
   clientId: string;
   onSelectionChange?: (portfolio: Portfolio) => void;
+  onHeldAssetsChange?: (heldAssets: HeldAssets | undefined) => void;
 }
 
 type WeightKey = keyof PortfolioOption['weights'];
@@ -734,7 +735,7 @@ function SimplifiedBenchmarkReturnChart({
   );
 }
 
-export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange }: PortfolioPanelProps) {
+export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange, onHeldAssetsChange }: PortfolioPanelProps) {
   const [researchItems, setResearchItems] = useState<MarketResearchItem[]>(FALLBACK_MARKET_RESEARCH);
   const [researchStatus, setResearchStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
   const [fallbackUsed, setFallbackUsed] = useState(false);
@@ -858,6 +859,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     })();
     return () => { cancelled = true; };
   }, [clientId, client.assetSize]);
+
+  useEffect(() => { onHeldAssetsChange?.(heldAssets); }, [heldAssets, onHeldAssetsChange]);
 
   const model = useMemo(() => buildPortfolioViewModel(client, researchItems, heldAssets), [client, researchItems, heldAssets]);
   const portfolioOptions = model.portfolioOptions;
