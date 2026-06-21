@@ -5,8 +5,18 @@ import type { MacroFactorId, Portfolio, ScenarioShock } from "@/lib/types";
 import type { MacroStressResponse } from "@/lib/macroStress/types";
 import { FACTOR_IDS, FACTOR_META, PRESET_SCENARIOS, zeroShock } from "@/lib/stresstest";
 import { EmptyView } from "./StateViews";
+import type { PortfolioOption } from "@/lib/portfolio";
+import { setToMacroApiParams } from "@/lib/assetMapping";
 
-interface Props { portfolios: Portfolio[] }
+interface Props {
+  portfolios: Portfolio[];
+  /**
+   * SET 6자산 비중 배열 (optional). 제공 시 convertSetToIndices를 통해
+   * sp500/kospi/treasury를 자동 추출하여 macroStress API에 넘김.
+   * 없으면 기존 Portfolio.allocations 텍스트 매칭 경로로 폴백.
+   */
+  portfolioWeights?: Array<PortfolioOption["weights"]>;
+}
 type MacroLevel = { value:number; asOf:string; source:string; fallback?:boolean };
 type MacroLevels = Record<MacroFactorId, MacroLevel>;
 
@@ -52,7 +62,7 @@ function displayShock(id:MacroFactorId,value:number){
   return (value>=0?"+":"")+value.toFixed(2)+unit;
 }
 
-export default function StressTestPanel({portfolios}:Props){
+export default function StressTestPanel({portfolios,portfolioWeights}:Props){
   const [shock,setShock]=useState<ScenarioShock>(zeroShock());
   const [presetId,setPresetId]=useState("none");
   const [scenarioOpen,setScenarioOpen]=useState(false);
@@ -62,7 +72,14 @@ export default function StressTestPanel({portfolios}:Props){
   const [analysisStatus,setAnalysisStatus]=useState<"idle"|"loading"|"error">("idle");
   const macroPortfolios=useMemo(()=>portfolios.map(normalizePortfolio).filter(p=>p.allocations.length>0),[portfolios]);
   const target=macroPortfolios[0];
-  const targetWeights={sp500:(target?.allocations.find(item=>item.assetClass===LABELS.us)?.weight??0)/100,kospi:(target?.allocations.find(item=>item.assetClass===LABELS.kr)?.weight??0)/100,treasury:(target?.allocations.find(item=>item.assetClass===LABELS.bond)?.weight??0)/100};
+
+  // SET 6자산 → macroStress 입력 자동 변환 (portfolioWeights 있을 때 우선 적용)
+  const autoParams=useMemo(()=>portfolioWeights?.[0]?setToMacroApiParams(portfolioWeights[0]):null,[portfolioWeights]);
+
+  // autoParams 있으면 SET 기반 비중, 없으면 기존 텍스트 매칭 폴백
+  const targetWeights=autoParams
+    ?{sp500:autoParams.us,kospi:autoParams.kr,treasury:autoParams.bond}
+    :{sp500:(target?.allocations.find(item=>item.assetClass===LABELS.us)?.weight??0)/100,kospi:(target?.allocations.find(item=>item.assetClass===LABELS.kr)?.weight??0)/100,treasury:(target?.allocations.find(item=>item.assetClass===LABELS.bond)?.weight??0)/100};
 
   useEffect(()=>{
     let cancelled=false;
@@ -71,14 +88,17 @@ export default function StressTestPanel({portfolios}:Props){
   },[]);
 
   const requestKey=useMemo(()=>{
-    if(!target||presetId==="none")return "";
-    const weights=new Map(target.allocations.map(allocation=>[allocation.assetClass,allocation.weight/100]));
-    const query=new URLSearchParams({us:String(weights.get(LABELS.us)??0),kr:String(weights.get(LABELS.kr)??0),bond:String(weights.get(LABELS.bond)??0),scenario:presetId});
+    // autoParams 있으면 SET 변환 비중 사용, 없으면 기존 텍스트 매칭
+    if((!target&&!autoParams)||presetId==="none")return "";
+    const usW=autoParams?autoParams.us:(target?.allocations.find(item=>item.assetClass===LABELS.us)?.weight??0)/100;
+    const krW=autoParams?autoParams.kr:(target?.allocations.find(item=>item.assetClass===LABELS.kr)?.weight??0)/100;
+    const bondW=autoParams?autoParams.bond:(target?.allocations.find(item=>item.assetClass===LABELS.bond)?.weight??0)/100;
+    const query=new URLSearchParams({us:String(usW),kr:String(krW),bond:String(bondW),scenario:presetId});
     if(presetId==="custom"){
       query.set("d_fed",String(shock.d_fed));query.set("d_ust",String(shock.d_ust));query.set("ret_krw",String(shock.ret_krw/100));query.set("infl",String((levels.infl.value+shock.infl)/100));query.set("ret_cmd",String(shock.ret_cmd/100));query.set("d_vix",String(shock.d_vix));
     }
     return query.toString();
-  },[target,presetId,shock,levels.infl.value]);
+  },[target,autoParams,presetId,shock,levels.infl.value]);
 
   useEffect(()=>{
     if(!requestKey){setAnalysis(null);setAnalysisStatus("idle");return;}
@@ -90,7 +110,8 @@ export default function StressTestPanel({portfolios}:Props){
     return()=>{window.clearTimeout(timer);controller.abort();};
   },[requestKey,presetId,levels.infl.value]);
 
-  if(!macroPortfolios.length)return <EmptyView title={"\uD14C\uC2A4\uD2B8 \uAC00\uB2A5\uD55C \uC790\uC0B0\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"} hint={"\uBBF8\uAD6D\uC8FC\uC2DD, \uAD6D\uB0B4\uC8FC\uC2DD, \uCC44\uAD8C\uC774 \uD3EC\uD568\uB41C \uD3EC\uD2B8\uD3F4\uB9AC\uC624\uB97C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694."}/>;
+  // autoParams \uC5C6\uACE0 \uD14D\uC2A4\uD2B8 \uB9E4\uCE6D \uACB0\uACFC\uB3C4 \uC5C6\uC73C\uBA74 EmptyView
+  if(!macroPortfolios.length&&!autoParams)return <EmptyView title={"\uD14C\uC2A4\uD2B8 \uAC00\uB2A5\uD55C \uC790\uC0B0\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"} hint={"\uBBF8\uAD6D\uC8FC\uC2DD, \uAD6D\uB0B4\uC8FC\uC2DD, \uCC44\uAD8C\uC774 \uD3EC\uD568\uB41C \uD3EC\uD2B8\uD3F4\uB9AC\uC624\uB97C \uBA3C\uC800 \uC0DD\uC131\uD558\uC138\uC694."}/>;
 
   const applyPreset=(id:string)=>{setPresetId(id);setScenarioOpen(false);};
   const reset=()=>{setPresetId("none");setScenarioOpen(false);setShock(zeroShock())};
@@ -98,7 +119,20 @@ export default function StressTestPanel({portfolios}:Props){
   return <div className="space-y-4">
     <div className="card p-4">
       <h3 className="text-sm font-semibold text-fg">{"\uB9E4\uD06C\uB85C \uC2A4\uD2B8\uB808\uC2A4 \uD14C\uC2A4\uD2B8 \uB300\uC0C1"}</h3>
-      <p className="mt-1 text-xs leading-relaxed text-fg-muted">{target?.label}<span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>S&P 500 {(targetWeights.sp500*100).toFixed(1)}%<span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>KOSPI {(targetWeights.kospi*100).toFixed(1)}%<span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>{"\uBBF8\uAD6D\uCC44"} {(targetWeights.treasury*100).toFixed(1)}%</p>
+      <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+        {target?.label}
+        <span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>
+        S&P 500 {(targetWeights.sp500*100).toFixed(1)}%
+        <span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>
+        KOSPI {(targetWeights.kospi*100).toFixed(1)}%
+        <span aria-hidden="true" className="mx-1.5 text-fg-muted/50">&middot;</span>
+        {"\uBBF8\uAD6D\uCC44"} {(targetWeights.treasury*100).toFixed(1)}%
+        {autoParams&&autoParams.hedgePct>0&&(
+          <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+            {"\uD5E4\uC9C0\uC790\uC0B0 "+autoParams.hedgePct.toFixed(1)+"% \uC81C\uC678 (\uAE08/\uB2EC\uB7EC/\uC6D0\uC790\uC7AC/MMF) \u2014 \uC704 \uBE44\uC911\uC740 \uC8FC\uC2DD+\uCC44\uAD8C \uC2AC\uB9AC\uBE0C \uAE30\uC900 \uC7AC\uC815\uADDC\uD654"}
+          </span>
+        )}
+      </p>
     </div>
     <div className="card p-4">
       <div className="mb-3">
@@ -152,6 +186,16 @@ export default function StressTestPanel({portfolios}:Props){
           <div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">{"\uCD5C\uC545 MDD"}</p><p className="mt-1 font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.worstMdd*100).toFixed(1)}%</p></div>
           <div className="rounded-md border border-border/70 p-3"><p className="text-[11px] text-fg-muted">{"\uC190\uC2E4 \uD655\uB960"}</p><p className="mt-1 font-semibold tabular-nums text-fg">{(analysis.scenario.metrics.lossProbability*100).toFixed(1)}%</p></div>
         </div>
+        {autoParams&&autoParams.hedgePct>0&&<div className="mt-3 rounded-md border border-amber-200/70 bg-amber-50/60 p-3 dark:border-amber-800/30 dark:bg-amber-900/10">
+          <p className="mb-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300">{"\uD5E4\uC9C0\uC790\uC0B0 \uD3EC\uD568 \uC804\uCCB4 \uD3EC\uD2B8\uD3F4\uB9AC\uC624 \uD658\uC0B0"}</p>
+          <p className="mb-2 text-[10px] text-fg-muted">{"\uC704 \uC218\uCE58\uB294 \uC8FC\uC2DD+\uCC44\uAD8C \uC2AC\uB9AC\uBE0C("}{autoParams.equityBondPct.toFixed(0)}{"%) \uAE30\uC900\uC785\uB2C8\uB2E4. \uD5E4\uC9C0\uC790\uC0B0 "}{autoParams.hedgePct.toFixed(0)}{"% \uC644\uCDA9 \uD6A8\uACFC\uB97C \uBC18\uC601\uD558\uBA74 \uC2E4\uC81C \uC190\uC2E4\uB294 \uB354 \uC791\uC2B5\uB2C8\uB2E4."}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-md bg-white/50 p-2 dark:bg-white/5"><p className="text-[10px] text-fg-muted">CVaR 95% (\uC804\uCCB4)</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.cvar95*(autoParams.equityBondPct/100)*100).toFixed(1)}%</p><p className="text-[10px] text-fg-muted/70">{"\uC2AC\uB9AC\uBE0C: "}{(analysis.scenario.metrics.cvar95*100).toFixed(1)}%</p></div>
+            <div className="rounded-md bg-white/50 p-2 dark:bg-white/5"><p className="text-[10px] text-fg-muted">CVaR 99% (\uC804\uCCB4)</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.cvar99*(autoParams.equityBondPct/100)*100).toFixed(1)}%</p><p className="text-[10px] text-fg-muted/70">{"\uC2AC\uB9AC\uBE0C: "}{(analysis.scenario.metrics.cvar99*100).toFixed(1)}%</p></div>
+            <div className="rounded-md bg-white/50 p-2 dark:bg-white/5"><p className="text-[10px] text-fg-muted">{"\uD3C9\uADE0 MDD (\uC804\uCCB4)"}</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.meanMdd*(autoParams.equityBondPct/100)*100).toFixed(1)}%</p><p className="text-[10px] text-fg-muted/70">{"\uC2AC\uB9AC\uBE0C: "}{(analysis.scenario.metrics.meanMdd*100).toFixed(1)}%</p></div>
+            <div className="rounded-md bg-white/50 p-2 dark:bg-white/5"><p className="text-[10px] text-fg-muted">{"\uCD5C\uC545 MDD (\uC804\uCCB4)"}</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-red-500">{(analysis.scenario.metrics.worstMdd*(autoParams.equityBondPct/100)*100).toFixed(1)}%</p><p className="text-[10px] text-fg-muted/70">{"\uC2AC\uB9AC\uBE0C: "}{(analysis.scenario.metrics.worstMdd*100).toFixed(1)}%</p></div>
+          </div>
+        </div>}
       </div>
       {analysis.scenario.actualAssetMdd&&<div className="card p-4">
         <div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="text-sm font-semibold text-fg">{"\uC790\uC0B0\uBCC4 \uC2E4\uC81C MDD"}</h4><p className="mt-1 text-[11px] text-fg-muted">{"\uC120\uD0DD\uD55C \uC5ED\uC0AC \uC704\uAE30 \uAE30\uAC04\uC758 \uC6D4\uBCC4 \uC2E4\uC81C \uACBD\uB85C\uC5D0\uC11C \uACE0\uC810 \uB300\uBE44 \uCD5C\uB300 \uD558\uB77D\uD3ED\uC744 \uACC4\uC0B0\uD588\uC2B5\uB2C8\uB2E4."}</p></div><span className="rounded-full bg-surface-2 px-2.5 py-1 text-[11px] text-fg-muted">{"\uC190\uC2E4\uD3ED \uAE30\uC900"}</span></div>

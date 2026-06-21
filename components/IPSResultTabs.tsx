@@ -8,6 +8,7 @@ import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
 import StressTestPanel from "./StressTestPanel";
 import ScoreRubricButton from "./ScoreRubricButton";
+import { buildPortfolioViewModel } from "@/lib/portfolio";
 
 interface Props {
   client: Client;
@@ -144,6 +145,18 @@ export default function IPSResultTabs({
     }
     return list;
   }, [ips]);
+
+  // SET 6자산 비중: 확정된 안의 weights만 추출해 StressTestPanel에 전달.
+  // client.portfolios[0].id ('stable'|'balanced'|'growth')로 확정 안을 특정한 뒤
+  // 해당 portfolioOption의 weights를 [0]에 담는다. 미확정 시 균형형(index 1) 폴백.
+  const portfolioWeights = useMemo(() => {
+    const vm = buildPortfolioViewModel(client);
+    const confirmedId = client.portfolios[0]?.id;
+    const confirmed = confirmedId
+      ? vm.portfolioOptions.find((o) => o.id === confirmedId)
+      : undefined;
+    return [(confirmed ?? vm.portfolioOptions[1]).weights];
+  }, [client]);
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -416,7 +429,7 @@ export default function IPSResultTabs({
               <div className="mb-3 flex items-center justify-end">
                 <StageToggle k="stress" />
               </div>
-              <StressTestPanel portfolios={client.portfolios} />
+              <StressTestPanel portfolios={client.portfolios} portfolioWeights={portfolioWeights} />
             </>
           ) : (
             <div className="card flex flex-col items-center gap-2 p-8 text-center">
