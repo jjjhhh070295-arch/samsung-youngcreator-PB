@@ -18,8 +18,8 @@ function uid(prefix: string): string {
   return prefix + "-" + Math.random().toString(36).slice(2, 8);
 }
 
-export function generatePortfolios(client: Client): Portfolio[] {
-  const model = buildPortfolioViewModel(client);
+export function generatePortfolios(client: Client, heldAssets?: HeldAssets): Portfolio[] {
+  const model = buildPortfolioViewModel(client, undefined, heldAssets);
   return model.portfolioOptions.map((option) =>
     normalizeWeights({
       id: uid("pf"),
@@ -258,7 +258,28 @@ export interface PortfolioViewModel {
   recommendedId: PortfolioOption["id"];
   liquidityReserveManwon: number;
   calculationSteps: PortfolioCalculationStep[];
+  assetLayer: AssetLayerSummary | null;
 }
+
+// ── 실제 보유자산 입력 (화면에서 조회한 KIS 현재가 기반) ──
+export interface HeldAssets {
+  stocksKrw: number;      // 주식 평가금액 (KRW 환산)
+  realEstateKrw: number;  // 부동산 추정가 (DB 저장값)
+  cashKrw: number;        // 현금·기타 (= totalKrw - stocks - realEstate)
+  totalKrw: number;       // 합계
+}
+
+// ── 자산 3층 구조 계산 결과 ──
+export interface AssetLayerSummary {
+  totalKrw: number;
+  investableKrw: number;  // 총자산 - 부동산 (실제 배분 대상)
+  stocksPct: number;
+  realEstatePct: number;
+  cashPct: number;
+  realEstateWarning: string | null;
+}
+
+export const REAL_ESTATE_WARNING_THRESHOLD = 0.5;
 
 const factorValue = (client: Client, key: FactorKey, fallback = "미입력") =>
   client.ips?.[key]?.value || client.ips?.[key]?.inferenceHint || fallback;
@@ -1414,9 +1435,24 @@ function buildKodexTaxSavingPlan(
   };
 }
 
+function computeAssetLayer(heldAssets?: HeldAssets): AssetLayerSummary | null {
+  if (!heldAssets || heldAssets.totalKrw <= 0) return null;
+  const { stocksKrw, realEstateKrw, cashKrw, totalKrw } = heldAssets;
+  const investableKrw = totalKrw - realEstateKrw;
+  const stocksPct = (stocksKrw / totalKrw) * 100;
+  const realEstatePct = (realEstateKrw / totalKrw) * 100;
+  const cashPct = (cashKrw / totalKrw) * 100;
+  const realEstateWarning =
+    realEstateKrw / totalKrw >= REAL_ESTATE_WARNING_THRESHOLD
+      ? `부동산 비중 ${Math.round(realEstatePct)}% — 과집중. 유동성·분산 검토 및 전문가 상담 권고`
+      : null;
+  return { totalKrw, investableKrw, stocksPct, realEstatePct, cashPct, realEstateWarning };
+}
+
 export function buildPortfolioViewModel(
   client: Client,
   researchItems: MarketResearchItem[] = FALLBACK_MARKET_RESEARCH,
+  heldAssets?: HeldAssets,
 ): PortfolioViewModel {
   const items = researchItems.length > 0 ? researchItems : FALLBACK_MARKET_RESEARCH;
   const researchSignals = scoreResearchSignals(items);
@@ -1487,6 +1523,8 @@ export function buildPortfolioViewModel(
     recommendedOption,
   );
 
+  const assetLayer = computeAssetLayer(heldAssets);
+
   return {
     clientSummary,
     macroReport,
@@ -1503,5 +1541,6 @@ export function buildPortfolioViewModel(
     recommendedId,
     liquidityReserveManwon,
     calculationSteps,
+    assetLayer,
   };
 }

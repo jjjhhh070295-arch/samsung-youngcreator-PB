@@ -15,8 +15,10 @@ import {
   buildDetailedHoldings,
   buildPortfolioViewModel,
   preferenceAdjustedMetrics,
+  type HeldAssets,
   type PortfolioOption,
 } from '@/lib/portfolio';
+import { supabase } from '@/lib/supabase';
 import {
   FALLBACK_MARKET_RESEARCH,
   type MarketResearchItem,
@@ -770,8 +772,98 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [benchmarkSource, setBenchmarkSource] = useState('로컬 예비 데이터');
   const [benchmarkFallback, setBenchmarkFallback] = useState(true);
   const [benchmarkUpdatedAt, setBenchmarkUpdatedAt] = useState<string | undefined>();
+  const [heldAssets, setHeldAssets] = useState<HeldAssets | undefined>(undefined);
 
-  const model = useMemo(() => buildPortfolioViewModel(client, researchItems), [client, researchItems]);
+  // 보유자산 조회 (주식 KIS 현재가 재활용 + 부동산 DB값 + 현금 계산)
+  useEffect(() => {
+    if (!supabase) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [{ data: holdingData }, { data: propData }] = await Promise.all([
+          supabase
+            .from('client_holdings')
+            .select('id, name, ticker, currency, quantity, avg_price')
+            .eq('client_id', clientId),
+          supabase
+            .from('client_real_estate')
+            .select('market_value, ownership_share')
+            .eq('client_id', clientId),
+        ]);
+        if (cancelled) return;
+
+        const holdings = holdingData ?? [];
+
+        // 티커 미보유 종목 자동 매핑
+        let resolved = [...holdings];
+        const noTicker = holdings.filter((h: { ticker: string | null }) => !h.ticker);
+        if (noTicker.length > 0) {
+          try {
+            const res = await fetch('/api/resolve-tickers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ names: noTicker.map((h: { name: string }) => h.name) }),
+            });
+            const json = await res.json();
+            const tMap: Record<string, string | null> = json.tickers ?? {};
+            resolved = holdings.map((h) =>
+              tMap[h.name] ? { ...h, ticker: tMap[h.name] } : h,
+            );
+          } catch { /* 매핑 실패 시 avg_price 폴백 */ }
+        }
+
+        // KIS 현재가 조회 (서버 캐시 활용 — 30s TTL)
+        const tickerRequests = resolved
+          .filter((h: { ticker: string | null }) => h.ticker)
+          .map((h: { ticker: string | null; currency: string }) => ({
+            ticker: h.ticker!,
+            currency: (h.currency === 'USD' ? 'USD' : 'KRW') as 'KRW' | 'USD',
+          }));
+
+        const liveMap = new Map<string, number | null>();
+        let fxUsdKrw = 1350;
+        if (tickerRequests.length > 0) {
+          try {
+            const res = await fetch('/api/prices', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tickers: tickerRequests }),
+            });
+            const json = await res.json();
+            fxUsdKrw = json.fxUsdKrw ?? 1350;
+            for (const q of json.quotes ?? []) liveMap.set(q.ticker, q.price ?? null);
+          } catch { /* 시세 실패 시 avg_price 폴백 */ }
+        }
+
+        // 주식 평가금액
+        let stocksKrw = 0;
+        for (const h of resolved) {
+          const qty = (h as { quantity: number }).quantity ?? 0;
+          const live = (h as { ticker: string | null }).ticker ? (liveMap.get((h as { ticker: string }).ticker) ?? null) : null;
+          const fx = (h as { currency: string }).currency === 'USD' ? fxUsdKrw : 1;
+          const price = live ?? ((h as { avg_price: number | null }).avg_price ?? 0);
+          stocksKrw += qty * price * fx;
+        }
+
+        // 부동산 평가금액
+        const realEstateKrw = (propData ?? []).reduce(
+          (s: number, p: { market_value: number | null; ownership_share: number }) =>
+            s + (p.market_value ?? 0) * (p.ownership_share ?? 1),
+          0,
+        );
+
+        const totalKrw = Math.max(client.assetSize ?? 0, stocksKrw + realEstateKrw);
+        const cashKrw = Math.max(0, totalKrw - stocksKrw - realEstateKrw);
+
+        if (!cancelled) {
+          setHeldAssets({ stocksKrw, realEstateKrw, cashKrw, totalKrw });
+        }
+      } catch { /* 전체 실패 → heldAssets undefined 유지, 기존 폴백 동작 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [clientId, client.assetSize]);
+
+  const model = useMemo(() => buildPortfolioViewModel(client, researchItems, heldAssets), [client, researchItems, heldAssets]);
   const portfolioOptions = model.portfolioOptions;
 
   useEffect(() => {
