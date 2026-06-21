@@ -294,6 +294,12 @@ function percentOfAssets(amountWon: number, client: Client): number {
   return (Math.abs(amountWon) / client.assetSize) * 100;
 }
 
+// 현금흐름 압력을 투자가능자산 기준으로 환산 (부동산 제외 실배분 대상)
+function percentOfBase(amountWon: number, base: number): number {
+  if (!base || base <= 0) return 0;
+  return (Math.abs(amountWon) / base) * 100;
+}
+
 function factorScoreSummary(client: Client): Record<FactorKey, number> {
   return {
     return: factorScore(client, "return"),
@@ -589,11 +595,14 @@ function liquidityReservePercent(
   cashflow: CashflowPortfolioSummary,
   preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
+  investableKrw?: number,
 ): number {
   const scores = factorScoreSummary(client);
-  const scheduledPct = percentOfAssets(cashflow.scheduledOutflow, client);
-  const taxPct = percentOfAssets(cashflow.taxOutflow, client);
-  const annualDeficitPct = percentOfAssets(Math.max(0, -cashflow.monthlyNet) * 12, client);
+  // 현금흐름 압력 기준: 투자가능자산(heldAssets 있을 때) 우선, 없으면 총자산 폴백
+  const cashflowBase = investableKrw && investableKrw > 0 ? investableKrw : (client.assetSize || 0);
+  const scheduledPct = percentOfBase(cashflow.scheduledOutflow, cashflowBase);
+  const taxPct = percentOfBase(cashflow.taxOutflow, cashflowBase);
+  const annualDeficitPct = percentOfBase(Math.max(0, -cashflow.monthlyNet) * 12, cashflowBase);
   const uniqueText = factorValue(client, "unique", "");
   const hasNearLiquidityNeed =
     Boolean(cashflow.nearestOutflow) || /증여|상속|ipo|m&a|매각|출자|법인세|양도세/i.test(uniqueText);
@@ -644,21 +653,24 @@ function assetScoresFromAnalysis(
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
+  investableKrw?: number,
 ): Omit<PortfolioOption["weights"], "mmf" | "dollar"> {
   const scores = factorScoreSummary(client);
   const equitySignal = topSignalScore(signals, "equity");
   const bondSignal = topSignalScore(signals, "bond");
   const riskSignal = topSignalScore(signals, "risk");
   const goldSignal = topSignalScore(signals, "gold");
-  const taxPct = percentOfAssets(cashflow.taxOutflow, client);
-  const scheduledPct = percentOfAssets(cashflow.scheduledOutflow, client);
+  // 현금흐름 압력 기준: 투자가능자산 우선, 없으면 총자산 폴백
+  const cashflowBase = investableKrw && investableKrw > 0 ? investableKrw : (client.assetSize || 0);
+  const taxPct = percentOfBase(cashflow.taxOutflow, cashflowBase);
+  const scheduledPct = percentOfBase(cashflow.scheduledOutflow, cashflowBase);
 
   const growthCapacity =
     (scores.risk - 3) * 14 +
     (scores.return - 3) * 9 +
     (scores.timeHorizon - 3) * 7 -
     (scores.tax - 3) * 5 -
-    (scores.liquidity - 3) * 8 -
+    // Liquidity 점수는 MMF 버킷(경로1)으로 처리 — ETF를 직접 깎지 않음
     Math.max(0, scores.legal - 2) * 5 -
     Math.max(0, scores.unique - 3) * 4 -
     Math.min(14, scheduledPct * 0.25 + taxPct * 0.35) +
@@ -733,11 +745,12 @@ function weightsFromAnalysis(
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
+  investableKrw?: number,
 ): PortfolioOption["weights"] {
-  const mmf = liquidityReservePercent(client, cashflow, preference, riskTilt);
+  const mmf = liquidityReservePercent(client, cashflow, preference, riskTilt, investableKrw);
   const dollar = dollarReservePercent(signals, preference, riskTilt);
   const remaining = Math.max(0, 100 - mmf - dollar);
-  const scores = assetScoresFromAnalysis(client, cashflow, signals, preference, riskTilt);
+  const scores = assetScoresFromAnalysis(client, cashflow, signals, preference, riskTilt, investableKrw);
   const scoreSum = Object.values(scores).reduce((sum, score) => sum + Math.max(0, score), 0);
 
   if (scoreSum <= 0) {
@@ -993,8 +1006,9 @@ function optionFromAnalysis(
   cashflow: CashflowPortfolioSummary,
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
+  investableKrw?: number,
 ): PortfolioOption {
-  const weights = weightsFromAnalysis(client, cashflow, signals, preference, meta.riskTilt);
+  const weights = weightsFromAnalysis(client, cashflow, signals, preference, meta.riskTilt, investableKrw);
   const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt);
   return {
     id: meta.id,
@@ -1458,8 +1472,11 @@ export function buildPortfolioViewModel(
   const researchSignals = scoreResearchSignals(items);
   const cashflowSummary = summarizeCashflows(client.cashFlows);
   const preferenceProfile = parsePreferenceProfile(client);
+  const investableKrw = heldAssets && heldAssets.totalKrw > 0
+    ? heldAssets.totalKrw - heldAssets.realEstateKrw
+    : undefined;
   const portfolioOptions = PORTFOLIO_OPTION_META.map((meta) =>
-    optionFromAnalysis(meta, client, cashflowSummary, researchSignals, preferenceProfile),
+    optionFromAnalysis(meta, client, cashflowSummary, researchSignals, preferenceProfile, investableKrw),
   );
   const scores = factorScoreSummary(client);
   const taxPressurePct = percentOfAssets(cashflowSummary.taxOutflow, client);
