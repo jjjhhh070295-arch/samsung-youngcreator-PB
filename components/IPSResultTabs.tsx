@@ -8,6 +8,7 @@ import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
 import StressTestPanel from "./StressTestPanel";
 import ScoreRubricButton from "./ScoreRubricButton";
+import { buildPortfolioViewModel } from "@/lib/portfolio";
 
 interface Props {
   client: Client;
@@ -144,6 +145,13 @@ export default function IPSResultTabs({
     }
     return list;
   }, [ips]);
+
+  // SET 6자산 비중 배열: StressTestPanel의 자동 변환 경로에 사용
+  // buildPortfolioViewModel은 순수 함수이므로 client가 바뀔 때만 재계산
+  const portfolioWeights = useMemo(
+    () => buildPortfolioViewModel(client).portfolioOptions.map((o) => o.weights),
+    [client],
+  );
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -416,7 +424,7 @@ export default function IPSResultTabs({
               <div className="mb-3 flex items-center justify-end">
                 <StageToggle k="stress" />
               </div>
-              <StressTestPanel portfolios={client.portfolios} />
+              <StressTestPanel portfolios={client.portfolios} portfolioWeights={portfolioWeights} />
             </>
           ) : (
             <div className="card flex flex-col items-center gap-2 p-8 text-center">

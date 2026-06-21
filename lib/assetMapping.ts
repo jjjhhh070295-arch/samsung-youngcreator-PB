@@ -50,6 +50,62 @@ function round1(v: number): number {
   return Math.round(v * 10) / 10;
 }
 
+// ─── macroStress API 연결 ────────────────────────────────────────────────────
+
+/**
+ * macroStress API(?us=&kr=&bond=) 입력 파라미터.
+ * app/api/macro-stress/route.ts는 us+kr+bond 합계를 1.0으로 재정규화하므로
+ * 여기서 반환하는 us/kr/bond의 합계가 정확히 1이 아니어도 무방.
+ */
+export interface MacroApiParams {
+  /** S&P500 비중 (0–1), ?us= 에 해당 */
+  us: number;
+  /** KOSPI 비중 (0–1), ?kr= 에 해당 */
+  kr: number;
+  /** 미국채 비중 (0–1), ?bond= 에 해당 */
+  bond: number;
+  /**
+   * SET 내 헤지자산(mmf+gold+dollar+raw) 합계 비중 %.
+   * macroStress 결과(CVaR/MDD 등)는 주식+채권 슬리브(equityBondPct%) 기준.
+   * 전체 포트폴리오 기준 손실 추정: 결과값 × (equityBondPct / 100)
+   */
+  hedgePct: number;
+  equityBondPct: number;
+  hedgeDetail: { gold: number; dollar: number; raw: number; mmf: number };
+}
+
+/**
+ * SET 6자산 비중을 macroStress API 입력 파라미터로 변환.
+ *
+ * 헤지자산(mmf/gold/dollar/raw) 처리 방식:
+ *   macroStress 모델은 sp500/kospi/treasury 세 자산만 이해한다.
+ *   헤지자산은 스트레스 모델 밖 안전자산이므로 제외 후 주식+채권 부분만 재정규화.
+ *
+ *   예: etf45/bond30/hedge25 → sp500=27/kospi=18/treasury=30(합=75)
+ *       → macroStress 입력: us=36%/kr=24%/bond=40%(합=100%)
+ *       → 결과는 주식+채권 슬리브(75%) 기준. 전체 포트폴리오 = 결과 × 0.75
+ *
+ * route.ts가 내부에서도 정규화하므로 비정규화 값을 그대로 전달해도 동작은 같다.
+ * 이 함수는 명시적으로 정규화하여 호출자가 비율을 직접 확인할 수 있게 한다.
+ */
+export function setToMacroApiParams(
+  set: SetWeights,
+  etfHoldings?: EtfHolding[],
+): MacroApiParams {
+  const idx = convertSetToIndices(set, etfHoldings);
+  const equityBondTotal = idx.sp500 + idx.kospi + idx.treasury;
+  const divisor = equityBondTotal > 0 ? equityBondTotal : 1;
+
+  return {
+    us: idx.sp500 / divisor,
+    kr: idx.kospi / divisor,
+    bond: idx.treasury / divisor,
+    hedgePct: round1(idx.hedgeTotal),
+    equityBondPct: round1(equityBondTotal),
+    hedgeDetail: { ...idx.hedge },
+  };
+}
+
 /**
  * SET 6자산 비중을 시장 지수 기반 분류로 변환한다.
  *
