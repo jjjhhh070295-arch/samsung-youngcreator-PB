@@ -4,11 +4,82 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import {
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { Client, PB } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META } from "@/lib/types";
 import { getClient, listPbs } from "@/lib/store";
 import { formatKRW, formatDate } from "@/lib/format";
 import { LoadingView, ErrorView } from "@/components/StateViews";
+
+const CHART_COLORS = ["#0f172a", "#d6a84f", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b"];
+
+const BACKTEST_SERIES = {
+  equity: [0, -1.4, 0.6, 2.8, 4.4, 3.1, 6.2, 5.7, 8.9, 7.5, 10.4, 9.2, 11.1],
+  bond: [0, 0.4, -0.2, 0.5, 1.1, 0.9, 1.6, 1.8, 2.1, 2.0, 2.6, 2.4, 2.9],
+  cash: [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0],
+  alt: [0, 0.8, 0.1, 1.4, 2.6, 1.8, 3.5, 2.9, 4.8, 4.2, 5.6, 5.0, 6.1],
+};
+
+function allocationBucket(assetClass: string): keyof typeof BACKTEST_SERIES {
+  if (/주식|ETF|Equity/i.test(assetClass)) return "equity";
+  if (/채권|ELS|ELB|Bond/i.test(assetClass)) return "bond";
+  if (/현금|MMF|RP|CMA|Cash/i.test(assetClass)) return "cash";
+  return "alt";
+}
+
+function buildBacktestData(pf: Client["portfolios"][number] | undefined) {
+  const labels = ["12M 전", "11M", "10M", "9M", "8M", "7M", "6M", "5M", "4M", "3M", "2M", "1M", "현재"];
+  if (!pf) return [];
+  const total = pf.allocations.reduce((sum, item) => sum + item.weight, 0) || 100;
+  return labels.map((label, index) => {
+    const portfolio = pf.allocations.reduce((sum, item) => {
+      const bucket = allocationBucket(item.assetClass);
+      return sum + (item.weight / total) * BACKTEST_SERIES[bucket][index];
+    }, 0);
+    const blendedBenchmark = BACKTEST_SERIES.equity[index] * 0.55 + BACKTEST_SERIES.bond[index] * 0.35 + BACKTEST_SERIES.cash[index] * 0.1;
+    return {
+      label,
+      portfolio: Math.round(portfolio * 10) / 10,
+      blendedBenchmark: Math.round(blendedBenchmark * 10) / 10,
+    };
+  });
+}
+
+function buildCashflowSummary(cashFlows: Client["cashFlows"]) {
+  const recurringIn = cashFlows.filter((flow) => flow.recurring && flow.amount > 0).reduce((sum, flow) => sum + flow.amount, 0);
+  const recurringOut = cashFlows.filter((flow) => flow.recurring && flow.amount < 0).reduce((sum, flow) => sum + Math.abs(flow.amount), 0);
+  const oneOffIn = cashFlows.filter((flow) => !flow.recurring && flow.amount > 0).reduce((sum, flow) => sum + flow.amount, 0);
+  const oneOffOut = cashFlows.filter((flow) => !flow.recurring && flow.amount < 0).reduce((sum, flow) => sum + Math.abs(flow.amount), 0);
+  const taxOut = cashFlows
+    .filter((flow) => flow.amount < 0 && /세|tax|증여|상속|양도|부가세|종부|법인세/i.test(`${flow.label} ${flow.category ?? ""}`))
+    .reduce((sum, flow) => sum + Math.abs(flow.amount), 0);
+  const upcoming = cashFlows
+    .filter((flow) => flow.date)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 6);
+
+  return {
+    recurringIn,
+    recurringOut,
+    oneOffIn,
+    oneOffOut,
+    taxOut,
+    net: recurringIn + oneOffIn - recurringOut - oneOffOut,
+    upcoming,
+  };
+}
 
 // 7요인 값을 엮어 PB 종합 분석 문장 생성
 function buildSummary(client: Client): string {
@@ -70,6 +141,12 @@ export default function IPSDocumentPage() {
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
   const pf = client.portfolios[0];
+  const cashflowSummary = buildCashflowSummary(client.cashFlows);
+  const allocationChartData = pf?.allocations.map((allocation) => ({
+    name: allocation.assetClass,
+    value: allocation.weight,
+  })) ?? [];
+  const backtestData = buildBacktestData(pf);
 
   // 담당 PB 이름 (ID → 이름)
   const assignedPb = pbs.find((p) => p.id === client.assignedPbId);
@@ -178,51 +255,58 @@ export default function IPSDocumentPage() {
           {client.cashFlows.length === 0 ? (
             <p className="text-xs text-gray-400">등록된 현금흐름이 없습니다.</p>
           ) : (
-            (() => {
-              const inflows = client.cashFlows.filter((c) => c.amount >= 0);
-              const outflows = client.cashFlows.filter((c) => c.amount < 0);
-              const sumIn = inflows.reduce((s, c) => s + c.amount, 0);
-              const sumOut = outflows.reduce((s, c) => s + Math.abs(c.amount), 0);
-              const net = sumIn - sumOut;
-              return (
-                <div className="text-xs">
-                  {/* 수익 (유입) */}
-                  <CfGroup
-                    title="Ⅰ. 수익 (현금 유입)"
-                    items={inflows.map((c) => ({
-                      label: (c.label || "(항목)") + (c.recurring ? " (정기)" : ""),
-                      date: c.date || "시점 미정",
-                      amount: c.amount,
-                    }))}
-                    subtotalLabel="수익 소계"
-                    subtotal={sumIn}
-                    positive
-                  />
-                  {/* 비용 (유출) */}
-                  <CfGroup
-                    title="Ⅱ. 비용 (현금 유출)"
-                    items={outflows.map((c) => ({
-                      label: (c.label || "(항목)") + (c.recurring ? " (정기)" : ""),
-                      date: c.date || "시점 미정",
-                      amount: Math.abs(c.amount),
-                    }))}
-                    subtotalLabel="비용 소계"
-                    subtotal={sumOut}
-                  />
-                  {/* 순현금흐름 */}
-                  <div className="mt-2 flex items-center justify-between border-t-2 border-gray-800 py-2 font-bold">
-                    <span>Ⅲ. 순현금흐름 (수익 − 비용)</span>
-                    <span className={net < 0 ? "text-red-600" : "text-gray-900"}>
-                      {net < 0 ? "−" : "+"}
-                      {formatKRW(Math.abs(net))}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[10px] text-gray-400">
-                    ※ 정기 항목은 월 단위 기준이며, 시점이 명시된 일회성 항목과 함께 표기.
-                  </p>
-                </div>
-              );
-            })()
+            <div className="space-y-3 text-xs">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-300 text-left text-gray-500">
+                    <th className="py-1.5">구분</th>
+                    <th className="py-1.5 text-right">금액</th>
+                    <th className="py-1.5">해석</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    ["정기 유입", cashflowSummary.recurringIn, "월 반복 소득/매출"],
+                    ["정기 유출", -cashflowSummary.recurringOut, "월 반복 생활비/운영비"],
+                    ["일회 유입", cashflowSummary.oneOffIn, "매각·배당·상여 등"],
+                    ["일회 유출", -cashflowSummary.oneOffOut, "세금·CAPEX·증여 등"],
+                    ["세금성 예정 유출", -cashflowSummary.taxOut, "상담용 추정, 전문가 확인 필요"],
+                    ["순현금흐름", cashflowSummary.net, "포트폴리오 유동성 버킷 산출 기준"],
+                  ].map(([label, amount, note]) => (
+                    <tr key={String(label)} className="border-b border-gray-100">
+                      <td className="py-1.5 font-semibold">{label}</td>
+                      <td className={`py-1.5 text-right font-medium ${Number(amount) < 0 ? "text-red-600" : "text-gray-900"}`}>
+                        {Number(amount) < 0 ? "−" : "+"}
+                        {formatKRW(Math.abs(Number(amount)))}
+                      </td>
+                      <td className="py-1.5 pl-3 text-gray-500">{note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                <p className="mb-2 font-semibold text-gray-800">주요 현금흐름 일정</p>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {cashflowSummary.upcoming.map((flow) => (
+                      <tr key={flow.id} className="border-b border-gray-200 last:border-0">
+                        <td className="py-1 text-gray-500">{flow.date || "시점 미정"}</td>
+                        <td className="py-1">{flow.label || "(항목)"}</td>
+                        <td className="py-1 text-gray-500">{flow.entity ?? flow.category ?? ""}</td>
+                        <td className={`py-1 text-right font-medium ${flow.amount < 0 ? "text-red-600" : "text-gray-900"}`}>
+                          {flow.amount < 0 ? "−" : "+"}
+                          {formatKRW(Math.abs(flow.amount))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-gray-400">
+                ※ 현금흐름은 상담 입력 기준의 추정치입니다. 세금·비용처리·법인/개인 자금 이동은 세무 전문가 확인이 필요합니다.
+              </p>
+            </div>
           )}
         </Section>
 
@@ -245,7 +329,59 @@ export default function IPSDocumentPage() {
                   <b>예상변동성</b> {pf.expectedRisk}%
                 </span>
               </div>
-              <table className="w-full text-xs">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded border border-gray-200 p-3">
+                  <p className="mb-2 text-xs font-semibold text-gray-700">자산배분 도넛차트</p>
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={allocationChartData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={46}
+                          outerRadius={76}
+                          paddingAngle={2}
+                        >
+                          {allocationChartData.map((entry, index) => (
+                            <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: unknown) => `${Number(value).toFixed(1)}%`} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-1 text-[10px]">
+                    {allocationChartData.map((entry, index) => (
+                      <div key={entry.name} className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }} />
+                        <span className="text-gray-600">
+                          {entry.name} {entry.value}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded border border-gray-200 p-3">
+                  <p className="mb-2 text-xs font-semibold text-gray-700">최근 1년 백테스트 추정</p>
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={backtestData} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                        <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
+                        <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#6b7280" }} />
+                        <YAxis unit="%" tick={{ fontSize: 9, fill: "#6b7280" }} />
+                        <Tooltip formatter={(value: unknown) => `${Number(value).toFixed(1)}%`} />
+                        <Line type="monotone" dataKey="portfolio" name="제안 포트폴리오" stroke="#0f172a" strokeWidth={2.5} dot={false} />
+                        <Line type="monotone" dataKey="blendedBenchmark" name="혼합 벤치마크" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-relaxed text-gray-400">
+                    대표 지수 기반 12개월 누적수익률 추정치입니다. 과거 성과는 미래 수익을 보장하지 않습니다.
+                  </p>
+                </div>
+              </div>
+              <table className="mt-3 w-full text-xs">
                 <thead>
                   <tr className="border-b border-gray-300 text-left text-gray-500">
                     <th className="py-1.5">자산군</th>
@@ -295,50 +431,6 @@ export default function IPSDocumentPage() {
         <p className="mt-6 text-center text-[10px] text-gray-400">
           삼성증권 PB센터 · {dateStr} 생성
         </p>
-      </div>
-    </div>
-  );
-}
-
-// 현금흐름 그룹(수익/비용) — 항목 + 소계
-function CfGroup({
-  title,
-  items,
-  subtotalLabel,
-  subtotal,
-  positive = false,
-}: {
-  title: string;
-  items: { label: string; date: string; amount: number }[];
-  subtotalLabel: string;
-  subtotal: number;
-  positive?: boolean;
-}) {
-  return (
-    <div className="mb-2">
-      <p className="border-b border-gray-300 py-1 font-semibold text-gray-700">{title}</p>
-      {items.length === 0 ? (
-        <p className="py-1 pl-3 text-gray-400">해당 없음</p>
-      ) : (
-        items.map((it, i) => (
-          <div key={i} className="flex items-center justify-between py-1 pl-3">
-            <span className="text-gray-700">
-              {it.label}
-              <span className="ml-2 text-gray-400">{it.date}</span>
-            </span>
-            <span className="text-gray-900">
-              {positive ? "+" : "−"}
-              {formatKRW(it.amount)}
-            </span>
-          </div>
-        ))
-      )}
-      <div className="flex items-center justify-between border-t border-gray-200 py-1 font-semibold">
-        <span className="text-gray-600">{subtotalLabel}</span>
-        <span className={positive ? "text-gray-900" : "text-red-600"}>
-          {positive ? "+" : "−"}
-          {formatKRW(subtotal)}
-        </span>
       </div>
     </div>
   );

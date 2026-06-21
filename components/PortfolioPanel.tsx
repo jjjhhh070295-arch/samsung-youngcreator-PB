@@ -1534,11 +1534,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
               <h3 className="text-base font-bold text-fg">고액자산가 주요 세금 고충 참고</h3>
             </div>
-            <TaxPainRubricButton label="세금 고충 판단 기준 전체 확인" />
+            <TaxPainRubricButton label="AI 세금 고충 기준표 확인" />
           </div>
 
           <p className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-900">
-            실제 고액자산가 상담에서 자주 나오는 세금 이슈를 고객의 현금흐름·고유상황과 대조했습니다.
+            실제 고액자산가 상담에서 자주 나오는 세금 이슈를 고객의 현금흐름·고유상황과 대조해 상/중/하로 정량 분류했습니다.
             확정 절세 판단이 아니라 PB와 세무전문가가 확인해야 할 우선순위입니다.
           </p>
 
@@ -1549,9 +1549,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   <p className="text-xs font-bold text-fg">{point.label}</p>
                   <span
                     className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                      point.severity === "높음"
+                      point.severity === "상"
                         ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : point.severity === "중간"
+                        : point.severity === "중"
                           ? "border-amber-200 bg-amber-50 text-amber-700"
                           : "border-border bg-surface text-fg-muted"
                     }`}
@@ -1560,11 +1560,14 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   </span>
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">{point.whyItMatters}</p>
+                <div className="mt-2 rounded-lg border border-border bg-surface px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
+                  <b className="text-fg">정량 근거</b> {point.basis.join(" · ")}
+                </div>
                 <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface px-3 py-2">
                   <p className="text-[11px] leading-relaxed text-emerald-800">상담 사유: {point.portfolioResponse}</p>
                   <TaxPainRubricButton id={point.id} />
                 </div>
-                {(point.severity === "높음" || point.severity === "중간") && (
+                {(point.severity === "상" || point.severity === "중") && (
                   <p className="mt-2 text-[11px] font-bold text-emerald-800">
                     {point.id === "inheritance-gift" ? "삼성 패밀리오피스 컨설팅 권고" : "삼성 WM센터 전문 세무 상담 권고"}
                   </p>

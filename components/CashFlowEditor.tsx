@@ -29,6 +29,13 @@ function uid() {
 
 const ENTITY_OPTIONS: CashFlowEntity[] = ["personal", "corporate", "sole_business", "mixed"];
 
+const CASHFLOW_TEMPLATE_LINKS = [
+  { type: "individual" as const, label: "개인 CSV", href: "/cashflow-templates/cashflow-template-individual.csv" },
+  { type: "corporate" as const, label: "법인 CSV", href: "/cashflow-templates/cashflow-template-corporate.csv" },
+  { type: "sole_proprietor" as const, label: "개인사업자 CSV", href: "/cashflow-templates/cashflow-template-sole-proprietor.csv" },
+  { type: "corporate" as const, label: "법인-대표 연동 CSV", href: "/cashflow-templates/cashflow-template-linked-corporate-rep.csv" },
+];
+
 const DEFAULT_ENTITY: Record<ClientType, CashFlowEntity> = {
   individual: "personal",
   corporate: "corporate",
@@ -284,6 +291,33 @@ export default function CashFlowEditor({
                 disabled={uploading}
               />
             </label>
+            <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3">
+              <p className="text-[11px] font-bold text-fg">Google Sheets용 CSV 양식</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+                내려받은 CSV를 Google Sheets에서 열어 작성한 뒤 CSV/XLSX로 다시 업로드할 수 있습니다.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {CASHFLOW_TEMPLATE_LINKS.map((template) => {
+                  const highlighted =
+                    template.type === clientType ||
+                    (template.label.includes("연동") && Boolean(linkedClientName));
+                  return (
+                    <a
+                      key={template.href}
+                      href={template.href}
+                      download
+                      className={`rounded-md border px-2 py-1 text-[10px] font-bold transition-colors ${
+                        highlighted
+                          ? "border-gold-300 bg-gold-50 text-gold-800 dark:bg-gold-900/20 dark:text-gold-200"
+                          : "border-border bg-surface text-fg-muted hover:border-gold-300 hover:text-gold-700"
+                      }`}
+                    >
+                      {template.label}
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
             {uploadResult && (
               <p className="mt-2 text-[11px] text-fg-muted">
                 {uploadResult.summary.fileName} · {uploadResult.summary.matchedRows}개 항목 매칭
