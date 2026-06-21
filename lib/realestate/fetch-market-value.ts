@@ -138,7 +138,9 @@ async function fetchMonth(
     const res = await fetch(url, { next: { revalidate: 3600 } });
     if (!res.ok) return [];
     const xml = await res.text();
-    if (xml.includes("<resultCode>") && !xml.includes("<resultCode>00</resultCode>")) return [];
+    // MOLIT API 성공 코드는 "000" (3자리) — "00" 체크는 부분 매칭 실패로 무조건 빈 배열 반환됨
+    const codeMatch = xml.match(/<resultCode>(\w+)<\/resultCode>/);
+    if (codeMatch && codeMatch[1] !== "00" && codeMatch[1] !== "000") return [];
     return extractItems(xml);
   } catch {
     return [];
