@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { deriveMetrics } from "@/lib/realestate/derive";
-import type { MarketValueResult } from "@/lib/realestate/fetch-market-value";
+import type { MarketValueResult, AptAreaResult } from "@/lib/realestate/fetch-market-value";
 import { searchLawd } from "@/lib/realestate/lawd-codes";
 
 interface Props {
@@ -252,6 +252,31 @@ export default function RealEstateModule({ clientId }: Props) {
     setDeletingDebt(null);
   };
 
+  const handleAreaPick = async (prop: Property, area: AptAreaResult) => {
+    if (!supabase || area.median == null) return;
+    const confidence = area.sampleSize >= 3 ? "high" : area.sampleSize >= 1 ? "medium" : "low";
+    await supabase.from("client_real_estate").update({
+      market_value:      area.median,
+      market_value_low:  area.low,
+      market_value_high: area.high,
+      market_source:     "molit_realtxn",
+      market_confidence: confidence,
+    }).eq("id", prop.id);
+    setLookupResult((prev) => ({
+      ...prev,
+      [prop.id]: {
+        ...prev[prop.id],
+        value:      area.median,
+        low:        area.low,
+        high:       area.high,
+        confidence,
+        sampleSize: area.sampleSize,
+        note:       area.correctionNote,
+      },
+    }));
+    await load();
+  };
+
   const lookupMarketValue = async (p: Property) => {
     if (!p.legal_dong_code || !p.complex_name || !p.area_m2) return;
     setLookingUp(p.id);
@@ -418,14 +443,46 @@ export default function RealEstateModule({ clientId }: Props) {
                       </p>
                     )}
 
-                    {/* 국토부 API 조회 결과 노트 */}
-                    {lookupResult[p.id] && (
-                      <div className={`mt-2 text-xs px-3 py-1.5 rounded-lg border ${lookupResult[p.id].value != null ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-600"}`}>
-                        {lookupResult[p.id].value != null
-                          ? `✓ 국토부 실거래 ${lookupResult[p.id].sampleSize}건 → ${formatW(lookupResult[p.id].value!)} 저장됨 · ${lookupResult[p.id].note}`
-                          : `✕ ${lookupResult[p.id].note}`}
-                      </div>
-                    )}
+                    {/* 국토부 API 조회 결과 */}
+                    {lookupResult[p.id] && (() => {
+                      const res = lookupResult[p.id];
+                      // 성공
+                      if (res.value != null) return (
+                        <div className="mt-2 text-xs px-3 py-1.5 rounded-lg border bg-green-50 border-green-200 text-green-700">
+                          ✓ 국토부 실거래 {res.sampleSize}건 → {formatW(res.value)} 저장됨 · {res.note}
+                        </div>
+                      );
+                      // 면적 불일치 — 같은 단지 면적 선택 UI
+                      if (res.areaBreakdown && res.areaBreakdown.length > 0) return (
+                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                          <p className="text-xs text-amber-700 font-medium mb-2">
+                            {p.area_m2 != null ? `${p.area_m2}㎡ 거래 없음 —` : ""} 같은 단지 거래 면적을 선택하세요
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {res.areaBreakdown.map((area) => {
+                              const badge = area.freshness === "확정" ? "🟢" : area.freshness === "추정" ? "🟡" : "🔴";
+                              return (
+                                <button
+                                  key={area.area}
+                                  onClick={() => handleAreaPick(p, area)}
+                                  className="flex flex-col items-start text-xs rounded-lg border border-amber-300 bg-white px-3 py-2 hover:bg-[#1428A0] hover:text-white hover:border-[#1428A0] transition-colors group"
+                                >
+                                  <span className="font-bold text-fg group-hover:text-white">{area.area}㎡ ({area.pyeong}평)</span>
+                                  <span className="text-fg-muted group-hover:text-white/80">{badge} {area.freshness} · {area.sampleSize}건</span>
+                                  <span className="text-[#1428A0] font-semibold group-hover:text-white">{formatW(area.median)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                      // 데이터 자체 없음
+                      return (
+                        <div className="mt-2 text-xs px-3 py-1.5 rounded-lg border bg-red-50 border-red-200 text-red-600">
+                          ✕ {res.note}
+                        </div>
+                      );
+                    })()}
 
                     {/* 파생 지표 */}
                     {(() => {
