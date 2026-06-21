@@ -1,72 +1,81 @@
-// 한국부동산원 시군구 월별 아파트 매매가격지수
-// API 키: process.env.REB_INDEX_SERVICE_KEY
+// 한국부동산원 아파트 매매 실거래가격지수 (KOSIS 공유서비스)
+// tblId: DT_KAB_11672_S1 | orgId: 408 | 기준: 2017.11=100 | 월별 시도별
+// API 키: process.env.REB_INDEX_SERVICE_KEY (KOSIS 공유서비스 발급키)
 
-import { XMLParser } from "fast-xml-parser";
+const KOSIS_URL =
+  "https://kosis.kr/openapi/Param/statisticsParameterData.do";
+const ORG_ID  = "408";
+const TBL_ID  = "DT_KAB_11672_S1";
+const ITM_ID  = "T1"; // 지수
 
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  parseTagValue: true,
-  isArray: (name) => name === "item",
-});
-
-const BASE_URL =
-  "https://apis.data.go.kr/1611000/AptPriceIndex/getApartPriceIndex";
+// LAWD_CD 앞 2자리(시도코드) → KOSIS 지역코드(C1)
+const SIDO_TO_KOSIS: Record<string, string> = {
+  "11": "030", // 서울
+  "21": "040", // 부산
+  "22": "050", // 대구
+  "23": "060", // 인천
+  "24": "070", // 광주
+  "25": "080", // 대전
+  "26": "090", // 울산
+  "29": "091", // 세종
+  "31": "100", // 경기
+  "32": "110", // 강원
+  "33": "120", // 충북
+  "34": "130", // 충남
+  "35": "140", // 전북
+  "36": "150", // 전남
+  "37": "160", // 경북
+  "38": "170", // 경남
+  "39": "180", // 제주
+};
 
 /**
- * 시군구별 월별 아파트 매매가격지수를 가져온다.
- * @param sigunguCode  5자리 시군구코드 (법정동코드 앞 5자리와 동일)
- * @param startYm      조회 시작월 YYYYMM
- * @param endYm        조회 종료월 YYYYMM
- * @returns            Map<YYYYMM, 지수값>  (API 실패 시 빈 Map — 보정 없이 원가격 사용)
+ * 시도별 월별 아파트 매매 실거래가격지수를 가져온다.
+ * @param lawdCd    5자리 시군구코드 (법정동코드 앞 5자리와 동일)
+ * @param startYm   조회 시작월 YYYYMM
+ * @param endYm     조회 종료월 YYYYMM
+ * @returns         Map<YYYYMM, 지수값>  (API 실패 시 빈 Map — 보정 없이 원가격 사용)
  */
 export async function fetchRebIndex(
-  sigunguCode: string,
-  startYm: string,
-  endYm: string,
+  lawdCd:   string,
+  startYm:  string,
+  endYm:    string,
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  const serviceKey = process.env.REB_INDEX_SERVICE_KEY;
-  if (!serviceKey) return map;
+  const apiKey = process.env.REB_INDEX_SERVICE_KEY;
+  if (!apiKey) return map;
+
+  // 시도코드 추출 → KOSIS 지역코드
+  const sidoPrefix = lawdCd.slice(0, 2);
+  const kosisC1    = SIDO_TO_KOSIS[sidoPrefix] ?? "000"; // 없으면 전국
 
   const url =
-    `${BASE_URL}?serviceKey=${encodeURIComponent(serviceKey)}` +
-    `&pageNo=1&numOfRows=100` +
-    `&startMonth=${startYm}&endMonth=${endYm}` +
-    `&localCode=${sigunguCode}`;
+    `${KOSIS_URL}?method=getList&apiKey=${apiKey}` +
+    `&format=json&jsonVD=Y` +
+    `&orgId=${ORG_ID}&tblId=${TBL_ID}` +
+    `&itmId=${ITM_ID}&objL1=${kosisC1}` +
+    `&prdSe=M&startPrdDe=${startYm}&endPrdDe=${endYm}`;
 
   try {
     const res = await fetch(url, { next: { revalidate: 86_400 } }); // 1일 캐시
     if (!res.ok) return map;
-    const xml = await res.text();
 
-    if (xml.includes("<resultCode>") && !xml.includes("<resultCode>00</resultCode>")) {
-      console.warn("[reb-index] API 오류:", xml.slice(0, 200));
+    const data = (await res.json()) as unknown;
+    if (!Array.isArray(data)) {
+      console.warn("[reb-index] KOSIS 오류:", JSON.stringify(data).slice(0, 200));
       return map;
     }
 
-    const parsed = parser.parse(xml) as {
-      response?: { body?: { items?: { item?: unknown[] } } };
-    };
-    const items = parsed?.response?.body?.items?.item;
-    if (!Array.isArray(items)) return map;
-
-    for (const item of items) {
+    for (const item of data) {
       const row = item as Record<string, unknown>;
-      const period = String(row["period"] ?? "").trim(); // YYYYMM
-      // 필드명이 API 버전마다 다를 수 있어 후보를 순서대로 시도
-      const rawIdx =
-        row["priceIndex"] ??
-        row["indexValue"] ??
-        row["aptPriceIndex"] ??
-        row["매매지수"] ??
-        null;
-      const idx = parseFloat(String(rawIdx ?? ""));
+      const period = String(row["PRD_DE"] ?? "").trim(); // YYYYMM
+      const idx    = parseFloat(String(row["DT"] ?? ""));
       if (period.length === 6 && isFinite(idx) && idx > 0) {
         map.set(period, idx);
       }
     }
   } catch (e) {
-    console.error("[reb-index] fetch 실패:", e);
+    console.error("[reb-index] KOSIS fetch 실패:", e);
   }
   return map;
 }
