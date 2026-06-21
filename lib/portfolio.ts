@@ -9,6 +9,7 @@ import {
   type MarketResearchItem,
   type ResearchSignal,
 } from "./portfolioResearch";
+import { scoreTaxPainPoints, type TaxPainId } from "./taxPainScoring";
 
 function alloc(assetClass: string, weight: number): AssetAllocation {
   return { assetClass, weight };
@@ -27,7 +28,6 @@ export function generatePortfolios(client: Client, heldAssets?: HeldAssets): Por
       allocations: [
         alloc("주식/ETF", option.weights.etf),
         alloc("채권", option.weights.bond),
-        alloc("ELS/ELB", option.weights.els),
         alloc("현금", option.weights.mmf + option.weights.dollar),
         alloc("대체투자", option.weights.gold + option.weights.raw),
       ].filter((allocation) => allocation.weight > 0),
@@ -137,13 +137,40 @@ const PORTFOLIO_OPTION_META: Array<{
 ];
 
 // 간단한 시뮬레이션 계산 로직 (PB 편집 시 지표 연동용)
+const VOLATILITY_PROXY_ORDER = ["etf", "bond", "mmf", "gold", "dollar", "raw"] as const;
+const VOLATILITY_PROXY_ASSUMPTIONS: Record<(typeof VOLATILITY_PROXY_ORDER)[number], number> = {
+  etf: 0.18, bond: 0.06, mmf: 0.01, gold: 0.16, dollar: 0.08, raw: 0.2,
+};
+// ETF = S&P500/KOSPI200 blend. Bond and MMF use bond/cash proxies;
+// gold and USD remain explicit diversifier/hedge proxies.
+const VOLATILITY_CORRELATION: number[][] = [
+  [1, -0.1, 0.05, 0.12, -0.08, 0.35], [-0.1, 1, 0.35, 0.05, 0.1, 0.05],
+  [0.05, 0.35, 1, 0, 0.05, 0], [0.12, 0.05, 0, 1, -0.15, 0.28],
+  [-0.08, 0.1, 0.05, -0.15, 1, -0.08], [0.35, 0.05, 0, 0.28, -0.08, 1],
+];
+
+export function calculateVolatilityEstimate(weights: PortfolioOption["weights"]) {
+  const effective = { ...weights, bond: weights.bond + weights.els * 0.7, mmf: weights.mmf + weights.els * 0.3, els: 0 };
+  const total = Object.values(effective).reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
+  const vector = VOLATILITY_PROXY_ORDER.map((key) => Math.max(0, effective[key]) / total);
+  const variance = vector.reduce((sum, weight, row) => sum + weight * VOLATILITY_CORRELATION[row].reduce((inner, correlation, column) => inner + correlation * VOLATILITY_PROXY_ASSUMPTIONS[VOLATILITY_PROXY_ORDER[row]] * VOLATILITY_PROXY_ASSUMPTIONS[VOLATILITY_PROXY_ORDER[column]] * vector[column], 0), 0);
+  return Math.sqrt(Math.max(0, variance)) * 100;
+}
+
+export function getVolatilityRanges(volatility: number) {
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return { normalLow: round(volatility * 0.8), normalHigh: round(volatility * 1.25), stressLow: round(volatility * 1.8), stressHigh: round(volatility * 2.65) };
+}
+
 export function calculateSimulatedMetrics(weights: PortfolioOption['weights']) {
   // 실제 정밀 엔진 대신 MVP용 가중치 기반 근사치 계산 로직
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   const normalized = total === 0 ? weights : weights; 
 
-  const expReturn = (normalized.etf * 0.12) + (normalized.bond * 0.045) + (normalized.els * 0.07) + (normalized.mmf * 0.035) + (normalized.gold * 0.05) + (normalized.dollar * 0.02);
-  const vol = (normalized.etf * 0.15) + (normalized.bond * 0.03) + (normalized.els * 0.08) + (normalized.mmf * 0.005) + (normalized.gold * 0.10) + (normalized.dollar * 0.06);
+  const effectiveBond = normalized.bond + normalized.els * 0.7;
+  const effectiveMmf = normalized.mmf + normalized.els * 0.3;
+  const expReturn = (normalized.etf * 0.12) + (effectiveBond * 0.045) + (effectiveMmf * 0.035) + (normalized.gold * 0.05) + (normalized.dollar * 0.02);
+  const vol = calculateVolatilityEstimate(normalized);
 
   return {
     expectedReturn: Math.round(expReturn * 10) / 10,
@@ -236,7 +263,8 @@ export interface TaxSavingPlan {
 export interface TaxPainPoint {
   id: string;
   label: string;
-  severity: "상" | "중" | "점검" | "높음" | "중간" | "낮음";
+  severity: "상" | "중" | "하";
+  basis: string[];
   whyItMatters: string;
   portfolioResponse: string;
   source: { label: string; url: string };
@@ -478,7 +506,7 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
   }
   if (stockOnly) {
     tags.push("주식형 자산 중심");
-    actions.push("채권·ELS·원자재 비중을 낮추고 성장자산 비중을 우선 배정했습니다.");
+    actions.push("복잡한 구조화 상품보다 ETF·채권·MMF/RP 중심으로 비중을 단순화했습니다.");
   }
   if (rejectsOtherProducts) {
     tags.push("비주식 상품 배제 요청");
@@ -528,9 +556,9 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
 function normalizeOptionWeights(weights: PortfolioOption["weights"]): PortfolioOption["weights"] {
   const clamped: PortfolioOption["weights"] = {
     etf: clampWeight(weights.etf),
-    bond: clampWeight(weights.bond),
-    els: clampWeight(weights.els),
-    mmf: clampWeight(weights.mmf),
+    bond: clampWeight(weights.bond + weights.els * 0.7),
+    els: 0,
+    mmf: clampWeight(weights.mmf + weights.els * 0.3),
     gold: clampWeight(weights.gold),
     dollar: clampWeight(weights.dollar),
     raw: clampWeight(weights.raw),
@@ -690,16 +718,6 @@ function assetScoresFromAnalysis(
     (preference.stockOnly ? 30 : 0) -
     (preference.benchmarkOutperformance ? 12 : 0);
 
-  const els =
-    13 +
-    (scores.risk - 3) * 3 -
-    Math.max(0, scores.legal - 1) * 6 -
-    Math.max(0, scores.liquidity - 3) * 4 -
-    (scores.tax >= 4 ? 5 : 0) -
-    (riskSignal >= 7 ? 5 : 0) -
-    (preference.taxPriority ? 10 : 0) -
-    (preference.stockOnly ? 12 : 0);
-
   const gold =
     8 +
     Math.max(0, goldSignal) * 1.5 +
@@ -721,7 +739,7 @@ function assetScoresFromAnalysis(
   return {
     etf: Math.max(0, etf),
     bond: Math.max(0, bond),
-    els: Math.max(0, els),
+    els: 0,
     gold: Math.max(0, gold),
     raw: Math.max(0, raw),
   };
@@ -747,7 +765,7 @@ function weightsFromAnalysis(
   return normalizeOptionWeights({
     etf: (remaining * scores.etf) / scoreSum,
     bond: (remaining * scores.bond) / scoreSum,
-    els: (remaining * scores.els) / scoreSum,
+    els: 0,
     mmf,
     gold: (remaining * scores.gold) / scoreSum,
     dollar,
@@ -786,7 +804,6 @@ function productsFor(
   if (weights.mmf >= 12) products.push("법인 MMF/RP 유동성 버킷");
   if (weights.dollar >= 5) products.push("달러 MMF·단기 미국채");
   if (weights.gold >= 5) products.push("금 현물/금 ETF 헤지");
-  if (weights.els > 0) products.push("노낙인 지수형 ELS/ELB");
   return products.slice(0, 4);
 }
 
@@ -883,12 +900,6 @@ export function buildDetailedHoldings(
       detail("bond", "AA- 이상 우량 회사채", bond[3], "인컴 보강", "신용위험·이자소득 과세 확인", "우량 회사채"),
     );
   }
-
-  const els = splitWeight(weights.els, [60, 40]);
-  details.push(
-    detail("els", "S&P500·EuroStoxx50 노낙인 ELS", els[0], "쿠폰형 제한 편입", "파생결합증권 과세·중도상환 위험 확인", "ELS/ELB 검토"),
-    detail("els", "원금지급형 ELB", els[1], "현금성 대체 수익 보완", "발행사 신용위험·과세 확인", "ELS/ELB 검토"),
-  );
 
   const mmf = splitWeight(weights.mmf, taxPriority ? [45, 35, 20] : [50, 30, 20]);
   details.push(
@@ -1032,7 +1043,7 @@ function buildCalculationSteps(
   const assetLabels: Record<keyof PortfolioOption["weights"], string> = {
     etf: "주식/ETF",
     bond: "채권",
-    els: "ELS/ELB",
+    els: "채권 인컴",
     mmf: "MMF/RP",
     gold: "금",
     dollar: "달러",
@@ -1170,7 +1181,7 @@ function suitabilityFrom(client: Client, cashflow: CashflowPortfolioSummary, sig
         : "금리 변동성 구간에서 포트폴리오의 변동성을 낮추는 방어축",
     },
     {
-      category: "ELS/ELB",
+      category: "채권 인컴 보완",
       status: highRiskSignal || client.clientType === "corporate" || mixedBusinessCash ? "주의" : "적합",
       reason: mixedBusinessCash
         ? "사업자통장 혼용 또는 미확인 상태에서는 조기상환·만기 현금화 일정이 사업 운영자금과 충돌하지 않는지 먼저 확인"
@@ -1212,94 +1223,47 @@ function buildTaxPainPoints(
   cashflow: CashflowPortfolioSummary,
   preference: ClientPreferenceProfile,
 ): TaxPainPoint[] {
-  const uniqueText = factorValue(client, "unique", "");
-  const fullText = `${uniqueText} ${factorValue(client, "tax", "")} ${client.consultationNotes ?? ""} ${preference.rawText}`;
-  const financialIncomeAmount = client.cashFlows
-    .filter((flow) => /금융소득|이자|배당/i.test(flow.label) && flow.amount > 0)
-    .reduce((sum, flow) => sum + flow.amount, 0);
-  const points: TaxPainPoint[] = [];
+  const fullText = [
+    factorValue(client, "unique", ""),
+    factorValue(client, "tax", ""),
+    client.consultationNotes ?? "",
+    preference.rawText,
+  ].join(" ");
 
-  const add = (point: TaxPainPoint) => {
-    if (!points.some((item) => item.id === point.id)) points.push(point);
+  const sourceById: Record<TaxPainId, TaxPainPoint["source"]> = {
+    "financial-income": TAX_PAIN_SOURCES.financialIncome,
+    "inheritance-gift": TAX_PAIN_SOURCES.inheritanceGift,
+    "stock-capital-gain": TAX_PAIN_SOURCES.stockGain,
+    "real-estate-tax": TAX_PAIN_SOURCES.realEstate,
+    "tax-exempt-products": TAX_PAIN_SOURCES.brazilBond,
+  };
+  const whyById: Record<TaxPainId, string> = {
+    "financial-income": "이자·배당소득이 커질수록 종합과세 구간과 건강보험료 영향까지 함께 점검해야 합니다.",
+    "inheritance-gift": "상속·증여는 세액과 납부재원 규모가 커져 사전 증여, 평가, 현금화 일정이 포트폴리오 설계에 직접 영향을 줍니다.",
+    "stock-capital-gain": "대주주, 해외주식, 비상장주식, IPO 보호예수는 매도시점과 세금 납부월이 투자 의사결정에 직접 연결됩니다.",
+    "real-estate-tax": "보유세와 부동산 양도세 납부 규모가 커지면 금융자산 현금화 일정과 단기채/MMF 비중을 먼저 정해야 합니다.",
+    "tax-exempt-products": "세금 민감도가 높으면 기대수익률만이 아니라 실제 세후수익률, 계좌 한도, 상품 자격을 함께 비교해야 합니다.",
+  };
+  const responseById: Record<TaxPainId, string> = {
+    "financial-income": "금융소득 과세 구조 점검 필요",
+    "inheritance-gift": "삼성헤리티지 컨설팅 검토 필요 (증여·상속 구조 상담)",
+    "stock-capital-gain": "주식 양도세 신고·매도시점 전문 상담 권고",
+    "real-estate-tax": "부동산 보유·양도 구조 전문 상담 필요",
+    "tax-exempt-products": "비과세·분리과세·과세이연 후보 비교 상담 권고",
   };
 
-  if (financialIncomeAmount >= 20_000_000 || preference.taxPriority || client.assetSize >= 5_000_000_000) {
-    add({
-      id: "financial-income",
-      label: "금융소득종합과세와 이자·배당 집중",
-      severity: financialIncomeAmount >= 20_000_000 ? "상" : "중",
-      whyItMatters: "고액자산가는 예금·채권·배당 소득이 커지면서 종합과세 구간과 건강보험료 영향까지 함께 고민하는 경우가 많습니다.",
-      portfolioResponse: "이자·배당 과세가 커지는 상품을 줄이고, 개별채권 직접투자·만기 분산·과세이연 계좌를 우선 검토합니다.",
-      source: TAX_PAIN_SOURCES.financialIncome,
-    });
-  }
-
-  if (/증여|상속|가업승계|승계|오너|2세|자녀/i.test(fullText)) {
-    add({
-      id: "inheritance-gift",
-      label: "상속·증여세와 가업승계 재원",
-      severity: "상",
-      whyItMatters: "상속·증여는 과세표준이 커질수록 세율 부담이 급격히 커져, 납부재원과 사전 증여 설계가 핵심 고충이 됩니다.",
-      portfolioResponse: "증여세 납부월 이전 현금화 버킷을 분리하고, 잔여 운용자금은 세후 효율이 높은 채권·상장주식·연금계좌 검토안으로 나눕니다.",
-      source: TAX_PAIN_SOURCES.inheritanceGift,
-    });
-  }
-
-  if (/ipo|보호예수|상장|대주주|주식|해외주식|양도세|지분/i.test(fullText)) {
-    add({
-      id: "stock-capital-gain",
-      label: "대주주·해외주식 양도소득세",
-      severity: "상",
-      whyItMatters: "상장주식 대주주, 장외거래, 비상장주식, 해외주식은 양도세 신고·납부 일정과 가족 합산 판단이 포트폴리오 의사결정에 직접 영향을 줍니다.",
-      portfolioResponse: "국내 상장주식은 장내거래·대주주 요건을 점검하고, 해외주식은 손익통산·매도시점·세금 납부월을 반영해 리밸런싱합니다.",
-      source: TAX_PAIN_SOURCES.stockGain,
-    });
-  }
-
-  if (/부동산|종부|재산세|양도|상가|토지|주택/i.test(fullText) || cashflow.taxOutflow >= 500_000_000) {
-    add({
-      id: "real-estate-tax",
-      label: "종부세·재산세·부동산 양도세",
-      severity: /부동산|종부|재산세|양도/i.test(fullText) ? "상" : "중",
-      whyItMatters: "고가 부동산과 법인 보유 부동산은 보유세와 양도세 납부 규모가 커져 금융자산 현금화 일정까지 흔드는 경우가 많습니다.",
-      portfolioResponse: "부동산 세금 납부예정액은 MMF/RP·단기채로 먼저 잠그고, 위험자산은 납부 이후 잔여 현금흐름 기준으로 배치합니다.",
-      source: TAX_PAIN_SOURCES.realEstate,
-    });
-  }
-
-  if (preference.taxPriority) {
-    add({
-      id: "tax-exempt-products",
-      label: "비과세·분리과세·과세이연 상품 선별",
-      severity: "상",
-      whyItMatters: "세금 최소화가 최우선이면 단순 기대수익률보다 실제 세후수익률, 계좌 한도, 조세조약 요건이 더 중요합니다.",
-      portfolioResponse: "브라질 국채 비과세 요건, 국내 상장주식 장내거래, 개별채권 매매차익, 연금저축·IRP 과세이연을 우선 검토합니다.",
-      source: TAX_PAIN_SOURCES.brazilBond,
-    });
-    add({
-      id: "pension-accounts",
-      label: "연금저축·IRP 세액공제와 과세이연 한도",
-      severity: "점검",
-      whyItMatters: "개인 고액자산가나 법인 오너·임원은 세액공제 한도와 과세이연 계좌 활용 여부가 매년 반복되는 절세 의사결정입니다.",
-      portfolioResponse: "대표·임원 개인 기준으로 연금저축 600만원, IRP 포함 900만원 세액공제 대상 여부를 확인하고 KODEX 안전자산형 조합을 제안합니다.",
-      source: TAX_PAIN_SOURCES.pension,
-    });
-  }
-
-  // Do not surface pension/IRP product recommendations for high-asset clients.
-  // This section identifies advisory needs only; it does not prescribe a tax plan.
-  return points
-    .filter((point) => point.id !== "pension-accounts")
+  return scoreTaxPainPoints({
+    client,
+    fullText,
+    taxPriority: preference.taxPriority,
+    taxFactorScore: factorScore(client, "tax"),
+    taxOutflowWon: cashflow.taxOutflow,
+  })
     .map((point) => ({
       ...point,
-      severity: (point.severity === "상" ? "높음" : point.severity === "중" ? "중간" : "낮음") as TaxPainPoint["severity"],
-      portfolioResponse: point.id === "inheritance-gift"
-        ? "삼성 패밀리오피스 컨설팅 검토 필요 (증여·상속 구조 상담)"
-        : point.id === "real-estate-tax"
-          ? "부동산 보유·양도 구조 전문 상담 필요"
-          : point.id === "financial-income"
-            ? "금융소득 과세 구조 점검 필요"
-            : "삼성 WM센터 전문 세무 상담 권고",
+      whyItMatters: whyById[point.id],
+      portfolioResponse: responseById[point.id],
+      source: sourceById[point.id],
     }))
     .slice(0, 6);
 }
