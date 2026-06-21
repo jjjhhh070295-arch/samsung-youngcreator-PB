@@ -1609,6 +1609,21 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <h3 className="text-base font-bold text-fg">분석 기반 추천안 3개 비교</h3>
         </div>
 
+        {/* 부동산 과다 경고 — 배분 차단 없이 정보 제공 */}
+        {model.assetLayer?.realEstateWarning && (
+          <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-400 bg-amber-50 p-4">
+            <span className="mt-0.5 text-2xl leading-none">⚠️</span>
+            <div>
+              <p className="text-sm font-bold text-amber-800">{model.assetLayer.realEstateWarning}</p>
+              <p className="mt-1 text-xs text-amber-700">
+                부동산은 SET 운용 대상에서 제외됩니다.
+                아래 3개 추천안은 <span className="font-bold">투자가능자산 {formatWonShort(model.assetLayer.investableKrw)}</span> 기준으로 산출되었으며,
+                부동산 관련 의사결정은 PB 자문 및 전문가 상담 영역입니다.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {displayPortfolioOptions.map((option) => {
             const isSelected = selectedBase === option.id;
