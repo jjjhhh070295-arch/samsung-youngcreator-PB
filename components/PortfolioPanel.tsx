@@ -1350,6 +1350,35 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </div>
             </div>
           </div>
+          {/* 보유 주식 vs SET 목표 주식 비중 비교 */}
+          {model.assetLayer && model.assetLayer.investableKrw > 0 && (() => {
+            const currentStocksPct = Math.round(
+              (model.assetLayer!.stocksPct / 100 * model.assetLayer!.totalKrw)
+              / model.assetLayer!.investableKrw * 1000
+            ) / 10;
+            const targetStocksPct = adjustedWeights.etf ?? 0;
+            const diff = Math.round((targetStocksPct - currentStocksPct) * 10) / 10;
+            const isOverweight = diff < -5;
+            const isUnderweight = diff > 5;
+            return (
+              <div className="mt-2 rounded border border-border bg-surface-2 px-3 py-2 text-[11px]">
+                <p className="font-semibold text-fg-muted mb-1.5">주식 비중 비교 (투자가능자산 기준)</p>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-fg-muted">현재 보유</span>
+                  <span className="font-black text-fg">{currentStocksPct.toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-fg-muted">SET 목표</span>
+                  <span className="font-black text-blue-700">{targetStocksPct}%</span>
+                </div>
+                <div className={`mt-1 pt-1 border-t border-border flex items-center justify-between gap-2 font-semibold ${isOverweight ? 'text-amber-600' : isUnderweight ? 'text-blue-600' : 'text-emerald-600'}`}>
+                  <span>{isOverweight ? '현재 과다 — 일부 축소 검토' : isUnderweight ? '부족분 추가 매수 가능' : '목표 범위 내'}</span>
+                  <span>{diff > 0 ? '+' : ''}{diff.toFixed(1)}%p</span>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="text-[10px] text-fg-muted text-center bg-surface-2 p-1.5 rounded border border-border mt-2">
             하단 편집기 조율 시 위 도넛 비중이 연동 갱신됩니다.
           </div>
