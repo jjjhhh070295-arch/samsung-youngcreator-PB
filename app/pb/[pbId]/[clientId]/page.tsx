@@ -42,7 +42,6 @@ export default function ClientDetailPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const load = useCallback(async () => {
     setStatus("loading");
     try {
@@ -241,6 +240,7 @@ export default function ClientDetailPage() {
 
       {/* 상담 진행 */}
       {activeView === "consultation" && (<>
+        {/* 1. 상담 현황 바 */}
         <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
             <span>📝</span> 상담 진행
@@ -255,27 +255,14 @@ export default function ClientDetailPage() {
                     : "아직 진행한 상담이 없습니다. 첫 상담을 시작해 보세요."}
                 </p>
               </div>
-              <div className="flex gap-2">
-                <button
-                  className="btn-outline text-sm"
-                  onClick={() => setHistoryOpen((v) => !v)}
-                  disabled={consultations.length === 0}
-                >
-                  이력 {consultations.length}건 {historyOpen ? "▲" : "▼"}
-                </button>
-                <button className="btn-primary text-sm px-4" onClick={() => setModalOpen(true)}>
-                  + 새 상담
-                </button>
-              </div>
+              <button className="btn-primary text-sm px-4" onClick={() => setModalOpen(true)}>
+                + 새 상담
+              </button>
             </div>
-            {historyOpen && (
-              <div className="mt-4 border-t border-border pt-4">
-                <ConsultationHistory consultations={consultations} client={client} onSaved={load} />
-              </div>
-            )}
           </div>
         </section>
 
+        {/* 2. 성향 변화 추세 그래프 */}
         <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
             <span>📈</span> 성향 변화 추세
@@ -284,6 +271,16 @@ export default function ClientDetailPage() {
             <TrendChart consultations={consultations} />
           </div>
         </section>
+
+        {/* 3. 상담 이력 — 항상 펼쳐서 카드 나열 */}
+        {consultations.length > 0 && (
+          <section>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+              <span>📋</span> 상담 이력 ({consultations.length}건)
+            </h2>
+            <ConsultationHistory consultations={consultations} client={client} onSaved={load} />
+          </section>
+        )}
       </>)}
 
       {/* 분석 */}
