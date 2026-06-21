@@ -28,7 +28,6 @@ export function generatePortfolios(client: Client): Portfolio[] {
       allocations: [
         alloc("주식/ETF", option.weights.etf),
         alloc("채권", option.weights.bond),
-        alloc("ELS/ELB", option.weights.els),
         alloc("현금", option.weights.mmf + option.weights.dollar),
         alloc("대체투자", option.weights.gold + option.weights.raw),
       ].filter((allocation) => allocation.weight > 0),
@@ -138,22 +137,22 @@ const PORTFOLIO_OPTION_META: Array<{
 ];
 
 // 간단한 시뮬레이션 계산 로직 (PB 편집 시 지표 연동용)
-const VOLATILITY_PROXY_ORDER = ["etf", "bond", "els", "mmf", "gold", "dollar", "raw"] as const;
+const VOLATILITY_PROXY_ORDER = ["etf", "bond", "mmf", "gold", "dollar", "raw"] as const;
 const VOLATILITY_PROXY_ASSUMPTIONS: Record<(typeof VOLATILITY_PROXY_ORDER)[number], number> = {
-  etf: 0.18, bond: 0.06, els: 0.09, mmf: 0.01, gold: 0.16, dollar: 0.08, raw: 0.2,
+  etf: 0.18, bond: 0.06, mmf: 0.01, gold: 0.16, dollar: 0.08, raw: 0.2,
 };
-// ETF = S&P500/KOSPI200 blend. Bond, ELS and MMF use bond/cash proxies;
+// ETF = S&P500/KOSPI200 blend. Bond and MMF use bond/cash proxies;
 // gold and USD remain explicit diversifier/hedge proxies.
 const VOLATILITY_CORRELATION: number[][] = [
-  [1, -0.1, 0.55, 0.05, 0.12, -0.08, 0.35], [-0.1, 1, 0.25, 0.35, 0.05, 0.1, 0.05],
-  [0.55, 0.25, 1, 0.15, 0.08, -0.02, 0.2], [0.05, 0.35, 0.15, 1, 0, 0.05, 0],
-  [0.12, 0.05, 0.08, 0, 1, -0.15, 0.28], [-0.08, 0.1, -0.02, 0.05, -0.15, 1, -0.08],
-  [0.35, 0.05, 0.2, 0, 0.28, -0.08, 1],
+  [1, -0.1, 0.05, 0.12, -0.08, 0.35], [-0.1, 1, 0.35, 0.05, 0.1, 0.05],
+  [0.05, 0.35, 1, 0, 0.05, 0], [0.12, 0.05, 0, 1, -0.15, 0.28],
+  [-0.08, 0.1, 0.05, -0.15, 1, -0.08], [0.35, 0.05, 0, 0.28, -0.08, 1],
 ];
 
 export function calculateVolatilityEstimate(weights: PortfolioOption["weights"]) {
-  const total = Object.values(weights).reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
-  const vector = VOLATILITY_PROXY_ORDER.map((key) => Math.max(0, weights[key]) / total);
+  const effective = { ...weights, bond: weights.bond + weights.els * 0.7, mmf: weights.mmf + weights.els * 0.3, els: 0 };
+  const total = Object.values(effective).reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
+  const vector = VOLATILITY_PROXY_ORDER.map((key) => Math.max(0, effective[key]) / total);
   const variance = vector.reduce((sum, weight, row) => sum + weight * VOLATILITY_CORRELATION[row].reduce((inner, correlation, column) => inner + correlation * VOLATILITY_PROXY_ASSUMPTIONS[VOLATILITY_PROXY_ORDER[row]] * VOLATILITY_PROXY_ASSUMPTIONS[VOLATILITY_PROXY_ORDER[column]] * vector[column], 0), 0);
   return Math.sqrt(Math.max(0, variance)) * 100;
 }
@@ -168,7 +167,9 @@ export function calculateSimulatedMetrics(weights: PortfolioOption['weights']) {
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   const normalized = total === 0 ? weights : weights; 
 
-  const expReturn = (normalized.etf * 0.12) + (normalized.bond * 0.045) + (normalized.els * 0.07) + (normalized.mmf * 0.035) + (normalized.gold * 0.05) + (normalized.dollar * 0.02);
+  const effectiveBond = normalized.bond + normalized.els * 0.7;
+  const effectiveMmf = normalized.mmf + normalized.els * 0.3;
+  const expReturn = (normalized.etf * 0.12) + (effectiveBond * 0.045) + (effectiveMmf * 0.035) + (normalized.gold * 0.05) + (normalized.dollar * 0.02);
   const vol = calculateVolatilityEstimate(normalized);
 
   return {
@@ -484,7 +485,7 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
   }
   if (stockOnly) {
     tags.push("주식형 자산 중심");
-    actions.push("채권·ELS·원자재 비중을 낮추고 성장자산 비중을 우선 배정했습니다.");
+    actions.push("복잡한 구조화 상품보다 ETF·채권·MMF/RP 중심으로 비중을 단순화했습니다.");
   }
   if (rejectsOtherProducts) {
     tags.push("비주식 상품 배제 요청");
@@ -534,9 +535,9 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
 function normalizeOptionWeights(weights: PortfolioOption["weights"]): PortfolioOption["weights"] {
   const clamped: PortfolioOption["weights"] = {
     etf: clampWeight(weights.etf),
-    bond: clampWeight(weights.bond),
-    els: clampWeight(weights.els),
-    mmf: clampWeight(weights.mmf),
+    bond: clampWeight(weights.bond + weights.els * 0.7),
+    els: 0,
+    mmf: clampWeight(weights.mmf + weights.els * 0.3),
     gold: clampWeight(weights.gold),
     dollar: clampWeight(weights.dollar),
     raw: clampWeight(weights.raw),
@@ -696,16 +697,6 @@ function assetScoresFromAnalysis(
     (preference.stockOnly ? 30 : 0) -
     (preference.benchmarkOutperformance ? 12 : 0);
 
-  const els =
-    13 +
-    (scores.risk - 3) * 3 -
-    Math.max(0, scores.legal - 1) * 6 -
-    Math.max(0, scores.liquidity - 3) * 4 -
-    (scores.tax >= 4 ? 5 : 0) -
-    (riskSignal >= 7 ? 5 : 0) -
-    (preference.taxPriority ? 10 : 0) -
-    (preference.stockOnly ? 12 : 0);
-
   const gold =
     8 +
     Math.max(0, goldSignal) * 1.5 +
@@ -727,7 +718,7 @@ function assetScoresFromAnalysis(
   return {
     etf: Math.max(0, etf),
     bond: Math.max(0, bond),
-    els: Math.max(0, els),
+    els: 0,
     gold: Math.max(0, gold),
     raw: Math.max(0, raw),
   };
@@ -753,7 +744,7 @@ function weightsFromAnalysis(
   return normalizeOptionWeights({
     etf: (remaining * scores.etf) / scoreSum,
     bond: (remaining * scores.bond) / scoreSum,
-    els: (remaining * scores.els) / scoreSum,
+    els: 0,
     mmf,
     gold: (remaining * scores.gold) / scoreSum,
     dollar,
@@ -792,7 +783,6 @@ function productsFor(
   if (weights.mmf >= 12) products.push("법인 MMF/RP 유동성 버킷");
   if (weights.dollar >= 5) products.push("달러 MMF·단기 미국채");
   if (weights.gold >= 5) products.push("금 현물/금 ETF 헤지");
-  if (weights.els > 0) products.push("노낙인 지수형 ELS/ELB");
   return products.slice(0, 4);
 }
 
@@ -889,12 +879,6 @@ export function buildDetailedHoldings(
       detail("bond", "AA- 이상 우량 회사채", bond[3], "인컴 보강", "신용위험·이자소득 과세 확인", "우량 회사채"),
     );
   }
-
-  const els = splitWeight(weights.els, [60, 40]);
-  details.push(
-    detail("els", "S&P500·EuroStoxx50 노낙인 ELS", els[0], "쿠폰형 제한 편입", "파생결합증권 과세·중도상환 위험 확인", "ELS/ELB 검토"),
-    detail("els", "원금지급형 ELB", els[1], "현금성 대체 수익 보완", "발행사 신용위험·과세 확인", "ELS/ELB 검토"),
-  );
 
   const mmf = splitWeight(weights.mmf, taxPriority ? [45, 35, 20] : [50, 30, 20]);
   details.push(
@@ -1038,7 +1022,7 @@ function buildCalculationSteps(
   const assetLabels: Record<keyof PortfolioOption["weights"], string> = {
     etf: "주식/ETF",
     bond: "채권",
-    els: "ELS/ELB",
+    els: "채권 인컴",
     mmf: "MMF/RP",
     gold: "금",
     dollar: "달러",
@@ -1176,7 +1160,7 @@ function suitabilityFrom(client: Client, cashflow: CashflowPortfolioSummary, sig
         : "금리 변동성 구간에서 포트폴리오의 변동성을 낮추는 방어축",
     },
     {
-      category: "ELS/ELB",
+      category: "채권 인컴 보완",
       status: highRiskSignal || client.clientType === "corporate" || mixedBusinessCash ? "주의" : "적합",
       reason: mixedBusinessCash
         ? "사업자통장 혼용 또는 미확인 상태에서는 조기상환·만기 현금화 일정이 사업 운영자금과 충돌하지 않는지 먼저 확인"

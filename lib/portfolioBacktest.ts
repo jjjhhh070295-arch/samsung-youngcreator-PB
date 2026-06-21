@@ -56,7 +56,7 @@ function roundPercent(value: number) {
 
 function bucketForAssetClass(assetClass: string): "equity" | "bond" | "cash" | "gold" | "dollar" | "commodity" {
   if (/주식|ETF|Equity/i.test(assetClass)) return "equity";
-  if (/채권|ELS|ELB|Bond/i.test(assetClass)) return "bond";
+  if (/채권|Bond/i.test(assetClass)) return "bond";
   if (/현금|MMF|RP|CMA|Cash/i.test(assetClass)) return "cash";
   if (/금|Gold/i.test(assetClass)) return "gold";
   if (/달러|환|Dollar|FX/i.test(assetClass)) return "dollar";

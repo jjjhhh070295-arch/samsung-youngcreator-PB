@@ -225,7 +225,7 @@ function SignalChip({ s }: { s: AnalyzedReportSignal }) {
 const weightLabels: Record<WeightKey, string> = {
   etf: '주식 / ETF',
   bond: '채권 인컴',
-  els: 'ELS/ELB',
+  els: '채권 인컴',
   mmf: 'MMF/RP',
   gold: '금',
   dollar: '달러',
@@ -270,7 +270,7 @@ function buildMacroStressAllocations(
 const barColors: Record<WeightKey, string> = {
   etf: 'bg-blue-600',
   bond: 'bg-sky-500',
-  els: 'bg-amber-500',
+  els: 'bg-sky-500',
   mmf: 'bg-indigo-600',
   gold: 'bg-yellow-500',
   dollar: 'bg-slate-600',
@@ -371,14 +371,10 @@ function buildBenchmarkChartData(
     const dollarBenchmark = dollar;                      // FX 달러 인덱스 프록시
     const rawBenchmark = commodity;                     // 원자재 인덱스 프록시
     
-    // ELS/ELB의 경우 상품 특성상 주식 벤치마크와 채권 벤치마크를 5:5로 복합 매핑하여 벤치마크 구현
-    const elsBenchmark = stockBenchmark * 0.5 + bondBenchmark * 0.5;
-
     // 2. 수식에 따른 실시간 혼합 벤치마크(Blended Benchmark) 가중평균 연산 (100 기준 규격화)
   const blendedBenchmark =
   (weights.etf / totalWeight) * stockBenchmark +
   (weights.bond / totalWeight) * bondBenchmark +
-  (weights.els / totalWeight) * elsBenchmark +
   (weights.mmf / totalWeight) * cashBenchmark +
   (weights.gold / totalWeight) * goldBenchmark +
   (weights.dollar / totalWeight) * dollarBenchmark +
@@ -420,8 +416,8 @@ function buildSimplifiedBenchmarkChartData(
     0,
   );
   const domesticEquityWeight = Math.max(0, weights.etf - overseasEquityWeight);
-  // ELS, MMF, bonds, and simplified alternative/currency positions use the stable US Treasury proxy.
-  const stableWeight = weights.bond + weights.els + weights.mmf + weights.gold + weights.dollar + weights.raw;
+  // MMF, bonds, and simplified alternative/currency positions use the stable US Treasury proxy.
+  const stableWeight = weights.bond + weights.mmf + weights.gold + weights.dollar + weights.raw;
 
   return sourcePoints.map((point, index) => {
     const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
@@ -749,7 +745,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [weights, setWeights] = useState<PortfolioOption['weights']>(FALLBACK_MARKET_RESEARCH.length ? {
     etf: 35,
     bond: 35,
-    els: 10,
+    els: 0,
     mmf: 10,
     gold: 5,
     dollar: 5,
@@ -757,13 +753,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   } : {
     etf: 35,
     bond: 35,
-    els: 10,
+    els: 0,
     mmf: 10,
     gold: 5,
     dollar: 5,
     raw: 0,
   });
-  const [elsIncluded, setElsIncluded] = useState(true);
   const [liquidityAmount, setLiquidityAmount] = useState(5000);
   const [isSuitabilityOpen, setIsSuitabilityOpen] = useState(false);
   const [hasManualEdit, setHasManualEdit] = useState(false);
@@ -885,15 +880,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     const target = portfolioOptions.find((option) => option.id === model.recommendedId) ?? portfolioOptions[1];
     setSelectedBase(target.id);
     setWeights({ ...target.weights });
-    setElsIncluded(target.weights.els > 0);
     setLiquidityAmount(model.liquidityReserveManwon);
   }, [hasManualEdit, model.liquidityReserveManwon, model.recommendedId, portfolioOptions]);
 
   const adjustedWeights = useMemo(() => {
-    const next = { ...weights };
-    if (!elsIncluded) next.els = 0;
-    return next;
-  }, [elsIncluded, weights]);
+    return { ...weights, els: 0 };
+  }, [weights]);
 
   const benchmarkTargetReturn = useMemo(
     () => latestBenchmarkTarget(benchmarkPoints, model.preferenceProfile),
@@ -1023,7 +1015,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     setHasManualEdit(true);
     setSelectedBase(type);
     setWeights({ ...target.weights });
-    setElsIncluded(target.weights.els > 0);
   };
 
   const handleWeightChange = (asset: WeightKey, value: number) => {
@@ -1754,22 +1745,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             </div>
 
             <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 md:grid-cols-2">
-              <div className="flex items-center justify-between rounded-xl border border-border bg-surface-2 p-3">
-                <div>
-                  <span className="block text-xs font-bold text-fg">구조화 지수 ELS/ELB 포함</span>
-                  <span className="text-[10px] text-fg-muted">비활성화 시 ELS 비중 0% 처리</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={elsIncluded}
-                  onChange={(event) => {
-                    setHasManualEdit(true);
-                    setElsIncluded(event.target.checked);
-                  }}
-                  className="h-4 w-4 rounded border-border text-blue-600 focus:ring-blue-500"
-                />
-              </div>
-
               <div className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-bold text-fg">단기 유동성 분리 확보액</span>
