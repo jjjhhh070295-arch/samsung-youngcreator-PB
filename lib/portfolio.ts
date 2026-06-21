@@ -138,13 +138,38 @@ const PORTFOLIO_OPTION_META: Array<{
 ];
 
 // 간단한 시뮬레이션 계산 로직 (PB 편집 시 지표 연동용)
+const VOLATILITY_PROXY_ORDER = ["etf", "bond", "els", "mmf", "gold", "dollar", "raw"] as const;
+const VOLATILITY_PROXY_ASSUMPTIONS: Record<(typeof VOLATILITY_PROXY_ORDER)[number], number> = {
+  etf: 0.18, bond: 0.06, els: 0.09, mmf: 0.01, gold: 0.16, dollar: 0.08, raw: 0.2,
+};
+// ETF = S&P500/KOSPI200 blend. Bond, ELS and MMF use bond/cash proxies;
+// gold and USD remain explicit diversifier/hedge proxies.
+const VOLATILITY_CORRELATION: number[][] = [
+  [1, -0.1, 0.55, 0.05, 0.12, -0.08, 0.35], [-0.1, 1, 0.25, 0.35, 0.05, 0.1, 0.05],
+  [0.55, 0.25, 1, 0.15, 0.08, -0.02, 0.2], [0.05, 0.35, 0.15, 1, 0, 0.05, 0],
+  [0.12, 0.05, 0.08, 0, 1, -0.15, 0.28], [-0.08, 0.1, -0.02, 0.05, -0.15, 1, -0.08],
+  [0.35, 0.05, 0.2, 0, 0.28, -0.08, 1],
+];
+
+export function calculateVolatilityEstimate(weights: PortfolioOption["weights"]) {
+  const total = Object.values(weights).reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
+  const vector = VOLATILITY_PROXY_ORDER.map((key) => Math.max(0, weights[key]) / total);
+  const variance = vector.reduce((sum, weight, row) => sum + weight * VOLATILITY_CORRELATION[row].reduce((inner, correlation, column) => inner + correlation * VOLATILITY_PROXY_ASSUMPTIONS[VOLATILITY_PROXY_ORDER[row]] * VOLATILITY_PROXY_ASSUMPTIONS[VOLATILITY_PROXY_ORDER[column]] * vector[column], 0), 0);
+  return Math.sqrt(Math.max(0, variance)) * 100;
+}
+
+export function getVolatilityRanges(volatility: number) {
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return { normalLow: round(volatility * 0.8), normalHigh: round(volatility * 1.25), stressLow: round(volatility * 1.8), stressHigh: round(volatility * 2.65) };
+}
+
 export function calculateSimulatedMetrics(weights: PortfolioOption['weights']) {
   // 실제 정밀 엔진 대신 MVP용 가중치 기반 근사치 계산 로직
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   const normalized = total === 0 ? weights : weights; 
 
   const expReturn = (normalized.etf * 0.12) + (normalized.bond * 0.045) + (normalized.els * 0.07) + (normalized.mmf * 0.035) + (normalized.gold * 0.05) + (normalized.dollar * 0.02);
-  const vol = (normalized.etf * 0.15) + (normalized.bond * 0.03) + (normalized.els * 0.08) + (normalized.mmf * 0.005) + (normalized.gold * 0.10) + (normalized.dollar * 0.06);
+  const vol = calculateVolatilityEstimate(normalized);
 
   return {
     expectedReturn: Math.round(expReturn * 10) / 10,

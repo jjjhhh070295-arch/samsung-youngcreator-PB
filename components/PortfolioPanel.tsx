@@ -14,6 +14,7 @@ import type { Client, Portfolio } from '@/lib/types';
 import {
   buildDetailedHoldings,
   buildPortfolioViewModel,
+  getVolatilityRanges,
   preferenceAdjustedMetrics,
   type PortfolioOption,
 } from '@/lib/portfolio';
@@ -922,6 +923,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn),
     [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedRiskTilt],
   );
+  const volatilityRanges = useMemo(() => getVolatilityRanges(metrics.volatility), [metrics.volatility]);
   const benchmarkChartData = useMemo(
     () => buildSimplifiedBenchmarkChartData(
       benchmarkPoints,
@@ -1130,6 +1132,14 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
 
         {/* 오른쪽 1열: 도넛형 자산비중 프리뷰 카드 */}
+        <div className="xl:col-span-7 -mt-3 rounded-b-xl border-x border-b border-slate-700/50 bg-slate-900 px-5 pb-4 text-xs text-slate-300">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <p><b className="text-slate-100">평상시 range</b> {volatilityRanges.normalLow}% ~ {volatilityRanges.normalHigh}%</p>
+            <p><b className="text-amber-200">위기 국면 range</b> {volatilityRanges.stressLow}% ~ {volatilityRanges.stressHigh}%</p>
+          </div>
+          <p className="mt-2 leading-relaxed text-slate-400">대표지수 proxy의 과거 변동성·상관관계와 현재 자산배분 비중을 적용한 연율화 추정치입니다 (wᵀΣw). ETF는 S&amp;P500/KOSPI200, 채권·ELS·MMF는 채권·현금 proxy를 사용하며 금·달러는 분산·환헤지성 proxy로 별도 반영합니다.</p>
+        </div>
+
         <div className="xl:col-span-5 rounded-xl border border-border bg-surface p-4 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center gap-1.5 pb-2 border-b border-border mb-3">

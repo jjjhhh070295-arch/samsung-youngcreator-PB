@@ -712,6 +712,9 @@ export default function StressTestPanel({ portfolios }: Props) {
 
                 <div className="rounded-lg border border-border/70 p-3">
                   <h5 className="text-xs font-semibold text-fg">해석 방법</h5>
+                  <p className="mt-2 rounded-md bg-surface-2 p-2 text-[11px] leading-relaxed text-fg-muted">
+                    포트폴리오 변동성은 평상시 시장의 기본 흔들림을 보는 연율화 위험 지표입니다. 반면 시뮬레이션 MDD·VaR·CVaR는 위기 시나리오의 손실 range와 tail risk를 검증하므로 서로 다른 값이 나오는 것이 정상입니다.
+                  </p>
                   <div className="mt-2 space-y-2 text-xs leading-relaxed text-fg-muted">
                     <p>
                       VaR 95%는 하위 5% 경계 수익률입니다. CVaR 95%는 그보다 더 나쁜 최악 5%
