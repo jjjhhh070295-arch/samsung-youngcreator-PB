@@ -253,16 +253,33 @@ export default function RealEstateModule({ clientId }: Props) {
   };
 
   const handleAreaPick = async (prop: Property, area: AptAreaResult) => {
-    if (!supabase || area.median == null) return;
-    const confidence = area.sampleSize >= 3 ? "high" : area.sampleSize >= 1 ? "medium" : "low";
-    await supabase.from("client_real_estate").update({
-      area_m2:           area.area,
-      market_value:      area.median,
-      market_value_low:  area.low,
-      market_value_high: area.high,
-      market_source:     "molit_realtxn",
-      market_confidence: confidence,
-    }).eq("id", prop.id);
+    console.log("[handleAreaPick] 클릭:", { propId: prop.id, area: area.area, median: area.median });
+
+    if (!supabase || area.median == null) {
+      console.warn("[handleAreaPick] 조기 반환 — supabase:", !!supabase, "median:", area.median);
+      return;
+    }
+
+    const confidence: MarketConf =
+      area.sampleSize >= 3 ? "high" : area.sampleSize >= 1 ? "medium" : "low";
+
+    // ① 낙관적 업데이트: Supabase 왕복 전에 로컬 상태 즉시 반영
+    console.log("[handleAreaPick] 로컬 상태 즉시 갱신 →", { area_m2: area.area, market_value: area.median });
+    setProperties((prev) =>
+      prev.map((p) =>
+        p.id === prop.id
+          ? {
+              ...p,
+              area_m2:           area.area,
+              market_value:      area.median,
+              market_value_low:  area.low,
+              market_value_high: area.high,
+              market_source:     "molit_realtxn" as MarketSource,
+              market_confidence: confidence,
+            }
+          : p,
+      ),
+    );
     setLookupResult((prev) => ({
       ...prev,
       [prop.id]: {
@@ -275,7 +292,25 @@ export default function RealEstateModule({ clientId }: Props) {
         note:       area.correctionNote,
       },
     }));
-    await load();
+
+    // ② Supabase 저장 (비동기 — UI는 이미 갱신된 상태)
+    console.log("[handleAreaPick] Supabase 저장 시작");
+    const { error } = await supabase.from("client_real_estate").update({
+      area_m2:           area.area,
+      market_value:      area.median,
+      market_value_low:  area.low,
+      market_value_high: area.high,
+      market_source:     "molit_realtxn",
+      market_confidence: confidence,
+    }).eq("id", prop.id);
+
+    if (error) {
+      console.error("[handleAreaPick] Supabase 저장 실패:", error);
+    } else {
+      console.log("[handleAreaPick] Supabase 저장 성공 — load() 호출");
+      await load();
+      console.log("[handleAreaPick] load() 완료");
+    }
   };
 
   const lookupMarketValue = async (p: Property) => {

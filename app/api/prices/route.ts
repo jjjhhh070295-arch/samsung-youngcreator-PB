@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { KisProvider } from "@/lib/pricing/kis-provider";
 
+export const runtime = "nodejs";
+
 const provider = new KisProvider();
 
 export async function POST(req: NextRequest) {

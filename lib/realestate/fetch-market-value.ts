@@ -20,7 +20,11 @@ function lastNMonths(n: number): string[] {
 }
 
 function normalize(s: string) {
-  return s.replace(/\s+/g, "").replace(/[()（）\-_]/g, "");
+  return s
+    .replace(/\s+/g, "")
+    .replace(/[()（）\-_]/g, "")     // 괄호·특수문자 제거
+    .replace(/단지|아파트|APT/gi, "") // 일반 접미사 제거
+    .replace(/고층|저층/g, "");       // 동 구분 표기 제거 (고층/저층 분리 단지)
 }
 
 function median(arr: number[]) {

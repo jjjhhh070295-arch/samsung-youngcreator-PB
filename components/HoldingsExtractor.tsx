@@ -90,12 +90,19 @@ export default function HoldingsExtractor({ clientId }: Props) {
   const [savedLoading, setSavedLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [resolveMsg, setResolveMsg] = useState<string | null>(null);
 
   const fetchPrices = useCallback(async (holdings: SavedHolding[]) => {
     const tickers = holdings
       .filter((h) => h.ticker)
       .map((h) => ({ ticker: h.ticker!, currency: (h.currency === "USD" ? "USD" : "KRW") as "KRW" | "USD" }));
-    if (tickers.length === 0) { setKisConnected(false); return; }
+    console.log("[fetchPrices] 조회 요청 종목코드:", tickers.map((t) => t.ticker));
+    if (tickers.length === 0) {
+      console.warn("[fetchPrices] 종목코드 없음 → /api/prices 호출 안 함, kisConnected=false");
+      setKisConnected(false);
+      return;
+    }
     setPriceLoading(true);
     try {
       const res = await fetch("/api/prices", {
@@ -116,6 +123,54 @@ export default function HoldingsExtractor({ clientId }: Props) {
     }
   }, []);
 
+  // 코드 없는 종목에 자동으로 종목코드 매핑 (종목명 → 코드 서버 조회)
+  const autoResolveTickers = useCallback(async (holdings: SavedHolding[]) => {
+    if (!supabase) return holdings;
+    const noTicker = holdings.filter((h) => !h.ticker);
+    if (noTicker.length === 0) return holdings;
+    console.log("[autoResolveTickers] 코드 없는 종목:", noTicker.map((h) => `${h.name}(${h.currency})`));
+
+    try {
+      const res = await fetch("/api/resolve-tickers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names: noTicker.map((h) => h.name) }),
+      });
+      const json = await res.json();
+      const tickerMap: Record<string, string | null> = json.tickers ?? {};
+      console.log("[autoResolveTickers] 매핑 결과:", tickerMap);
+
+      // 매핑된 종목만 Supabase 업데이트
+      const updates = noTicker.filter((h) => tickerMap[h.name]);
+      await Promise.all(
+        updates.map((h) =>
+          supabase!.from("client_holdings").update({ ticker: tickerMap[h.name] }).eq("id", h.id),
+        ),
+      );
+
+      // 로컬 상태도 즉시 반영
+      return holdings.map((h) =>
+        tickerMap[h.name] ? { ...h, ticker: tickerMap[h.name] } : h,
+      );
+    } catch (e) {
+      console.error("[autoResolveTickers] 오류:", e);
+      return holdings;
+    }
+  }, [supabase]);
+
+  // 수동 "코드 자동 매핑" 버튼 핸들러
+  const handleAutoResolve = async () => {
+    setResolving(true);
+    setResolveMsg(null);
+    const updated = await autoResolveTickers(saved);
+    setSaved(updated);
+    const found = updated.filter((h) => h.ticker).length;
+    const total  = updated.length;
+    setResolveMsg(`${found}/${total}개 코드 매핑 완료`);
+    fetchPrices(updated);
+    setResolving(false);
+  };
+
   const loadSaved = useCallback(async () => {
     if (!supabase) { setSavedLoading(false); return; }
     setSavedLoading(true);
@@ -124,11 +179,14 @@ export default function HoldingsExtractor({ clientId }: Props) {
       .select("id, name, ticker, market, currency, quantity, avg_price, confidence, source, created_at")
       .eq("client_id", clientId)
       .order("created_at", { ascending: false });
-    const rows = (data as SavedHolding[]) ?? [];
+    let rows = (data as SavedHolding[]) ?? [];
     setSaved(rows);
     setSavedLoading(false);
+    // 코드 없는 종목 자동 매핑 시도
+    rows = await autoResolveTickers(rows);
+    setSaved(rows);
     fetchPrices(rows);
-  }, [clientId, fetchPrices]);
+  }, [clientId, fetchPrices, autoResolveTickers]);
 
   useEffect(() => { loadSaved(); }, [loadSaved]);
 
@@ -348,10 +406,22 @@ export default function HoldingsExtractor({ clientId }: Props) {
                 <p className="text-xs text-fg-muted">총 {saved.length}개 종목</p>
                 {priceLoading && <span className="text-xs text-fg-muted/70 animate-pulse">시세 조회 중…</span>}
                 {!priceLoading && kisStatus === false && (
-                  <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 border border-gray-200">
-                    <span className="h-1.5 w-1.5 rounded-full bg-gray-400 inline-block" />
-                    시세 미연결
-                  </span>
+                  <>
+                    <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 border border-gray-200">
+                      <span className="h-1.5 w-1.5 rounded-full bg-gray-400 inline-block" />
+                      시세 미연결
+                    </span>
+                    <button
+                      className="text-xs px-2 py-0.5 rounded-full border border-blue-200 text-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                      disabled={resolving}
+                      onClick={handleAutoResolve}
+                    >
+                      {resolving ? "매핑 중…" : "코드 자동 매핑"}
+                    </button>
+                    {resolveMsg && (
+                      <span className="text-xs text-green-600">{resolveMsg}</span>
+                    )}
+                  </>
                 )}
                 {!priceLoading && kisStatus === true && (
                   <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-600 rounded-full px-2 py-0.5 border border-green-200">
@@ -493,7 +563,8 @@ export default function HoldingsExtractor({ clientId }: Props) {
 
   // ── 이미지 패널 (MTS 추출 탭 공통) ──
   const imagePanel = (
-    <div className="flex flex-col gap-2 w-[280px] shrink-0">
+    <div className="flex flex-col gap-2 w-full md:w-[58%] shrink-0">
+      {/* 헤더: 추가 버튼 + 장수 + 전체삭제 */}
       <div className="flex items-center gap-2">
         <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
           onChange={(e) => e.target.files && addFiles(e.target.files)} />
@@ -506,11 +577,26 @@ export default function HoldingsExtractor({ clientId }: Props) {
         >
           📎 캡쳐 추가
         </button>
-        <span className="text-xs text-fg-muted">{images.length}장</span>
+        {images.length > 0 && (
+          <>
+            <span className="text-xs text-fg-muted">{images.length}장</span>
+            <button
+              className="ml-auto text-xs text-red-400 hover:text-red-600 transition-colors"
+              onClick={() => {
+                images.forEach((img) => URL.revokeObjectURL(img.url));
+                setImages([]);
+              }}
+            >
+              전체 삭제
+            </button>
+          </>
+        )}
       </div>
-      <div className="flex flex-col gap-3 overflow-y-auto" style={{ maxHeight: "600px" }}>
+
+      {/* 이미지 목록: 패널 폭을 꽉 채우고, 컨테이너 높이를 제한해 내부 스크롤 */}
+      <div className="flex flex-col gap-3 overflow-y-auto max-h-[55vh] md:max-h-[65vh]">
         {images.map((img, i) => (
-          <div key={img.url} className="relative group shrink-0">
+          <div key={img.url} className="relative shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={img.url}
@@ -518,11 +604,15 @@ export default function HoldingsExtractor({ clientId }: Props) {
               className="w-full rounded-xl border border-border bg-surface-2 cursor-zoom-in shadow-card"
               onClick={() => window.open(img.url, "_blank")}
             />
+            {/* 삭제 버튼: 항상 표시, 이미지 우상단 */}
             <button
-              className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 text-white text-xs font-bold hidden group-hover:flex items-center justify-center shadow"
+              className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/40 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center shadow transition-colors"
               onClick={(e) => { e.stopPropagation(); removeImage(i); }}
+              title="이 사진 삭제"
             >✕</button>
-            <p className="text-[9px] text-center text-fg-muted mt-0.5">{i + 1} / {images.length}</p>
+            <p className="text-[9px] text-center text-fg-muted mt-1">
+              {i + 1} / {images.length} · 클릭하면 원본 크게 보기
+            </p>
           </div>
         ))}
       </div>
@@ -536,9 +626,9 @@ export default function HoldingsExtractor({ clientId }: Props) {
     return (
       <div>
         {tabBar}
-        <div className="flex gap-5 items-start">
+        <div className="flex flex-col md:flex-row gap-5 items-start">
           {imagePanel}
-          <div className="flex-1 min-w-0 space-y-3">
+          <div className="w-full md:flex-1 md:min-w-0 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-fg">
@@ -572,11 +662,19 @@ export default function HoldingsExtractor({ clientId }: Props) {
             )}
 
             <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-xs">
+              <table className="w-full text-xs table-fixed">
+                <colgroup>
+                  <col className="w-[40%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[20%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[5%]" />
+                </colgroup>
                 <thead>
                   <tr className="bg-surface-2 text-fg-muted">
                     {["종목명", "통화", "수량", "평균단가", "신뢰도", ""].map((h) => (
-                      <th key={h} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{h}</th>
+                      <th key={h} className="px-2 py-2 text-left font-semibold whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -592,16 +690,16 @@ export default function HoldingsExtractor({ clientId }: Props) {
 
                     return (
                       <tr key={row._key} className={`border-t border-border transition-colors ${rowCls}`}>
-                        <td className="px-2 py-1">
+                        <td className="px-2 py-1.5">
                           <input
-                            className="w-36 bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg font-medium"
+                            className="w-full bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg font-medium truncate"
                             value={row.name}
                             onChange={(e) => updateRow(row._key, "name", e.target.value)}
                           />
                         </td>
-                        <td className="px-2 py-1">
+                        <td className="px-2 py-1.5">
                           <select
-                            className="bg-transparent outline-none text-fg-muted"
+                            className="bg-transparent outline-none text-fg-muted w-full"
                             value={row.currency}
                             onChange={(e) => updateRow(row._key, "currency", e.target.value)}
                           >
@@ -609,26 +707,26 @@ export default function HoldingsExtractor({ clientId }: Props) {
                             <option>USD</option>
                           </select>
                         </td>
-                        <td className="px-2 py-1 text-right">
+                        <td className="px-2 py-1.5 text-right">
                           <input
-                            className="w-16 bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg text-right"
+                            className="w-full bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg text-right"
                             value={row.quantity != null ? String(row.quantity) : ""}
                             onChange={(e) => updateRow(row._key, "quantity", e.target.value === "" ? 0 : Number(e.target.value))}
                             type="number"
                           />
                         </td>
-                        <td className="px-2 py-1 text-right">
+                        <td className="px-2 py-1.5 text-right">
                           <input
-                            className="w-24 bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg text-right"
+                            className="w-full bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg text-right"
                             value={row.avg_price != null ? String(row.avg_price) : ""}
                             onChange={(e) => updateRow(row._key, "avg_price", e.target.value === "" ? null : Number(e.target.value))}
                             placeholder="—"
                             type="number"
                           />
                         </td>
-                        <td className="px-2 py-1">
+                        <td className="px-2 py-1.5">
                           <select
-                            className={`bg-transparent outline-none text-xs font-medium ${row.confidence === "low" ? "text-amber-600" : row.confidence === "medium" ? "text-fg-muted" : "text-green-600"}`}
+                            className={`bg-transparent outline-none text-xs font-medium w-full ${row.confidence === "low" ? "text-amber-600" : row.confidence === "medium" ? "text-fg-muted" : "text-green-600"}`}
                             value={row.confidence}
                             onChange={(e) => updateRow(row._key, "confidence", e.target.value as Confidence_)}
                           >
@@ -637,8 +735,8 @@ export default function HoldingsExtractor({ clientId }: Props) {
                             <option value="low">낮음</option>
                           </select>
                         </td>
-                        <td className="px-2 py-1">
-                          <button onClick={() => deleteRow(row._key)} className="text-red-400 hover:text-red-600 font-bold px-1" title="삭제">✕</button>
+                        <td className="px-2 py-1.5 text-center">
+                          <button onClick={() => deleteRow(row._key)} className="text-red-400 hover:text-red-600 font-bold" title="삭제">✕</button>
                         </td>
                       </tr>
                     );
@@ -664,9 +762,9 @@ export default function HoldingsExtractor({ clientId }: Props) {
   return (
     <div>
       {tabBar}
-      <div className="flex gap-5 items-start">
+      <div className="flex flex-col md:flex-row gap-5 items-start">
         {imagePanel}
-        <div className="flex-1 flex flex-col gap-4 justify-center" style={{ minHeight: "300px" }}>
+        <div className="w-full md:flex-1 flex flex-col gap-4 justify-center" style={{ minHeight: "300px" }}>
           {images.length === 0 ? (
             <div
               className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center py-16 gap-3 cursor-pointer transition-colors ${dragOver ? "border-[#1428A0] bg-blue-50" : "border-border bg-surface-2"}`}
