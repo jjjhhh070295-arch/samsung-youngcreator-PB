@@ -11,7 +11,6 @@ import { FACTOR_META } from "@/lib/types";
 import { getClient, updateClient } from "@/lib/store";
 import { formatKRW } from "@/lib/format";
 import PortfolioPanel from "@/components/PortfolioPanel";
-import StressTestPanel from "@/components/StressTestPanel";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 
 export default function PortfolioPage() {
@@ -61,7 +60,7 @@ export default function PortfolioPage() {
   };
 
   // 스트레스/IPS 단계 완료 표시 (수동 확정)
-  const toggleStage = async (key: "stress" | "ips") => {
+  const toggleStage = async (key: "ips") => {
     if (!client) return;
     const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
     await updateClient(client.id, { stages });
@@ -88,14 +87,12 @@ export default function PortfolioPage() {
 
       {/* 디스클레이머 배너 */}
       <div className="rounded-lg border border-gold-400 bg-gold-50 px-4 py-3 text-sm text-gold-800 dark:border-gold-600 dark:bg-gold-900/30 dark:text-gold-200">
-        ⚠️ <b>참고용 · 투자권유 아님 · PB 검토 전제.</b> 스트레스 테스트는 최근 약 10년(2015~2024)
-        월간 데이터 다중회귀로 추정한 자산군×매크로 요인 민감도에 기반한 <b>통계 추정치</b>입니다(미래
-        수익 비보장). 포트폴리오 후보는 아직 더미(스캐폴드)이며, 실서비스 전 법적 검토가 필요합니다.
+        <b>포트폴리오 확정 화면</b> 선택한 제안안을 확정하면 별도 스트레스 탭의 분석 기준으로 사용됩니다.
       </div>
 
       <div>
         <h1 className="text-xl font-bold text-fg">
-          {client.name} · 포트폴리오 & 스트레스 테스트
+          {client.name} · 포트폴리오
         </h1>
         <p className="text-sm text-fg-muted">
           자산규모 {formatKRW(client.assetSize)}
@@ -215,32 +212,7 @@ export default function PortfolioPage() {
       </section>
 
       {/* 스트레스 테스트 — 포트폴리오 최종 확정 후 진행 */}
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-fg-muted">스트레스 테스트</h2>
-          {client.stages?.portfolio && (
-            <button
-              className={client.stages?.stress ? "btn-outline text-xs" : "btn-gold text-xs"}
-              onClick={() => toggleStage("stress")}
-            >
-              {client.stages?.stress ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
-            </button>
-          )}
-        </div>
-        {client.stages?.portfolio ? (
-          <StressTestPanel portfolios={client.portfolios} />
-        ) : (
-          <div className="card flex flex-col items-center gap-2 p-8 text-center">
-            <span className="text-2xl">🔒</span>
-            <p className="text-sm font-medium text-fg">
-              포트폴리오를 먼저 최종 확정하세요
-            </p>
-            <p className="text-xs text-fg-muted">
-              포트폴리오가 확정되어야 그 구성으로 스트레스 테스트를 진행할 수 있습니다.
-            </p>
-          </div>
-        )}
-      </section>
+
 
       {/* IPS 문서 (더미) */}
       <section>
