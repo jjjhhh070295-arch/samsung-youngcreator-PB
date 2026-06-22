@@ -1972,7 +1972,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </div>
             </div>
 
-            <StockSectorPanel />
+            <StockSectorPanel
+              etfAllocKrw={((model.assetLayer?.investableKrw ?? 0) * weights.etf) / 100}
+            />
           </div>
         </section>
 
