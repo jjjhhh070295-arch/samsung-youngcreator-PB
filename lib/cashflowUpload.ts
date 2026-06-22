@@ -688,11 +688,29 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
   const nextTaxNeedWon = taxEvents.reduce((sum, event) => sum + event.amountWon, 0);
   const liquidityCoveragePct = nextTaxNeedWon > 0 ? Math.round((currentCashWon / nextTaxNeedWon) * 100) : 999;
 
-  taxEvents.forEach((event) => {
+  const giftExecutionWon = Number(schedule.giftAmount ?? 0);
+  if (giftExecutionWon > 0) {
     cashFlows.push({
-      id: uid("tax", event.label),
-      label: event.label,
-      amount: -event.amountWon,
+      id: uid("gift", "증여 실행금액"),
+      label: "증여 실행금액",
+      amount: -giftExecutionWon,
+      date: giftDate ? toMonthInput(toDateInput(giftDate)) : toDateInput(now()).slice(0, 7),
+      recurring: false,
+      category: "목적자금",
+      taxAccountingNote: "증여 실행 원금 유출입니다. 증여세는 납부월에 별도 반영하며 세무 전문가 확인이 필요합니다.",
+    });
+  }
+
+  taxEvents.forEach((event) => {
+    const giftTaxWon = Number(schedule.giftTax ?? 0);
+    const isGiftTaxEvent = event.id === "gift-tax";
+    if (isGiftTaxEvent && giftTaxWon <= 0) return;
+    const amountWon = isGiftTaxEvent ? giftTaxWon : event.amountWon;
+    const label = isGiftTaxEvent ? "증여세 납부 예비" : event.label;
+    cashFlows.push({
+      id: uid("tax", label),
+      label,
+      amount: -amountWon,
       date: toMonthInput(event.dueDate),
       recurring: false,
       category: "세금",

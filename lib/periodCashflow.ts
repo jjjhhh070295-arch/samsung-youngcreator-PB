@@ -11,6 +11,18 @@ export interface PeriodCashflowPoint {
   memo: string;
 }
 
+export interface PeriodCashflowChartPoint extends PeriodCashflowPoint {
+  incomeManwon: number;
+  outflowManwon: number;
+  savingManwon: number;
+  taxManwon: number;
+  netManwon: number;
+}
+
+export interface BuildPeriodCashflowSeriesOptions {
+  includeMainTaxEvents?: boolean;
+}
+
 export const PERIOD_CASHFLOW_CATEGORY_PREFIX = "기간별현금흐름";
 
 type Row = string[];
@@ -69,6 +81,56 @@ export function isPeriodCashFlow(flow: CashFlow) {
   return String(flow.category ?? "").startsWith(PERIOD_CASHFLOW_CATEGORY_PREFIX);
 }
 
+const emptyPoint = (period: string): PeriodCashflowPoint => ({
+  period,
+  incomeWon: 0,
+  outflowWon: 0,
+  savingWon: 0,
+  taxWon: 0,
+  netWon: 0,
+  cumulativeNetWon: 0,
+  memo: "",
+});
+
+const appendMemo = (point: PeriodCashflowPoint, memo?: string) => {
+  const clean = String(memo ?? "").trim();
+  if (!clean || point.memo.includes(clean)) return;
+  point.memo = [point.memo, clean].filter(Boolean).join(" / ");
+};
+
+const formatManwon = (won: number) => `${Math.round(Math.abs(won) / 10_000).toLocaleString()}만원`;
+
+const taxAliases = [
+  { label: "증여세", aliases: ["증여세예상액", "예상증여세", "증여세", "증여세납부"] },
+  { label: "상속세", aliases: ["상속세예상액", "예상상속세", "상속세", "상속세납부"] },
+  { label: "법인세", aliases: ["법인세예상액", "예상법인세", "법인세"] },
+  { label: "부동산 양도세", aliases: ["부동산양도세예상액", "부동산양도세", "부동산양도소득세", "양도세예상액"] },
+  { label: "해외주식 양도세", aliases: ["해외주식양도세예상액", "해외주식양도세", "해외주식양도소득세"] },
+  { label: "종합부동산세", aliases: ["종합부동산세", "종부세"] },
+  { label: "재산세", aliases: ["재산세"] },
+  { label: "종합소득세", aliases: ["종합소득세", "지방소득세", "건강보험정산"] },
+  { label: "부가세", aliases: ["부가세", "부가가치세"] },
+  { label: "자동차세", aliases: ["자동차세"] },
+];
+
+const canonicalTaxLabel = (flow: CashFlow) => {
+  const text = normalize(`${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""}`);
+  return taxAliases.find((item) => item.aliases.some((alias) => text.includes(normalize(alias))))?.label;
+};
+
+const isMainTaxFlow = (flow: CashFlow) => {
+  if (isPeriodCashFlow(flow) || flow.amount >= 0) return false;
+  const label = normalize(flow.label);
+  if (label.includes("증여실행") && label.includes("증여세")) return false;
+  const category = normalize(String(flow.category ?? ""));
+  return Boolean(canonicalTaxLabel(flow)) || category.includes("세금") || category.includes("tax");
+};
+
+const taxDedupeKeys = (label: string, period: string, amountWon: number) => {
+  const amountKey = String(Math.round(Math.abs(amountWon)));
+  return [`${normalize(label)}|${period}|${amountKey}`, `*|${period}|${amountKey}`];
+};
+
 export function extractPeriodCashFlows(rows: Row[], fileName = "기간별 현금흐름"): CashFlow[] {
   const headerIndex = findHeaderIndex(rows);
   if (headerIndex < 0) return [];
@@ -113,37 +175,51 @@ export function extractPeriodCashFlows(rows: Row[], fileName = "기간별 현금
   return flows;
 }
 
-export function buildPeriodCashflowSeries(cashFlows: CashFlow[]): PeriodCashflowPoint[] {
+export function buildPeriodCashflowSeries(
+  cashFlows: CashFlow[],
+  options: BuildPeriodCashflowSeriesOptions = {},
+): PeriodCashflowPoint[] {
+  const includeMainTaxEvents = options.includeMainTaxEvents ?? true;
   const periodFlows = cashFlows.filter(isPeriodCashFlow);
   const grouped = new Map<string, PeriodCashflowPoint>();
+  const seenTax = new Set<string>();
 
   periodFlows.forEach((flow) => {
     const period = parsePeriod(flow.date);
     if (!period) return;
-    const point =
-      grouped.get(period) ??
-      {
-        period,
-        incomeWon: 0,
-        outflowWon: 0,
-        savingWon: 0,
-        taxWon: 0,
-        netWon: 0,
-        cumulativeNetWon: 0,
-        memo: "",
-      };
+    const point = grouped.get(period) ?? emptyPoint(period);
     const category = String(flow.category ?? "");
     const amount = Math.abs(flow.amount);
     if (category.includes("유입")) point.incomeWon += amount;
     else if (category.includes("저축")) point.savingWon += amount;
-    else if (category.includes("세금")) point.taxWon += amount;
+    else if (category.includes("세금")) {
+      point.taxWon += amount;
+      taxDedupeKeys(flow.label, period, amount).forEach((key) => seenTax.add(key));
+    }
     else point.outflowWon += amount;
     point.netWon += flow.amount;
-    if (flow.taxAccountingNote && !point.memo.includes(flow.taxAccountingNote)) {
-      point.memo = [point.memo, flow.taxAccountingNote].filter(Boolean).join(" / ");
-    }
+    appendMemo(point, flow.taxAccountingNote);
     grouped.set(period, point);
   });
+
+  if (includeMainTaxEvents) {
+    cashFlows.filter(isMainTaxFlow).forEach((flow) => {
+      const period = parsePeriod(flow.date);
+      if (!period) return;
+      const amount = Math.abs(flow.amount);
+      const label = canonicalTaxLabel(flow) ?? flow.label ?? "세금";
+      const keys = taxDedupeKeys(label, period, amount);
+      if (keys.some((key) => seenTax.has(key))) return;
+
+      const point = grouped.get(period) ?? emptyPoint(period);
+      point.taxWon += amount;
+      point.netWon += flow.amount;
+      appendMemo(point, `${label} ${formatManwon(amount)}`);
+      appendMemo(point, flow.taxAccountingNote);
+      keys.forEach((key) => seenTax.add(key));
+      grouped.set(period, point);
+    });
+  }
 
   let cumulative = 0;
   return Array.from(grouped.values())
@@ -152,6 +228,17 @@ export function buildPeriodCashflowSeries(cashFlows: CashFlow[]): PeriodCashflow
       cumulative += point.netWon;
       return { ...point, cumulativeNetWon: cumulative };
     });
+}
+
+export function toPeriodCashflowChartData(series: PeriodCashflowPoint[]): PeriodCashflowChartPoint[] {
+  return series.map((point) => ({
+    ...point,
+    incomeManwon: Math.round(point.incomeWon / 10_000),
+    outflowManwon: Math.round(point.outflowWon / 10_000),
+    savingManwon: Math.round(point.savingWon / 10_000),
+    taxManwon: Math.round(point.taxWon / 10_000),
+    netManwon: Math.round(point.netWon / 10_000),
+  }));
 }
 
 export function hasPeriodCashflowData(cashFlows: CashFlow[]) {

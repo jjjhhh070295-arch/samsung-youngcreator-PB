@@ -245,23 +245,35 @@ function periodRowsFor(config) {
     "2026-03": corporate ? 85000 : 0,
     "2026-05": sole ? 14500 : 5200,
     "2026-07": sole ? 4800 : 900,
+    "2026-08": 120000,
     "2026-09": 32000,
     "2026-12": corporate ? 12000 : 6500,
+  };
+  const taxMemo = {
+    "2026-03": "법인세 납부월 - 현금화 재원 확인",
+    "2026-05": sole ? "종합소득세 납부월 - 개인/사업자 통장 구분" : "종합소득세 납부월 - 현금화 재원 확인",
+    "2026-07": sole ? "부가세 납부월 - 사업자 현금 잔액 확인" : "재산세 납부월 - 현금화 재원 확인",
+    "2026-08": "상속세 납부월 - 현금화 재원 확인",
+    "2026-09": "증여세 납부월 - 증여 실행 원금과 분리",
+    "2026-12": corporate ? "법인 세금 예비월 - 단기 운용자금 확인" : "종부세 납부월 - 현금화 재원 확인",
   };
   return Array.from({ length: 12 }, (_, index) => {
     const month = String(index + 1).padStart(2, "0");
     const period = `2026-${month}`;
     const seasonalIncome = index === 3 ? 35000 : index === 11 ? 6000 : 0;
     const seasonalOutflow = index === 2 ? 2000 : index === 7 ? 1500 : 0;
+    const giftExecutionOutflow = period === "2026-06" ? 200000 : 0;
     return {
       period,
       income: baseIncome + seasonalIncome,
-      outflow: baseOutflow + seasonalOutflow,
+      outflow: baseOutflow + seasonalOutflow + giftExecutionOutflow,
       saving: index % 3 === 0 ? baseSaving + 2000 : baseSaving,
       tax: taxEvents[period] ?? 0,
       memo:
         taxEvents[period] > 0
-          ? "세금 납부월 - 현금화 재원 확인"
+          ? taxMemo[period]
+          : giftExecutionOutflow > 0
+            ? "증여 실행 원금 유출월 - 증여세는 2026-09 반영"
           : index === 3
             ? "배당/상여 유입월"
             : "정상 월간 현금흐름",
