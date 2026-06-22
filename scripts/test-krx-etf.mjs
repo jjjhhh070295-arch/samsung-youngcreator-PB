@@ -1,228 +1,197 @@
 /**
  * test-krx-etf.mjs
- * KRX ETF 구성종목 실제 fetch 테스트
+ * KRX ETF 구성종목 fetch
+ * Step 1: MDCSTAT04601 → 전종목 ISIN 맵
+ * Step 2: MDCSTAT05001 × 8 → 구성종목
+ * Step 3: scripts/etf-constituents.json 저장
  *
- * 사용 방법:
- *   node scripts/test-krx-etf.mjs                          # 자동 세션만
- *   KRX_COOKIE="JSESSIONID=xxx; __smVisitorID=yyy" node scripts/test-krx-etf.mjs
- *
- * 실행: node scripts/test-krx-etf.mjs
+ * $env:KRX_COOKIE="..."; node scripts/test-krx-etf.mjs
  */
+import { writeFileSync } from "fs";
 
 const KRX_URL  = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
-const KRX_HOME = "https://data.krx.co.kr";
-const KRX_PAGE = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MKD13020101";
-const BLD      = "dbms/MDC/STAT/standard/MDCSTAT05001";
-const REFERER  = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MKD13020101";
-const UA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+const REFERER  = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201030105";
+const UA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36";
+const COOKIE   = process.env.KRX_COOKIE ?? "";
+const TRD_DD   = "20260620";
 
-// 사용자가 제공한 쿠키 (env로 주입)
-const INJECTED_COOKIE = process.env.KRX_COOKIE ?? "";
-
-const ETF_LIST = [
-  ["091160", "KR7091160002", "KODEX 반도체"],
-  ["305720", "KR7305720002", "KODEX 2차전지산업"],
-  ["244580", "KR7244580002", "KODEX 바이오"],
-  ["139270", "KR7139270002", "KODEX 은행"],
-  ["266360", "KR7266360002", "KODEX IT"],
-  ["091180", "KR7091180002", "KODEX 자동차"],
-  ["117460", "KR7117460002", "KODEX 에너지화학"],
-  ["117680", "KR7117680002", "KODEX 철강"],
+// 8개 타깃 섹터 ETF 단축코드
+const ETF_TARGETS = [
+  ["091160", "KODEX 반도체"],
+  ["305720", "KODEX 2차전지산업"],
+  ["244580", "KODEX 바이오"],
+  ["139270", "KODEX 금융"],
+  ["266360", "KODEX IT"],
+  ["091180", "KODEX 자동차"],
+  ["117460", "KODEX 에너지화학"],
+  ["117680", "KODEX 철강"],
 ];
 
-function recentTradingDay() {
-  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const day = kst.getUTCDay();
-  const offset = day === 0 ? 2 : day === 6 ? 1 : 0;
-  kst.setUTCDate(kst.getUTCDate() - offset);
-  return kst.toISOString().slice(0, 10).replace(/-/g, "");
-}
+// MDCSTAT05001 응답 실제 필드명 (이전 실행에서 확인)
+// COMPST_RTO는 "-" 문자열로 오는 경우가 많음 → VALU_AMT로 비중 계산
+const F = { code: "COMPST_ISU_CD", name: "COMPST_ISU_NM", weight: "COMPST_RTO", mktval: "VALU_AMT" };
 
-function extractCookies(headers) {
-  const jar = {};
-  for (const [k, v] of headers.entries()) {
-    if (k.toLowerCase() === "set-cookie") {
-      const name = v.split("=")[0].trim();
-      const val  = v.split("=")[1]?.split(";")[0]?.trim() ?? "";
-      jar[name] = val;
-    }
-  }
-  return jar;
-}
+if (!COOKIE) { console.error("KRX_COOKIE 없음"); process.exit(1); }
 
-function jarToStr(jar) {
-  return Object.entries(jar).map(([k, v]) => `${k}=${v}`).join("; ");
-}
-
-async function buildAutoSession() {
-  const jar = {};
-  for (const url of [KRX_HOME, KRX_PAGE]) {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent":      UA,
-          "Accept":          "text/html,*/*",
-          "Accept-Language": "ko-KR,ko;q=0.9",
-          ...(Object.keys(jar).length ? { "Cookie": jarToStr(jar) } : {}),
-        },
-        redirect: "follow",
-      });
-      Object.assign(jar, extractCookies(res.headers));
-      await new Promise(r => setTimeout(r, 300));
-    } catch {}
-  }
-  return jar;
-}
-
-async function fetchEtf(isin, trdDd, cookieStr = "") {
-  const body = new URLSearchParams({
-    bld:         BLD, locale: "ko_KR",
-    isuCd:       isin, isuCd2: isin,
-    trdDd,       share: "1", money: "1", csvxls_isNo: "false",
-  });
-
-  const t0  = Date.now();
+async function krxPost(bld, bodyExtra = {}) {
+  const body = new URLSearchParams({ bld, locale: "ko_KR", csvxls_isNo: "false", ...bodyExtra });
   const res = await fetch(KRX_URL, {
     method: "POST",
     headers: {
-      "Content-Type":     "application/x-www-form-urlencoded",
-      "Referer":          REFERER,
-      "Origin":           "https://data.krx.co.kr",
-      "X-Requested-With": "XMLHttpRequest",
-      "User-Agent":       UA,
-      "Accept":           "application/json, text/javascript, */*; q=0.01",
-      "Accept-Language":  "ko-KR,ko;q=0.9",
-      ...(cookieStr ? { "Cookie": cookieStr } : {}),
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Referer": REFERER, "Origin": "https://data.krx.co.kr",
+      "X-Requested-With": "XMLHttpRequest", "User-Agent": UA,
+      "Accept": "application/json, text/javascript, */*; q=0.01",
+      "Accept-Language": "ko-KR,ko;q=0.9",
+      "Cookie": COOKIE,
     },
     body: body.toString(),
     redirect: "follow",
   });
-  const ms  = Date.now() - t0;
   const buf = await res.arrayBuffer();
-  let text;
-  try { text = new TextDecoder("euc-kr").decode(buf); }
-  catch { text = new TextDecoder().decode(buf); }
-  return { status: res.status, ms, text, byteLen: buf.byteLength };
+  // KRX 실제 응답은 UTF-8 (EUC-KR로 디코딩하면 한글 깨짐)
+  const text = new TextDecoder("utf-8").decode(buf);
+  return { status: res.status, text };
 }
 
-function parse(text) {
-  if (!text?.trim())                                         return { kind: "empty" };
-  if (text.trim().toUpperCase().includes("LOGOUT"))          return { kind: "logout" };
-  if (!text.trim().startsWith("{") && !text.trim().startsWith("["))
-    return { kind: "html", preview: text.slice(0, 200) };
+function getItems(text, ...keys) {
+  if (!text?.trim() || text.trim().toUpperCase() === "LOGOUT") return null; // null = 세션만료
   try {
-    const j     = JSON.parse(text);
-    const items = j?.OutBlock_1 ?? j?.output ?? j?.data ?? [];
-    if (Array.isArray(items) && items.length > 0)
-      return { kind: "ok", count: items.length, fields: Object.keys(items[0]), sample: items[0] };
-    return { kind: "ok_empty", raw: JSON.stringify(j).slice(0, 300) };
-  } catch (e) {
-    return { kind: "parse_err", msg: e.message, preview: text.slice(0, 200) };
-  }
-}
-
-async function runAll(cookieStr, trdDd) {
-  const results = [];
-  for (const [ticker, isin, label] of ETF_LIST) {
-    process.stdout.write(`  ${label.padEnd(18)} (${isin}) → `);
-    try {
-      const r = await fetchEtf(isin, trdDd, cookieStr);
-      const p = parse(r.text);
-      if (p.kind === "ok") {
-        const wF = p.fields.find(f => /COMPST|COMP_RT/i.test(f)) ?? p.fields.find(f => /_RT$/i.test(f)) ?? "?";
-        const cF = p.fields.find(f => /ISU_CD/i.test(f)) ?? "?";
-        const nF = p.fields.find(f => /ABBRV/i.test(f)) ?? "?";
-        console.log(`✅ ${p.count}개  [code:${cF}  name:${nF}  weight:${wF}]`);
-        results.push({ ticker, label, count: p.count, fields: p.fields, sample: p.sample });
-      } else {
-        console.log(`❌ ${p.kind}`);
-        results.push({ ticker, label, count: 0, error: p.kind });
-      }
-    } catch (e) {
-      console.log(`ERROR ${e.message}`);
-      results.push({ ticker, label, count: 0, error: e.message });
+    const j = JSON.parse(text);
+    for (const k of keys) {
+      if (Array.isArray(j?.[k]) && j[k].length > 0) return j[k];
     }
-    await new Promise(r => setTimeout(r, 400));
-  }
-  return results;
-}
-
-function printSummary(results, cookieSource) {
-  const ok = results.filter(r => r.count > 0);
-  console.log(`\n── 최종 요약 (쿠키: ${cookieSource}) ──`);
-  console.log(`성공: ${ok.length}/8`);
-  for (const r of results)
-    console.log(`  ${r.count > 0 ? "✅" : "❌"}  ${r.label.padEnd(18)}  ${r.count > 0 ? r.count + "개" : r.error}`);
-  if (ok.length > 0) {
-    console.log(`\n── 응답 필드 (${ok[0].label}) ──\n  ${ok[0].fields.join(", ")}`);
-    console.log(`\n── 첫 샘플 ──`);
-    console.log(JSON.stringify(ok[0].sample, null, 2));
-  }
-}
-
-async function tryCookie(label, cookieStr, trdDd) {
-  console.log(`\n[${label}]`);
-  console.log(`  쿠키: ${cookieStr.slice(0, 80)}${cookieStr.length > 80 ? "..." : ""}`);
-  const r = await fetchEtf("KR7091160002", trdDd, cookieStr);
-  const p = parse(r.text);
-  console.log(`  HTTP ${r.status}  ${r.ms}ms  ${r.byteLen}b  → ${p.kind}`);
-  if (p.kind === "ok") {
-    console.log(`  ✅ 성공! ${p.count}개`);
-  } else {
-    console.log(`  원문: ${r.text.slice(0, 100)}`);
-  }
-  return p.kind === "ok";
+    return []; // 파싱됐지만 데이터 없음
+  } catch { return []; }
 }
 
 async function main() {
-  const trdDd = recentTradingDay();
-  console.log(`=== KRX ETF 구성종목 fetch 테스트 ===`);
-  console.log(`조회일(trdDd): ${trdDd}  BLD: ${BLD}`);
-  console.log(`KRX_COOKIE: ${INJECTED_COOKIE ? "주입됨 (" + INJECTED_COOKIE.slice(0, 40) + "...)" : "없음"}\n`);
+  console.log("=== KRX ETF 구성종목 fetch ===");
+  console.log(`trdDd: ${TRD_DD}  Cookie: ${COOKIE.slice(0, 40)}...\n`);
 
-  // ── 1. 쿠키 없이 ──────────────────────────────────────────────
-  await tryCookie("Step 1: 쿠키 없이", "", trdDd);
+  // ── Step 1: 전종목 ISIN 맵 ────────────────────────────────────
+  console.log("── Step 1: MDCSTAT04601 → 전종목 ISIN 맵 ──");
+  const r1 = await krxPost("dbms/MDC/STAT/standard/MDCSTAT04601", { trdDd: TRD_DD, mktTp: "ETF" });
+  const list = getItems(r1.text, "OutBlock_1", "output", "block1");
 
-  // ── 2. 자동 세션 warm-up ──────────────────────────────────────
-  console.log(`\n[Step 2: 자동 세션 warm-up]`);
-  process.stdout.write("  홈 + ETF 페이지 순차 GET... ");
-  const jar = await buildAutoSession();
-  const autoStr = jarToStr(jar);
-  console.log(`완료  쿠키: ${autoStr.slice(0, 60)}`);
-  const step2ok = await tryCookie("Step 2a: 자동 warm-up 세션", autoStr, trdDd);
+  if (list === null) { console.error("❌ 세션 만료 — LOGOUT"); process.exit(1); }
+  if (!list.length)  { console.error("❌ 빈 응답"); process.exit(1); }
+  console.log(`  ✅ ${list.length}개 ETF 수신\n`);
 
-  // ── 3. 사용자 제공 쿠키 (있으면) ──────────────────────────────
-  let finalOk = step2ok;
-  let finalCookie = autoStr;
-  let cookieSource = "자동 warm-up";
-
-  if (INJECTED_COOKIE) {
-    const step3ok = await tryCookie("Step 3: 사용자 제공 쿠키(KRX_COOKIE)", INJECTED_COOKIE, trdDd);
-    if (step3ok) { finalOk = true; finalCookie = INJECTED_COOKIE; cookieSource = "사용자 제공 쿠키"; }
+  // 단축코드 → ISIN 맵
+  const isinMap = {};
+  for (const item of list) {
+    const srt  = String(item.ISU_SRT_CD ?? "").trim();
+    const isin = String(item.ISU_CD     ?? "").trim();
+    const name = String(item.ISU_ABBRV ?? item.ISU_NM ?? "").trim();
+    if (srt && isin) isinMap[srt] = { isin, name };
   }
 
-  // ── 4. 성공 시 8개 전체 ───────────────────────────────────────
-  if (finalOk) {
-    console.log(`\n── Step 4: 8개 ETF 전체 조회 ──\n`);
-    const results = await runAll(finalCookie, trdDd);
-    printSummary(results, cookieSource);
-  } else {
-    console.log(`\n══════════════════════════════════════`);
-    console.log(`[ 결론 ]`);
-    console.log(`- 자동 세션(Node.js 발급): LOGOUT — IP/세션 바인딩으로 거부`);
-    console.log(`- 완전 자동화: 불가`);
-    console.log(``);
-    console.log(`[ 브라우저 쿠키 직접 테스트 방법 ]`);
-    console.log(`1. Chrome에서 https://data.krx.co.kr ETF 구성종목 조회`);
-    console.log(`2. DevTools (F12) > Network > getJsonData.cmd 클릭`);
-    console.log(`3. Headers > Request Headers > Cookie 값 복사`);
-    console.log(`4. 아래 명령어 실행:`);
-    console.log(`   KRX_COOKIE="붙여넣은쿠키값" node scripts/test-krx-etf.mjs`);
-    console.log(``);
-    console.log(`→ 같은 브라우저 세션(같은 IP)에서 실행하면 성공 예상`);
-    console.log(`→ 성공하면 8개 ETF 구성종목 전부 받아 scripts/etf-constituents.json으로 저장 가능`);
-    console.log(`══════════════════════════════════════`);
+  // 8개 타깃 ISIN 출력
+  console.log("── 타깃 ETF ISIN 확인 ──\n");
+  for (const [ticker, label] of ETF_TARGETS) {
+    const info = isinMap[ticker];
+    console.log(`  ${ticker}  ${info ? `✅ ${info.isin}  ${info.name}` : "❌ 없음"}`);
   }
+
+  // ── Step 2: MDCSTAT05001 × 8 구성종목 ──────────────────────
+  console.log(`\n── Step 2: 구성종목 fetch (MDCSTAT05001) ──\n`);
+  const allData = {};
+
+  for (const [ticker, label] of ETF_TARGETS) {
+    const info = isinMap[ticker];
+    if (!info) { console.log(`  ${label}: ISIN 없음 — 스킵`); continue; }
+
+    process.stdout.write(`  ${label.padEnd(20)} (${info.isin}) → `);
+    const r = await krxPost("dbms/MDC/STAT/standard/MDCSTAT05001", {
+      isuCd:  info.isin,
+      isuCd2: info.isin,
+      trdDd:  TRD_DD,
+      share:  "1",
+      money:  "1",
+    });
+
+    const items = getItems(r.text, "OutBlock_1", "output");
+    if (items === null) {
+      console.log("❌ LOGOUT — 세션 만료");
+      break;
+    }
+    if (!items.length) {
+      // raw 확인
+      const raw = r.text.slice(0, 80).replace(/\s+/g," ");
+      console.log(`❌ empty  (${raw})`);
+      continue;
+    }
+
+    console.log(`✅ ${items.length}개`);
+    allData[ticker] = { label: info.name || label, isin: info.isin, items };
+    await new Promise(res => setTimeout(res, 350));
+  }
+
+  // ── Step 3: 결과 출력 + 저장 ──────────────────────────────────
+  const okEntries = Object.entries(allData);
+  console.log(`\n── 요약: ${okEntries.length}/8 성공 ──\n`);
+
+  for (const [ticker, label] of ETF_TARGETS) {
+    const d = allData[ticker];
+    console.log(`  ${d ? "✅" : "❌"}  ${label.padEnd(20)}  ${d ? d.items.length + "개" : "실패"}`);
+  }
+
+  // 반도체 상위 5개 검증
+  const semi = allData["091160"];
+  if (semi) {
+    const sorted = [...semi.items].sort(
+      (a, b) => parseFloat(b[F.weight] ?? 0) - parseFloat(a[F.weight] ?? 0)
+    );
+    console.log(`\n── KODEX 반도체 상위 5개 ──\n`);
+    for (const item of sorted.slice(0, 5))
+      console.log(`  ${String(item[F.code]).padEnd(14)} ${String(item[F.name]).padEnd(18)} ${item[F.weight]}%`);
+
+    const hynix   = semi.items.find(i => String(i[F.code]).includes("000660"));
+    const samsung = semi.items.find(i => String(i[F.code]).includes("005930"));
+    console.log(`\n  SK하이닉스: ${hynix  ? `✅ ${hynix[F.weight]}%`  : "❌"}`);
+    console.log(`  삼성전자:   ${samsung ? `✅ ${samsung[F.weight]}%` : "❌"}`);
+  }
+
+  if (okEntries.length === 0) { console.log("\n저장 생략 (성공 없음)"); return; }
+
+  // JSON 저장
+  const out = {
+    capturedAt: new Date().toISOString(),
+    trdDd:      TRD_DD,
+    note:       "KRX MDCSTAT04601(ISIN맵) + MDCSTAT05001(구성종목) 브라우저 세션 캡처. 분기마다 갱신 권장.",
+    etfs:       {},
+  };
+
+  for (const [ticker, d] of okEntries) {
+    // COMPST_RTO가 "-"면 VALU_AMT(평가금액)으로 비중 계산
+    const totalVal = d.items.reduce((s, i) => s + (parseFloat(i[F.mktval]) || 0), 0);
+    const useValu  = d.items.every(i => !parseFloat(i[F.weight]));
+
+    out.etfs[ticker] = {
+      label:    d.label,
+      isin:     d.isin,
+      count:    d.items.length,
+      holdings: [...d.items]
+        .map(item => {
+          const rawWgt = parseFloat(item[F.weight]);
+          const valu   = parseFloat(item[F.mktval]) || 0;
+          const wPct   = (!isNaN(rawWgt) && rawWgt > 0)
+            ? rawWgt
+            : (useValu && totalVal > 0 ? Math.round(valu / totalVal * 10000) / 100 : null);
+          return {
+            code:      (item[F.code] ?? "").trim(),
+            name:      (item[F.name] ?? "").trim(),
+            weightPct: wPct,
+          };
+        })
+        .sort((a, b) => (b.weightPct ?? 0) - (a.weightPct ?? 0)),
+    };
+  }
+
+  const outPath = "scripts/etf-constituents.json";
+  writeFileSync(outPath, JSON.stringify(out, null, 2), "utf8");
+  console.log(`\n✅ 저장: ${outPath}  (${Buffer.byteLength(JSON.stringify(out)).toLocaleString()} bytes)`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

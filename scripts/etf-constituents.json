@@ -1,0 +1,1253 @@
+{
+  "capturedAt": "2026-06-22T05:41:02.471Z",
+  "trdDd": "20260620",
+  "note": "KRX MDCSTAT04601(ISIN맵) + MDCSTAT05001(구성종목) 브라우저 세션 캡처. 분기마다 갱신 권장.",
+  "etfs": {
+    "117460": {
+      "label": "KODEX ��吏��",
+      "isin": "KR7117460006",
+      "count": 39,
+      "holdings": [
+        {
+          "code": "000210",
+          "name": "DL",
+          "weightPct": null
+        },
+        {
+          "code": "017940",
+          "name": "E1",
+          "weightPct": null
+        },
+        {
+          "code": "267250",
+          "name": "HD��",
+          "weightPct": null
+        },
+        {
+          "code": "298050",
+          "name": "HS�⑥깆꺼�⑥��",
+          "weightPct": null
+        },
+        {
+          "code": "002380",
+          "name": "KCC",
+          "weightPct": null
+        },
+        {
+          "code": "051910",
+          "name": "LG��",
+          "weightPct": null
+        },
+        {
+          "code": "456040",
+          "name": "OCI",
+          "weightPct": null
+        },
+        {
+          "code": "010060",
+          "name": "OCI��⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "178920",
+          "name": "PI泥⑤⑥��",
+          "weightPct": null
+        },
+        {
+          "code": "010950",
+          "name": "S-Oil",
+          "weightPct": null
+        },
+        {
+          "code": "011790",
+          "name": "SKC",
+          "weightPct": null
+        },
+        {
+          "code": "018670",
+          "name": "SK媛��",
+          "weightPct": null
+        },
+        {
+          "code": "006120",
+          "name": "SK��ㅼ빱踰由�",
+          "weightPct": null
+        },
+        {
+          "code": "096770",
+          "name": "SK�대몃��댁",
+          "weightPct": null
+        },
+        {
+          "code": "285130",
+          "name": "SK耳誘몄뭡",
+          "weightPct": null
+        },
+        {
+          "code": "069260",
+          "name": "TKG�댁���",
+          "weightPct": null
+        },
+        {
+          "code": "011780",
+          "name": "湲�몄����",
+          "weightPct": null
+        },
+        {
+          "code": "121600",
+          "name": "��몄����",
+          "weightPct": null
+        },
+        {
+          "code": "006650",
+          "name": "�����",
+          "weightPct": null
+        },
+        {
+          "code": "033500",
+          "name": "���깊�명",
+          "weightPct": null
+        },
+        {
+          "code": "005290",
+          "name": "��吏��誘몄�",
+          "weightPct": null
+        },
+        {
+          "code": "281740",
+          "name": "��댄щ㉧�곕━�쇱�",
+          "weightPct": null
+        },
+        {
+          "code": "004000",
+          "name": "濡�곗�諛��",
+          "weightPct": null
+        },
+        {
+          "code": "011170",
+          "name": "濡�곗�誘몄뭡",
+          "weightPct": null
+        },
+        {
+          "code": "357780",
+          "name": "�釉���",
+          "weightPct": null
+        },
+        {
+          "code": "036830",
+          "name": "�釉��명�⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "161000",
+          "name": "��寃쎌�誘몄뭡",
+          "weightPct": null
+        },
+        {
+          "code": "348370",
+          "name": "�耳",
+          "weightPct": null
+        },
+        {
+          "code": "014830",
+          "name": "����",
+          "weightPct": null
+        },
+        {
+          "code": "457190",
+          "name": "�댁�ㅽ���곗�誘몄뺄",
+          "weightPct": null
+        },
+        {
+          "code": "005420",
+          "name": "肄�ㅻえ��",
+          "weightPct": null
+        },
+        {
+          "code": "120110",
+          "name": "肄�ㅻ”�몃",
+          "weightPct": null
+        },
+        {
+          "code": "003240",
+          "name": "�愿�곗",
+          "weightPct": null
+        },
+        {
+          "code": "002960",
+          "name": "�援����",
+          "weightPct": null
+        },
+        {
+          "code": "017960",
+          "name": "�援�뭅蹂�",
+          "weightPct": null
+        },
+        {
+          "code": "014680",
+          "name": "��耳誘몄뭡",
+          "weightPct": null
+        },
+        {
+          "code": "009830",
+          "name": "���猷⑥",
+          "weightPct": null
+        },
+        {
+          "code": "298020",
+          "name": "�⑥깊곗ㅼ�",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    },
+    "117680": {
+      "label": "KODEX 泥�媛",
+      "isin": "KR7117680009",
+      "count": 21,
+      "holdings": [
+        {
+          "code": "016380",
+          "name": "KG�ㅽ�",
+          "weightPct": null
+        },
+        {
+          "code": "151860",
+          "name": "KG�肄�猷⑥",
+          "weightPct": null
+        },
+        {
+          "code": "001390",
+          "name": "KG耳誘몄뭡",
+          "weightPct": null
+        },
+        {
+          "code": "001940",
+          "name": "KISCO��⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "005490",
+          "name": "POSCO��⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "002710",
+          "name": "TCC�ㅽ�",
+          "weightPct": null
+        },
+        {
+          "code": "010130",
+          "name": "怨��ㅼ��",
+          "weightPct": null
+        },
+        {
+          "code": "092790",
+          "name": "�μㅽ�",
+          "weightPct": null
+        },
+        {
+          "code": "084010",
+          "name": "���媛",
+          "weightPct": null
+        },
+        {
+          "code": "460860",
+          "name": "��援��媛",
+          "weightPct": null
+        },
+        {
+          "code": "006110",
+          "name": "�쇱�誘몃",
+          "weightPct": null
+        },
+        {
+          "code": "001430",
+          "name": "�몄踰��ㅽ몄�二�",
+          "weightPct": null
+        },
+        {
+          "code": "306200",
+          "name": "�몄�媛",
+          "weightPct": null
+        },
+        {
+          "code": "003030",
+          "name": "�몄�媛吏二�",
+          "weightPct": null
+        },
+        {
+          "code": "295310",
+          "name": "��댁�釉�댁�",
+          "weightPct": null
+        },
+        {
+          "code": "000670",
+          "name": "��",
+          "weightPct": null
+        },
+        {
+          "code": "009520",
+          "name": "��ъㅼ����",
+          "weightPct": null
+        },
+        {
+          "code": "103140",
+          "name": "���",
+          "weightPct": null
+        },
+        {
+          "code": "005810",
+          "name": "��고�⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "004020",
+          "name": "���泥�",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    },
+    "139270": {
+      "label": "TIGER 200 湲��",
+      "isin": "KR7139270003",
+      "count": 23,
+      "holdings": [
+        {
+          "code": "138930",
+          "name": "BNK湲�듭�二�",
+          "weightPct": null
+        },
+        {
+          "code": "005830",
+          "name": "DB��대낫�",
+          "weightPct": null
+        },
+        {
+          "code": "175330",
+          "name": "JB湲�듭�二�",
+          "weightPct": null
+        },
+        {
+          "code": "105560",
+          "name": "KB湲��",
+          "weightPct": null
+        },
+        {
+          "code": "005940",
+          "name": "NH�ъ利沅",
+          "weightPct": null
+        },
+        {
+          "code": "139130",
+          "name": "iM湲�듭�二�",
+          "weightPct": null
+        },
+        {
+          "code": "024110",
+          "name": "湲곗��",
+          "weightPct": null
+        },
+        {
+          "code": "138040",
+          "name": "硫由ъ�湲�듭�二�",
+          "weightPct": null
+        },
+        {
+          "code": "006800",
+          "name": "誘몃��利沅",
+          "weightPct": null
+        },
+        {
+          "code": "032830",
+          "name": "�쇱깆紐",
+          "weightPct": null
+        },
+        {
+          "code": "016360",
+          "name": "�쇱깆�沅",
+          "weightPct": null
+        },
+        {
+          "code": "029780",
+          "name": "�쇱깆뭅�",
+          "weightPct": null
+        },
+        {
+          "code": "000810",
+          "name": "�쇱깊��",
+          "weightPct": null
+        },
+        {
+          "code": "055550",
+          "name": "���吏二�",
+          "weightPct": null
+        },
+        {
+          "code": "316140",
+          "name": "�곕━湲�듭�二�",
+          "weightPct": null
+        },
+        {
+          "code": "323410",
+          "name": "移댁뭅�ㅻ���",
+          "weightPct": null
+        },
+        {
+          "code": "377300",
+          "name": "移댁뭅�ㅽ���",
+          "weightPct": null
+        },
+        {
+          "code": "039490",
+          "name": "�ㅼ利沅",
+          "weightPct": null
+        },
+        {
+          "code": "086790",
+          "name": "��湲�듭�二�",
+          "weightPct": null
+        },
+        {
+          "code": "071050",
+          "name": "�援���듭�二�",
+          "weightPct": null
+        },
+        {
+          "code": "088350",
+          "name": "���紐",
+          "weightPct": null
+        },
+        {
+          "code": "001450",
+          "name": "���댁",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    },
+    "244580": {
+      "label": "KODEX 諛�댁�",
+      "isin": "KR7244580007",
+      "count": 51,
+      "holdings": [
+        {
+          "code": "195940",
+          "name": "HK�대몄",
+          "weightPct": null
+        },
+        {
+          "code": "028300",
+          "name": "HLB",
+          "weightPct": null
+        },
+        {
+          "code": "302440",
+          "name": "SK諛�댁ㅼъ댁몄�",
+          "weightPct": null
+        },
+        {
+          "code": "326030",
+          "name": "SK諛�댁ㅽ",
+          "weightPct": null
+        },
+        {
+          "code": "007390",
+          "name": "�ㅼ댁��",
+          "weightPct": null
+        },
+        {
+          "code": "389650",
+          "name": "�μㅽ몃��댁ㅻ��而�",
+          "weightPct": null
+        },
+        {
+          "code": "086450",
+          "name": "��援����",
+          "weightPct": null
+        },
+        {
+          "code": "347850",
+          "name": "��ㅻ�留�",
+          "weightPct": null
+        },
+        {
+          "code": "376900",
+          "name": "濡�룻ъㅼ���",
+          "weightPct": null
+        },
+        {
+          "code": "328130",
+          "name": "猷⑤",
+          "weightPct": null
+        },
+        {
+          "code": "141080",
+          "name": "由ш�耳諛�댁�",
+          "weightPct": null
+        },
+        {
+          "code": "491000",
+          "name": "由щ��ㅻ��",
+          "weightPct": null
+        },
+        {
+          "code": "310210",
+          "name": "蹂대��몄�",
+          "weightPct": null
+        },
+        {
+          "code": "003000",
+          "name": "遺愿�쏀",
+          "weightPct": null
+        },
+        {
+          "code": "207940",
+          "name": "�쇱깅��댁ㅻ�吏��",
+          "weightPct": null
+        },
+        {
+          "code": "0126Z0",
+          "name": "�쇱깆�쇱ㅽ�⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "000250",
+          "name": "�쇱��뱀���",
+          "weightPct": null
+        },
+        {
+          "code": "108860",
+          "name": "�諛��AI",
+          "weightPct": null
+        },
+        {
+          "code": "068270",
+          "name": "��몃━��",
+          "weightPct": null
+        },
+        {
+          "code": "068760",
+          "name": "��몃━�⑥���",
+          "weightPct": null
+        },
+        {
+          "code": "458870",
+          "name": "�⑥댁�",
+          "weightPct": null
+        },
+        {
+          "code": "476830",
+          "name": "�吏�몃���",
+          "weightPct": null
+        },
+        {
+          "code": "196170",
+          "name": "���ㅼ��",
+          "weightPct": null
+        },
+        {
+          "code": "174900",
+          "name": "�깊대�",
+          "weightPct": null
+        },
+        {
+          "code": "237690",
+          "name": "��ㅽ고",
+          "weightPct": null
+        },
+        {
+          "code": "298380",
+          "name": "��대��諛�댁�",
+          "weightPct": null
+        },
+        {
+          "code": "397030",
+          "name": "��댄由대��댁�",
+          "weightPct": null
+        },
+        {
+          "code": "0009K0",
+          "name": "���諛�댁�",
+          "weightPct": null
+        },
+        {
+          "code": "290650",
+          "name": "��ㅼ⑤��댁�",
+          "weightPct": null
+        },
+        {
+          "code": "475830",
+          "name": "�ㅻ���쇳⑦�",
+          "weightPct": null
+        },
+        {
+          "code": "039200",
+          "name": "�ㅼㅼ��",
+          "weightPct": null
+        },
+        {
+          "code": "476060",
+          "name": "�⑥����쇳⑦깆�",
+          "weightPct": null
+        },
+        {
+          "code": "226950",
+          "name": "�щ┃��",
+          "weightPct": null
+        },
+        {
+          "code": "336570",
+          "name": "��",
+          "weightPct": null
+        },
+        {
+          "code": "000100",
+          "name": "�����",
+          "weightPct": null
+        },
+        {
+          "code": "389470",
+          "name": "�몃깽�곗���",
+          "weightPct": null
+        },
+        {
+          "code": "249420",
+          "name": "�쇰����",
+          "weightPct": null
+        },
+        {
+          "code": "358570",
+          "name": "吏��댁대몃��댁",
+          "weightPct": null
+        },
+        {
+          "code": "456160",
+          "name": "吏�ъ�諛�댁�",
+          "weightPct": null
+        },
+        {
+          "code": "085660",
+          "name": "李⑤��댁ㅽ",
+          "weightPct": null
+        },
+        {
+          "code": "445680",
+          "name": "�由ъμㅻ��댁ㅼ�ㅽ利",
+          "weightPct": null
+        },
+        {
+          "code": "214150",
+          "name": "�대���",
+          "weightPct": null
+        },
+        {
+          "code": "214450",
+          "name": "�留由ъ移",
+          "weightPct": null
+        },
+        {
+          "code": "005690",
+          "name": "�誘몄",
+          "weightPct": null
+        },
+        {
+          "code": "087010",
+          "name": "��⑺몃�",
+          "weightPct": null
+        },
+        {
+          "code": "468530",
+          "name": "�濡�곕",
+          "weightPct": null
+        },
+        {
+          "code": "008930",
+          "name": "�誘몄ъ댁몄�",
+          "weightPct": null
+        },
+        {
+          "code": "128940",
+          "name": "�誘몄쏀",
+          "weightPct": null
+        },
+        {
+          "code": "009420",
+          "name": "��щ��댁ㅽ留",
+          "weightPct": null
+        },
+        {
+          "code": "145020",
+          "name": "�댁��",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    },
+    "266360": {
+      "label": "KODEX K肄�痢�",
+      "isin": "KR7266360007",
+      "count": 21,
+      "holdings": [
+        {
+          "code": "035760",
+          "name": "CJ ENM",
+          "weightPct": null
+        },
+        {
+          "code": "035900",
+          "name": "JYP Ent.",
+          "weightPct": null
+        },
+        {
+          "code": "035420",
+          "name": "NAVER",
+          "weightPct": null
+        },
+        {
+          "code": "036570",
+          "name": "NC",
+          "weightPct": null
+        },
+        {
+          "code": "181710",
+          "name": "NHN",
+          "weightPct": null
+        },
+        {
+          "code": "067160",
+          "name": "SOOP",
+          "weightPct": null
+        },
+        {
+          "code": "225570",
+          "name": "�μ④��利",
+          "weightPct": null
+        },
+        {
+          "code": "251270",
+          "name": "�룸�釉",
+          "weightPct": null
+        },
+        {
+          "code": "376300",
+          "name": "��댁�",
+          "weightPct": null
+        },
+        {
+          "code": "253450",
+          "name": "�ㅽ��ㅻ�怨�",
+          "weightPct": null
+        },
+        {
+          "code": "462870",
+          "name": "���몄",
+          "weightPct": null
+        },
+        {
+          "code": "041510",
+          "name": "��ㅼ�",
+          "weightPct": null
+        },
+        {
+          "code": "122870",
+          "name": "��댁���고�몃㉫��",
+          "weightPct": null
+        },
+        {
+          "code": "112040",
+          "name": "�硫�대",
+          "weightPct": null
+        },
+        {
+          "code": "030000",
+          "name": "��쇨린�",
+          "weightPct": null
+        },
+        {
+          "code": "035720",
+          "name": "移댁뭅��",
+          "weightPct": null
+        },
+        {
+          "code": "293490",
+          "name": "移댁뭅�ㅺ��利",
+          "weightPct": null
+        },
+        {
+          "code": "259960",
+          "name": "�щ���",
+          "weightPct": null
+        },
+        {
+          "code": "263750",
+          "name": "���대���",
+          "weightPct": null
+        },
+        {
+          "code": "352820",
+          "name": "��대�",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    },
+    "305720": {
+      "label": "KODEX 2李⑥�吏�곗",
+      "isin": "KR7305720005",
+      "count": 26,
+      "holdings": [
+        {
+          "code": "373220",
+          "name": "LG��吏�猷⑥",
+          "weightPct": null
+        },
+        {
+          "code": "051910",
+          "name": "LG��",
+          "weightPct": null
+        },
+        {
+          "code": "005490",
+          "name": "POSCO��⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "011790",
+          "name": "SKC",
+          "weightPct": null
+        },
+        {
+          "code": "361610",
+          "name": "SK��댁댄�щ濡吏",
+          "weightPct": null
+        },
+        {
+          "code": "096770",
+          "name": "SK�대몃��댁",
+          "weightPct": null
+        },
+        {
+          "code": "121600",
+          "name": "��몄����",
+          "weightPct": null
+        },
+        {
+          "code": "078600",
+          "name": "�二쇱���щ�",
+          "weightPct": null
+        },
+        {
+          "code": "020150",
+          "name": "濡�곗�吏癒명곕━�쇱�",
+          "weightPct": null
+        },
+        {
+          "code": "006400",
+          "name": "�쇱�SDI",
+          "weightPct": null
+        },
+        {
+          "code": "178320",
+          "name": "�吏��ㅽ",
+          "weightPct": null
+        },
+        {
+          "code": "036830",
+          "name": "�釉��명�⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "222080",
+          "name": "�⑥�댁��",
+          "weightPct": null
+        },
+        {
+          "code": "086520",
+          "name": "�肄�濡",
+          "weightPct": null
+        },
+        {
+          "code": "450080",
+          "name": "�肄�濡癒명�",
+          "weightPct": null
+        },
+        {
+          "code": "247540",
+          "name": "�肄�濡鍮��",
+          "weightPct": null
+        },
+        {
+          "code": "348370",
+          "name": "�耳",
+          "weightPct": null
+        },
+        {
+          "code": "066970",
+          "name": "��ㅼ�",
+          "weightPct": null
+        },
+        {
+          "code": "005070",
+          "name": "肄�ㅻえ�����",
+          "weightPct": null
+        },
+        {
+          "code": "005420",
+          "name": "肄�ㅻえ��",
+          "weightPct": null
+        },
+        {
+          "code": "003670",
+          "name": "��ъㅼ��⑥���",
+          "weightPct": null
+        },
+        {
+          "code": "137400",
+          "name": "�쇱��",
+          "weightPct": null
+        },
+        {
+          "code": "299030",
+          "name": "��湲곗�",
+          "weightPct": null
+        },
+        {
+          "code": "107640",
+          "name": "�以�����",
+          "weightPct": null
+        },
+        {
+          "code": "093370",
+          "name": "���",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    },
+    "091160": {
+      "label": "KODEX 諛��泥�",
+      "isin": "KR7091160002",
+      "count": 36,
+      "holdings": [
+        {
+          "code": "000990",
+          "name": "DB��댄",
+          "weightPct": null
+        },
+        {
+          "code": "322000",
+          "name": "HD����吏�猷⑥",
+          "weightPct": null
+        },
+        {
+          "code": "403870",
+          "name": "HPSP",
+          "weightPct": null
+        },
+        {
+          "code": "095340",
+          "name": "ISC",
+          "weightPct": null
+        },
+        {
+          "code": "108320",
+          "name": "LX�몃�肄",
+          "weightPct": null
+        },
+        {
+          "code": "218410",
+          "name": "RFHIC",
+          "weightPct": null
+        },
+        {
+          "code": "036540",
+          "name": "SFA諛��泥�",
+          "weightPct": null
+        },
+        {
+          "code": "000660",
+          "name": "SK��대��",
+          "weightPct": null
+        },
+        {
+          "code": "399720",
+          "name": "媛�⑥묩��",
+          "weightPct": null
+        },
+        {
+          "code": "098460",
+          "name": "怨��",
+          "weightPct": null
+        },
+        {
+          "code": "348210",
+          "name": "�μㅽ�",
+          "weightPct": null
+        },
+        {
+          "code": "213420",
+          "name": "��곕ㅼㅻ）��",
+          "weightPct": null
+        },
+        {
+          "code": "131970",
+          "name": "��고�ㅻ",
+          "weightPct": null
+        },
+        {
+          "code": "058470",
+          "name": "由щ멸났�",
+          "weightPct": null
+        },
+        {
+          "code": "005930",
+          "name": "�쇱깆��",
+          "weightPct": null
+        },
+        {
+          "code": "222800",
+          "name": "�ы",
+          "weightPct": null
+        },
+        {
+          "code": "101490",
+          "name": "��ㅼㅼ�ㅽ",
+          "weightPct": null
+        },
+        {
+          "code": "232140",
+          "name": "��댁�",
+          "weightPct": null
+        },
+        {
+          "code": "240810",
+          "name": "���IPS",
+          "weightPct": null
+        },
+        {
+          "code": "084370",
+          "name": "��吏���",
+          "weightPct": null
+        },
+        {
+          "code": "039030",
+          "name": "�댁ㅽ�щ��",
+          "weightPct": null
+        },
+        {
+          "code": "080220",
+          "name": "�二쇰���泥�",
+          "weightPct": null
+        },
+        {
+          "code": "036930",
+          "name": "二쇱깆吏��대�",
+          "weightPct": null
+        },
+        {
+          "code": "281820",
+          "name": "耳�댁⑦",
+          "weightPct": null
+        },
+        {
+          "code": "183300",
+          "name": "肄誘몄�",
+          "weightPct": null
+        },
+        {
+          "code": "323280",
+          "name": "���",
+          "weightPct": null
+        },
+        {
+          "code": "089030",
+          "name": "��ъ",
+          "weightPct": null
+        },
+        {
+          "code": "064760",
+          "name": "�곗⑥���",
+          "weightPct": null
+        },
+        {
+          "code": "440110",
+          "name": "��",
+          "weightPct": null
+        },
+        {
+          "code": "319660",
+          "name": "�쇱�ㅼ���",
+          "weightPct": null
+        },
+        {
+          "code": "031980",
+          "name": "�쇱�ㅼ��댄�⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "161580",
+          "name": "��듯깆�",
+          "weightPct": null
+        },
+        {
+          "code": "067310",
+          "name": "��留�댄щ�",
+          "weightPct": null
+        },
+        {
+          "code": "166090",
+          "name": "��癒명곕━�쇱�",
+          "weightPct": null
+        },
+        {
+          "code": "042700",
+          "name": "�誘몃���泥�",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    },
+    "091180": {
+      "label": "KODEX ���李�",
+      "isin": "KR7091180000",
+      "count": 21,
+      "holdings": [
+        {
+          "code": "007340",
+          "name": "DN�ㅽ�紐⑦곕�",
+          "weightPct": null
+        },
+        {
+          "code": "204320",
+          "name": "HL留��",
+          "weightPct": null
+        },
+        {
+          "code": "003620",
+          "name": "KG紐⑤�由ы�",
+          "weightPct": null
+        },
+        {
+          "code": "064960",
+          "name": "SNT紐⑦곕�",
+          "weightPct": null
+        },
+        {
+          "code": "036530",
+          "name": "SNT��⑹�",
+          "weightPct": null
+        },
+        {
+          "code": "073240",
+          "name": "湲�명�댁�",
+          "weightPct": null
+        },
+        {
+          "code": "000270",
+          "name": "湲곗",
+          "weightPct": null
+        },
+        {
+          "code": "002350",
+          "name": "�μ쇳�댁�",
+          "weightPct": null
+        },
+        {
+          "code": "009900",
+          "name": "紐���곗",
+          "weightPct": null
+        },
+        {
+          "code": "437730",
+          "name": "�쇳",
+          "weightPct": null
+        },
+        {
+          "code": "015750",
+          "name": "�깆고�댄",
+          "weightPct": null
+        },
+        {
+          "code": "004490",
+          "name": "�몃갑�吏",
+          "weightPct": null
+        },
+        {
+          "code": "005850",
+          "name": "��ㅼ",
+          "weightPct": null
+        },
+        {
+          "code": "271940",
+          "name": "�쇱���댁猷⑥�",
+          "weightPct": null
+        },
+        {
+          "code": "000240",
+          "name": "�援�ㅼ뺨�쇰",
+          "weightPct": null
+        },
+        {
+          "code": "161390",
+          "name": "�援��댁댁ㅽ�щ濡吏",
+          "weightPct": null
+        },
+        {
+          "code": "018880",
+          "name": "��⑥�ㅽ",
+          "weightPct": null
+        },
+        {
+          "code": "012330",
+          "name": "��紐⑤���",
+          "weightPct": null
+        },
+        {
+          "code": "011210",
+          "name": "����",
+          "weightPct": null
+        },
+        {
+          "code": "005380",
+          "name": "��李�",
+          "weightPct": null
+        },
+        {
+          "code": "KRD010010001",
+          "name": "���湲",
+          "weightPct": 100
+        }
+      ]
+    }
+  }
+}
