@@ -28,7 +28,7 @@ import {
 import { listPbs } from '@/lib/store';
 import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
-import StockSectorPanel from '@/components/StockSectorPanel';
+import StockSectorPanel, { type ExistingHolding } from '@/components/StockSectorPanel';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -770,7 +770,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [benchmarkSource, setBenchmarkSource] = useState('로컬 예비 데이터');
   const [benchmarkFallback, setBenchmarkFallback] = useState(true);
   const [benchmarkUpdatedAt, setBenchmarkUpdatedAt] = useState<string | undefined>();
-  const [heldAssets, setHeldAssets] = useState<HeldAssets | undefined>(undefined);
+  const [heldAssets,       setHeldAssets]       = useState<HeldAssets | undefined>(undefined);
+  const [existingHoldings, setExistingHoldings] = useState<ExistingHolding[]>([]);
 
   // 보유자산 조회 (주식 KIS 현재가 재활용 + 부동산 DB값 + 현금 계산)
   useEffect(() => {
@@ -833,15 +834,25 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           } catch { /* 시세 실패 시 avg_price 폴백 */ }
         }
 
-        // 주식 평가금액
+        // 주식 평가금액 + 기존 보유 종목 배열
         let stocksKrw = 0;
+        const existingHoldingsData: ExistingHolding[] = [];
         for (const h of resolved) {
-          const qty = (h as { quantity: number }).quantity ?? 0;
+          const qty  = (h as { quantity: number }).quantity ?? 0;
           const live = (h as { ticker: string | null }).ticker ? (liveMap.get((h as { ticker: string }).ticker) ?? null) : null;
-          const fx = (h as { currency: string }).currency === 'USD' ? fxUsdKrw : 1;
+          const fx   = (h as { currency: string }).currency === 'USD' ? fxUsdKrw : 1;
           const price = live ?? ((h as { avg_price: number | null }).avg_price ?? 0);
           stocksKrw += qty * price * fx;
+          const evalKrw = Math.round(qty * price * fx);
+          if (evalKrw > 0) {
+            existingHoldingsData.push({
+              name:    (h as { name: string }).name,
+              ticker:  (h as { ticker: string | null }).ticker ?? null,
+              evalKrw,
+            });
+          }
         }
+        existingHoldingsData.sort((a, b) => b.evalKrw - a.evalKrw);
 
         // 부동산 평가금액
         const realEstateKrw = (propData ?? []).reduce(
@@ -855,6 +866,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
         if (!cancelled) {
           setHeldAssets({ stocksKrw, realEstateKrw, cashKrw, totalKrw });
+          setExistingHoldings(existingHoldingsData);
         }
       } catch { /* 전체 실패 → heldAssets undefined 유지, 기존 폴백 동작 */ }
     })();
@@ -1974,6 +1986,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
             <StockSectorPanel
               etfAllocKrw={((model.assetLayer?.investableKrw ?? 0) * weights.etf) / 100}
+              existingHoldings={existingHoldings}
             />
           </div>
         </section>
