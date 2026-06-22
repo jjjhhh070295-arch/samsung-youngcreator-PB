@@ -72,6 +72,7 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
   const [levelsRefreshKey,setLevelsRefreshKey]=useState(0);
   const [analysis,setAnalysis]=useState<MacroStressResponse|null>(null);
   const [analysisStatus,setAnalysisStatus]=useState<"idle"|"loading"|"error">("idle");
+  const [analysisError,setAnalysisError]=useState("");
   const macroPortfolios=useMemo(()=>portfolios.map(normalizePortfolio).filter(p=>p.allocations.length>0),[portfolios]);
   const target=macroPortfolios[0];
 
@@ -85,7 +86,7 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
 
   useEffect(()=>{
     let cancelled=false;
-    const load=async()=>{setLevelsLoading(true);try{const response=await fetch("/api/macro-levels?refresh="+Date.now(),{cache:"no-store"});if(!response.ok)throw new Error();const payload=await response.json();if(cancelled)return;setLevels(previous=>{const next={...previous};for(const id of FACTOR_IDS){const level=payload?.levels?.[id];if(level&&Number.isFinite(level.value))next[id]={...level,fallback:false};}return next;});setUpdatedAt(payload?.updatedAt??new Date().toISOString());}catch{if(!cancelled)setUpdatedAt("");}finally{if(!cancelled)setLevelsLoading(false);}};
+    const load=async()=>{setLevelsLoading(true);try{const response=await fetch("/api/macro-levels?refresh="+Date.now(),{cache:"no-store"});if(!response.ok)throw new Error();const payload=await response.json();if(cancelled)return;setLevels(previous=>{const next={...previous};for(const id of FACTOR_IDS){const level=payload?.levels?.[id];if(level&&Number.isFinite(level.value))next[id]={...level,fallback:Boolean(level.fallback)};}return next;});setUpdatedAt(payload?.updatedAt??new Date().toISOString());}catch{if(!cancelled)setUpdatedAt("");}finally{if(!cancelled)setLevelsLoading(false);}};
     load();const timer=window.setInterval(load,60*60*1000);return()=>{cancelled=true;window.clearInterval(timer)};
   },[levelsRefreshKey]);
 
@@ -103,12 +104,12 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
   },[target,autoParams,presetId,shock,levels.infl.value]);
 
   useEffect(()=>{
-    if(!requestKey){setAnalysis(null);setAnalysisStatus("idle");return;}
+    if(!requestKey){setAnalysis(null);setAnalysisStatus("idle");setAnalysisError("");return;}
     const controller=new AbortController();
-    const timer=window.setTimeout(async()=>{try{setAnalysisStatus("loading");const response=await fetch("/api/macro-stress?"+requestKey,{signal:controller.signal,cache:"no-store"});if(!response.ok)throw new Error();const payload:MacroStressResponse=await response.json();setAnalysis(payload);setAnalysisStatus("idle");if(payload.scenario.dataStatus==="actual"){
+    const timer=window.setTimeout(async()=>{try{setAnalysisStatus("loading");setAnalysisError("");const response=await fetch("/api/macro-stress?"+requestKey,{signal:controller.signal,cache:"no-store"});const payload=await response.json();if(!response.ok)throw new Error(payload?.error??"Macro stress request failed");setAnalysis(payload as MacroStressResponse);setAnalysisStatus("idle");if(payload.scenario.dataStatus==="actual"){
       const center=payload.scenario.center,next={d_fed:center.d_fed,d_ust:center.d_ust,ret_krw:center.ret_krw*100,infl:center.infl*100-levels.infl.value,ret_cmd:center.ret_cmd*100,d_vix:center.d_vix};
       setShock(previous=>FACTOR_IDS.every(id=>Math.abs(previous[id]-next[id])<1e-8)?previous:next);
-    }}catch(error){if((error as Error).name!=="AbortError")setAnalysisStatus("error");}},presetId==="custom"?700:0);
+    }}catch(error){if((error as Error).name!=="AbortError"){setAnalysisStatus("error");setAnalysisError(error instanceof Error?error.message:"Unknown analysis error");}}},presetId==="custom"?700:0);
     return()=>{window.clearTimeout(timer);controller.abort();};
   },[requestKey,presetId,levels.infl.value]);
 
@@ -176,8 +177,8 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
           </div>})}
       </div>
     </div>
-    {analysisStatus==="loading"&&<div className="card p-5 text-center text-sm text-fg-muted">{"\uC7A5\uAE30 \uD45C\uBCF8 \uD68C\uADC0\u00B750,000\uD68C \uBAAC\uD14C\uCE74\uB97C\uB85C\uB97C \uACC4\uC0B0\uD558\uB294 \uC911\uC785\uB2C8\uB2E4..."}</div>}
-    {analysisStatus==="error"&&<div className="card border-red-300 p-4 text-sm text-red-600">{"\uC7A5\uAE30 \uB370\uC774\uD130 \uBD84\uC11D\uC744 \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694."}</div>}
+    {analysisStatus==="loading"&&<div className="card p-5 text-center text-sm text-fg-muted">{"\uC7A5\uAE30 \uB370\uC774\uD130\uB97C \uC900\uBE44\uD558\uACE0 50,000\uD68C \uBAAC\uD14C\uCE74\uB97C\uB85C\uB97C \uACC4\uC0B0\uD558\uB294 \uC911\uC785\uB2C8\uB2E4..."}</div>}
+    {analysisStatus==="error"&&<div className="card border-red-300 p-4 text-sm text-red-600"><p>{"\uC7A5\uAE30 \uB370\uC774\uD130 \uBD84\uC11D\uC744 \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694."}</p>{analysisError&&<p className="mt-1 text-xs text-red-500/80">{"\uC624\uB958: "}{analysisError}</p>}</div>}
     {analysis&&<div className="space-y-4">
       <div className="card p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { loadFredSeries } from "@/lib/macroStress/fred";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ type MacroLevel = {
   value: number;
   asOf: string;
   source: string;
+  fallback?: boolean;
 };
 
 const TIMEOUT_MS = 8_000;
@@ -50,39 +52,23 @@ async function yahooLatest(symbol: string, scale = 1): Promise<MacroLevel> {
   throw new Error(`Yahoo ${symbol}: ${lastError}`);
 }
 
-async function fredSeries(seriesId: string): Promise<Array<{ date: string; value: number }>> {
-  const response = await fetch(
-    `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}&cosd=${new Date(Date.now() - 800 * 86_400_000).toISOString().slice(0, 10)}`,
-    {
-      headers: { "user-agent": UA, accept: "text/csv" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    },
-  );
-  if (!response.ok) throw new Error(`FRED ${seriesId}: ${response.status}`);
-  const rows = (await response.text()).trim().split(/\r?\n/).slice(1);
-  return rows
-    .map((row) => {
-      const [date, raw] = row.split(",");
-      return { date, value: Number(raw) };
-    })
-    .filter((row) => row.date && Number.isFinite(row.value));
-}
-
 async function fredLatest(seriesId: string): Promise<MacroLevel> {
-  const rows = await fredSeries(seriesId);
-  const latest = rows[rows.length - 1];
+  const start = new Date(Date.now() - 800 * 86_400_000).toISOString().slice(0, 10);
+  const result = await loadFredSeries(seriesId, start, { fresh: true });
+  const latest = result.points[result.points.length - 1];
   if (!latest) throw new Error(`FRED ${seriesId}: no value`);
-  return { value: latest.value, asOf: latest.date, source: `FRED ${seriesId}` };
+  return { value: latest.value, asOf: latest.date, source: result.source, fallback: result.fallback };
 }
 
 async function latestInflationYoY(): Promise<MacroLevel> {
-  const rows = await fredSeries("CPIAUCSL");
+  const start = new Date(Date.now() - 800 * 86_400_000).toISOString().slice(0, 10);
+  const result = await loadFredSeries("CPIAUCSL", start, { fresh: true });
+  const rows = result.points;
   if (rows.length < 13) throw new Error("FRED CPIAUCSL: insufficient history");
   const latest = rows[rows.length - 1];
   const yearAgo = rows[rows.length - 13];
   const value = (latest.value / yearAgo.value - 1) * 100;
-  return { value, asOf: latest.date, source: "FRED CPIAUCSL 전년동월비" };
+  return { value, asOf: latest.date, source: `${result.source} 전년동월비`, fallback: result.fallback };
 }
 
 export async function GET() {

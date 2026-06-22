@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import type { AssetId, FactorId, MonthlyRow } from "./types";
+import { loadFredSeries } from "./fred";
 const UA = "Mozilla/5.0 macro-stress/2.0";
 type Point = { month:string; value:number };
 const START = "1989-01-01";
@@ -21,22 +22,21 @@ async function yahooMonthly(symbol:string):Promise<Point[]> {
   }
   throw new Error("Yahoo "+symbol+": "+lastError);
 }
-async function fredMonthly(id:string):Promise<Point[]> {
-  const response=await fetch("https://fred.stlouisfed.org/graph/fredgraph.csv?id="+id+"&cosd="+START,{headers:{"user-agent":UA,accept:"text/csv"},next:{revalidate:86400},signal:AbortSignal.timeout(TIMEOUT_MS)});
-  if(!response.ok) throw new Error("FRED "+id+": "+response.status);
+async function fredMonthly(id:string):Promise<{points:Point[];source:string;fallback:boolean}> {
+  const result=await loadFredSeries(id,START);
   const byMonth=new Map<string,number>();
-  for(const line of (await response.text()).trim().split(/\r?\n/).slice(1)){
-    const [date,raw]=line.split(","),value=Number(raw);
-    if(date&&Number.isFinite(value)) byMonth.set(date.slice(0,7),value);
+  for(const row of result.points){
+    if(row.date&&Number.isFinite(row.value)) byMonth.set(row.date.slice(0,7),row.value);
   }
-  return Array.from(byMonth,([month,value])=>({month,value}));
+  return {points:Array.from(byMonth,([month,value])=>({month,value})),source:result.source,fallback:result.fallback};
 }
 function map(points:Point[]){ return new Map(points.map(point=>[point.month,point.value])); }
 function monthlyReturn(values:Map<string,number>,months:string[],index:number){ const before=values.get(months[index-1]),after=values.get(months[index]); return before&&after?after/before-1:NaN; }
 async function loadMonthlyRowsUncached():Promise<{rows:MonthlyRow[];warnings:string[]; sources:Record<string,string>}> {
-  const [sp500,kospi,fx,commodity,fed,us10y,cpi,vix]=await Promise.all([
+  const [sp500,kospi,fxResult,commodityResult,fedResult,us10yResult,cpiResult,vixResult]=await Promise.all([
     yahooMonthly("^GSPC"),yahooMonthly("^KS11"),fredMonthly("DEXKOUS"),fredMonthly("PPIACO"),fredMonthly("FEDFUNDS"),fredMonthly("DGS10"),fredMonthly("CPIAUCSL"),fredMonthly("VIXCLS"),
   ]);
+  const fx=fxResult.points,commodity=commodityResult.points,fed=fedResult.points,us10y=us10yResult.points,cpi=cpiResult.points,vix=vixResult.points;
   const maps={sp500:map(sp500),kospi:map(kospi),fx:map(fx),commodity:map(commodity),fed:map(fed),us10y:map(us10y),cpi:map(cpi),vix:map(vix)};
   const months=Array.from(new Set([sp500,kospi,fx,commodity,fed,us10y,cpi,vix].flatMap(series=>series.map(point=>point.month)))).sort();
   const rows:MonthlyRow[]=[];
@@ -51,7 +51,8 @@ async function loadMonthlyRowsUncached():Promise<{rows:MonthlyRow[];warnings:str
     if([assets.sp500,assets.treasury,...Object.values(factors)].every(Number.isFinite)) rows.push({month:current,assets,factors});
   }
   if(!rows.length) throw new Error("No common monthly observations after 1990 alignment.");
-  return {rows,warnings:["US Treasury return is a duration-8.5 approximation from DGS10, not an ETF return.","Commodity factor uses FRED PPIACO to preserve 1990 history."],sources:{sp500:"Yahoo Finance ^GSPC adjusted close",kospi:"Yahoo Finance ^KS11 adjusted close",treasury:"FRED DGS10 duration 8.5 proxy",fed:"FRED FEDFUNDS",us10y:"FRED DGS10",usdkrw:"FRED DEXKOUS",cpi:"FRED CPIAUCSL YoY",commodity:"FRED PPIACO",vix:"FRED VIXCLS"}};
+  const snapshotUsed=[fxResult,commodityResult,fedResult,us10yResult,cpiResult,vixResult].some(result=>result.fallback);
+  return {rows,warnings:["US Treasury return is a duration-8.5 approximation from DGS10, not an ETF return.","Commodity factor uses PPIACO to preserve 1990 history.",...(snapshotUsed?["FRED API was unavailable; bundled monthly snapshot was used."]:[])],sources:{sp500:"Yahoo Finance ^GSPC adjusted close",kospi:"Yahoo Finance ^KS11 adjusted close",treasury:us10yResult.source+" duration 8.5 proxy",fed:fedResult.source,us10y:us10yResult.source,usdkrw:fxResult.source,cpi:cpiResult.source+" YoY",commodity:commodityResult.source,vix:vixResult.source}};
 }
 
 // Vercel 인스턴스가 바뀌어도 일별 정제 결과를 재사용해 첫 요청의 외부 호출을 줄인다.
