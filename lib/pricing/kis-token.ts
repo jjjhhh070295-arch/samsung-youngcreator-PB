@@ -65,8 +65,8 @@ async function writeSupabaseCache(appKey: string, token: CachedToken): Promise<v
   const admin = getSupabaseAdmin();
   if (!admin) return;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (admin.from("kis_token_cache") as any).upsert(
+    type UpsertFn = (v: Record<string, unknown>, o: { onConflict: string }) => Promise<unknown>;
+    await (admin.from("kis_token_cache") as unknown as { upsert: UpsertFn }).upsert(
       {
         app_key_hash: hashAppKey(appKey),
         access_token: token.access_token,
