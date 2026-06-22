@@ -3,7 +3,7 @@
  * 종목 → 섹터 → 섹터ETF 매핑 + getSectorAnalysis()
  * 서버 사이드 전용 (Yahoo Finance fetch 포함).
  */
-import { getSectorByCode } from "./autoSectorMap";
+import { getSectorByCode, type SectorIdCore } from "./autoSectorMap";
 
 // ── 섹터 ID ────────────────────────────────────────────────────────────────
 export type SectorId =
@@ -231,6 +231,19 @@ interface CacheEntry { result: SectorAnalysisResult; ts: number }
 const cache = new Map<string, CacheEntry>();
 
 // ── 반환 타입 ─────────────────────────────────────────────────────────────
+export interface MultiSectorEntry {
+  sector:      SectorId;
+  sectorLabel: string;
+  etfTicker:   string; // "305720" 형식
+  weightPct:   number;
+}
+
+export interface ReliabilityInfo {
+  r2:     number;
+  isLow:  boolean; // R² < 0.3
+  message: string;
+}
+
 export interface SectorAnalysisResult {
   stockCode:   string;
   stockName:   string;
@@ -245,8 +258,14 @@ export interface SectorAnalysisResult {
   periodMonths:     number;
   rangeStart:       string;
   rangeEnd:         string;
-  isFallback: boolean; // true = 섹터 미특정 → KOSPI 대체
-  cachedAt:   string;
+  isFallback:  boolean; // true = 섹터 미특정 → KOSPI 대체
+  /** 8개 ETF 어디에도 없는 종목 (isFallback과 동일 조건) */
+  isUncovered: boolean;
+  /** 2개 이상 섹터ETF에 편입된 경우, 주 섹터 외 나머지 목록 (비중 내림차순) */
+  multiSector: MultiSectorEntry[] | null;
+  /** R² 기반 신뢰도 */
+  reliability: ReliabilityInfo;
+  cachedAt:    string;
 }
 
 /**
@@ -276,10 +295,31 @@ export async function getSectorAnalysis(
   ]);
 
   // etfTicker가 "^KS11"(폴백)이면 etfPts 자체가 벤치마크
-  const etfData   = etfTicker === "^KS11" ? etfPts : etfPts;
   const benchData = etfTicker === "^KS11" ? etfPts : kospiPts;
 
-  const ols = computeOls(etfData, benchData);
+  const ols = computeOls(etfPts, benchData);
+
+  // 복수 섹터 정보: 자동 역매핑으로 커버되는 종목에만 존재
+  const autoEntry  = /^\d{6}$/.test(stockCode) ? getSectorByCode(stockCode) : null;
+  const multiSector: MultiSectorEntry[] | null =
+    autoEntry && autoEntry.secondarySectors.length > 0
+      ? autoEntry.secondarySectors.map((s) => ({
+          sector:      s.sector as SectorId,
+          sectorLabel: SECTOR_LABELS[s.sector as SectorId] ?? s.sector,
+          etfTicker:   s.etfTicker,
+          weightPct:   s.weightPct,
+        }))
+      : null;
+
+  // R² 신뢰도
+  const r2Low = Number.isFinite(ols.r2) && ols.r2 < 0.3;
+  const reliability: ReliabilityInfo = {
+    r2:      ols.r2,
+    isLow:   r2Low,
+    message: r2Low
+      ? `R² ${ols.r2.toFixed(2)} — 섹터ETF 설명력 낮음. 참고용으로만 활용하세요.`
+      : "",
+  };
 
   const result: SectorAnalysisResult = {
     stockCode,
@@ -296,6 +336,9 @@ export async function getSectorAnalysis(
     rangeStart:       ols.rangeStart,
     rangeEnd:         ols.rangeEnd,
     isFallback,
+    isUncovered:      isFallback,
+    multiSector,
+    reliability,
     cachedAt:         new Date().toISOString(),
   };
 
