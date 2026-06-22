@@ -235,6 +235,125 @@ function mainCashflowRows(config) {
   ];
 }
 
+function periodRowsFor(config) {
+  const corporate = config.key === "corporate" || config.key === "linked_corporate_rep";
+  const sole = config.key === "sole_proprietor";
+  const baseIncome = corporate ? 46000 : sole ? 18000 : 4200;
+  const baseOutflow = corporate ? 21000 : sole ? 9800 : 1700;
+  const baseSaving = corporate ? 13000 : sole ? 4000 : 2600;
+  const taxEvents = {
+    "2026-03": corporate ? 85000 : 0,
+    "2026-05": sole ? 14500 : 5200,
+    "2026-07": sole ? 4800 : 900,
+    "2026-08": 120000,
+    "2026-09": 32000,
+    "2026-12": corporate ? 12000 : 6500,
+  };
+  const taxMemo = {
+    "2026-03": "법인세 납부월 - 현금화 재원 확인",
+    "2026-05": sole ? "종합소득세 납부월 - 개인/사업자 통장 구분" : "종합소득세 납부월 - 현금화 재원 확인",
+    "2026-07": sole ? "부가세 납부월 - 사업자 현금 잔액 확인" : "재산세 납부월 - 현금화 재원 확인",
+    "2026-08": "상속세 납부월 - 현금화 재원 확인",
+    "2026-09": "증여세 납부월 - 증여 실행 원금과 분리",
+    "2026-12": corporate ? "법인 세금 예비월 - 단기 운용자금 확인" : "종부세 납부월 - 현금화 재원 확인",
+  };
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = String(index + 1).padStart(2, "0");
+    const period = `2026-${month}`;
+    const seasonalIncome = index === 3 ? 35000 : index === 11 ? 6000 : 0;
+    const seasonalOutflow = index === 2 ? 2000 : index === 7 ? 1500 : 0;
+    const giftExecutionOutflow = period === "2026-06" ? 200000 : 0;
+    return {
+      period,
+      income: baseIncome + seasonalIncome,
+      outflow: baseOutflow + seasonalOutflow + giftExecutionOutflow,
+      saving: index % 3 === 0 ? baseSaving + 2000 : baseSaving,
+      tax: taxEvents[period] ?? 0,
+      memo:
+        taxEvents[period] > 0
+          ? taxMemo[period]
+          : giftExecutionOutflow > 0
+            ? "증여 실행 원금 유출월 - 증여세는 2026-09 반영"
+          : index === 3
+            ? "배당/상여 유입월"
+            : "정상 월간 현금흐름",
+      app: "Y",
+    };
+  });
+}
+
+function addPeriodAppendixSheet(workbook, config) {
+  const ws = workbook.addWorksheet("부록_기간별현금흐름", { views: [{ state: "frozen", ySplit: 4 }] });
+  ws.columns = [
+    { width: 16 },
+    { width: 14 },
+    { width: 14 },
+    { width: 16 },
+    { width: 14 },
+    { width: 18 },
+    { width: 20 },
+    { width: 34 },
+    { width: 12 },
+  ];
+
+  ws.mergeCells("A1:I1");
+  ws.getCell("A1").value = "부록 · 기간별 현금흐름";
+  ws.getCell("A1").font = { bold: true, size: 16, color: { argb: "FF111827" } };
+  ws.getCell("A1").alignment = { horizontal: "center" };
+  ws.mergeCells("A2:I2");
+  ws.getCell("A2").value =
+    "월별 유입·유출·저축/투자·세금 납부액을 입력하면 앱의 현금흐름 부록과 IPS 부록 표/차트에 반영됩니다. 금액 단위는 만원입니다.";
+  ws.getCell("A2").font = { size: 10, color: { argb: "FF4B5563" } };
+  ws.getCell("A2").alignment = { horizontal: "center", wrapText: true };
+
+  const header = ws.getRow(4);
+  header.values = [
+    "기간(YYYY-MM)",
+    "유입(만원)",
+    "유출(만원)",
+    "저축/투자(만원)",
+    "세금납부(만원)",
+    "순현금흐름(만원)",
+    "누적순현금흐름(만원)",
+    "주요 이벤트/메모",
+    "앱 반영(Y/N)",
+  ];
+  styleHeader(header);
+
+  periodRowsFor(config).forEach((item, index) => {
+    const rowNumber = 5 + index;
+    const row = ws.getRow(rowNumber);
+    row.values = [
+      item.period,
+      item.income,
+      item.outflow,
+      item.saving,
+      item.tax,
+      { formula: `B${rowNumber}-C${rowNumber}-D${rowNumber}-E${rowNumber}`, result: item.income - item.outflow - item.saving - item.tax },
+      {
+        formula: rowNumber === 5 ? `F${rowNumber}` : `G${rowNumber - 1}+F${rowNumber}`,
+        result: periodRowsFor(config)
+          .slice(0, index + 1)
+          .reduce((sum, point) => sum + point.income - point.outflow - point.saving - point.tax, 0),
+      },
+      item.memo,
+      item.app,
+    ];
+    styleInputRow(row, [1, 2, 3, 4, 5, 8, 9]);
+  });
+
+  for (let column = 2; column <= 7; column += 1) ws.getColumn(column).numFmt = "#,##0";
+  ws.getCell("A19").value = "작성 원칙";
+  ws.getCell("A19").font = { bold: true };
+  ws.getCell("B19").value =
+    "앱은 앱 반영(Y/N)이 Y인 행만 읽습니다. 세금/회계 확정 판단이 아니라 상담용 추정이며 세무 전문가 확인이 필요합니다.";
+  ws.getCell("B19").alignment = { wrapText: true };
+  ws.getRow(19).eachCell((cell) => {
+    cell.border = border;
+    cell.fill = mutedFill;
+  });
+}
+
 async function buildWorkbook(config) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "samsung-youngcreator-PB";
@@ -319,14 +438,17 @@ async function buildWorkbook(config) {
   });
   uploadWs.getColumn(2).numFmt = "#,##0";
 
+  addPeriodAppendixSheet(workbook, config);
+
   const guideWs = workbook.addWorksheet("작성가이드");
   guideWs.columns = [{ width: 28 }, { width: 82 }];
   styleHeader(guideWs.addRow(["구분", "가이드"]));
   [
     ["목적", config.purpose],
     ["작성 순서", "고객 기본정보 → 재무목표 → 현재 현금흐름 → 세금 납부 일정 → 보유자산/부채 → 업로드용_키값 확인"],
-    ["업로드 규칙", "앱은 업로드용_키값 시트를 우선 읽고, 없으면 현금흐름표 본문에서 항목/금액 구조를 탐색합니다."],
+    ["업로드 규칙", "앱은 업로드용_키값 시트를 우선 읽고, 부록_기간별현금흐름 시트를 함께 읽어 현금흐름/IPS 부록 표와 차트에 반영합니다."],
     ["앱 CashFlow 매핑", "항목→label, 값(만원)→amount, 납부일→date, 분류→category, 자금주체→entity, 계좌유형→accountType, 메모→taxAccountingNote"],
+    ["기간별 부록 매핑", "기간→date, 유입/유출/저축/세금→amount, 주요 이벤트/메모→taxAccountingNote, 앱 반영(Y/N)→업로드 포함 여부"],
     ["세무·회계 유의", "본 양식은 PB 상담 보조용 추정 자료입니다. 실제 세액, 신고기한, 비용처리, 법인/개인 자금 이동은 세무 전문가 확인이 필요합니다."],
     ["법인-대표 연동", "법인 배당 지급과 대표 개인 배당 유입은 양쪽에 입력하되 앱 반영/메모로 중복 여부를 확인합니다."],
   ].forEach((values) => {

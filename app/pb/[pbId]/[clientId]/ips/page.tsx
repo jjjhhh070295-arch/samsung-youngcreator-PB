@@ -26,7 +26,11 @@ import {
   type BenchmarkApiPoint,
   type BenchmarkApiResponse,
 } from "@/lib/portfolioBacktest";
+import { scoreReadinessEvents } from "@/lib/taxReadinessScoring";
+import { buildPeriodCashflowSeries } from "@/lib/periodCashflow";
 import type { TaxPaymentEvent } from "@/lib/cashflowUpload";
+import TaxReadinessRubricButton from "@/components/TaxReadinessRubricButton";
+import PeriodCashflowLineChart from "@/components/cashflow/PeriodCashflowLineChart";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 
 const CHART_COLORS = ["#0f172a", "#d6a84f", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b"];
@@ -57,28 +61,24 @@ function previousMonthEnd(dateInput: string) {
   return new Date(date.getFullYear(), date.getMonth(), 0).toISOString().slice(0, 10);
 }
 
-function buildTaxSchedule(cashFlows: Client["cashFlows"], currentCashWon: number): TaxPaymentEvent[] {
-  let cumulative = 0;
-  return cashFlows
+function buildTaxSchedule(cashFlows: Client["cashFlows"], currentCashWon: number, monthlyNetWon: number): TaxPaymentEvent[] {
+  const events: Array<Omit<TaxPaymentEvent, "status" | "readiness">> = cashFlows
     .filter((flow) => flow.amount < 0 && /세|tax|증여|상속|양도|종부|재산|법인세|부가세/i.test(taxText(flow)))
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
     .slice(0, 8)
     .map((flow) => {
       const dueDate = dueDateFromMonth(flow.date) || new Date().toISOString().slice(0, 10);
       const amountWon = Math.abs(flow.amount);
-      cumulative += amountWon;
-      const status: TaxPaymentEvent["status"] =
-        currentCashWon >= cumulative ? "covered" : amountWon <= currentCashWon * 0.25 ? "watch" : "shortage";
       return {
         id: `ips-tax-${flow.id}`,
         label: flow.label || "세금 이벤트",
         amountWon,
         dueDate,
         cashReadyDate: previousMonthEnd(dueDate) || dueDate,
-        status,
         rule: flow.taxAccountingNote || "상담용 추정, 세무 전문가 확인 필요",
       };
     });
+  return scoreReadinessEvents({ currentCashWon, monthlyNetWon, events });
 }
 
 function buildCashflowSummary(cashFlows: Client["cashFlows"]) {
@@ -105,7 +105,8 @@ function buildCashflowSummary(cashFlows: Client["cashFlows"]) {
       .filter((flow) => classifyCashflow(flow) === group)
       .reduce((sum, flow) => sum + (flow.recurring ? flow.amount * 12 : flow.amount), 0),
   }));
-  const taxSchedule = buildTaxSchedule(cashFlows, currentCashWon);
+  const monthlyNet = recurringIn - recurringOut;
+  const taxSchedule = buildTaxSchedule(cashFlows, currentCashWon, monthlyNet);
   const goals = cashFlows
     .filter((flow) => !flow.recurring && flow.amount < 0 && !/세|tax/i.test(taxText(flow)))
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
@@ -131,7 +132,7 @@ function buildCashflowSummary(cashFlows: Client["cashFlows"]) {
     currentCashWon,
     taxOut,
     net: recurringIn + oneOffIn - recurringOut - oneOffOut,
-    monthlyNet: recurringIn - recurringOut,
+    monthlyNet,
     summaryRows,
     taxSchedule,
     goals,
@@ -234,6 +235,7 @@ export default function IPSDocumentPage() {
     value: allocation.weight,
   })) ?? [];
   const backtestData = pf ? buildPortfolioBacktestSeries(pf.allocations, benchmarkPoints) : [];
+  const periodSeries = buildPeriodCashflowSeries(client.cashFlows);
 
   // 담당 PB 이름 (ID → 이름)
   const assignedPb = pbs.find((p) => p.id === client.assignedPbId);
@@ -377,7 +379,13 @@ export default function IPSDocumentPage() {
               </table>
 
               <div className="rounded border border-gray-200 bg-gray-50 p-3">
-                <p className="mb-2 font-semibold text-gray-800">고액자산가 세금 납부 및 현금화 일정</p>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-gray-800">고액자산가 세금 납부 및 현금화 일정</p>
+                  <TaxReadinessRubricButton
+                    label="준비상태 기준표"
+                    className="rounded border border-gray-300 bg-white px-2 py-0.5 text-[10px] font-bold text-gray-500 hover:border-gray-600 hover:text-gray-900 print:hidden"
+                  />
+                </div>
                 {cashflowSummary.taxSchedule.length === 0 ? (
                   <p className="text-gray-400">세금성 이벤트가 입력되지 않았습니다.</p>
                 ) : (
@@ -394,7 +402,12 @@ export default function IPSDocumentPage() {
                     <tbody>
                       {cashflowSummary.taxSchedule.map((event) => (
                         <tr key={event.id} className="border-b border-gray-200 last:border-0">
-                          <td className="py-1 font-medium">{event.label}</td>
+                          <td className="py-1">
+                            <p className="font-medium">{event.label}</p>
+                            <p className="mt-0.5 max-w-[300px] text-[10px] leading-snug text-gray-500">
+                              {event.readiness.reason}
+                            </p>
+                          </td>
                           <td className="py-1 text-right font-medium">{formatManwon(event.amountWon)}</td>
                           <td className="py-1 text-gray-500">{event.dueDate}</td>
                           <td className="py-1 text-gray-500">{event.cashReadyDate}</td>
@@ -548,6 +561,51 @@ export default function IPSDocumentPage() {
             </div>
           )}
         </Section>
+
+        {periodSeries.length >= 2 && (
+          <Section title="부록. 기간별 현금흐름 추이">
+            <div className="space-y-3 text-xs">
+              <div className="rounded border border-gray-200 p-3">
+                <p className="mb-1 font-semibold text-gray-800">기간별 현금흐름 추이</p>
+                <p className="mb-2 text-[10px] text-gray-500">유입·유출·저축·세금·순현금흐름 (만원)</p>
+                <PeriodCashflowLineChart series={periodSeries} className="h-80" />
+              </div>
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-300 text-left text-gray-500">
+                    <th className="py-1.5">기간</th>
+                    <th className="py-1.5 text-right">유입</th>
+                    <th className="py-1.5 text-right">유출</th>
+                    <th className="py-1.5 text-right">저축/투자</th>
+                    <th className="py-1.5 text-right">세금</th>
+                    <th className="py-1.5 text-right">순현금흐름</th>
+                    <th className="py-1.5 text-right">누적</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {periodSeries.map((point) => (
+                    <tr key={point.period} className="border-b border-gray-100">
+                      <td className="py-1.5 font-semibold">{point.period}</td>
+                      <td className="py-1.5 text-right">{formatManwon(point.incomeWon)}</td>
+                      <td className="py-1.5 text-right text-red-600">{formatManwon(point.outflowWon)}</td>
+                      <td className="py-1.5 text-right">{formatManwon(point.savingWon)}</td>
+                      <td className="py-1.5 text-right">{formatManwon(point.taxWon)}</td>
+                      <td className={`py-1.5 text-right font-medium ${point.netWon < 0 ? "text-red-600" : "text-gray-900"}`}>
+                        {formatManwon(point.netWon)}
+                      </td>
+                      <td className={`py-1.5 text-right font-medium ${point.cumulativeNetWon < 0 ? "text-red-600" : "text-gray-900"}`}>
+                        {formatManwon(point.cumulativeNetWon)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[10px] text-gray-400">
+                ※ 이 부록은 XLSX의 부록_기간별현금흐름 시트와 메인 세금일정의 납부월 데이터를 기반으로 표시됩니다.
+              </p>
+            </div>
+          </Section>
+        )}
 
         {/* 디스클레이머 */}
         <div className="mt-6 rounded border border-gray-300 bg-gray-50 p-3 text-[11px] leading-relaxed text-gray-600">
