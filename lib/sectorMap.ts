@@ -121,18 +121,31 @@ export const STOCK_SECTOR_MAP: StockEntry[] = [
 /**
  * 종목명 또는 6자리 코드로 매핑 탐색.
  * 우선순위: 자동 매핑(ETF 구성종목 역매핑) → 수동 STOCK_SECTOR_MAP → null
+ *
+ * 이름으로 조회 시에도 자동 매핑을 최종적으로 우선 적용한다:
+ *   "LG화학" → 수동에서 code "051910" 해결 → 자동 역매핑으로 energy_chem 확인 → 반환
+ * 이렇게 하지 않으면 이름 입력 시 수동 sector(battery)가 자동(energy_chem)을 덮어쓴다.
  */
 export function findEntry(nameOrCode: string): StockEntry | null {
   const q = nameOrCode.trim();
 
-  // 1순위: 자동 매핑 — 코드로만 조회 (6자리 숫자인 경우)
+  // 1순위: 6자리 코드 → 자동 매핑 직접 조회
   if (/^\d{6}$/.test(q)) {
     const auto = getSectorByCode(q);
     if (auto) return { name: auto.name, code: auto.code, sector: auto.sector };
   }
 
   // 2순위: 수동 STOCK_SECTOR_MAP (코드 또는 이름)
-  return STOCK_SECTOR_MAP.find((e) => e.code === q || e.name === q) ?? null;
+  const manual = STOCK_SECTOR_MAP.find((e) => e.code === q || e.name === q);
+  if (!manual) return null;
+
+  // 이름으로 코드를 찾은 경우: 자동 매핑 재확인 (자동 섹터가 수동보다 우선)
+  const autoByCode = getSectorByCode(manual.code);
+  if (autoByCode) {
+    return { name: autoByCode.name, code: autoByCode.code, sector: autoByCode.sector };
+  }
+
+  return manual;
 }
 
 /** 섹터에 해당하는 ETF 티커 반환. market → "^KS11" (KOSPI 폴백). */
