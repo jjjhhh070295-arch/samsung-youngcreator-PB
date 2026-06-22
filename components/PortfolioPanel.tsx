@@ -142,13 +142,13 @@ function BenchmarkAlphaPanel({
 
   return (
     <div className="grid grid-cols-1 gap-2 text-xs sm:min-w-[240px]">
-      <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-        <span className="block text-[11px] font-semibold text-blue-700 dark:text-blue-400">{blendedTitle}</span>
-        <b className={`text-base font-black ${alphaToneClass(portfolioReturn - blendedReturn)}`}>
-          {formatAlphaPercentPoints(portfolioReturn - blendedReturn)}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+        <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">분산 포트폴리오 기준선</span>
+        <b className="text-base font-black text-slate-800 dark:text-slate-100">
+          {blendedReturn.toFixed(1)}%
         </b>
         <span className="mt-0.5 block text-[10px] text-fg-muted">
-          제안 포트폴리오 {portfolioReturn.toFixed(1)}% vs 혼합 벤치마크 {blendedReturn.toFixed(1)}%
+          자산배분 혼합 벤치마크 누적수익률 · S&P500·KOSPI 단독 선과 비교
         </span>
       </div>
       {activeRefs.map((lineKey) => {
@@ -349,61 +349,6 @@ function roundPercent(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-function buildBenchmarkChartData(
-  points: BenchmarkApiPoint[],
-  weights: PortfolioOption['weights'],
-  preference?: { benchmarkOutperformance: boolean; benchmarkTargets: string[]; highRiskAccepted: boolean },
-  riskTilt: -1 | 0 | 1 = 0,
-): BenchmarkChartPoint[] {
-  const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
-  const total = sourcePoints.length;
-  const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
-
-  return sourcePoints.map((point, index) => {
-    const sp500 = finiteNumber(point.sp500);
-    const kospi = finiteNumber(point.kospi, sp500);
-    const bond = finiteNumber(point.bond, fixedIncomeProxy(index, total, 3.2));
-    const gold = finiteNumber(point.gold, fixedIncomeProxy(index, total, 4.0));
-    const dollar = finiteNumber(point.dollar, fixedIncomeProxy(index, total, 2.3));
-    const commodity = finiteNumber(point.commodity, fixedIncomeProxy(index, total, 3.6));
-    const cash = fixedIncomeProxy(index, total, 3.0);
-    // 1. 자산군별 대표 벤치마크 지수 1:1 정규화 매핑 (KOSPI/S&P500 혼합을 주식 대표로 설정)
-    const stockBenchmark = kospi * 0.4 + sp500 * 0.6; // 글로벌 주식 혼합 프록시
-    const bondBenchmark = bond;                          // 국채/채권 지수
-    const goldBenchmark = gold;                          // 금 실물 지수
-    const cashBenchmark = cash;                          // CD금리/KOFR 금융 자산 프록시
-    const dollarBenchmark = dollar;                      // FX 달러 인덱스 프록시
-    const rawBenchmark = commodity;                     // 원자재 인덱스 프록시
-    
-    // 2. 수식에 따른 실시간 혼합 벤치마크(Blended Benchmark) 가중평균 연산 (100 기준 규격화)
-  const blendedBenchmark =
-  (weights.etf / totalWeight) * stockBenchmark +
-  (weights.bond / totalWeight) * bondBenchmark +
-  (weights.mmf / totalWeight) * cashBenchmark +
-  (weights.gold / totalWeight) * goldBenchmark +
-  (weights.dollar / totalWeight) * dollarBenchmark +
-  (weights.raw / totalWeight) * rawBenchmark;
-
-// 혼합 벤치마크는 “자산배분 기준선”으로 두고,
-// 제안 포트폴리오는 성향별 기대 초과성과를 더해 별도 트랙으로 계산
-const alphaByRiskTilt =
-  riskTilt === -1 ? 2.0 :
-  riskTilt === 0 ? 4.0 :
-  7.0;
-
-const timeProgress = total <= 1 ? 1 : index / (total - 1);
-
-const portfolio = blendedBenchmark + alphaByRiskTilt * timeProgress;
-
-return {
-  ...point,
-  sp500: roundPercent(sp500),
-  kospi: roundPercent(kospi),
-  portfolio: roundPercent(portfolio),
-  blendedBenchmark: roundPercent(blendedBenchmark),
-};
-  });
-}
 
 function buildSimplifiedBenchmarkChartData(
   points: BenchmarkApiPoint[],
@@ -429,15 +374,12 @@ function buildSimplifiedBenchmarkChartData(
       (overseasEquityWeight / totalWeight) * finiteNumber(point.sp500) +
       (domesticEquityWeight / totalWeight) * finiteNumber(point.kospi, finiteNumber(point.sp500)) +
       (stableWeight / totalWeight) * usTreasury10y;
-    const alphaByRiskTilt = riskTilt === -1 ? 2.0 : riskTilt === 0 ? 4.0 : 7.0;
-    const timeProgress = sourcePoints.length <= 1 ? 1 : index / (sourcePoints.length - 1);
-
     return {
       ...point,
       sp500: roundPercent(finiteNumber(point.sp500)),
       kospi: roundPercent(finiteNumber(point.kospi, finiteNumber(point.sp500))),
       usTreasury10y: roundPercent(usTreasury10y),
-      portfolio: roundPercent(blendedBenchmark + alphaByRiskTilt * timeProgress),
+      portfolio: roundPercent(blendedBenchmark),
       blendedBenchmark: roundPercent(blendedBenchmark),
     };
   });
@@ -491,8 +433,8 @@ function BenchmarkReturnChart({
   updatedAt?: string;
 }) {
   const [visibleRefs, setVisibleRefs] = useState<Record<ReferenceLineKey, boolean>>({
-    sp500: false,
-    kospi: false,
+    sp500: true,
+    kospi: true,
     usTreasury10y: false,
   });
   const toggleReferenceLine = (key: ReferenceLineKey) => {
@@ -649,8 +591,8 @@ function SimplifiedBenchmarkReturnChart({
   updatedAt?: string;
 }) {
   const [visibleRefs, setVisibleRefs] = useState<Record<ReferenceLineKey, boolean>>({
-    sp500: false,
-    kospi: false,
+    sp500: true,
+    kospi: true,
     usTreasury10y: false,
   });
   const toggleReferenceLine = (key: ReferenceLineKey) => {
@@ -675,9 +617,9 @@ function SimplifiedBenchmarkReturnChart({
     <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
       <div className="mb-4 flex flex-col gap-3 border-b border-border pb-3 dark:border-slate-800 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h3 className="text-base font-bold text-fg dark:text-slate-100">최근 1년 백테스트: 제안 포트폴리오 vs 혼합 벤치마크</h3>
+          <h3 className="text-base font-bold text-fg dark:text-slate-100">최근 1년 백테스트: 자산배분 포트폴리오 vs 단일 지수 비교</h3>
           <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-            현재 추천 포트폴리오 비중을 과거 1년 시장 데이터에 적용해 산출한 백테스트 결과이며, 미래 수익률을 보장하지 않습니다.
+            현재 추천 포트폴리오 비중을 과거 1년 시장 데이터에 적용한 백테스트입니다. S&P500·KOSPI 단일 지수 대비 분산 투자 효과를 확인할 수 있습니다. 미래 수익률을 보장하지 않습니다.
           </p>
           <p className="mt-1 text-[11px] font-semibold text-fg-muted">
             {fallback ? '예비 데이터 포함' : '최근 1년 시장 데이터'}
