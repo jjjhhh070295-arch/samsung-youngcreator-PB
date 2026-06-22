@@ -385,6 +385,47 @@ function buildSimplifiedBenchmarkChartData(
   });
 }
 
+function computeMetrics(
+  cumulativePcts: number[],
+  riskFreeAnnualPct = 3.0,
+): { returnPct: number; volatilityPct: number; mddPct: number; sharpe: number } {
+  const n = cumulativePcts.length;
+  if (n < 2) return { returnPct: 0, volatilityPct: 0, mddPct: 0, sharpe: 0 };
+
+  const periodReturns: number[] = [];
+  for (let i = 1; i < n; i++) {
+    const prev = 1 + (cumulativePcts[i - 1] ?? 0) / 100;
+    const curr = 1 + (cumulativePcts[i] ?? 0) / 100;
+    if (prev > 0) periodReturns.push(curr / prev - 1);
+  }
+
+  const returnPct = cumulativePcts[n - 1] ?? 0;
+
+  const mean = periodReturns.length > 0
+    ? periodReturns.reduce((a, b) => a + b, 0) / periodReturns.length : 0;
+  const variance = periodReturns.length > 0
+    ? periodReturns.reduce((s, r) => s + (r - mean) ** 2, 0) / periodReturns.length : 0;
+  const volatilityPct = Math.sqrt(variance) * Math.sqrt(12) * 100;
+
+  let peak = 1 + (cumulativePcts[0] ?? 0) / 100;
+  let mddPct = 0;
+  for (const c of cumulativePcts) {
+    const price = 1 + c / 100;
+    if (price > peak) peak = price;
+    const dd = ((price - peak) / peak) * 100;
+    if (dd < mddPct) mddPct = dd;
+  }
+
+  const sharpe = volatilityPct > 0 ? (returnPct - riskFreeAnnualPct) / volatilityPct : 0;
+
+  return {
+    returnPct: Math.round(returnPct * 10) / 10,
+    volatilityPct: Math.round(volatilityPct * 10) / 10,
+    mddPct: Math.round(mddPct * 10) / 10,
+    sharpe: Math.round(sharpe * 100) / 100,
+  };
+}
+
 function getStatusClass(status: string) {
   switch (status) {
     case '적합':
@@ -674,6 +715,86 @@ function SimplifiedBenchmarkReturnChart({
         <ReferenceLineToggle lineKey="kospi" label="KOSPI" value={kospiReturn} active={visibleRefs.kospi} onToggle={toggleReferenceLine} />
         <ReferenceLineToggle lineKey="usTreasury10y" label="미국 7-10년국채 ETF" value={usTreasuryReturn} active={visibleRefs.usTreasury10y} onToggle={toggleReferenceLine} />
       </div>
+    </section>
+  );
+}
+
+function ObjectiveMetricsTable({
+  data,
+  source,
+  fallback,
+  updatedAt,
+}: {
+  data: BenchmarkChartPoint[];
+  source: string;
+  fallback: boolean;
+  updatedAt?: string;
+}) {
+  const portfolioMetrics = useMemo(
+    () => computeMetrics(data.map((p) => p.portfolio)),
+    [data],
+  );
+  const sp500Metrics = useMemo(
+    () => computeMetrics(data.map((p) => finiteNumber(p.sp500))),
+    [data],
+  );
+  const kospiMetrics = useMemo(
+    () => computeMetrics(data.map((p) => finiteNumber(p.kospi, finiteNumber(p.sp500)))),
+    [data],
+  );
+
+  const updatedLabel = updatedAt
+    ? new Date(updatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  const rows: Array<{ label: string; fmt: (v: number) => string; portfolio: number; sp500: number; kospi: number }> = [
+    { label: '수익률 (1년)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.returnPct, sp500: sp500Metrics.returnPct, kospi: kospiMetrics.returnPct },
+    { label: '변동성 (연율화)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.volatilityPct, sp500: sp500Metrics.volatilityPct, kospi: kospiMetrics.volatilityPct },
+    { label: '최대낙폭 (MDD)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.mddPct, sp500: sp500Metrics.mddPct, kospi: kospiMetrics.mddPct },
+    { label: '샤프지수', fmt: (v) => v.toFixed(2), portfolio: portfolioMetrics.sharpe, sp500: sp500Metrics.sharpe, kospi: kospiMetrics.sharpe },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+      <div className="mb-4 border-b border-border pb-3 dark:border-slate-800">
+        <h3 className="text-base font-bold text-fg dark:text-slate-100">객관적 지표 비교 (최근 1년)</h3>
+        <p className="mt-0.5 text-[11px] font-semibold text-fg-muted">
+          {fallback ? '예비 데이터 포함' : '최근 1년 실제 시장 데이터'}
+          {updatedLabel ? ` · 조회 ${updatedLabel}` : ''}
+          {source ? ` · ${source}` : ''}
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs text-fg-muted dark:border-slate-700">
+              <th className="pb-2 pr-4 text-left font-medium">지표</th>
+              <th className="pb-2 text-center font-semibold text-slate-800 dark:text-slate-100">자산배분 포트폴리오</th>
+              <th className="pb-2 text-center font-medium">S&P500</th>
+              <th className="pb-2 text-center font-medium">KOSPI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label} className="border-b border-border last:border-0 dark:border-slate-800">
+                <td className="py-2.5 pr-4 text-xs text-fg-muted">{row.label}</td>
+                <td className="py-2.5 text-center text-sm font-bold text-fg dark:text-slate-100">
+                  {row.fmt(row.portfolio)}
+                </td>
+                <td className="py-2.5 text-center text-sm font-semibold text-fg-muted">
+                  {row.fmt(row.sp500)}
+                </td>
+                <td className="py-2.5 text-center text-sm font-semibold text-fg-muted">
+                  {row.fmt(row.kospi)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-4 text-[10px] leading-relaxed text-fg-muted">
+        과거 1년 실제 시장 데이터. 과거 성과는 미래를 보장하지 않습니다. 샤프지수 무위험수익률 연 3% 기준.
+      </p>
     </section>
   );
 }
@@ -1393,7 +1514,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </section>
 
-      <SimplifiedBenchmarkReturnChart
+      <ObjectiveMetricsTable
         data={benchmarkChartData}
         source={benchmarkSource}
         fallback={benchmarkFallback}
