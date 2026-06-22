@@ -13,7 +13,7 @@ const KRX_URL  = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
 const REFERER  = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201030105";
 const UA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36";
 const COOKIE   = process.env.KRX_COOKIE ?? "";
-const TRD_DD   = "20260620";
+const TRD_DD   = "20260622";
 
 // 8개 타깃 섹터 ETF 단축코드
 const ETF_TARGETS = [
