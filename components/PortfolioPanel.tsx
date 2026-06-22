@@ -28,6 +28,7 @@ import {
 import { listPbs } from '@/lib/store';
 import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
+import StockSectorPanel from '@/components/StockSectorPanel';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -1970,6 +1971,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 />
               </div>
             </div>
+
+            <StockSectorPanel />
           </div>
         </section>
 

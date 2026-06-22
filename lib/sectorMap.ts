@@ -299,8 +299,10 @@ export async function getSectorAnalysis(
 
   const ols = computeOls(etfPts, benchData);
 
-  // 복수 섹터 정보: 자동 역매핑으로 커버되는 종목에만 존재
-  const autoEntry  = /^\d{6}$/.test(stockCode) ? getSectorByCode(stockCode) : null;
+  // 자동 역매핑 엔트리: ETF 구성종목에 있는지 여부 + 복수섹터
+  const autoEntry   = /^\d{6}$/.test(stockCode) ? getSectorByCode(stockCode) : null;
+  // isUncovered: 8개 ETF 구성종목 어디에도 없음 (수동 섹터는 있을 수 있음)
+  const isUncovered = autoEntry === null;
   const multiSector: MultiSectorEntry[] | null =
     autoEntry && autoEntry.secondarySectors.length > 0
       ? autoEntry.secondarySectors.map((s) => ({
@@ -336,7 +338,7 @@ export async function getSectorAnalysis(
     rangeStart:       ols.rangeStart,
     rangeEnd:         ols.rangeEnd,
     isFallback,
-    isUncovered:      isFallback,
+    isUncovered,
     multiSector,
     reliability,
     cachedAt:         new Date().toISOString(),
