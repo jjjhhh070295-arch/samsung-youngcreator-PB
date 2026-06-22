@@ -28,12 +28,14 @@ import {
 import { listPbs } from '@/lib/store';
 import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
+import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem } from '@/components/StockSectorPanel';
 
 interface PortfolioPanelProps {
   client: Client;
   pbId: string;
   clientId: string;
   onSelectionChange?: (portfolio: Portfolio) => void;
+  onHeldAssetsChange?: (heldAssets: HeldAssets | undefined) => void;
 }
 
 type WeightKey = keyof PortfolioOption['weights'];
@@ -140,13 +142,13 @@ function BenchmarkAlphaPanel({
 
   return (
     <div className="grid grid-cols-1 gap-2 text-xs sm:min-w-[240px]">
-      <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-        <span className="block text-[11px] font-semibold text-blue-700 dark:text-blue-400">{blendedTitle}</span>
-        <b className={`text-base font-black ${alphaToneClass(portfolioReturn - blendedReturn)}`}>
-          {formatAlphaPercentPoints(portfolioReturn - blendedReturn)}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+        <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">분산 포트폴리오 기준선</span>
+        <b className="text-base font-black text-slate-800 dark:text-slate-100">
+          {blendedReturn.toFixed(1)}%
         </b>
         <span className="mt-0.5 block text-[10px] text-fg-muted">
-          제안 포트폴리오 {portfolioReturn.toFixed(1)}% vs 혼합 벤치마크 {blendedReturn.toFixed(1)}%
+          자산배분 혼합 벤치마크 누적수익률 · S&P500·KOSPI 단독 선과 비교
         </span>
       </div>
       {activeRefs.map((lineKey) => {
@@ -347,61 +349,6 @@ function roundPercent(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-function buildBenchmarkChartData(
-  points: BenchmarkApiPoint[],
-  weights: PortfolioOption['weights'],
-  preference?: { benchmarkOutperformance: boolean; benchmarkTargets: string[]; highRiskAccepted: boolean },
-  riskTilt: -1 | 0 | 1 = 0,
-): BenchmarkChartPoint[] {
-  const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
-  const total = sourcePoints.length;
-  const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
-
-  return sourcePoints.map((point, index) => {
-    const sp500 = finiteNumber(point.sp500);
-    const kospi = finiteNumber(point.kospi, sp500);
-    const bond = finiteNumber(point.bond, fixedIncomeProxy(index, total, 3.2));
-    const gold = finiteNumber(point.gold, fixedIncomeProxy(index, total, 4.0));
-    const dollar = finiteNumber(point.dollar, fixedIncomeProxy(index, total, 2.3));
-    const commodity = finiteNumber(point.commodity, fixedIncomeProxy(index, total, 3.6));
-    const cash = fixedIncomeProxy(index, total, 3.0);
-    // 1. 자산군별 대표 벤치마크 지수 1:1 정규화 매핑 (KOSPI/S&P500 혼합을 주식 대표로 설정)
-    const stockBenchmark = kospi * 0.4 + sp500 * 0.6; // 글로벌 주식 혼합 프록시
-    const bondBenchmark = bond;                          // 국채/채권 지수
-    const goldBenchmark = gold;                          // 금 실물 지수
-    const cashBenchmark = cash;                          // CD금리/KOFR 금융 자산 프록시
-    const dollarBenchmark = dollar;                      // FX 달러 인덱스 프록시
-    const rawBenchmark = commodity;                     // 원자재 인덱스 프록시
-    
-    // 2. 수식에 따른 실시간 혼합 벤치마크(Blended Benchmark) 가중평균 연산 (100 기준 규격화)
-  const blendedBenchmark =
-  (weights.etf / totalWeight) * stockBenchmark +
-  (weights.bond / totalWeight) * bondBenchmark +
-  (weights.mmf / totalWeight) * cashBenchmark +
-  (weights.gold / totalWeight) * goldBenchmark +
-  (weights.dollar / totalWeight) * dollarBenchmark +
-  (weights.raw / totalWeight) * rawBenchmark;
-
-// 혼합 벤치마크는 “자산배분 기준선”으로 두고,
-// 제안 포트폴리오는 성향별 기대 초과성과를 더해 별도 트랙으로 계산
-const alphaByRiskTilt =
-  riskTilt === -1 ? 2.0 :
-  riskTilt === 0 ? 4.0 :
-  7.0;
-
-const timeProgress = total <= 1 ? 1 : index / (total - 1);
-
-const portfolio = blendedBenchmark + alphaByRiskTilt * timeProgress;
-
-return {
-  ...point,
-  sp500: roundPercent(sp500),
-  kospi: roundPercent(kospi),
-  portfolio: roundPercent(portfolio),
-  blendedBenchmark: roundPercent(blendedBenchmark),
-};
-  });
-}
 
 function buildSimplifiedBenchmarkChartData(
   points: BenchmarkApiPoint[],
@@ -427,18 +374,56 @@ function buildSimplifiedBenchmarkChartData(
       (overseasEquityWeight / totalWeight) * finiteNumber(point.sp500) +
       (domesticEquityWeight / totalWeight) * finiteNumber(point.kospi, finiteNumber(point.sp500)) +
       (stableWeight / totalWeight) * usTreasury10y;
-    const alphaByRiskTilt = riskTilt === -1 ? 2.0 : riskTilt === 0 ? 4.0 : 7.0;
-    const timeProgress = sourcePoints.length <= 1 ? 1 : index / (sourcePoints.length - 1);
-
     return {
       ...point,
       sp500: roundPercent(finiteNumber(point.sp500)),
       kospi: roundPercent(finiteNumber(point.kospi, finiteNumber(point.sp500))),
       usTreasury10y: roundPercent(usTreasury10y),
-      portfolio: roundPercent(blendedBenchmark + alphaByRiskTilt * timeProgress),
+      portfolio: roundPercent(blendedBenchmark),
       blendedBenchmark: roundPercent(blendedBenchmark),
     };
   });
+}
+
+function computeMetrics(
+  cumulativePcts: number[],
+  riskFreeAnnualPct = 3.0,
+): { returnPct: number; volatilityPct: number; mddPct: number; sharpe: number } {
+  const n = cumulativePcts.length;
+  if (n < 2) return { returnPct: 0, volatilityPct: 0, mddPct: 0, sharpe: 0 };
+
+  const periodReturns: number[] = [];
+  for (let i = 1; i < n; i++) {
+    const prev = 1 + (cumulativePcts[i - 1] ?? 0) / 100;
+    const curr = 1 + (cumulativePcts[i] ?? 0) / 100;
+    if (prev > 0) periodReturns.push(curr / prev - 1);
+  }
+
+  const returnPct = cumulativePcts[n - 1] ?? 0;
+
+  const mean = periodReturns.length > 0
+    ? periodReturns.reduce((a, b) => a + b, 0) / periodReturns.length : 0;
+  const variance = periodReturns.length > 0
+    ? periodReturns.reduce((s, r) => s + (r - mean) ** 2, 0) / periodReturns.length : 0;
+  const volatilityPct = Math.sqrt(variance) * Math.sqrt(12) * 100;
+
+  let peak = 1 + (cumulativePcts[0] ?? 0) / 100;
+  let mddPct = 0;
+  for (const c of cumulativePcts) {
+    const price = 1 + c / 100;
+    if (price > peak) peak = price;
+    const dd = ((price - peak) / peak) * 100;
+    if (dd < mddPct) mddPct = dd;
+  }
+
+  const sharpe = volatilityPct > 0 ? (returnPct - riskFreeAnnualPct) / volatilityPct : 0;
+
+  return {
+    returnPct: Math.round(returnPct * 10) / 10,
+    volatilityPct: Math.round(volatilityPct * 10) / 10,
+    mddPct: Math.round(mddPct * 10) / 10,
+    sharpe: Math.round(sharpe * 100) / 100,
+  };
 }
 
 function getStatusClass(status: string) {
@@ -489,8 +474,8 @@ function BenchmarkReturnChart({
   updatedAt?: string;
 }) {
   const [visibleRefs, setVisibleRefs] = useState<Record<ReferenceLineKey, boolean>>({
-    sp500: false,
-    kospi: false,
+    sp500: true,
+    kospi: true,
     usTreasury10y: false,
   });
   const toggleReferenceLine = (key: ReferenceLineKey) => {
@@ -647,8 +632,8 @@ function SimplifiedBenchmarkReturnChart({
   updatedAt?: string;
 }) {
   const [visibleRefs, setVisibleRefs] = useState<Record<ReferenceLineKey, boolean>>({
-    sp500: false,
-    kospi: false,
+    sp500: true,
+    kospi: true,
     usTreasury10y: false,
   });
   const toggleReferenceLine = (key: ReferenceLineKey) => {
@@ -673,9 +658,9 @@ function SimplifiedBenchmarkReturnChart({
     <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
       <div className="mb-4 flex flex-col gap-3 border-b border-border pb-3 dark:border-slate-800 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h3 className="text-base font-bold text-fg dark:text-slate-100">최근 1년 백테스트: 제안 포트폴리오 vs 혼합 벤치마크</h3>
+          <h3 className="text-base font-bold text-fg dark:text-slate-100">최근 1년 백테스트: 자산배분 포트폴리오 vs 단일 지수 비교</h3>
           <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-            현재 추천 포트폴리오 비중을 과거 1년 시장 데이터에 적용해 산출한 백테스트 결과이며, 미래 수익률을 보장하지 않습니다.
+            현재 추천 포트폴리오 비중을 과거 1년 시장 데이터에 적용한 백테스트입니다. S&P500·KOSPI 단일 지수 대비 분산 투자 효과를 확인할 수 있습니다. 미래 수익률을 보장하지 않습니다.
           </p>
           <p className="mt-1 text-[11px] font-semibold text-fg-muted">
             {fallback ? '예비 데이터 포함' : '최근 1년 시장 데이터'}
@@ -734,7 +719,141 @@ function SimplifiedBenchmarkReturnChart({
   );
 }
 
-export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange }: PortfolioPanelProps) {
+function buildPlanPortfolioSeries(
+  data: BenchmarkChartPoint[],
+  planSummary: Array<{ etfCode: string; amountKrw: number; isFallback: boolean }>,
+  sectorEtfData: Record<string, number[]>,
+  weights: PortfolioOption['weights'],
+): number[] | null {
+  // Aggregate amountKrw per etfCode (multiple stocks can share one ETF)
+  const etfKrw = new Map<string, number>();
+  for (const p of planSummary) {
+    if (p.isFallback || p.amountKrw <= 0) continue;
+    const series = sectorEtfData[p.etfCode];
+    if (!series || series.length < 2) continue;
+    etfKrw.set(p.etfCode, (etfKrw.get(p.etfCode) ?? 0) + p.amountKrw);
+  }
+  if (etfKrw.size === 0) return null;
+
+  const totalEtfKrw = Array.from(etfKrw.values()).reduce((a, b) => a + b, 0);
+  if (totalEtfKrw <= 0) return null;
+
+  const entries = Array.from(etfKrw.entries()).map(([code, krw]) => ({ krw, series: sectorEtfData[code] as number[] }));
+  const minLen = Math.min(data.length, ...entries.map((e) => e.series.length));
+  if (minLen < 2) return null;
+
+  // Stable (bond proxy) from existing benchmarkChartData
+  const equityWeight = weights.etf;
+  const stableWeight = weights.bond + weights.mmf + weights.gold + weights.dollar + weights.raw;
+  const totalWeight = Math.max(equityWeight + stableWeight, 1);
+
+  return Array.from({ length: minLen }, (_, t) => {
+    const eq = entries.reduce((sum, e) => sum + (e.krw / totalEtfKrw) * (e.series[t] ?? 0), 0);
+    const stable = finiteNumber(data[t]?.usTreasury10y, 0);
+    return Math.round(((equityWeight / totalWeight) * eq + (stableWeight / totalWeight) * stable) * 10) / 10;
+  });
+}
+
+function ObjectiveMetricsTable({
+  data,
+  source,
+  fallback,
+  updatedAt,
+  weights,
+  planSummary = [],
+  sectorEtfData = {},
+}: {
+  data: BenchmarkChartPoint[];
+  source: string;
+  fallback: boolean;
+  updatedAt?: string;
+  weights?: PortfolioOption['weights'];
+  planSummary?: Array<{ etfCode: string; amountKrw: number; isFallback: boolean }>;
+  sectorEtfData?: Record<string, number[]>;
+}) {
+  const planPortfolioSeries = useMemo(() => {
+    if (!weights || planSummary.length === 0) return null;
+    return buildPlanPortfolioSeries(data, planSummary, sectorEtfData, weights);
+  }, [data, planSummary, sectorEtfData, weights]);
+
+  const usePlanData = planPortfolioSeries !== null;
+
+  const portfolioMetrics = useMemo(
+    () => computeMetrics(usePlanData ? planPortfolioSeries! : data.map((p) => p.portfolio)),
+    [data, planPortfolioSeries, usePlanData],
+  );
+  const sp500Metrics = useMemo(
+    () => computeMetrics(data.map((p) => finiteNumber(p.sp500))),
+    [data],
+  );
+  const kospiMetrics = useMemo(
+    () => computeMetrics(data.map((p) => finiteNumber(p.kospi, finiteNumber(p.sp500)))),
+    [data],
+  );
+
+  const updatedLabel = updatedAt
+    ? new Date(updatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  const rows: Array<{ label: string; fmt: (v: number) => string; portfolio: number; sp500: number; kospi: number }> = [
+    { label: '수익률 (1년)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.returnPct, sp500: sp500Metrics.returnPct, kospi: kospiMetrics.returnPct },
+    { label: '변동성 (연율화)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.volatilityPct, sp500: sp500Metrics.volatilityPct, kospi: kospiMetrics.volatilityPct },
+    { label: '최대낙폭 (MDD)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.mddPct, sp500: sp500Metrics.mddPct, kospi: kospiMetrics.mddPct },
+    { label: '샤프지수', fmt: (v) => v.toFixed(2), portfolio: portfolioMetrics.sharpe, sp500: sp500Metrics.sharpe, kospi: kospiMetrics.sharpe },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+      <div className="mb-4 border-b border-border pb-3 dark:border-slate-800">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-base font-bold text-fg dark:text-slate-100">객관적 지표 비교 (최근 1년)</h3>
+          <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${usePlanData ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-border bg-surface-2 text-fg-muted'}`}>
+            {usePlanData ? 'PB 종목 선택 반영' : '지수 기반'}
+          </span>
+        </div>
+        <p className="mt-0.5 text-[11px] font-semibold text-fg-muted">
+          {fallback ? '예비 데이터 포함' : '최근 1년 실제 시장 데이터'}
+          {updatedLabel ? ` · 조회 ${updatedLabel}` : ''}
+          {source ? ` · ${source}` : ''}
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs text-fg-muted dark:border-slate-700">
+              <th className="pb-2 pr-4 text-left font-medium">지표</th>
+              <th className="pb-2 text-center font-semibold text-slate-800 dark:text-slate-100">자산배분 포트폴리오</th>
+              <th className="pb-2 text-center font-medium">S&P500</th>
+              <th className="pb-2 text-center font-medium">KOSPI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label} className="border-b border-border last:border-0 dark:border-slate-800">
+                <td className="py-2.5 pr-4 text-xs text-fg-muted">{row.label}</td>
+                <td className="py-2.5 text-center text-sm font-bold text-fg dark:text-slate-100">
+                  {row.fmt(row.portfolio)}
+                </td>
+                <td className="py-2.5 text-center text-sm font-semibold text-fg-muted">
+                  {row.fmt(row.sp500)}
+                </td>
+                <td className="py-2.5 text-center text-sm font-semibold text-fg-muted">
+                  {row.fmt(row.kospi)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-4 text-[10px] leading-relaxed text-fg-muted">
+        과거 1년 실제 시장 데이터. 과거 성과는 미래를 보장하지 않습니다. 샤프지수 무위험수익률 연 3% 기준.
+        {usePlanData && ' · 주식 부분은 PB 종목 선택 섹터 ETF 실제 수익률 가중 반영.'}
+      </p>
+    </section>
+  );
+}
+
+export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange, onHeldAssetsChange }: PortfolioPanelProps) {
   const [researchItems, setResearchItems] = useState<MarketResearchItem[]>(FALLBACK_MARKET_RESEARCH);
   const [researchStatus, setResearchStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
   const [fallbackUsed, setFallbackUsed] = useState(false);
@@ -768,7 +887,27 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [benchmarkSource, setBenchmarkSource] = useState('로컬 예비 데이터');
   const [benchmarkFallback, setBenchmarkFallback] = useState(true);
   const [benchmarkUpdatedAt, setBenchmarkUpdatedAt] = useState<string | undefined>();
-  const [heldAssets, setHeldAssets] = useState<HeldAssets | undefined>(undefined);
+  const [heldAssets,       setHeldAssets]       = useState<HeldAssets | undefined>(undefined);
+  const [existingHoldings, setExistingHoldings] = useState<ExistingHolding[]>([]);
+  const [planSummary,      setPlanSummary]      = useState<PlanSummaryItem[]>([]);
+  const [sectorEtfData,    setSectorEtfData]    = useState<Record<string, number[]>>({});
+
+  // 종목 계획 변경 시 섹터 ETF 월별 수익률 취득
+  useEffect(() => {
+    const valid = planSummary.filter((p) => !p.isFallback && p.amountKrw > 0);
+    if (valid.length === 0) { setSectorEtfData({}); return; }
+    const uniqueTickers = Array.from(new Set(valid.map((p) => p.etfCode)));
+    fetch(`/api/benchmarks/sector-etf?tickers=${encodeURIComponent(uniqueTickers.join(','))}`)
+      .then((r) => r.json())
+      .then((j: { data?: Record<string, number[] | null> }) => {
+        const filtered: Record<string, number[]> = {};
+        for (const [k, v] of Object.entries(j.data ?? {})) {
+          if (Array.isArray(v) && v.length >= 2) filtered[k] = v;
+        }
+        setSectorEtfData(filtered);
+      })
+      .catch(() => setSectorEtfData({}));
+  }, [planSummary]);
 
   // 보유자산 조회 (주식 KIS 현재가 재활용 + 부동산 DB값 + 현금 계산)
   useEffect(() => {
@@ -831,15 +970,25 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           } catch { /* 시세 실패 시 avg_price 폴백 */ }
         }
 
-        // 주식 평가금액
+        // 주식 평가금액 + 기존 보유 종목 배열
         let stocksKrw = 0;
+        const existingHoldingsData: ExistingHolding[] = [];
         for (const h of resolved) {
-          const qty = (h as { quantity: number }).quantity ?? 0;
+          const qty  = (h as { quantity: number }).quantity ?? 0;
           const live = (h as { ticker: string | null }).ticker ? (liveMap.get((h as { ticker: string }).ticker) ?? null) : null;
-          const fx = (h as { currency: string }).currency === 'USD' ? fxUsdKrw : 1;
+          const fx   = (h as { currency: string }).currency === 'USD' ? fxUsdKrw : 1;
           const price = live ?? ((h as { avg_price: number | null }).avg_price ?? 0);
           stocksKrw += qty * price * fx;
+          const evalKrw = Math.round(qty * price * fx);
+          if (evalKrw > 0) {
+            existingHoldingsData.push({
+              name:    (h as { name: string }).name,
+              ticker:  (h as { ticker: string | null }).ticker ?? null,
+              evalKrw,
+            });
+          }
         }
+        existingHoldingsData.sort((a, b) => b.evalKrw - a.evalKrw);
 
         // 부동산 평가금액
         const realEstateKrw = (propData ?? []).reduce(
@@ -853,11 +1002,14 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
         if (!cancelled) {
           setHeldAssets({ stocksKrw, realEstateKrw, cashKrw, totalKrw });
+          setExistingHoldings(existingHoldingsData);
         }
       } catch { /* 전체 실패 → heldAssets undefined 유지, 기존 폴백 동작 */ }
     })();
     return () => { cancelled = true; };
   }, [clientId, client.assetSize]);
+
+  useEffect(() => { onHeldAssetsChange?.(heldAssets); }, [heldAssets, onHeldAssetsChange]);
 
   const model = useMemo(() => buildPortfolioViewModel(client, researchItems, heldAssets), [client, researchItems, heldAssets]);
   const portfolioOptions = model.portfolioOptions;
@@ -1442,6 +1594,16 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         updatedAt={benchmarkUpdatedAt}
       />
 
+      <ObjectiveMetricsTable
+        data={benchmarkChartData}
+        source={benchmarkSource}
+        fallback={benchmarkFallback}
+        updatedAt={benchmarkUpdatedAt}
+        weights={adjustedWeights}
+        planSummary={planSummary}
+        sectorEtfData={sectorEtfData}
+      />
+
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
@@ -1967,6 +2129,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 />
               </div>
             </div>
+
+            <StockSectorPanel
+              etfAllocKrw={((model.assetLayer?.investableKrw ?? 0) * weights.etf) / 100}
+              existingHoldings={existingHoldings}
+              onPlanChange={setPlanSummary}
+            />
           </div>
         </section>
 

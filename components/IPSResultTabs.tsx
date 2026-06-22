@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, IPSFactor, CashFlow, Portfolio, StageKey } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
@@ -8,7 +8,8 @@ import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
 import StressTestPanel from "./StressTestPanel";
 import ScoreRubricButton from "./ScoreRubricButton";
-import { buildPortfolioViewModel } from "@/lib/portfolio";
+import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
+import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 
 interface Props {
   client: Client;
@@ -72,6 +73,23 @@ export default function IPSResultTabs({
   const [chosen, setChosen] = useState<Portfolio | null>(null);
 
   const [finalizing, setFinalizing] = useState(false);
+
+  // PortfolioPanel에서 계산된 보유자산을 받아 스트레스 weights에도 동일하게 반영
+  const [heldAssets, setHeldAssets] = useState<HeldAssets | undefined>(undefined);
+  const [researchItems, setResearchItems] = useState<MarketResearchItem[]>(FALLBACK_MARKET_RESEARCH);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/research", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.items) && data.items.length > 0) {
+          setResearchItems(data.items);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // 확정 시점의 분석 리포트 중 "영향 큰 상위 N개"를 가져와 포트폴리오에 박제
   async function pickTopReports(n = 5): Promise<Portfolio["referencedReports"]> {
@@ -147,16 +165,16 @@ export default function IPSResultTabs({
   }, [ips]);
 
   // SET 6자산 비중: 확정된 안의 weights만 추출해 StressTestPanel에 전달.
-  // client.portfolios[0].id ('stable'|'balanced'|'growth')로 확정 안을 특정한 뒤
-  // 해당 portfolioOption의 weights를 [0]에 담는다. 미확정 시 균형형(index 1) 폴백.
+  // PortfolioPanel과 동일하게 heldAssets(보유자산)+researchItems를 사용해
+  // 화면 표시와 스트레스 입력 weights를 일치시킨다.
   const portfolioWeights = useMemo(() => {
-    const vm = buildPortfolioViewModel(client);
+    const vm = buildPortfolioViewModel(client, researchItems, heldAssets);
     const confirmedId = client.portfolios[0]?.id;
     const confirmed = confirmedId
       ? vm.portfolioOptions.find((o) => o.id === confirmedId)
       : undefined;
     return [(confirmed ?? vm.portfolioOptions[1]).weights];
-  }, [client]);
+  }, [client, researchItems, heldAssets]);
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -351,7 +369,7 @@ export default function IPSResultTabs({
       {/* 포트폴리오 — 패널 편집 + 최종 확정 */}
       {tab === "portfolio" && (
         <div>
-          <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
+          <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} onHeldAssetsChange={setHeldAssets} />
 
           {/* 최종 확정 단계 */}
           <div

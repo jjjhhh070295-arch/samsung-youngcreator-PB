@@ -1,0 +1,1253 @@
+{
+  "capturedAt": "2026-06-22T05:46:35.419Z",
+  "trdDd": "20260622",
+  "note": "KRX MDCSTAT04601(ISIN맵) + MDCSTAT05001(구성종목) 브라우저 세션 캡처. 분기마다 갱신 권장.",
+  "etfs": {
+    "117460": {
+      "label": "KODEX 에너지화학",
+      "isin": "KR7117460006",
+      "count": 39,
+      "holdings": [
+        {
+          "code": "051910",
+          "name": "LG화학",
+          "weightPct": 18.95
+        },
+        {
+          "code": "267250",
+          "name": "HD현대",
+          "weightPct": 14.4
+        },
+        {
+          "code": "096770",
+          "name": "SK이노베이션",
+          "weightPct": 10.64
+        },
+        {
+          "code": "009830",
+          "name": "한화솔루션",
+          "weightPct": 7.33
+        },
+        {
+          "code": "010950",
+          "name": "S-Oil",
+          "weightPct": 6.3
+        },
+        {
+          "code": "010060",
+          "name": "OCI홀딩스",
+          "weightPct": 4.67
+        },
+        {
+          "code": "011790",
+          "name": "SKC",
+          "weightPct": 4.38
+        },
+        {
+          "code": "014680",
+          "name": "한솔케미칼",
+          "weightPct": 4.02
+        },
+        {
+          "code": "005290",
+          "name": "동진쎄미켐",
+          "weightPct": 3.01
+        },
+        {
+          "code": "002380",
+          "name": "KCC",
+          "weightPct": 2.95
+        },
+        {
+          "code": "011780",
+          "name": "금호석유화학",
+          "weightPct": 2.5
+        },
+        {
+          "code": "457190",
+          "name": "이수스페셜티케미컬",
+          "weightPct": 2.27
+        },
+        {
+          "code": "357780",
+          "name": "솔브레인",
+          "weightPct": 2.18
+        },
+        {
+          "code": "011170",
+          "name": "롯데케미칼",
+          "weightPct": 1.85
+        },
+        {
+          "code": "120110",
+          "name": "코오롱인더",
+          "weightPct": 1.83
+        },
+        {
+          "code": "017960",
+          "name": "한국카본",
+          "weightPct": 1.36
+        },
+        {
+          "code": "298020",
+          "name": "효성티앤씨",
+          "weightPct": 1.01
+        },
+        {
+          "code": "004000",
+          "name": "롯데정밀화학",
+          "weightPct": 0.93
+        },
+        {
+          "code": "348370",
+          "name": "엔켐",
+          "weightPct": 0.85
+        },
+        {
+          "code": "281740",
+          "name": "레이크머티리얼즈",
+          "weightPct": 0.81
+        },
+        {
+          "code": "000210",
+          "name": "DL",
+          "weightPct": 0.74
+        },
+        {
+          "code": "121600",
+          "name": "나노신소재",
+          "weightPct": 0.7
+        },
+        {
+          "code": "456040",
+          "name": "OCI",
+          "weightPct": 0.67
+        },
+        {
+          "code": "018670",
+          "name": "SK가스",
+          "weightPct": 0.66
+        },
+        {
+          "code": "006650",
+          "name": "대한유화",
+          "weightPct": 0.6
+        },
+        {
+          "code": "285130",
+          "name": "SK케미칼",
+          "weightPct": 0.56
+        },
+        {
+          "code": "298050",
+          "name": "HS효성첨단소재",
+          "weightPct": 0.55
+        },
+        {
+          "code": "069260",
+          "name": "TKG휴켐스",
+          "weightPct": 0.49
+        },
+        {
+          "code": "033500",
+          "name": "동성화인텍",
+          "weightPct": 0.47
+        },
+        {
+          "code": "006120",
+          "name": "SK디스커버리",
+          "weightPct": 0.46
+        },
+        {
+          "code": "002960",
+          "name": "한국쉘석유",
+          "weightPct": 0.43
+        },
+        {
+          "code": "005420",
+          "name": "코스모화학",
+          "weightPct": 0.42
+        },
+        {
+          "code": "178920",
+          "name": "PI첨단소재",
+          "weightPct": 0.41
+        },
+        {
+          "code": "014830",
+          "name": "유니드",
+          "weightPct": 0.35
+        },
+        {
+          "code": "017940",
+          "name": "E1",
+          "weightPct": 0.33
+        },
+        {
+          "code": "036830",
+          "name": "솔브레인홀딩스",
+          "weightPct": 0.3
+        },
+        {
+          "code": "161000",
+          "name": "애경케미칼",
+          "weightPct": 0.27
+        },
+        {
+          "code": "003240",
+          "name": "태광산업",
+          "weightPct": 0.26
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": null
+        }
+      ]
+    },
+    "117680": {
+      "label": "KODEX 철강",
+      "isin": "KR7117680009",
+      "count": 21,
+      "holdings": [
+        {
+          "code": "005490",
+          "name": "POSCO홀딩스",
+          "weightPct": 22.87
+        },
+        {
+          "code": "004020",
+          "name": "현대제철",
+          "weightPct": 20.29
+        },
+        {
+          "code": "010130",
+          "name": "고려아연",
+          "weightPct": 18.25
+        },
+        {
+          "code": "103140",
+          "name": "풍산",
+          "weightPct": 9.06
+        },
+        {
+          "code": "001430",
+          "name": "세아베스틸지주",
+          "weightPct": 3.73
+        },
+        {
+          "code": "295310",
+          "name": "에이치브이엠",
+          "weightPct": 3.64
+        },
+        {
+          "code": "006110",
+          "name": "삼아알미늄",
+          "weightPct": 3.18
+        },
+        {
+          "code": "460860",
+          "name": "동국제강",
+          "weightPct": 2.52
+        },
+        {
+          "code": "009520",
+          "name": "포스코엠텍",
+          "weightPct": 2.22
+        },
+        {
+          "code": "005810",
+          "name": "풍산홀딩스",
+          "weightPct": 1.98
+        },
+        {
+          "code": "016380",
+          "name": "KG스틸",
+          "weightPct": 1.65
+        },
+        {
+          "code": "002710",
+          "name": "TCC스틸",
+          "weightPct": 1.63
+        },
+        {
+          "code": "000670",
+          "name": "영풍",
+          "weightPct": 1.58
+        },
+        {
+          "code": "003030",
+          "name": "세아제강지주",
+          "weightPct": 1.29
+        },
+        {
+          "code": "092790",
+          "name": "넥스틸",
+          "weightPct": 1.15
+        },
+        {
+          "code": "001390",
+          "name": "KG케미칼",
+          "weightPct": 1.11
+        },
+        {
+          "code": "306200",
+          "name": "세아제강",
+          "weightPct": 1.04
+        },
+        {
+          "code": "001940",
+          "name": "KISCO홀딩스",
+          "weightPct": 0.9
+        },
+        {
+          "code": "151860",
+          "name": "KG에코솔루션",
+          "weightPct": 0.75
+        },
+        {
+          "code": "084010",
+          "name": "대한제강",
+          "weightPct": 0.68
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": 0.49
+        }
+      ]
+    },
+    "139270": {
+      "label": "TIGER 200 금융",
+      "isin": "KR7139270003",
+      "count": 23,
+      "holdings": [
+        {
+          "code": "105560",
+          "name": "KB금융",
+          "weightPct": 17.03
+        },
+        {
+          "code": "055550",
+          "name": "신한지주",
+          "weightPct": 14.38
+        },
+        {
+          "code": "032830",
+          "name": "삼성생명",
+          "weightPct": 14.01
+        },
+        {
+          "code": "086790",
+          "name": "하나금융지주",
+          "weightPct": 10.57
+        },
+        {
+          "code": "316140",
+          "name": "우리금융지주",
+          "weightPct": 7.17
+        },
+        {
+          "code": "000810",
+          "name": "삼성화재",
+          "weightPct": 7.16
+        },
+        {
+          "code": "006800",
+          "name": "미래에셋증권",
+          "weightPct": 4.45
+        },
+        {
+          "code": "071050",
+          "name": "한국금융지주",
+          "weightPct": 3.23
+        },
+        {
+          "code": "138040",
+          "name": "메리츠금융지주",
+          "weightPct": 2.8
+        },
+        {
+          "code": "323410",
+          "name": "카카오뱅크",
+          "weightPct": 2.6
+        },
+        {
+          "code": "016360",
+          "name": "삼성증권",
+          "weightPct": 2.5
+        },
+        {
+          "code": "005830",
+          "name": "DB손해보험",
+          "weightPct": 2.06
+        },
+        {
+          "code": "024110",
+          "name": "기업은행",
+          "weightPct": 2
+        },
+        {
+          "code": "039490",
+          "name": "키움증권",
+          "weightPct": 1.86
+        },
+        {
+          "code": "138930",
+          "name": "BNK금융지주",
+          "weightPct": 1.65
+        },
+        {
+          "code": "005940",
+          "name": "NH투자증권",
+          "weightPct": 1.59
+        },
+        {
+          "code": "175330",
+          "name": "JB금융지주",
+          "weightPct": 1.42
+        },
+        {
+          "code": "139130",
+          "name": "iM금융지주",
+          "weightPct": 0.82
+        },
+        {
+          "code": "001450",
+          "name": "현대해상",
+          "weightPct": 0.75
+        },
+        {
+          "code": "088350",
+          "name": "한화생명",
+          "weightPct": 0.59
+        },
+        {
+          "code": "377300",
+          "name": "카카오페이",
+          "weightPct": 0.56
+        },
+        {
+          "code": "029780",
+          "name": "삼성카드",
+          "weightPct": 0.45
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": 0.33
+        }
+      ]
+    },
+    "244580": {
+      "label": "KODEX 바이오",
+      "isin": "KR7244580007",
+      "count": 51,
+      "holdings": [
+        {
+          "code": "347850",
+          "name": "디앤디파마텍",
+          "weightPct": 2.36
+        },
+        {
+          "code": "458870",
+          "name": "씨어스",
+          "weightPct": 2.2
+        },
+        {
+          "code": "226950",
+          "name": "올릭스",
+          "weightPct": 2.2
+        },
+        {
+          "code": "298380",
+          "name": "에이비엘바이오",
+          "weightPct": 2.19
+        },
+        {
+          "code": "028300",
+          "name": "HLB",
+          "weightPct": 2.19
+        },
+        {
+          "code": "290650",
+          "name": "엘앤씨바이오",
+          "weightPct": 2.17
+        },
+        {
+          "code": "196170",
+          "name": "알테오젠",
+          "weightPct": 2.15
+        },
+        {
+          "code": "214450",
+          "name": "파마리서치",
+          "weightPct": 2.15
+        },
+        {
+          "code": "068270",
+          "name": "셀트리온",
+          "weightPct": 2.15
+        },
+        {
+          "code": "145020",
+          "name": "휴젤",
+          "weightPct": 2.14
+        },
+        {
+          "code": "207940",
+          "name": "삼성바이오로직스",
+          "weightPct": 2.12
+        },
+        {
+          "code": "085660",
+          "name": "차바이오텍",
+          "weightPct": 2.09
+        },
+        {
+          "code": "128940",
+          "name": "한미약품",
+          "weightPct": 2.08
+        },
+        {
+          "code": "003000",
+          "name": "부광약품",
+          "weightPct": 2.08
+        },
+        {
+          "code": "214150",
+          "name": "클래시스",
+          "weightPct": 2.07
+        },
+        {
+          "code": "389650",
+          "name": "넥스트바이오메디컬",
+          "weightPct": 2.06
+        },
+        {
+          "code": "108860",
+          "name": "셀바스AI",
+          "weightPct": 2.05
+        },
+        {
+          "code": "476830",
+          "name": "알지노믹스",
+          "weightPct": 2.05
+        },
+        {
+          "code": "141080",
+          "name": "리가켐바이오",
+          "weightPct": 2.05
+        },
+        {
+          "code": "310210",
+          "name": "보로노이",
+          "weightPct": 2.05
+        },
+        {
+          "code": "086450",
+          "name": "동국제약",
+          "weightPct": 2.04
+        },
+        {
+          "code": "068760",
+          "name": "셀트리온제약",
+          "weightPct": 2.04
+        },
+        {
+          "code": "008930",
+          "name": "한미사이언스",
+          "weightPct": 2.04
+        },
+        {
+          "code": "000100",
+          "name": "유한양행",
+          "weightPct": 2.03
+        },
+        {
+          "code": "326030",
+          "name": "SK바이오팜",
+          "weightPct": 2.03
+        },
+        {
+          "code": "174900",
+          "name": "앱클론",
+          "weightPct": 2.03
+        },
+        {
+          "code": "468530",
+          "name": "프로티나",
+          "weightPct": 2.03
+        },
+        {
+          "code": "476060",
+          "name": "온코닉테라퓨틱스",
+          "weightPct": 2.02
+        },
+        {
+          "code": "005690",
+          "name": "파미셀",
+          "weightPct": 2.02
+        },
+        {
+          "code": "249420",
+          "name": "일동제약",
+          "weightPct": 2.01
+        },
+        {
+          "code": "0126Z0",
+          "name": "삼성에피스홀딩스",
+          "weightPct": 2.01
+        },
+        {
+          "code": "237690",
+          "name": "에스티팜",
+          "weightPct": 2
+        },
+        {
+          "code": "302440",
+          "name": "SK바이오사이언스",
+          "weightPct": 2
+        },
+        {
+          "code": "195940",
+          "name": "HK이노엔",
+          "weightPct": 1.98
+        },
+        {
+          "code": "009420",
+          "name": "한올바이오파마",
+          "weightPct": 1.97
+        },
+        {
+          "code": "389470",
+          "name": "인벤티지랩",
+          "weightPct": 1.94
+        },
+        {
+          "code": "000250",
+          "name": "삼천당제약",
+          "weightPct": 1.93
+        },
+        {
+          "code": "0009K0",
+          "name": "에임드바이오",
+          "weightPct": 1.92
+        },
+        {
+          "code": "491000",
+          "name": "리브스메드",
+          "weightPct": 1.92
+        },
+        {
+          "code": "039200",
+          "name": "오스코텍",
+          "weightPct": 1.91
+        },
+        {
+          "code": "456160",
+          "name": "지투지바이오",
+          "weightPct": 1.89
+        },
+        {
+          "code": "087010",
+          "name": "펩트론",
+          "weightPct": 1.83
+        },
+        {
+          "code": "007390",
+          "name": "네이처셀",
+          "weightPct": 1.79
+        },
+        {
+          "code": "475830",
+          "name": "오름테라퓨틱",
+          "weightPct": 1.77
+        },
+        {
+          "code": "397030",
+          "name": "에이프릴바이오",
+          "weightPct": 1.73
+        },
+        {
+          "code": "358570",
+          "name": "지아이이노베이션",
+          "weightPct": 1.72
+        },
+        {
+          "code": "336570",
+          "name": "원텍",
+          "weightPct": 1.67
+        },
+        {
+          "code": "376900",
+          "name": "로킷헬스케어",
+          "weightPct": 1.67
+        },
+        {
+          "code": "328130",
+          "name": "루닛",
+          "weightPct": 1.61
+        },
+        {
+          "code": "445680",
+          "name": "큐리옥스바이오시스템즈",
+          "weightPct": 1.49
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": 0.35
+        }
+      ]
+    },
+    "266360": {
+      "label": "KODEX K콘텐츠",
+      "isin": "KR7266360007",
+      "count": 21,
+      "holdings": [
+        {
+          "code": "035420",
+          "name": "NAVER",
+          "weightPct": 25.46
+        },
+        {
+          "code": "035720",
+          "name": "카카오",
+          "weightPct": 16.05
+        },
+        {
+          "code": "259960",
+          "name": "크래프톤",
+          "weightPct": 13.96
+        },
+        {
+          "code": "352820",
+          "name": "하이브",
+          "weightPct": 11.87
+        },
+        {
+          "code": "036570",
+          "name": "NC",
+          "weightPct": 9.87
+        },
+        {
+          "code": "035900",
+          "name": "JYP Ent.",
+          "weightPct": 3.23
+        },
+        {
+          "code": "263750",
+          "name": "펄어비스",
+          "weightPct": 3.22
+        },
+        {
+          "code": "030000",
+          "name": "제일기획",
+          "weightPct": 2.87
+        },
+        {
+          "code": "251270",
+          "name": "넷마블",
+          "weightPct": 2.58
+        },
+        {
+          "code": "041510",
+          "name": "에스엠",
+          "weightPct": 2.22
+        },
+        {
+          "code": "122870",
+          "name": "와이지엔터테인먼트",
+          "weightPct": 1.38
+        },
+        {
+          "code": "181710",
+          "name": "NHN",
+          "weightPct": 1.06
+        },
+        {
+          "code": "462870",
+          "name": "시프트업",
+          "weightPct": 0.93
+        },
+        {
+          "code": "035760",
+          "name": "CJ ENM",
+          "weightPct": 0.87
+        },
+        {
+          "code": "293490",
+          "name": "카카오게임즈",
+          "weightPct": 0.87
+        },
+        {
+          "code": "067160",
+          "name": "SOOP",
+          "weightPct": 0.79
+        },
+        {
+          "code": "112040",
+          "name": "위메이드",
+          "weightPct": 0.7
+        },
+        {
+          "code": "253450",
+          "name": "스튜디오드래곤",
+          "weightPct": 0.67
+        },
+        {
+          "code": "376300",
+          "name": "디어유",
+          "weightPct": 0.56
+        },
+        {
+          "code": "225570",
+          "name": "넥슨게임즈",
+          "weightPct": 0.47
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": 0.37
+        }
+      ]
+    },
+    "305720": {
+      "label": "KODEX 2차전지산업",
+      "isin": "KR7305720005",
+      "count": 26,
+      "holdings": [
+        {
+          "code": "373220",
+          "name": "LG에너지솔루션",
+          "weightPct": 19.93
+        },
+        {
+          "code": "006400",
+          "name": "삼성SDI",
+          "weightPct": 15.97
+        },
+        {
+          "code": "005490",
+          "name": "POSCO홀딩스",
+          "weightPct": 12.82
+        },
+        {
+          "code": "051910",
+          "name": "LG화학",
+          "weightPct": 10.95
+        },
+        {
+          "code": "247540",
+          "name": "에코프로비엠",
+          "weightPct": 9.23
+        },
+        {
+          "code": "086520",
+          "name": "에코프로",
+          "weightPct": 7.55
+        },
+        {
+          "code": "003670",
+          "name": "포스코퓨처엠",
+          "weightPct": 5.07
+        },
+        {
+          "code": "096770",
+          "name": "SK이노베이션",
+          "weightPct": 4.27
+        },
+        {
+          "code": "066970",
+          "name": "엘앤에프",
+          "weightPct": 2.71
+        },
+        {
+          "code": "178320",
+          "name": "서진시스템",
+          "weightPct": 2
+        },
+        {
+          "code": "011790",
+          "name": "SKC",
+          "weightPct": 1.71
+        },
+        {
+          "code": "450080",
+          "name": "에코프로머티",
+          "weightPct": 1.15
+        },
+        {
+          "code": "348370",
+          "name": "엔켐",
+          "weightPct": 0.91
+        },
+        {
+          "code": "121600",
+          "name": "나노신소재",
+          "weightPct": 0.89
+        },
+        {
+          "code": "020150",
+          "name": "롯데에너지머티리얼즈",
+          "weightPct": 0.88
+        },
+        {
+          "code": "078600",
+          "name": "대주전자재료",
+          "weightPct": 0.78
+        },
+        {
+          "code": "005070",
+          "name": "코스모신소재",
+          "weightPct": 0.73
+        },
+        {
+          "code": "093370",
+          "name": "후성",
+          "weightPct": 0.61
+        },
+        {
+          "code": "137400",
+          "name": "피엔티",
+          "weightPct": 0.46
+        },
+        {
+          "code": "361610",
+          "name": "SK아이이테크놀로지",
+          "weightPct": 0.38
+        },
+        {
+          "code": "222080",
+          "name": "씨아이에스",
+          "weightPct": 0.33
+        },
+        {
+          "code": "005420",
+          "name": "코스모화학",
+          "weightPct": 0.2
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": 0.16
+        },
+        {
+          "code": "107640",
+          "name": "한중엔시에스",
+          "weightPct": 0.13
+        },
+        {
+          "code": "036830",
+          "name": "솔브레인홀딩스",
+          "weightPct": 0.1
+        },
+        {
+          "code": "299030",
+          "name": "하나기술",
+          "weightPct": 0.06
+        }
+      ]
+    },
+    "091160": {
+      "label": "KODEX 반도체",
+      "isin": "KR7091160002",
+      "count": 36,
+      "holdings": [
+        {
+          "code": "000660",
+          "name": "SK하이닉스",
+          "weightPct": 42.33
+        },
+        {
+          "code": "005930",
+          "name": "삼성전자",
+          "weightPct": 21.19
+        },
+        {
+          "code": "042700",
+          "name": "한미반도체",
+          "weightPct": 5.56
+        },
+        {
+          "code": "036930",
+          "name": "주성엔지니어링",
+          "weightPct": 2.64
+        },
+        {
+          "code": "240810",
+          "name": "원익IPS",
+          "weightPct": 2.5
+        },
+        {
+          "code": "000990",
+          "name": "DB하이텍",
+          "weightPct": 2.29
+        },
+        {
+          "code": "058470",
+          "name": "리노공업",
+          "weightPct": 2
+        },
+        {
+          "code": "039030",
+          "name": "이오테크닉스",
+          "weightPct": 1.88
+        },
+        {
+          "code": "440110",
+          "name": "파두",
+          "weightPct": 1.86
+        },
+        {
+          "code": "080220",
+          "name": "제주반도체",
+          "weightPct": 1.77
+        },
+        {
+          "code": "403870",
+          "name": "HPSP",
+          "weightPct": 1.7
+        },
+        {
+          "code": "319660",
+          "name": "피에스케이",
+          "weightPct": 1.57
+        },
+        {
+          "code": "222800",
+          "name": "심텍",
+          "weightPct": 1.47
+        },
+        {
+          "code": "067310",
+          "name": "하나마이크론",
+          "weightPct": 1.16
+        },
+        {
+          "code": "084370",
+          "name": "유진테크",
+          "weightPct": 1.14
+        },
+        {
+          "code": "095340",
+          "name": "ISC",
+          "weightPct": 0.88
+        },
+        {
+          "code": "098460",
+          "name": "고영",
+          "weightPct": 0.76
+        },
+        {
+          "code": "131970",
+          "name": "두산테스나",
+          "weightPct": 0.74
+        },
+        {
+          "code": "089030",
+          "name": "테크윙",
+          "weightPct": 0.72
+        },
+        {
+          "code": "064760",
+          "name": "티씨케이",
+          "weightPct": 0.66
+        },
+        {
+          "code": "183300",
+          "name": "코미코",
+          "weightPct": 0.56
+        },
+        {
+          "code": "218410",
+          "name": "RFHIC",
+          "weightPct": 0.53
+        },
+        {
+          "code": "323280",
+          "name": "태성",
+          "weightPct": 0.48
+        },
+        {
+          "code": "101490",
+          "name": "에스앤에스텍",
+          "weightPct": 0.43
+        },
+        {
+          "code": "031980",
+          "name": "피에스케이홀딩스",
+          "weightPct": 0.4
+        },
+        {
+          "code": "281820",
+          "name": "케이씨텍",
+          "weightPct": 0.33
+        },
+        {
+          "code": "322000",
+          "name": "HD현대에너지솔루션",
+          "weightPct": 0.31
+        },
+        {
+          "code": "166090",
+          "name": "하나머티리얼즈",
+          "weightPct": 0.31
+        },
+        {
+          "code": "161580",
+          "name": "필옵틱스",
+          "weightPct": 0.31
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": 0.31
+        },
+        {
+          "code": "232140",
+          "name": "와이씨",
+          "weightPct": 0.25
+        },
+        {
+          "code": "036540",
+          "name": "SFA반도체",
+          "weightPct": 0.23
+        },
+        {
+          "code": "108320",
+          "name": "LX세미콘",
+          "weightPct": 0.22
+        },
+        {
+          "code": "213420",
+          "name": "덕산네오룩스",
+          "weightPct": 0.2
+        },
+        {
+          "code": "348210",
+          "name": "넥스틴",
+          "weightPct": 0.17
+        },
+        {
+          "code": "399720",
+          "name": "가온칩스",
+          "weightPct": 0.13
+        }
+      ]
+    },
+    "091180": {
+      "label": "KODEX 자동차",
+      "isin": "KR7091180000",
+      "count": 21,
+      "holdings": [
+        {
+          "code": "005380",
+          "name": "현대차",
+          "weightPct": 30.49
+        },
+        {
+          "code": "012330",
+          "name": "현대모비스",
+          "weightPct": 21.2
+        },
+        {
+          "code": "000270",
+          "name": "기아",
+          "weightPct": 16.35
+        },
+        {
+          "code": "161390",
+          "name": "한국타이어앤테크놀로지",
+          "weightPct": 10.08
+        },
+        {
+          "code": "204320",
+          "name": "HL만도",
+          "weightPct": 4.01
+        },
+        {
+          "code": "018880",
+          "name": "한온시스템",
+          "weightPct": 3.29
+        },
+        {
+          "code": "011210",
+          "name": "현대위아",
+          "weightPct": 2.32
+        },
+        {
+          "code": "005850",
+          "name": "에스엘",
+          "weightPct": 2.17
+        },
+        {
+          "code": "007340",
+          "name": "DN오토모티브",
+          "weightPct": 1.77
+        },
+        {
+          "code": "000240",
+          "name": "한국앤컴퍼니",
+          "weightPct": 1.26
+        },
+        {
+          "code": "073240",
+          "name": "금호타이어",
+          "weightPct": 1.1
+        },
+        {
+          "code": "437730",
+          "name": "삼현",
+          "weightPct": 1.03
+        },
+        {
+          "code": "004490",
+          "name": "세방전지",
+          "weightPct": 0.91
+        },
+        {
+          "code": "015750",
+          "name": "성우하이텍",
+          "weightPct": 0.66
+        },
+        {
+          "code": "064960",
+          "name": "SNT모티브",
+          "weightPct": 0.64
+        },
+        {
+          "code": "003620",
+          "name": "KG모빌리티",
+          "weightPct": 0.58
+        },
+        {
+          "code": "036530",
+          "name": "SNT홀딩스",
+          "weightPct": 0.49
+        },
+        {
+          "code": "002350",
+          "name": "넥센타이어",
+          "weightPct": 0.47
+        },
+        {
+          "code": "009900",
+          "name": "명신산업",
+          "weightPct": 0.47
+        },
+        {
+          "code": "KRD010010001",
+          "name": "원화현금",
+          "weightPct": 0.45
+        },
+        {
+          "code": "271940",
+          "name": "일진하이솔루스",
+          "weightPct": 0.26
+        }
+      ]
+    }
+  }
+}
