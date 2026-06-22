@@ -23,7 +23,7 @@ export default function PeriodCashflowAppendix({ cashFlows }: { cashFlows: CashF
         </span>
       </div>
 
-      <div className="h-64 rounded-xl border border-border bg-surface-2 p-3">
+      <div className="h-80 rounded-xl border border-border bg-surface-2 p-3">
         <PeriodCashflowLineChart series={series} className="h-full" />
       </div>
 

@@ -568,7 +568,7 @@ export default function IPSDocumentPage() {
               <div className="rounded border border-gray-200 p-3">
                 <p className="mb-1 font-semibold text-gray-800">기간별 현금흐름 추이</p>
                 <p className="mb-2 text-[10px] text-gray-500">유입·유출·저축·세금·순현금흐름 (만원)</p>
-                <PeriodCashflowLineChart series={periodSeries} className="h-56" />
+                <PeriodCashflowLineChart series={periodSeries} className="h-80" />
               </div>
               <table className="w-full border-collapse">
                 <thead>

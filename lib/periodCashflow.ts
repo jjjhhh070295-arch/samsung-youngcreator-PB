@@ -17,11 +17,11 @@ export interface PeriodCashflowChartPoint extends PeriodCashflowPoint {
   savingManwon: number;
   taxManwon: number;
   netManwon: number;
-  incomeSignedManwon: number;
-  outflowSignedManwon: number;
-  savingSignedManwon: number;
-  taxSignedManwon: number;
-  netSignedManwon: number;
+  incomePlotManwon: number;
+  outflowPlotManwon: number;
+  savingPlotManwon: number;
+  taxPlotManwon: number;
+  netPlotManwon: number;
 }
 
 export interface BuildPeriodCashflowSeriesOptions {
@@ -243,11 +243,11 @@ export function toPeriodCashflowChartData(series: PeriodCashflowPoint[]): Period
     savingManwon: Math.round(point.savingWon / 10_000),
     taxManwon: Math.round(point.taxWon / 10_000),
     netManwon: Math.round(point.netWon / 10_000),
-    incomeSignedManwon: Math.round(Math.abs(point.incomeWon) / 10_000),
-    outflowSignedManwon: -Math.round(Math.abs(point.outflowWon) / 10_000),
-    savingSignedManwon: -Math.round(Math.abs(point.savingWon) / 10_000),
-    taxSignedManwon: -Math.round(Math.abs(point.taxWon) / 10_000),
-    netSignedManwon: Math.round(point.netWon / 10_000),
+    incomePlotManwon: Math.round(Math.abs(point.incomeWon) / 10_000),
+    outflowPlotManwon: Math.round(Math.abs(point.outflowWon) / 10_000),
+    savingPlotManwon: Math.round(Math.abs(point.savingWon) / 10_000),
+    taxPlotManwon: Math.round(Math.abs(point.taxWon) / 10_000),
+    netPlotManwon: Math.round(point.netWon / 10_000),
   }));
 }
 
