@@ -68,6 +68,8 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
   const [scenarioOpen,setScenarioOpen]=useState(false);
   const [levels,setLevels]=useState<MacroLevels>(FALLBACK_MACRO_LEVELS);
   const [updatedAt,setUpdatedAt]=useState("");
+  const [levelsLoading,setLevelsLoading]=useState(false);
+  const [levelsRefreshKey,setLevelsRefreshKey]=useState(0);
   const [analysis,setAnalysis]=useState<MacroStressResponse|null>(null);
   const [analysisStatus,setAnalysisStatus]=useState<"idle"|"loading"|"error">("idle");
   const macroPortfolios=useMemo(()=>portfolios.map(normalizePortfolio).filter(p=>p.allocations.length>0),[portfolios]);
@@ -83,9 +85,9 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
 
   useEffect(()=>{
     let cancelled=false;
-    const load=async()=>{try{const response=await fetch("/api/macro-levels",{cache:"no-store"});if(!response.ok)throw new Error();const payload=await response.json();if(cancelled)return;setLevels(previous=>{const next={...previous};for(const id of FACTOR_IDS){const level=payload?.levels?.[id];if(level&&Number.isFinite(level.value))next[id]={...level,fallback:false};}return next;});setUpdatedAt(payload?.updatedAt??new Date().toISOString());}catch{if(!cancelled)setUpdatedAt("");}};
+    const load=async()=>{setLevelsLoading(true);try{const response=await fetch("/api/macro-levels?refresh="+Date.now(),{cache:"no-store"});if(!response.ok)throw new Error();const payload=await response.json();if(cancelled)return;setLevels(previous=>{const next={...previous};for(const id of FACTOR_IDS){const level=payload?.levels?.[id];if(level&&Number.isFinite(level.value))next[id]={...level,fallback:false};}return next;});setUpdatedAt(payload?.updatedAt??new Date().toISOString());}catch{if(!cancelled)setUpdatedAt("");}finally{if(!cancelled)setLevelsLoading(false);}};
     load();const timer=window.setInterval(load,60*60*1000);return()=>{cancelled=true;window.clearInterval(timer)};
-  },[]);
+  },[levelsRefreshKey]);
 
   const requestKey=useMemo(()=>{
     // autoParams 있으면 SET 변환 비중 사용, 없으면 기존 텍스트 매칭
@@ -142,7 +144,12 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
             {presetId!=="none"&&presetId!=="custom"&&<span className="font-semibold text-fg">{PRESET_SCENARIOS.find(item=>item.id===presetId)?.name}</span>}
             <span aria-hidden="true" className={"text-[10px] transition-transform "+(scenarioOpen?"rotate-180":"")}>&#9662;</span>
           </button>
-          <button type="button" className="btn-ghost text-xs" onClick={reset}>{"\uCD08\uAE30\uD654"}</button>
+          <div className="flex items-center gap-1">
+            <button type="button" className="btn-ghost text-xs" onClick={reset}>{"\uCD08\uAE30\uD654"}</button>
+            <button type="button" className="btn-outline text-xs" disabled={levelsLoading} onClick={()=>setLevelsRefreshKey(value=>value+1)}>
+              {levelsLoading?"\uC2DC\uC7A5\uAC12 \uCD5C\uC2E0\uD654 \uC911...":"\uC2DC\uC7A5\uAC12 \uC0C8\uB85C\uACE0\uCE68"}
+            </button>
+          </div>
         </div>
         {scenarioOpen&&<div className="mt-2 flex flex-wrap gap-2 rounded-md border border-border/70 bg-surface-2 p-2">
           {PRESET_SCENARIOS.map(scenario=><button key={scenario.id} type="button" className={presetId===scenario.id?"btn-primary text-xs":"btn-ghost text-xs"} onClick={()=>applyPreset(scenario.id)}>{scenario.name}</button>)}
