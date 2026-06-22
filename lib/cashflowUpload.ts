@@ -1,4 +1,9 @@
 import type { CashFlow } from "./types";
+import {
+  scoreReadinessEvents,
+  type ReadinessResult,
+  type ReadinessStatus,
+} from "./taxReadinessScoring";
 
 type Row = string[];
 type TemplateEntry = {
@@ -46,9 +51,12 @@ export interface TaxPaymentEvent {
   amountWon: number;
   dueDate: string;
   cashReadyDate: string;
-  status: "covered" | "watch" | "shortage";
+  status: ReadinessStatus;
+  readiness: ReadinessResult;
   rule: string;
 }
+
+type TaxPaymentEventInput = Omit<TaxPaymentEvent, "status" | "readiness">;
 
 export interface CashflowUploadSummary {
   fileName: string;
@@ -303,21 +311,6 @@ const exitDateForDue = (due: Date, from = now()) => {
   return toDateInput(target < startOfDay(from) && due >= startOfDay(from) ? from : target);
 };
 
-const withStatus = (
-  events: Omit<TaxPaymentEvent, "status">[],
-  currentCashWon: number,
-): TaxPaymentEvent[] => {
-  let cumulative = 0;
-  return events
-    .sort((a, b) => a.cashReadyDate.localeCompare(b.cashReadyDate))
-    .map((event) => {
-      cumulative += event.amountWon;
-      const status =
-        currentCashWon >= cumulative ? "covered" : event.amountWon <= currentCashWon * 0.25 ? "watch" : "shortage";
-      return { ...event, status };
-    });
-};
-
 const sectionCategory = (row: Row): KnownCategory | undefined => {
   const text = normalize(row.join(" "));
   if (text.includes("월소득")) return "income";
@@ -421,7 +414,7 @@ const dueFromTaxSchedule = (label: string, basisText: string, dueText: string) =
   return undefined;
 };
 
-function extractTaxScheduleEvents(rows: Row[]): Omit<TaxPaymentEvent, "status">[] {
+function extractTaxScheduleEvents(rows: Row[]): TaxPaymentEventInput[] {
   const headerIndex = rows.findIndex((row) =>
     row.map(normalize).some((cell) => cell.includes("세금이벤트")),
   );
@@ -434,7 +427,7 @@ function extractTaxScheduleEvents(rows: Row[]): Omit<TaxPaymentEvent, "status">[
   const amountColumn = findColumn(header, ["예상세액", "금액", "만원"], 3);
   const cashColumn = findColumn(header, ["현금화", "목표"], 4);
   const amountHeader = header[amountColumn] ?? "예상세액(만원)";
-  const events: Omit<TaxPaymentEvent, "status">[] = [];
+  const events: TaxPaymentEventInput[] = [];
 
   for (const row of rows.slice(headerIndex + 1)) {
     const label = cellToText(row[eventColumn]);
@@ -619,8 +612,8 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
   const templateEntries = extractTemplateEntries(rows, headerIndex >= 0 ? itemColumn : undefined);
   templateEntries.forEach(applyEntry);
 
-  const eventInputs: Omit<TaxPaymentEvent, "status">[] = [];
-  const addEvent = (event: Omit<TaxPaymentEvent, "status">) => {
+  const eventInputs: TaxPaymentEventInput[] = [];
+  const addEvent = (event: TaxPaymentEventInput) => {
     if (event.amountWon <= 0) return;
     if (eventInputs.some((existing) => existing.label === event.label && existing.dueDate === event.dueDate)) return;
     eventInputs.push(event);
@@ -681,7 +674,11 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
     addEvent({ id: "overseas-stock-tax", label: "해외주식 양도소득세", amountWon: Number(schedule.overseasStockTax), dueDate: toDateInput(due), cashReadyDate: exitDateForDue(due), rule: "다음해 5월 확정신고" });
   }
 
-  const taxEvents = withStatus(eventInputs, currentCashWon);
+  const taxEvents = scoreReadinessEvents({
+    currentCashWon,
+    monthlyNetWon: monthlyIncomeWon - monthlyOutflowWon,
+    events: eventInputs,
+  });
   const nextTaxNeedWon = taxEvents.reduce((sum, event) => sum + event.amountWon, 0);
   const liquidityCoveragePct = nextTaxNeedWon > 0 ? Math.round((currentCashWon / nextTaxNeedWon) * 100) : 999;
 

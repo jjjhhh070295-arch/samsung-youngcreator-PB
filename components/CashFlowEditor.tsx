@@ -14,6 +14,7 @@ import {
 import { cellToText, parseCashflowRows, parseCsvRows, type CashflowUploadResult } from "@/lib/cashflowUpload";
 import { formatKRW, formatKRWShort, parseNumber } from "@/lib/format";
 import { EmptyView } from "./StateViews";
+import TaxReadinessRubricButton from "./TaxReadinessRubricButton";
 
 interface Props {
   cashFlows: CashFlow[];
@@ -397,34 +398,41 @@ export default function CashFlowEditor({
                   )}
                 </div>
                 {uploadResult.taxEvents.length > 0 && (
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                    {uploadResult.taxEvents.slice(0, 4).map((event) => (
-                      <div key={event.id} className="rounded-lg border border-border bg-surface-2 p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-xs font-semibold text-fg">{event.label}</p>
-                            <p className="mt-0.5 text-[11px] text-fg-muted">
-                              현금화 {event.cashReadyDate} · 납부 {event.dueDate}
-                            </p>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-fg">세금 납부 준비상태</p>
+                      <TaxReadinessRubricButton label="준비상태 기준표" />
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      {uploadResult.taxEvents.slice(0, 4).map((event) => (
+                        <div key={event.id} className="rounded-lg border border-border bg-surface-2 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-semibold text-fg">{event.label}</p>
+                              <p className="mt-0.5 text-[11px] text-fg-muted">
+                                현금화 {event.cashReadyDate} · 납부 {event.dueDate}
+                              </p>
+                            </div>
+                            <span
+                              className={`badge ${
+                                event.status === "covered"
+                                  ? "bg-green-100 text-green-700"
+                                  : event.status === "watch"
+                                    ? "bg-gold-100 text-gold-800"
+                                    : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {event.readiness.label}
+                            </span>
                           </div>
-                          <span
-                            className={`badge ${
-                              event.status === "covered"
-                                ? "bg-green-100 text-green-700"
-                                : event.status === "watch"
-                                  ? "bg-gold-100 text-gold-800"
-                                  : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            {event.status === "covered" ? "커버" : event.status === "watch" ? "점검" : "부족"}
-                          </span>
+                          <p className="mt-2 text-sm font-bold text-gold-600 dark:text-gold-300">
+                            {formatKRW(event.amountWon)}
+                          </p>
+                          <p className="mt-1 text-[11px] font-medium text-fg">{event.readiness.reason}</p>
+                          <p className="mt-1 text-[11px] text-fg-muted">{event.rule}</p>
                         </div>
-                        <p className="mt-2 text-sm font-bold text-gold-600 dark:text-gold-300">
-                          {formatKRW(event.amountWon)}
-                        </p>
-                        <p className="mt-1 text-[11px] text-fg-muted">{event.rule}</p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
