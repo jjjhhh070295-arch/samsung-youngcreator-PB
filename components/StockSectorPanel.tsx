@@ -9,6 +9,12 @@ export interface ExistingHolding {
   evalKrw: number; // qty × price × fx — PortfolioPanel에서 계산 완료
 }
 
+export interface PlanSummaryItem {
+  etfCode:    string;  // Yahoo Finance 형식 e.g. "091160.KS"
+  amountKrw:  number;
+  isFallback: boolean;
+}
+
 // ── API 응답 타입 (SectorAnalysisResult 미러) ──────────────────────────────
 interface MultiSectorEntry {
   sector:      string;
@@ -250,9 +256,11 @@ function ColHeader() {
 export default function StockSectorPanel({
   etfAllocKrw,
   existingHoldings = [],
+  onPlanChange,
 }: {
   etfAllocKrw:       number;
   existingHoldings?: ExistingHolding[];
+  onPlanChange?:     (plan: PlanSummaryItem[]) => void;
 }) {
   // ── 기존 보유 분석 state ───────────────────────────────────────────────
   const [holdingRows,     setHoldingRows]     = useState<HoldingRow[]>([]);
@@ -293,6 +301,19 @@ export default function StockSectorPanel({
   const [error,         setError]         = useState<string | null>(null);
   const [planRows,      setPlanRows]      = useState<PlanRow[]>([]);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!onPlanChange) return;
+    onPlanChange(
+      planRows
+        .filter((r) => r.amountKrw > 0)
+        .map((r) => ({
+          etfCode:    r.analysis.etfCode,
+          amountKrw:  r.amountKrw,
+          isFallback: r.analysis.isFallback || r.analysis.isUncovered,
+        })),
+    );
+  }, [planRows, onPlanChange]);
 
   // ── 섹터 종합 분석 (memo) ──────────────────────────────────────────────
   const combinedHoldings = useMemo<CombinedHolding[]>(() => {

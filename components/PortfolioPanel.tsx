@@ -28,7 +28,7 @@ import {
 import { listPbs } from '@/lib/store';
 import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
-import StockSectorPanel, { type ExistingHolding } from '@/components/StockSectorPanel';
+import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem } from '@/components/StockSectorPanel';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -719,20 +719,68 @@ function SimplifiedBenchmarkReturnChart({
   );
 }
 
+function buildPlanPortfolioSeries(
+  data: BenchmarkChartPoint[],
+  planSummary: Array<{ etfCode: string; amountKrw: number; isFallback: boolean }>,
+  sectorEtfData: Record<string, number[]>,
+  weights: PortfolioOption['weights'],
+): number[] | null {
+  // Aggregate amountKrw per etfCode (multiple stocks can share one ETF)
+  const etfKrw = new Map<string, number>();
+  for (const p of planSummary) {
+    if (p.isFallback || p.amountKrw <= 0) continue;
+    const series = sectorEtfData[p.etfCode];
+    if (!series || series.length < 2) continue;
+    etfKrw.set(p.etfCode, (etfKrw.get(p.etfCode) ?? 0) + p.amountKrw);
+  }
+  if (etfKrw.size === 0) return null;
+
+  const totalEtfKrw = Array.from(etfKrw.values()).reduce((a, b) => a + b, 0);
+  if (totalEtfKrw <= 0) return null;
+
+  const entries = Array.from(etfKrw.entries()).map(([code, krw]) => ({ krw, series: sectorEtfData[code] as number[] }));
+  const minLen = Math.min(data.length, ...entries.map((e) => e.series.length));
+  if (minLen < 2) return null;
+
+  // Stable (bond proxy) from existing benchmarkChartData
+  const equityWeight = weights.etf;
+  const stableWeight = weights.bond + weights.mmf + weights.gold + weights.dollar + weights.raw;
+  const totalWeight = Math.max(equityWeight + stableWeight, 1);
+
+  return Array.from({ length: minLen }, (_, t) => {
+    const eq = entries.reduce((sum, e) => sum + (e.krw / totalEtfKrw) * (e.series[t] ?? 0), 0);
+    const stable = finiteNumber(data[t]?.usTreasury10y, 0);
+    return Math.round(((equityWeight / totalWeight) * eq + (stableWeight / totalWeight) * stable) * 10) / 10;
+  });
+}
+
 function ObjectiveMetricsTable({
   data,
   source,
   fallback,
   updatedAt,
+  weights,
+  planSummary = [],
+  sectorEtfData = {},
 }: {
   data: BenchmarkChartPoint[];
   source: string;
   fallback: boolean;
   updatedAt?: string;
+  weights?: PortfolioOption['weights'];
+  planSummary?: Array<{ etfCode: string; amountKrw: number; isFallback: boolean }>;
+  sectorEtfData?: Record<string, number[]>;
 }) {
+  const planPortfolioSeries = useMemo(() => {
+    if (!weights || planSummary.length === 0) return null;
+    return buildPlanPortfolioSeries(data, planSummary, sectorEtfData, weights);
+  }, [data, planSummary, sectorEtfData, weights]);
+
+  const usePlanData = planPortfolioSeries !== null;
+
   const portfolioMetrics = useMemo(
-    () => computeMetrics(data.map((p) => p.portfolio)),
-    [data],
+    () => computeMetrics(usePlanData ? planPortfolioSeries! : data.map((p) => p.portfolio)),
+    [data, planPortfolioSeries, usePlanData],
   );
   const sp500Metrics = useMemo(
     () => computeMetrics(data.map((p) => finiteNumber(p.sp500))),
@@ -757,7 +805,12 @@ function ObjectiveMetricsTable({
   return (
     <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm dark:border-slate-700 dark:bg-slate-950">
       <div className="mb-4 border-b border-border pb-3 dark:border-slate-800">
-        <h3 className="text-base font-bold text-fg dark:text-slate-100">객관적 지표 비교 (최근 1년)</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-base font-bold text-fg dark:text-slate-100">객관적 지표 비교 (최근 1년)</h3>
+          <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${usePlanData ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-border bg-surface-2 text-fg-muted'}`}>
+            {usePlanData ? 'PB 종목 선택 반영' : '지수 기반'}
+          </span>
+        </div>
         <p className="mt-0.5 text-[11px] font-semibold text-fg-muted">
           {fallback ? '예비 데이터 포함' : '최근 1년 실제 시장 데이터'}
           {updatedLabel ? ` · 조회 ${updatedLabel}` : ''}
@@ -794,6 +847,7 @@ function ObjectiveMetricsTable({
       </div>
       <p className="mt-4 text-[10px] leading-relaxed text-fg-muted">
         과거 1년 실제 시장 데이터. 과거 성과는 미래를 보장하지 않습니다. 샤프지수 무위험수익률 연 3% 기준.
+        {usePlanData && ' · 주식 부분은 PB 종목 선택 섹터 ETF 실제 수익률 가중 반영.'}
       </p>
     </section>
   );
@@ -835,6 +889,25 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [benchmarkUpdatedAt, setBenchmarkUpdatedAt] = useState<string | undefined>();
   const [heldAssets,       setHeldAssets]       = useState<HeldAssets | undefined>(undefined);
   const [existingHoldings, setExistingHoldings] = useState<ExistingHolding[]>([]);
+  const [planSummary,      setPlanSummary]      = useState<PlanSummaryItem[]>([]);
+  const [sectorEtfData,    setSectorEtfData]    = useState<Record<string, number[]>>({});
+
+  // 종목 계획 변경 시 섹터 ETF 월별 수익률 취득
+  useEffect(() => {
+    const valid = planSummary.filter((p) => !p.isFallback && p.amountKrw > 0);
+    if (valid.length === 0) { setSectorEtfData({}); return; }
+    const uniqueTickers = Array.from(new Set(valid.map((p) => p.etfCode)));
+    fetch(`/api/benchmarks/sector-etf?tickers=${encodeURIComponent(uniqueTickers.join(','))}`)
+      .then((r) => r.json())
+      .then((j: { data?: Record<string, number[] | null> }) => {
+        const filtered: Record<string, number[]> = {};
+        for (const [k, v] of Object.entries(j.data ?? {})) {
+          if (Array.isArray(v) && v.length >= 2) filtered[k] = v;
+        }
+        setSectorEtfData(filtered);
+      })
+      .catch(() => setSectorEtfData({}));
+  }, [planSummary]);
 
   // 보유자산 조회 (주식 KIS 현재가 재활용 + 부동산 DB값 + 현금 계산)
   useEffect(() => {
@@ -1514,11 +1587,21 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </section>
 
+      <SimplifiedBenchmarkReturnChart
+        data={benchmarkChartData}
+        source={benchmarkSource}
+        fallback={benchmarkFallback}
+        updatedAt={benchmarkUpdatedAt}
+      />
+
       <ObjectiveMetricsTable
         data={benchmarkChartData}
         source={benchmarkSource}
         fallback={benchmarkFallback}
         updatedAt={benchmarkUpdatedAt}
+        weights={adjustedWeights}
+        planSummary={planSummary}
+        sectorEtfData={sectorEtfData}
       />
 
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -2050,6 +2133,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             <StockSectorPanel
               etfAllocKrw={((model.assetLayer?.investableKrw ?? 0) * weights.etf) / 100}
               existingHoldings={existingHoldings}
+              onPlanChange={setPlanSummary}
             />
           </div>
         </section>
