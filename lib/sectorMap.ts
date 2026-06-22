@@ -3,6 +3,7 @@
  * 종목 → 섹터 → 섹터ETF 매핑 + getSectorAnalysis()
  * 서버 사이드 전용 (Yahoo Finance fetch 포함).
  */
+import { getSectorByCode } from "./autoSectorMap";
 
 // ── 섹터 ID ────────────────────────────────────────────────────────────────
 export type SectorId =
@@ -116,12 +117,22 @@ export const STOCK_SECTOR_MAP: StockEntry[] = [
 ];
 
 // ── 조회 헬퍼 ────────────────────────────────────────────────────────────
-/** 종목명 또는 6자리 코드로 매핑 탐색. 없으면 null. */
+
+/**
+ * 종목명 또는 6자리 코드로 매핑 탐색.
+ * 우선순위: 자동 매핑(ETF 구성종목 역매핑) → 수동 STOCK_SECTOR_MAP → null
+ */
 export function findEntry(nameOrCode: string): StockEntry | null {
   const q = nameOrCode.trim();
-  return (
-    STOCK_SECTOR_MAP.find((e) => e.code === q || e.name === q) ?? null
-  );
+
+  // 1순위: 자동 매핑 — 코드로만 조회 (6자리 숫자인 경우)
+  if (/^\d{6}$/.test(q)) {
+    const auto = getSectorByCode(q);
+    if (auto) return { name: auto.name, code: auto.code, sector: auto.sector };
+  }
+
+  // 2순위: 수동 STOCK_SECTOR_MAP (코드 또는 이름)
+  return STOCK_SECTOR_MAP.find((e) => e.code === q || e.name === q) ?? null;
 }
 
 /** 섹터에 해당하는 ETF 티커 반환. market → "^KS11" (KOSPI 폴백). */
