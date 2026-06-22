@@ -5,8 +5,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  Bar,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Line,
   LineChart,
   Pie,
@@ -27,6 +29,7 @@ import {
   type BenchmarkApiResponse,
 } from "@/lib/portfolioBacktest";
 import { scoreReadinessEvents } from "@/lib/taxReadinessScoring";
+import { buildPeriodCashflowSeries } from "@/lib/periodCashflow";
 import type { TaxPaymentEvent } from "@/lib/cashflowUpload";
 import TaxReadinessRubricButton from "@/components/TaxReadinessRubricButton";
 import { LoadingView, ErrorView } from "@/components/StateViews";
@@ -233,6 +236,15 @@ export default function IPSDocumentPage() {
     value: allocation.weight,
   })) ?? [];
   const backtestData = pf ? buildPortfolioBacktestSeries(pf.allocations, benchmarkPoints) : [];
+  const periodSeries = buildPeriodCashflowSeries(client.cashFlows);
+  const periodChartData = periodSeries.map((point) => ({
+    ...point,
+    incomeManwon: Math.round(point.incomeWon / 10_000),
+    outflowManwon: Math.round(point.outflowWon / 10_000),
+    savingManwon: Math.round(point.savingWon / 10_000),
+    taxManwon: Math.round(point.taxWon / 10_000),
+    netManwon: Math.round(point.netWon / 10_000),
+  }));
 
   // 담당 PB 이름 (ID → 이름)
   const assignedPb = pbs.find((p) => p.id === client.assignedPbId);
@@ -558,6 +570,64 @@ export default function IPSDocumentPage() {
             </div>
           )}
         </Section>
+
+        {periodSeries.length >= 2 && (
+          <Section title="부록. 기간별 현금흐름 추이">
+            <div className="space-y-3 text-xs">
+              <div className="rounded border border-gray-200 p-3">
+                <p className="mb-2 font-semibold text-gray-800">월별 유입·유출·순현금흐름</p>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={periodChartData} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+                      <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
+                      <XAxis dataKey="period" tick={{ fontSize: 9, fill: "#6b7280" }} />
+                      <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} tickFormatter={(value) => `${Number(value).toLocaleString()}만`} />
+                      <Tooltip formatter={(value: unknown) => `${Number(value).toLocaleString()}만원`} />
+                      <Bar dataKey="incomeManwon" name="유입" fill="#2563eb" />
+                      <Bar dataKey="outflowManwon" name="유출" fill="#ef4444" />
+                      <Bar dataKey="savingManwon" name="저축/투자" fill="#f59e0b" />
+                      <Bar dataKey="taxManwon" name="세금" fill="#8b5cf6" />
+                      <Line type="monotone" dataKey="netManwon" name="순현금흐름" stroke="#0f172a" strokeWidth={2.5} dot={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-300 text-left text-gray-500">
+                    <th className="py-1.5">기간</th>
+                    <th className="py-1.5 text-right">유입</th>
+                    <th className="py-1.5 text-right">유출</th>
+                    <th className="py-1.5 text-right">저축/투자</th>
+                    <th className="py-1.5 text-right">세금</th>
+                    <th className="py-1.5 text-right">순현금흐름</th>
+                    <th className="py-1.5 text-right">누적</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {periodSeries.map((point) => (
+                    <tr key={point.period} className="border-b border-gray-100">
+                      <td className="py-1.5 font-semibold">{point.period}</td>
+                      <td className="py-1.5 text-right">{formatManwon(point.incomeWon)}</td>
+                      <td className="py-1.5 text-right text-red-600">{formatManwon(point.outflowWon)}</td>
+                      <td className="py-1.5 text-right">{formatManwon(point.savingWon)}</td>
+                      <td className="py-1.5 text-right">{formatManwon(point.taxWon)}</td>
+                      <td className={`py-1.5 text-right font-medium ${point.netWon < 0 ? "text-red-600" : "text-gray-900"}`}>
+                        {formatManwon(point.netWon)}
+                      </td>
+                      <td className={`py-1.5 text-right font-medium ${point.cumulativeNetWon < 0 ? "text-red-600" : "text-gray-900"}`}>
+                        {formatManwon(point.cumulativeNetWon)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[10px] text-gray-400">
+                ※ 이 부록은 XLSX의 부록_기간별현금흐름 시트에서 앱 반영(Y)으로 입력된 월별 데이터를 기반으로 표시됩니다.
+              </p>
+            </div>
+          </Section>
+        )}
 
         {/* 디스클레이머 */}
         <div className="mt-6 rounded border border-gray-300 bg-gray-50 p-3 text-[11px] leading-relaxed text-gray-600">

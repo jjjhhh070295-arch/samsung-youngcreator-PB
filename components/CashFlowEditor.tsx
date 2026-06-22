@@ -12,9 +12,11 @@ import {
   type ClientType,
 } from "@/lib/types";
 import { cellToText, parseCashflowRows, parseCsvRows, type CashflowUploadResult } from "@/lib/cashflowUpload";
+import { isPeriodCashFlow } from "@/lib/periodCashflow";
 import { formatKRW, formatKRWShort, parseNumber } from "@/lib/format";
 import { EmptyView } from "./StateViews";
 import TaxReadinessRubricButton from "./TaxReadinessRubricButton";
+import PeriodCashflowAppendix from "./PeriodCashflowAppendix";
 
 interface Props {
   cashFlows: CashFlow[];
@@ -37,7 +39,7 @@ const CASHFLOW_TEMPLATE_LINKS = [
   { type: "corporate" as const, label: "법인-대표 연동 XLSX", href: "/templates/cashflow/vvip-cashflow-linked-corporate-rep.xlsx" },
 ];
 
-const XLSX_UPLOAD_SHEET_ALIASES = ["업로드용_키값", "upload", "keyvalue", "업로드", "키값", "현금흐름표"];
+const XLSX_UPLOAD_SHEET_ALIASES = ["업로드용_키값", "upload", "keyvalue", "업로드", "키값", "현금흐름표", "기간별현금흐름"];
 
 const normalizeSheetName = (value: string) => value.toLowerCase().replace(/[\s_\-]/g, "");
 
@@ -178,21 +180,52 @@ export default function CashFlowEditor({
           ...sheets.filter((sheet) => !aliasSet.some((alias) => normalizeSheetName(sheet.sheet).includes(alias))),
         ];
 
-        let parsed: CashflowUploadResult | null = null;
-        for (const sheet of prioritizedSheets) {
+        const parsedSheets = prioritizedSheets.map((sheet) => {
           const candidateRows = sheet.data.map((row) => row.map(cellToText));
           const candidate = parseCashflowRows(candidateRows, `${file.name} · ${sheet.sheet}`);
-          if (candidate.summary.matchedRows > 0) {
-            parsedRows = candidateRows;
-            parsed = candidate;
-            break;
-          }
+          return { sheetName: sheet.sheet, parsed: candidate };
+        });
+        const primary = parsedSheets.find(
+          (item) => item.parsed.summary.matchedRows > 0 && !normalizeSheetName(item.sheetName).includes("기간별"),
+        );
+        const periodFlows = parsedSheets.flatMap((item) =>
+          item.parsed.cashFlows.filter((flow) => isPeriodCashFlow(flow)),
+        );
+
+        let parsed: CashflowUploadResult | null = null;
+        if (primary) {
+          const existingPeriodIds = new Set(primary.parsed.cashFlows.filter(isPeriodCashFlow).map((flow) => flow.id));
+          const additionalPeriodFlows = periodFlows.filter((flow) => !existingPeriodIds.has(flow.id));
+          parsed = {
+            ...primary.parsed,
+            summary: {
+              ...primary.parsed.summary,
+              matchedRows: primary.parsed.summary.matchedRows + additionalPeriodFlows.length,
+            },
+            cashFlows: [...primary.parsed.cashFlows, ...additionalPeriodFlows],
+          };
+        } else if (periodFlows.length > 0) {
+          parsed = {
+            summary: {
+              fileName: `${file.name} · 부록_기간별현금흐름`,
+              matchedRows: periodFlows.length,
+              monthlyIncomeWon: 0,
+              monthlyOutflowWon: 0,
+              annualTaxWon: 0,
+              currentCashWon: 0,
+              nextTaxNeedWon: 0,
+              liquidityCoveragePct: 999,
+            },
+            cashFlows: periodFlows,
+            taxEvents: [],
+            unmatchedLabels: [],
+          };
         }
 
         if (!parsed) {
           throw new Error(
             `업로드 가능한 표를 찾지 못했습니다. 사용 가능한 시트: ${availableSheets || "없음"}. ` +
-              "권장 시트명은 '업로드용_키값'이며 헤더는 항목, 값(만원), 납부일, 분류입니다.",
+              "권장 시트명은 '업로드용_키값' 또는 '부록_기간별현금흐름'입니다.",
           );
         }
 
@@ -333,8 +366,8 @@ export default function CashFlowEditor({
             <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3">
               <p className="text-[11px] font-bold text-fg">Google Sheets용 XLSX 양식</p>
               <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                내려받은 XLSX를 Google Sheets에서 열어 작성하세요. 앱은 <b>업로드용_키값</b> 시트를 우선 읽고,
-                없으면 현금흐름표 본문에서 항목/금액 구조를 탐색합니다.
+                내려받은 XLSX를 Google Sheets에서 열어 작성하세요. 앱은 <b>업로드용_키값</b>과{" "}
+                <b>부록_기간별현금흐름</b> 시트를 함께 읽어 세금 일정과 월별 추이를 만듭니다.
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {CASHFLOW_TEMPLATE_LINKS.map((template) => {
@@ -566,6 +599,8 @@ export default function CashFlowEditor({
           </table>
         </div>
       )}
+
+      <PeriodCashflowAppendix cashFlows={rows} />
 
       {rows.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

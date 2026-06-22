@@ -4,6 +4,7 @@ import {
   type ReadinessResult,
   type ReadinessStatus,
 } from "./taxReadinessScoring";
+import { extractPeriodCashFlows } from "./periodCashflow";
 
 type Row = string[];
 type TemplateEntry = {
@@ -496,6 +497,7 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
   const cashFlows: CashFlow[] = [];
   const unmatchedLabels: string[] = [];
   const schedule: Partial<Record<ScheduleKey, number | string>> = {};
+  const periodCashFlows = extractPeriodCashFlows(rows, fileName);
   let matchedRows = 0;
   let monthlyIncomeWon = 0;
   let monthlyOutflowWon = 0;
@@ -611,6 +613,10 @@ export function parseCashflowRows(rows: Row[], fileName = "업로드 파일"): C
 
   const templateEntries = extractTemplateEntries(rows, headerIndex >= 0 ? itemColumn : undefined);
   templateEntries.forEach(applyEntry);
+  if (periodCashFlows.length > 0) {
+    cashFlows.push(...periodCashFlows);
+    matchedRows += periodCashFlows.length;
+  }
 
   const eventInputs: TaxPaymentEventInput[] = [];
   const addEvent = (event: TaxPaymentEventInput) => {
