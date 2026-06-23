@@ -73,11 +73,22 @@ for (const [code, { name, memberships }] of Array.from(_allMemberships)) {
   });
 }
 
+// ── 이름 인덱스 (이름 기반 findEntry 지원) ──────────────────────────────
+const _nameMap = new Map<string, AutoEntry>();
+for (const [, entry] of Array.from(_reverseMap)) {
+  _nameMap.set(entry.name, entry);
+}
+
 // ── 공개 API ──────────────────────────────────────────────────────────────
 
 /** 6자리 종목코드 → 자동 매핑 엔트리. 없으면 null. */
 export function getSectorByCode(code: string): AutoEntry | null {
   return _reverseMap.get(code.trim()) ?? null;
+}
+
+/** 종목명(한글) → 자동 매핑 엔트리. 없으면 null. ticker=null 경우의 이름 기반 조회에 사용. */
+export function getSectorByName(name: string): AutoEntry | null {
+  return _nameMap.get(name.trim()) ?? null;
 }
 
 /** 전체 자동 매핑 Map 반환 (읽기 전용). */
