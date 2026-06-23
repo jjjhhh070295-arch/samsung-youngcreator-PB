@@ -10,6 +10,9 @@ import {
   type ResearchSignal,
 } from "./portfolioResearch";
 import { scoreTaxPainPoints, type TaxPainId } from "./taxPainScoring";
+import { FALLBACK_PROXY_RETURN_ESTIMATES as PROXY_FALLBACKS } from "./proxyReturns";
+
+export { FALLBACK_PROXY_RETURN_ESTIMATES, RETURN_ESTIMATE_LABEL } from "./proxyReturns";
 
 function alloc(assetClass: string, weight: number): AssetAllocation {
   return { assetClass, weight };
@@ -145,16 +148,6 @@ export const MODEL_PORTFOLIO_TEMPLATES: Record<PortfolioOption["id"], PortfolioO
 };
 
 /** Fallback proxy estimates, not forward-return targets or performance promises. */
-export const FALLBACK_PROXY_RETURN_ESTIMATES = {
-  etf: 0.12,
-  bond: 0.045,
-  mmf: 0.035,
-  gold: 0.05,
-  dollar: 0.02,
-  raw: 0.036,
-} as const;
-
-export const RETURN_ESTIMATE_LABEL = "시장 proxy 미연결 시 fallback 기반 참고 수익률";
 
 const VOLATILITY_PROXY_ORDER = ["etf", "bond", "mmf", "gold", "dollar", "raw"] as const;
 const VOLATILITY_PROXY_ASSUMPTIONS: Record<(typeof VOLATILITY_PROXY_ORDER)[number], number> = {
@@ -189,12 +182,12 @@ export function calculateSimulatedMetrics(weights: PortfolioOption['weights']) {
   const effectiveBond = normalized.bond + normalized.els * 0.7;
   const effectiveMmf = normalized.mmf + normalized.els * 0.3;
   const expReturn =
-    (normalized.etf * FALLBACK_PROXY_RETURN_ESTIMATES.etf) +
-    (effectiveBond * FALLBACK_PROXY_RETURN_ESTIMATES.bond) +
-    (effectiveMmf * FALLBACK_PROXY_RETURN_ESTIMATES.mmf) +
-    (normalized.gold * FALLBACK_PROXY_RETURN_ESTIMATES.gold) +
-    (normalized.dollar * FALLBACK_PROXY_RETURN_ESTIMATES.dollar) +
-    (normalized.raw * FALLBACK_PROXY_RETURN_ESTIMATES.raw);
+    (normalized.etf * PROXY_FALLBACKS.sp500 / 100) +
+    (effectiveBond * PROXY_FALLBACKS.bond / 100) +
+    (effectiveMmf * PROXY_FALLBACKS.mmf / 100) +
+    (normalized.gold * PROXY_FALLBACKS.gold / 100) +
+    (normalized.dollar * PROXY_FALLBACKS.dollar / 100) +
+    (normalized.raw * PROXY_FALLBACKS.raw / 100);
   const vol = calculateVolatilityEstimate(normalized);
 
   return {
@@ -739,9 +732,9 @@ function estimateMaxAchievableReturn(
   const dollarFloor = clampNumber(weights.dollar, 0, 100 - mmfFloor);
   const investableRiskBudget = Math.max(0, 100 - mmfFloor - dollarFloor);
   const maxReturn =
-    investableRiskBudget * FALLBACK_PROXY_RETURN_ESTIMATES.etf +
-    mmfFloor * FALLBACK_PROXY_RETURN_ESTIMATES.mmf +
-    dollarFloor * FALLBACK_PROXY_RETURN_ESTIMATES.dollar;
+    investableRiskBudget * PROXY_FALLBACKS.sp500 / 100 +
+    mmfFloor * PROXY_FALLBACKS.mmf / 100 +
+    dollarFloor * PROXY_FALLBACKS.dollar / 100;
 
   return Math.round(maxReturn * 10) / 10;
 }

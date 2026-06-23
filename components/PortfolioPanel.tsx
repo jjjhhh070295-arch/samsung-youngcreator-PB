@@ -21,6 +21,7 @@ import {
   type HeldAssets,
   type PortfolioOption,
 } from '@/lib/portfolio';
+import { calculatePortfolioProxyReturn, type ProxyReturnEstimate } from '@/lib/proxyReturns';
 import { supabase } from '@/lib/supabase';
 import {
   FALLBACK_MARKET_RESEARCH,
@@ -52,6 +53,7 @@ interface BenchmarkApiPoint {
   sp500?: number | null;
   kospi?: number | null;
   usTreasury10y?: number | null;
+  mmf?: number | null;
   bond?: number | null;
   gold?: number | null;
   dollar?: number | null;
@@ -64,6 +66,7 @@ interface BenchmarkApiResponse {
   fallback?: boolean;
   updatedAt?: string;
   points?: BenchmarkApiPoint[];
+  proxyReturns?: ProxyReturnEstimate[];
 }
 
 type BenchmarkChartPoint = BenchmarkApiPoint & { portfolio: number; blendedBenchmark: number };
@@ -367,15 +370,20 @@ function buildSimplifiedBenchmarkChartData(
     0,
   );
   const domesticEquityWeight = Math.max(0, weights.etf - overseasEquityWeight);
-  // MMF, bonds, and simplified alternative/currency positions use the stable US Treasury proxy.
-  const stableWeight = weights.bond + weights.mmf + weights.gold + weights.dollar + weights.raw;
-
   return sourcePoints.map((point, index) => {
     const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
+    const mmf = finiteNumber(point.mmf, fixedIncomeProxy(index, sourcePoints.length, 3.0));
+    const gold = finiteNumber(point.gold, fixedIncomeProxy(index, sourcePoints.length, 4.0));
+    const dollar = finiteNumber(point.dollar, fixedIncomeProxy(index, sourcePoints.length, 2.3));
+    const commodity = finiteNumber(point.commodity, fixedIncomeProxy(index, sourcePoints.length, 3.6));
     const blendedBenchmark =
       (overseasEquityWeight / totalWeight) * finiteNumber(point.sp500) +
       (domesticEquityWeight / totalWeight) * finiteNumber(point.kospi, finiteNumber(point.sp500)) +
-      (stableWeight / totalWeight) * usTreasury10y;
+      (weights.bond / totalWeight) * usTreasury10y +
+      (weights.mmf / totalWeight) * mmf +
+      (weights.gold / totalWeight) * gold +
+      (weights.dollar / totalWeight) * dollar +
+      (weights.raw / totalWeight) * commodity;
     return {
       ...point,
       sp500: roundPercent(finiteNumber(point.sp500)),
@@ -886,6 +894,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [isSuitabilityOpen, setIsSuitabilityOpen] = useState(false);
   const [hasManualEdit, setHasManualEdit] = useState(false);
   const [benchmarkPoints, setBenchmarkPoints] = useState<BenchmarkApiPoint[]>(FALLBACK_BENCHMARK_POINTS);
+  const [proxyReturns, setProxyReturns] = useState<ProxyReturnEstimate[]>([]);
   const [benchmarkSource, setBenchmarkSource] = useState('로컬 예비 데이터');
   const [benchmarkFallback, setBenchmarkFallback] = useState(true);
   const [benchmarkUpdatedAt, setBenchmarkUpdatedAt] = useState<string | undefined>();
@@ -1056,6 +1065,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
         if (Array.isArray(data.points) && data.points.length > 0) {
           setBenchmarkPoints(data.points);
+          setProxyReturns(Array.isArray(data.proxyReturns) ? data.proxyReturns : []);
           setBenchmarkSource(data.source ?? 'Naver Finance market API');
           setBenchmarkFallback(Boolean(data.fallback));
           setBenchmarkUpdatedAt(data.updatedAt);
@@ -1066,6 +1076,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       } catch {
         if (!cancelled) {
           setBenchmarkPoints(FALLBACK_BENCHMARK_POINTS);
+          setProxyReturns([]);
           setBenchmarkSource('로컬 예비 데이터');
           setBenchmarkFallback(true);
           setBenchmarkUpdatedAt(undefined);
@@ -1153,15 +1164,23 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           benchmarkTargetReturn,
           optionFeasibility,
         );
+        const optionHoldings = buildDetailedHoldings(option.weights, model.preferenceProfile, option.id);
+        const proxyExpectedReturn = proxyReturns.length > 0
+          ? calculatePortfolioProxyReturn(
+              option.weights,
+              proxyReturns,
+              optionHoldings.filter((holding) => holding.bucket === 'etf').map((holding) => ({ name: holding.name, weight: holding.weight })),
+            ).annualizedReturnPct
+          : optionMetrics.expectedReturn;
         return {
           ...option,
-          expectedReturn: optionMetrics.expectedReturn,
+          expectedReturn: proxyExpectedReturn,
           volatility: optionMetrics.volatility,
           mdd: optionMetrics.mdd,
           taxReturn: optionMetrics.taxReturn,
         };
       }),
-    [benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, portfolioOptions],
+    [benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, portfolioOptions, proxyReturns],
   );
   const selectedFeasibility = useMemo(
     () =>
@@ -1190,6 +1209,20 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     () => buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase),
     [adjustedWeights, model.preferenceProfile, selectedBase],
   );
+  const proxyReturnSummary = useMemo(
+    () => proxyReturns.length > 0
+      ? calculatePortfolioProxyReturn(
+          adjustedWeights,
+          proxyReturns,
+          selectedDetailedHoldings.filter((holding) => holding.bucket === 'etf').map((holding) => ({ name: holding.name, weight: holding.weight })),
+        )
+      : null,
+    [adjustedWeights, proxyReturns, selectedDetailedHoldings],
+  );
+  const displayedExpectedReturn = proxyReturnSummary?.annualizedReturnPct ?? metrics.expectedReturn;
+  const returnEstimateLabel = !proxyReturnSummary || proxyReturnSummary.fallbackUsed
+    ? '일부 자산군은 시장 데이터 미연결로 fallback 추정치를 사용했습니다.'
+    : RETURN_ESTIMATE_LABEL;
   const detailBuckets = useMemo(
     () =>
       (Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
@@ -1253,7 +1286,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       id: selectedBase,
       label: selectedOption.name,
       allocations,
-      expectedReturn: metrics.expectedReturn,
+      expectedReturn: displayedExpectedReturn,
       expectedRisk: metrics.volatility,
       taxNote: model.rationale.tax,
       rationale: [
@@ -1269,6 +1302,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     adjustedWeights,
     selectedDetailedHoldings,
     metrics,
+    displayedExpectedReturn,
     model.rationale,
     onSelectionChange,
     selectedBase,
@@ -1442,9 +1476,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 	                  예상 수익률{!selectedFeasibility.feasible ? ' (비중 기반)' : ''}
 	                </span>
 	                <span className={`mt-0.5 block text-xl font-black ${selectedFeasibility.feasible ? 'text-emerald-400' : 'text-amber-300'}`}>
-	                  {metrics.expectedReturn}%
+	                  {displayedExpectedReturn}%
 	                </span>
-	                <span className="mt-1 block text-[9px] leading-relaxed text-slate-500">{RETURN_ESTIMATE_LABEL}</span>
+	                <span className="mt-1 block text-[9px] leading-relaxed text-slate-500">{returnEstimateLabel}</span>
 	                {!selectedFeasibility.feasible && (
 	                  <span className="mt-1 block text-[9px] font-bold text-rose-200">
 	                    요구 {selectedFeasibility.requestedTargetReturn ?? '-'}% 미반영
@@ -1467,6 +1501,19 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 <span className="mt-0.5 block text-xl font-black text-rose-400">{metrics.mdd}%</span>
 	              </div>
 	            </div>
+	            {proxyReturnSummary && (
+	              <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/40 p-3 text-[10px] text-slate-300">
+	                <p className="font-bold text-slate-100">최근 5년 시장 proxy 연율화 참고 수익률 구성</p>
+	                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+	                  {proxyReturnSummary.estimates.map((estimate) => (
+	                    <span key={estimate.key}>
+	                      {estimate.label} · {estimate.proxy} · {estimate.annualizedReturnPct.toFixed(1)}%
+	                      {estimate.fallback ? ' · fallback' : ` · ${estimate.usedYears.toFixed(1)}년`}
+	                    </span>
+	                  ))}
+	                </div>
+	              </div>
+	            )}
 	            {!selectedFeasibility.feasible && (
 	              <div className="rounded-lg border border-rose-400/70 bg-rose-950/60 p-3 text-xs leading-relaxed text-rose-50">
 	                <p className="font-black text-white">PB 세부 커스텀 조정 필요</p>

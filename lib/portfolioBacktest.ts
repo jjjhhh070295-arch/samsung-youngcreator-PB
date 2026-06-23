@@ -1,4 +1,5 @@
 import type { AssetAllocation } from "./types";
+import type { ProxyReturnEstimate } from "./proxyReturns";
 
 export interface BenchmarkApiPoint {
   date: string;
@@ -6,6 +7,7 @@ export interface BenchmarkApiPoint {
   sp500?: number | null;
   kospi?: number | null;
   usTreasury10y?: number | null;
+  mmf?: number | null;
   bond?: number | null;
   gold?: number | null;
   dollar?: number | null;
@@ -18,6 +20,7 @@ export interface BenchmarkApiResponse {
   fallback?: boolean;
   updatedAt?: string;
   points?: BenchmarkApiPoint[];
+  proxyReturns?: ProxyReturnEstimate[];
 }
 
 export type PortfolioBacktestPoint = BenchmarkApiPoint & {

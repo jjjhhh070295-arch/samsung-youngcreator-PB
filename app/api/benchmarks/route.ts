@@ -1,27 +1,36 @@
 import { NextResponse } from "next/server";
+import { annualizedReturnFromPrices, fallbackProxyEstimate, type ProxyAssetKey, type ProxyReturnEstimate } from "@/lib/proxyReturns";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type BenchmarkKey = "sp500" | "kospi" | "usTreasury10y";
+type BenchmarkKey = "sp500" | "kospi" | "usTreasury10y" | "mmf" | "gold" | "dollar" | "commodity";
 
 interface Point { date: string; label: string; value: number; }
-interface BenchmarkSeries { key: BenchmarkKey; label: string; symbol: string; source: string; asOf: string; points: Point[]; }
-interface BenchmarkDefinition { key: BenchmarkKey; label: string; symbol: string; provider: "naver" | "yahoo"; }
+interface BenchmarkSeries { key: BenchmarkKey; label: string; symbol: string; source: string; asOf: string; points: Point[]; proxyEstimate: ProxyReturnEstimate; }
+interface BenchmarkDefinition { key: BenchmarkKey; proxyKey: ProxyAssetKey; label: string; symbol: string; provider: "naver" | "yahoo"; }
 interface MarketRow { timestamp: number; close: number; localDate: string; }
 
 const LOOKBACK_MONTHS = 13;
 
 const BENCHMARKS: BenchmarkDefinition[] = [
-  { key: "sp500", label: "S&P500", symbol: ".INX", provider: "naver" },
-  { key: "kospi", label: "KOSPI", symbol: "KOSPI", provider: "naver" },
-  { key: "usTreasury10y", label: "미국 7-10년국채 ETF (IEF)", symbol: "IEF", provider: "yahoo" },
+  { key: "sp500", proxyKey: "sp500", label: "S&P500", symbol: "^GSPC", provider: "yahoo" },
+  { key: "kospi", proxyKey: "kospi", label: "KOSPI", symbol: "^KS11", provider: "yahoo" },
+  { key: "usTreasury10y", proxyKey: "bond", label: "미국 7-10년국채 ETF (IEF)", symbol: "IEF", provider: "yahoo" },
+  { key: "mmf", proxyKey: "mmf", label: "단기국채 ETF (SHY)", symbol: "SHY", provider: "yahoo" },
+  { key: "gold", proxyKey: "gold", label: "금 ETF (GLD)", symbol: "GLD", provider: "yahoo" },
+  { key: "dollar", proxyKey: "dollar", label: "원/달러 환율", symbol: "KRW=X", provider: "yahoo" },
+  { key: "commodity", proxyKey: "raw", label: "원자재 ETF (DBC)", symbol: "DBC", provider: "yahoo" },
 ];
 
 const FALLBACK_VALUES: Record<BenchmarkKey, number[]> = {
   sp500: [0, -1.1, -0.2, 2.1, 3.7, 1.9, 5.2, 4.3, 7.1, 6.4, 8.8, 7.6, 9.2],
   kospi: [0, -2.0, 1.8, 0.9, 4.4, 3.1, 6.8, 5.3, 9.5, 7.7, 11.1, 9.4, 6.4],
   usTreasury10y: [0, 0.2, -0.3, 0.1, 0.8, 0.4, 1.1, 1.0, 1.7, 1.4, 2.0, 1.8, 2.2],
+  mmf: [0, 0.2, 0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4],
+  gold: [0, 1.6, 0.7, 3.9, 5.4, 4.8, 7.2, 6.1, 10.4, 9.2, 12.7, 10.8, 11.6],
+  dollar: [0, -0.4, 0.8, 1.1, -0.2, 1.7, 1.2, 2.4, 1.6, 2.9, 2, 1.3, 1.8],
+  commodity: [0, -1.7, -0.6, 1.5, 0.2, 2.8, 1.9, 4.1, 3.2, 5.6, 4.3, 3.8, 4.9],
 };
 
 function monthLabel(localDate: string, index: number, total: number) {
@@ -41,6 +50,7 @@ function fallbackFor(definition: BenchmarkDefinition): BenchmarkSeries {
       label: index === values.length - 1 ? "현재" : `${values.length - 1 - index}M 전`,
       value,
     })),
+    proxyEstimate: fallbackProxyEstimate(definition.proxyKey, definition.label, definition.symbol),
   };
 }
 
@@ -133,14 +143,18 @@ async function fetchNaverRows(symbol: string): Promise<MarketRow[]> {
 }
 
 async function fetchYahooRows(symbol: string): Promise<MarketRow[]> {
-  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`, {
+  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5y`, {
     cache: "no-store",
     headers: { "User-Agent": "Mozilla/5.0" },
   });
   if (!response.ok) throw new Error(`${symbol} ${response.status}`);
   const result = (await response.json())?.chart?.result?.[0];
   const timestamps = Array.isArray(result?.timestamp) ? result.timestamp : [];
-  const closes = Array.isArray(result?.indicators?.quote?.[0]?.close) ? result.indicators.quote[0].close : [];
+  const closes = Array.isArray(result?.indicators?.adjclose?.[0]?.adjclose)
+    ? result.indicators.adjclose[0].adjclose
+    : Array.isArray(result?.indicators?.quote?.[0]?.close)
+      ? result.indicators.quote[0].close
+      : [];
   const rows = timestamps
     .map((timestamp: unknown, index: number) => {
       const ts = Number(timestamp);
@@ -172,6 +186,11 @@ async function fetchBenchmark(definition: BenchmarkDefinition): Promise<Benchmar
     source: "Naver Finance / Yahoo Finance",
     asOf: points.at(-1)?.date ?? "",
     points,
+    proxyEstimate: (() => {
+      const annualized = annualizedReturnFromPrices(rows);
+      if (!annualized) throw new Error(`${definition.symbol} has insufficient annualization history`);
+      return { key: definition.proxyKey, label: definition.label, proxy: definition.symbol, source: "Yahoo Finance adjusted close", fallback: false, ...annualized };
+    })(),
   };
 }
 
@@ -183,7 +202,7 @@ function mergeSeries(series: BenchmarkSeries[]) {
   const sortedMonths = Array.from(monthKeys).sort().slice(-LOOKBACK_MONTHS);
 
   return sortedMonths.map((month, index) => {
-    const row: { date: string; label: string; sp500?: number; kospi?: number; usTreasury10y?: number } = {
+    const row: { date: string; label: string; sp500?: number; kospi?: number; usTreasury10y?: number; mmf?: number; gold?: number; dollar?: number; commodity?: number } = {
       date: month,
       label: `${Number(month.slice(5, 7))}월`,
     };
@@ -216,6 +235,7 @@ export async function GET() {
     errors,
     updatedAt: new Date().toISOString(),
     series,
+    proxyReturns: series.map((item) => item.proxyEstimate),
     points: mergeSeries(series),
   });
 }
