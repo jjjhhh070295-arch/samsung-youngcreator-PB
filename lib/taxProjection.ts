@@ -1,6 +1,12 @@
 import type { CashFlow, Client } from "@/lib/types";
 import type { PortfolioOption } from "@/lib/portfolio";
 import {
+  summarizeCashflowsForTax,
+  type CashflowTaxSummary,
+  type ScheduledTaxBucket,
+  type TaxDataSource,
+} from "@/lib/cashflowTaxAggregation";
+import {
   ASSET_PRETAX_RETURN_PCT,
   DEFAULT_FEE_RATE_PCT,
   DEFAULT_HORIZON_YEARS,
@@ -27,6 +33,30 @@ export interface TaxProfile {
   corporateTaxRatePct?: number;
 }
 
+export interface TaxProfileSourceMeta<T = number | boolean | undefined> {
+  value: T;
+  source: TaxDataSource;
+  note: string;
+}
+
+export interface MergedTaxProfile {
+  profile: TaxProfile;
+  sources: {
+    annualFinancialIncomeWon: TaxProfileSourceMeta<number>;
+    marginalTaxRatePct: TaxProfileSourceMeta<number>;
+    domesticEquityPct: TaxProfileSourceMeta<number>;
+    overseasEquityPct: TaxProfileSourceMeta<number>;
+    pensionAccountPct: TaxProfileSourceMeta<number>;
+    isLargeShareholder: TaxProfileSourceMeta<boolean>;
+    feeRatePct: TaxProfileSourceMeta<number>;
+    isCorporate: TaxProfileSourceMeta<boolean>;
+    corporateTaxRatePct: TaxProfileSourceMeta<number | undefined>;
+  };
+  cashflowSummary: CashflowTaxSummary;
+  assumptions: string[];
+  warnings: string[];
+}
+
 export interface TaxProjectionInput {
   principalWon: number;
   horizonYears: number;
@@ -34,7 +64,16 @@ export interface TaxProjectionInput {
   expectedReturnPct: number;
   taxProfile: TaxProfile;
   cashFlows: CashFlow[];
+  cashflowTaxSummary?: CashflowTaxSummary;
   label?: string;
+}
+
+export interface TaxProjectionTaxSource {
+  item: string;
+  source: TaxDataSource | "estimated";
+  amountWon: number;
+  note: string;
+  ignoredAmountWon?: number;
 }
 
 export interface TaxProjectionResult {
@@ -57,6 +96,8 @@ export interface TaxProjectionResult {
   breakdownByAsset: Array<{ asset: string; grossWon: number; taxWon: number }>;
   assumptions: string[];
   warnings: string[];
+  taxSources: TaxProjectionTaxSource[];
+  cashflowTaxSummary: CashflowTaxSummary;
 }
 
 export interface TaxProjectionComparison {
@@ -87,8 +128,6 @@ const ASSET_LABELS: Record<keyof PortfolioOption["weights"], string> = {
   raw: "원자재",
 };
 
-const TAX_FLOW_PATTERN = /세|증여|상속|양도|법인세|종부|재산|tax|inheritance|gift/i;
-
 function roundWon(value: number) {
   return Math.round(Number.isFinite(value) ? value : 0);
 }
@@ -115,24 +154,6 @@ function normalizeWeights(weights: PortfolioOption["weights"]): PortfolioOption[
   return Object.fromEntries(
     Object.entries(positive).map(([key, value]) => [key, (value / total) * 100]),
   ) as PortfolioOption["weights"];
-}
-
-function scheduledTaxWon(cashFlows: CashFlow[], horizonYears: number) {
-  const now = new Date();
-  const horizonEnd = new Date(now);
-  horizonEnd.setMonth(horizonEnd.getMonth() + Math.max(1, horizonYears) * 12);
-
-  return cashFlows
-    .filter((flow) => flow.amount < 0)
-    .filter((flow) => TAX_FLOW_PATTERN.test(`${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""}`))
-    .filter((flow) => {
-      if (!flow.date) return true;
-      const normalized = flow.date.length === 7 ? `${flow.date}-01` : flow.date;
-      const flowDate = new Date(normalized);
-      if (Number.isNaN(flowDate.getTime())) return true;
-      return flowDate >= now && flowDate <= horizonEnd;
-    })
-    .reduce((sum, flow) => sum + Math.abs(flow.amount), 0);
 }
 
 function financialIncomeExtraTax(projectedFinancialIncomeWon: number, profile: TaxProfile, horizonYears: number) {
@@ -168,10 +189,20 @@ function applyProportionalDiscount(
   };
 }
 
+const SCHEDULED_TAX_BUCKET_LABELS: Record<ScheduledTaxBucket, string> = {
+  gift: "증여세",
+  inheritance: "상속세",
+  capitalGain: "양도세",
+  corporate: "법인세",
+  property: "재산/종부세",
+  other: "기타 세금",
+};
+
 export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
   const label = input.label ?? "세후 추정";
   const principalWon = Math.max(0, input.principalWon);
   const horizonYears = Math.max(1, input.horizonYears || DEFAULT_HORIZON_YEARS);
+  const cashflowSummary = input.cashflowTaxSummary ?? summarizeCashflowsForTax(input.cashFlows, horizonYears);
   const weights = normalizeWeights(input.weights);
   const expectedReturnPct = Math.max(0, input.expectedReturnPct);
   const profile = input.taxProfile;
@@ -225,18 +256,30 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       : DOMESTIC_EQUITY_CAPITAL_GAIN_TAX_RATE_PCT;
   let interestTaxWon = interestIncomeWon * (WITHHOLDING_TAX_RATE_PCT / 100);
   let dividendTaxWon = dividendIncomeWon * (WITHHOLDING_TAX_RATE_PCT / 100);
-  let capitalGainTaxWon =
+  const estimatedCapitalGainTaxWon =
     domesticCapitalGainWon * (domesticCapitalRate / 100) +
     overseasCapitalGainWon * (OVERSEAS_EQUITY_CAPITAL_GAIN_TAX_RATE_PCT / 100) +
     otherCapitalGainWon * (OVERSEAS_EQUITY_CAPITAL_GAIN_TAX_RATE_PCT / 100);
-  let comprehensiveTaxWon = financialIncomeExtraTax(interestIncomeWon + dividendIncomeWon, profile, horizonYears);
+  const hasScheduledCapitalGainTax = cashflowSummary.scheduledTaxes.byBucket.capitalGain > 0;
+  const hasScheduledCorporateTax = cashflowSummary.scheduledTaxes.byBucket.corporate > 0;
+  let capitalGainTaxWon = hasScheduledCapitalGainTax ? 0 : estimatedCapitalGainTaxWon;
+  let comprehensiveTaxWon = profile.isCorporate
+    ? 0
+    : financialIncomeExtraTax(interestIncomeWon + dividendIncomeWon, profile, horizonYears);
+  let estimatedCorporateOverlayWon = 0;
 
   const grossReturnWon = interestIncomeWon + dividendIncomeWon + domesticCapitalGainWon + overseasCapitalGainWon + otherCapitalGainWon;
-  if (profile.isCorporate) {
+  if (profile.isCorporate && !hasScheduledCorporateTax) {
     const corporateRate = profile.corporateTaxRatePct ?? corporateTaxRateForTaxableIncome(grossReturnWon);
     const corporateTaxWon = grossReturnWon * (corporateRate / 100);
     const bucketTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon;
-    comprehensiveTaxWon = Math.max(comprehensiveTaxWon, corporateTaxWon - bucketTaxWon);
+    estimatedCorporateOverlayWon = Math.max(0, corporateTaxWon - bucketTaxWon);
+    comprehensiveTaxWon = estimatedCorporateOverlayWon;
+  } else if (profile.isCorporate && hasScheduledCorporateTax) {
+    const corporateRate = profile.corporateTaxRatePct ?? corporateTaxRateForTaxableIncome(grossReturnWon);
+    const corporateTaxWon = grossReturnWon * (corporateRate / 100);
+    const bucketTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon;
+    estimatedCorporateOverlayWon = Math.max(0, corporateTaxWon - bucketTaxWon);
   }
 
   const discounted = applyProportionalDiscount(
@@ -262,17 +305,72 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       capitalGainTaxWon * capitalShare;
   }
 
-  const scheduledTax = scheduledTaxWon(input.cashFlows, horizonYears);
+  const scheduledTax = cashflowSummary.scheduledTaxes.totalTaxWon;
   const feesWon = principalWon * (feeRatePct / 100) * horizonYears;
   const totalTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon + scheduledTax;
   const netEndingWon = principalWon + grossReturnWon - totalTaxWon - feesWon;
   const investmentTaxesWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon;
+  const scheduledBucketText = Object.entries(cashflowSummary.scheduledTaxes.byBucket)
+    .filter(([, amount]) => amount > 0)
+    .map(([bucket, amount]) => `${SCHEDULED_TAX_BUCKET_LABELS[bucket as ScheduledTaxBucket]} ${roundWon(amount).toLocaleString("ko-KR")}원`)
+    .join(", ");
 
   const warnings = [
     "상담용 추정이며 세무 확정·신고 금액이 아닙니다.",
-    ...(scheduledTax > 0 ? ["현금흐름의 세금 일정은 투자성과 세금과 별도로 기말자산에서 차감했습니다."] : []),
+    ...(scheduledTax > 0 ? [`현금흐름 세금 일정(${scheduledBucketText})을 1차 데이터로 기말자산에서 차감했습니다.`] : []),
+    ...(hasScheduledCapitalGainTax
+      ? ["현금흐름에 양도세 일정이 있어 포트폴리오 운용 양도세 추정은 중복 차감하지 않았습니다."]
+      : []),
+    ...(profile.isCorporate && hasScheduledCorporateTax
+      ? ["현금흐름에 법인세 일정이 있어 운용수익 법인세 오버레이는 중복 차감하지 않았습니다."]
+      : []),
+    ...(cashflowSummary.scheduledTaxes.ignoredDuplicates.length > 0
+      ? [`현금흐름 중복 세금 일정 ${cashflowSummary.scheduledTaxes.ignoredDuplicates.length}건은 제외했습니다.`]
+      : []),
     ...(profile.isLargeShareholder ? ["대주주 플래그가 켜져 국내주식 양도세율을 높게 적용했습니다."] : []),
-    ...(profile.isCorporate ? ["법인 고객은 법인세 간이세율을 종합/법인세 항목에 반영했습니다."] : []),
+    ...(profile.isCorporate && !hasScheduledCorporateTax ? ["법인 고객은 법인세 간이세율을 종합/법인세 항목에 반영했습니다."] : []),
+  ];
+  const taxSources: TaxProjectionTaxSource[] = [
+    {
+      item: "이자세",
+      source: "estimated",
+      amountWon: roundWon(interestTaxWon),
+      note: "포트폴리오 MMF/RP·채권 등 운용수익을 자산 비중으로 추정했습니다.",
+    },
+    {
+      item: "배당세",
+      source: "estimated",
+      amountWon: roundWon(dividendTaxWon),
+      note: "주식/ETF 수익 중 배당 30% 가정에 원천징수율을 적용했습니다.",
+    },
+    {
+      item: "양도세",
+      source: hasScheduledCapitalGainTax ? "ignored" : "estimated",
+      amountWon: roundWon(capitalGainTaxWon),
+      ignoredAmountWon: hasScheduledCapitalGainTax ? roundWon(estimatedCapitalGainTaxWon) : undefined,
+      note: hasScheduledCapitalGainTax
+        ? "현금흐름에 양도세 납부 일정이 있어 운용 추정 양도세는 중복 차감하지 않았습니다."
+        : "국내/해외 ETF·금·달러·원자재 차익을 자산 비중으로 추정했습니다.",
+    },
+    {
+      item: profile.isCorporate ? "법인세 오버레이" : "금융소득종합과세",
+      source: profile.isCorporate && hasScheduledCorporateTax ? "ignored" : "estimated",
+      amountWon: roundWon(comprehensiveTaxWon),
+      ignoredAmountWon: profile.isCorporate && hasScheduledCorporateTax ? roundWon(estimatedCorporateOverlayWon) : undefined,
+      note: profile.isCorporate && hasScheduledCorporateTax
+        ? "현금흐름 법인세가 1차 데이터이므로 운용수익 법인세 오버레이를 차감하지 않았습니다."
+        : profile.isCorporate
+          ? "법인세율 구간을 운용수익에 간이 적용했습니다."
+          : "기존 금융소득과 신규 이자·배당의 2,000만원 초과분만 추가 과세로 추정했습니다.",
+    },
+    {
+      item: "일정 세금",
+      source: scheduledTax > 0 ? "cashflow" : "estimated",
+      amountWon: roundWon(scheduledTax),
+      note: scheduledTax > 0
+        ? "증여·상속·양도·법인세 등 현금흐름에 입력된 납부 일정을 그대로 반영했습니다."
+        : "현금흐름에 별도 일정 세금이 없습니다.",
+    },
   ];
 
   return {
@@ -297,10 +395,13 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       .map(([asset, item]) => ({ asset: ASSET_LABELS[asset], grossWon: roundWon(item.grossWon), taxWon: roundWon(item.taxWon) })),
     assumptions: [
       ...TAX_PROJECTION_ASSUMPTIONS,
+      ...cashflowSummary.sources,
       `ETF 차익 국내 ${roundPct(domesticEquityRatio * 100)}% / 해외 ${roundPct(overseasEquityRatio * 100)}%`,
       `수익률은 현재 포트폴리오 비중 기반 기대수익률 ${expectedReturnPct}%를 자산군별 세전 수익으로 분해했습니다.`,
     ],
     warnings,
+    taxSources,
+    cashflowTaxSummary: cashflowSummary,
   };
 }
 
@@ -336,7 +437,7 @@ export function compareTaxProjections(
   };
 }
 
-export function inferTaxProfile(client: Client): TaxProfile {
+function inferHeuristicTaxProfile(client: Client): TaxProfile {
   const fullText = [
     client.ips.tax.value,
     client.ips.tax.notes,
@@ -374,26 +475,160 @@ export function inferTaxProfile(client: Client): TaxProfile {
   };
 }
 
+function sourceMeta<T>(value: T, source: TaxDataSource, note: string): TaxProfileSourceMeta<T> {
+  return { value, source, note };
+}
+
+function hasManualValue<T>(value: T | undefined | null): value is T {
+  return value !== undefined && value !== null;
+}
+
+export function mergeTaxProfile(
+  client: Client,
+  summary: CashflowTaxSummary = summarizeCashflowsForTax(client.cashFlows, DEFAULT_HORIZON_YEARS),
+  storedProfile: TaxProfile = {},
+): MergedTaxProfile {
+  const inferred = inferHeuristicTaxProfile(client);
+  const cashflowFinancialIncomeWon = summary.annualInterestIncomeWon + summary.annualDividendIncomeWon;
+  const annualFinancialIncomeWon = hasManualValue(storedProfile.annualFinancialIncomeWon)
+    ? storedProfile.annualFinancialIncomeWon
+    : cashflowFinancialIncomeWon > 0
+      ? cashflowFinancialIncomeWon
+      : inferred.annualFinancialIncomeWon;
+  const annualFinancialIncomeSource: TaxDataSource = hasManualValue(storedProfile.annualFinancialIncomeWon)
+    ? "manual"
+    : cashflowFinancialIncomeWon > 0
+      ? "cashflow"
+      : "inferred";
+
+  const isCorporate = hasManualValue(storedProfile.isCorporate)
+    ? storedProfile.isCorporate
+    : client.clientType === "corporate" || summary.entityHints.isCorporateLikely;
+  const isCorporateSource: TaxDataSource = hasManualValue(storedProfile.isCorporate)
+    ? "manual"
+    : summary.entityHints.isCorporateLikely
+      ? "cashflow"
+      : "inferred";
+
+  const profile: TaxProfile = {
+    annualFinancialIncomeWon,
+    marginalTaxRatePct: storedProfile.marginalTaxRatePct ?? inferred.marginalTaxRatePct,
+    domesticEquityPct: storedProfile.domesticEquityPct ?? inferred.domesticEquityPct,
+    overseasEquityPct: storedProfile.overseasEquityPct ?? inferred.overseasEquityPct,
+    avgHoldingMonths: storedProfile.avgHoldingMonths ?? inferred.avgHoldingMonths,
+    pensionAccountPct: storedProfile.pensionAccountPct ?? inferred.pensionAccountPct,
+    isLargeShareholder: storedProfile.isLargeShareholder ?? inferred.isLargeShareholder,
+    feeRatePct: storedProfile.feeRatePct ?? inferred.feeRatePct,
+    isCorporate,
+    corporateTaxRatePct: storedProfile.corporateTaxRatePct ?? (isCorporate ? inferred.corporateTaxRatePct : undefined),
+  };
+
+  const assumptions = [
+    annualFinancialIncomeSource === "cashflow"
+      ? `기존 금융소득은 현금흐름 반복 이자·배당 ${Math.round(cashflowFinancialIncomeWon / 10_000).toLocaleString("ko-KR")}만원을 우선 적용했습니다.`
+      : annualFinancialIncomeSource === "manual"
+        ? "기존 금융소득은 PB 수동 입력값을 우선 적용했습니다."
+        : "기존 금융소득은 현금흐름에 없어 자산규모·상담 텍스트 기반으로 추정했습니다.",
+    isCorporateSource === "cashflow"
+      ? "법인 여부는 법인세 일정 또는 법인 현금흐름 비중으로 보강 판정했습니다."
+      : isCorporateSource === "manual"
+        ? "법인세 적용 여부는 PB 수동 입력값을 우선 적용했습니다."
+        : "법인세 적용 여부는 고객 유형 기반으로 추정했습니다.",
+  ];
+  const warnings = [
+    ...(summary.scheduledTaxes.totalTaxWon > 0
+      ? ["현금흐름 세금 일정이 있으므로 같은 성격의 운용 추정 세금은 중복 차감하지 않습니다."]
+      : []),
+    ...(summary.scheduledTaxes.ignoredDuplicates.length > 0
+      ? [`동일 월·동일 금액 세금 일정 ${summary.scheduledTaxes.ignoredDuplicates.length}건은 중복으로 제외했습니다.`]
+      : []),
+  ];
+
+  return {
+    profile,
+    sources: {
+      annualFinancialIncomeWon: sourceMeta(
+        profile.annualFinancialIncomeWon ?? 0,
+        annualFinancialIncomeSource,
+        annualFinancialIncomeSource === "cashflow"
+          ? "반복 현금흐름 이자·배당 합산"
+          : annualFinancialIncomeSource === "manual"
+            ? "PB 수동 override"
+            : "자산규모·IPS 텍스트 추정",
+      ),
+      marginalTaxRatePct: sourceMeta(
+        profile.marginalTaxRatePct ?? 24,
+        hasManualValue(storedProfile.marginalTaxRatePct) ? "manual" : "inferred",
+        hasManualValue(storedProfile.marginalTaxRatePct) ? "PB 수동 override" : "자산규모 기반 한계세율 추정",
+      ),
+      domesticEquityPct: sourceMeta(
+        profile.domesticEquityPct ?? 40,
+        hasManualValue(storedProfile.domesticEquityPct) ? "manual" : "inferred",
+        hasManualValue(storedProfile.domesticEquityPct) ? "PB 수동 override" : "IPS 텍스트 국내/해외 키워드 추정",
+      ),
+      overseasEquityPct: sourceMeta(
+        profile.overseasEquityPct ?? 60,
+        hasManualValue(storedProfile.overseasEquityPct) ? "manual" : "inferred",
+        hasManualValue(storedProfile.overseasEquityPct) ? "PB 수동 override" : "ETF 내 국내 비중의 보수적 보완값",
+      ),
+      pensionAccountPct: sourceMeta(
+        profile.pensionAccountPct ?? 0,
+        hasManualValue(storedProfile.pensionAccountPct) ? "manual" : "inferred",
+        hasManualValue(storedProfile.pensionAccountPct) ? "PB 수동 override" : "연금·IRP 키워드 기반 추정",
+      ),
+      isLargeShareholder: sourceMeta(
+        Boolean(profile.isLargeShareholder),
+        hasManualValue(storedProfile.isLargeShareholder) ? "manual" : "inferred",
+        hasManualValue(storedProfile.isLargeShareholder) ? "PB 수동 override" : "고객 기본정보·상담 텍스트 추정",
+      ),
+      feeRatePct: sourceMeta(
+        profile.feeRatePct ?? DEFAULT_FEE_RATE_PCT,
+        hasManualValue(storedProfile.feeRatePct) ? "manual" : "inferred",
+        hasManualValue(storedProfile.feeRatePct) ? "PB 수동 override" : "MVP 기본 보수율",
+      ),
+      isCorporate: sourceMeta(
+        Boolean(profile.isCorporate),
+        isCorporateSource,
+        isCorporateSource === "cashflow"
+          ? "법인세 일정 또는 법인 현금흐름 힌트"
+          : isCorporateSource === "manual"
+            ? "PB 수동 override"
+            : "고객 유형 기반 추정",
+      ),
+      corporateTaxRatePct: sourceMeta(
+        profile.corporateTaxRatePct,
+        hasManualValue(storedProfile.corporateTaxRatePct) ? "manual" : "inferred",
+        hasManualValue(storedProfile.corporateTaxRatePct) ? "PB 수동 override" : "법인 과세표준 간이 구간 추정",
+      ),
+    },
+    cashflowSummary: summary,
+    assumptions,
+    warnings,
+  };
+}
+
+export function inferTaxProfile(client: Client): TaxProfile {
+  return mergeTaxProfile(client, summarizeCashflowsForTax(client.cashFlows, DEFAULT_HORIZON_YEARS)).profile;
+}
+
 export function taxProfileQuestions(client: Client): TaxProfileQuestion[] {
-  const profile = inferTaxProfile(client);
+  const summary = summarizeCashflowsForTax(client.cashFlows, DEFAULT_HORIZON_YEARS);
+  const merged = mergeTaxProfile(client, summary);
+  const profile = merged.profile;
   const fullText = [
     client.ips.tax.value,
     client.ips.tax.notes,
     client.ips.unique.value,
     client.consultationNotes,
   ].join(" ");
-  const hasScheduledTax = client.cashFlows.some(
-    (flow) =>
-      flow.amount < 0 &&
-      TAX_FLOW_PATTERN.test(`${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""}`),
-  );
+  const hasScheduledTax = summary.scheduledTaxes.totalTaxWon > 0;
   const questions: TaxProfileQuestion[] = [];
 
   questions.push({
     code: "T-1",
     title: "기존 금융소득 확인",
     question: "올해 이미 발생했거나 예정된 이자·배당 금융소득 합계가 얼마인가요?",
-    reason: `현재 간이 추정값은 ${Math.round((profile.annualFinancialIncomeWon ?? 0) / 10_000).toLocaleString("ko-KR")}만원이며, 2,000만원 초과 시 종합과세 추가분이 달라집니다.`,
+    reason: `현재 값은 ${Math.round((profile.annualFinancialIncomeWon ?? 0) / 10_000).toLocaleString("ko-KR")}만원(${merged.sources.annualFinancialIncomeWon.source === "cashflow" ? "현금흐름" : merged.sources.annualFinancialIncomeWon.source === "manual" ? "수동" : "추정"})이며, 2,000만원 초과 시 종합과세 추가분이 달라집니다.`,
     severity: (profile.annualFinancialIncomeWon ?? 0) >= FINANCIAL_INCOME_COMPREHENSIVE_THRESHOLD_WON ? "상" : "중",
   });
   questions.push({
@@ -422,7 +657,7 @@ export function taxProfileQuestions(client: Client): TaxProfileQuestion[] {
       code: "T-5",
       title: "세금 납부 일정 확정",
       question: "증여세·상속세·양도세·법인세의 납부월과 금액이 확정되었나요?",
-      reason: "현금흐름 세금 일정은 투자성과 세금과 별도로 세후 기말자산에서 차감됩니다.",
+      reason: `현금흐름 세금 일정 ${Math.round(summary.scheduledTaxes.totalTaxWon / 10_000).toLocaleString("ko-KR")}만원을 1차 데이터로 반영하고 중복 세금은 제외합니다.`,
       severity: "상",
     });
   }

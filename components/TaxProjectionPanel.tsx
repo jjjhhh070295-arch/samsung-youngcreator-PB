@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import type { Client } from "@/lib/types";
 import { calculateSimulatedMetrics, type PortfolioOption } from "@/lib/portfolio";
 import { formatKRW } from "@/lib/format";
+import { summarizeCashflowsForTax, type ScheduledTaxBucket, type TaxDataSource } from "@/lib/cashflowTaxAggregation";
 import {
   compareTaxProjections,
-  inferTaxProfile,
+  mergeTaxProfile,
   projectTax,
   taxProfileQuestions,
+  type MergedTaxProfile,
   type TaxProfile,
   type TaxProjectionResult,
 } from "@/lib/taxProjection";
@@ -50,6 +52,40 @@ const ASSET_TONE: Record<WeightKey, string> = {
   dollar: "bg-slate-500",
   raw: "bg-stone-500",
 };
+
+const SOURCE_LABELS: Record<TaxDataSource, string> = {
+  cashflow: "현금흐름",
+  manual: "PB 수동",
+  inferred: "추정",
+  estimated: "운용추정",
+  ignored: "미반영",
+};
+
+const SOURCE_TONE: Record<TaxDataSource, string> = {
+  cashflow: "border-blue-200 bg-blue-50 text-blue-700",
+  manual: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  inferred: "border-slate-200 bg-slate-50 text-slate-700",
+  estimated: "border-amber-200 bg-amber-50 text-amber-700",
+  ignored: "border-rose-200 bg-rose-50 text-rose-700",
+};
+
+const SCHEDULED_TAX_LABELS: Record<ScheduledTaxBucket, string> = {
+  gift: "증여세",
+  inheritance: "상속세",
+  capitalGain: "양도세",
+  corporate: "법인세",
+  property: "재산/종부세",
+  other: "기타 세금",
+};
+
+const SCHEDULED_TAX_BUCKETS: ScheduledTaxBucket[] = [
+  "gift",
+  "inheritance",
+  "capitalGain",
+  "corporate",
+  "property",
+  "other",
+];
 
 function cleanWeights(weights?: PortfolioOption["weights"]): PortfolioOption["weights"] {
   const source = weights ?? ZERO_WEIGHTS;
@@ -166,6 +202,35 @@ function StatCard({ label, value, tone }: { label: string; value: string; tone?:
   );
 }
 
+function SourceBadge({ source }: { source: TaxDataSource }) {
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-black ${SOURCE_TONE[source]}`}>
+      {SOURCE_LABELS[source]}
+    </span>
+  );
+}
+
+function SourceRow({
+  label,
+  value,
+  meta,
+}: {
+  label: string;
+  value: string;
+  meta: { source: TaxDataSource; note: string };
+}) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-[11px] font-bold text-fg-muted">{label}</p>
+        <p className="mt-0.5 text-xs font-black text-fg">{value}</p>
+        <p className="mt-0.5 text-[10px] leading-relaxed text-fg-muted">{meta.note}</p>
+      </div>
+      <SourceBadge source={meta.source} />
+    </div>
+  );
+}
+
 function ProjectionTable({
   result,
   compareTo,
@@ -248,17 +313,26 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
   const normalizedBase = useMemo(() => cleanWeights(baseWeights), [baseWeights]);
   const [adjustedWeights, setAdjustedWeights] = useState<PortfolioOption["weights"]>(normalizedBase);
   const [horizonYears, setHorizonYears] = useState(1);
-  const [taxProfile, setTaxProfile] = useState<TaxProfile>(() => inferTaxProfile(client));
+  const [taxProfileOverrides, setTaxProfileOverrides] = useState<Partial<TaxProfile>>({});
 
   useEffect(() => {
     setAdjustedWeights(normalizedBase);
   }, [normalizedBase]);
 
   useEffect(() => {
-    setTaxProfile(inferTaxProfile(client));
-  }, [client]);
+    setTaxProfileOverrides({});
+  }, [client.id]);
 
   const questions = useMemo(() => taxProfileQuestions(client), [client]);
+  const cashflowTaxSummary = useMemo(
+    () => summarizeCashflowsForTax(client.cashFlows, horizonYears),
+    [client.cashFlows, horizonYears],
+  );
+  const mergedTaxProfile: MergedTaxProfile = useMemo(
+    () => mergeTaxProfile(client, cashflowTaxSummary, taxProfileOverrides),
+    [cashflowTaxSummary, client, taxProfileOverrides],
+  );
+  const taxProfile = mergedTaxProfile.profile;
   const baseMetrics = useMemo(() => calculateSimulatedMetrics(normalizedBase), [normalizedBase]);
   const adjustedMetrics = useMemo(() => calculateSimulatedMetrics(adjustedWeights), [adjustedWeights]);
   const baseProjection = useMemo(
@@ -270,9 +344,10 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
         expectedReturnPct: baseMetrics.expectedReturn,
         taxProfile,
         cashFlows: client.cashFlows,
+        cashflowTaxSummary,
         label: "기준안",
       }),
-    [baseMetrics.expectedReturn, client.cashFlows, horizonYears, normalizedBase, principalWon, taxProfile],
+    [baseMetrics.expectedReturn, cashflowTaxSummary, client.cashFlows, horizonYears, normalizedBase, principalWon, taxProfile],
   );
   const adjustedProjection = useMemo(
     () =>
@@ -283,16 +358,17 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
         expectedReturnPct: adjustedMetrics.expectedReturn,
         taxProfile,
         cashFlows: client.cashFlows,
+        cashflowTaxSummary,
         label: "조정안",
       }),
-    [adjustedMetrics.expectedReturn, adjustedWeights, client.cashFlows, horizonYears, principalWon, taxProfile],
+    [adjustedMetrics.expectedReturn, adjustedWeights, cashflowTaxSummary, client.cashFlows, horizonYears, principalWon, taxProfile],
   );
   const comparison = useMemo(
     () => compareTaxProjections(baseProjection, adjustedProjection),
     [baseProjection, adjustedProjection],
   );
   const narratives = useMemo(() => weightNarratives(normalizedBase, adjustedWeights), [adjustedWeights, normalizedBase]);
-  const profilePatch = (patch: Partial<TaxProfile>) => setTaxProfile((previous) => ({ ...previous, ...patch }));
+  const profilePatch = (patch: Partial<TaxProfile>) => setTaxProfileOverrides((previous) => ({ ...previous, ...patch }));
 
   return (
     <div className="space-y-5">
@@ -383,6 +459,65 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
                 <li key={item} className="rounded-xl border border-border bg-surface-2 p-3">{item}</li>
               ))}
             </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm xl:col-span-5">
+          <div className="mb-3 border-b border-border pb-3">
+            <h3 className="text-sm font-black text-fg">현금흐름 세금 원장</h3>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+              반복 이자·배당과 예정 세금은 현금흐름을 1차 데이터로 집계합니다.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <StatCard label="연 반복 이자" value={formatKRW(cashflowTaxSummary.annualInterestIncomeWon)} tone="text-blue-700" />
+            <StatCard label="연 반복 배당" value={formatKRW(cashflowTaxSummary.annualDividendIncomeWon)} tone="text-blue-700" />
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {SCHEDULED_TAX_BUCKETS.map((bucket) => {
+              const amount = cashflowTaxSummary.scheduledTaxes.byBucket[bucket];
+              return (
+                <div key={bucket} className="flex items-center justify-between rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs">
+                  <span className="font-bold text-fg-muted">{SCHEDULED_TAX_LABELS[bucket]}</span>
+                  <span className={amount > 0 ? "font-black tabular-nums text-rose-600" : "font-bold tabular-nums text-fg-muted"}>
+                    {formatKRW(amount)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-[11px] leading-relaxed text-blue-900">
+            법인 흐름 힌트 {cashflowTaxSummary.entityHints.corporateFlowPct}% · 세금 일정{" "}
+            {cashflowTaxSummary.scheduledTaxes.items.length}건 · 중복 제외{" "}
+            {cashflowTaxSummary.scheduledTaxes.ignoredDuplicates.length}건
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm xl:col-span-7">
+          <div className="mb-3 border-b border-border pb-3">
+            <h3 className="text-sm font-black text-fg">세목별 반영 방식</h3>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+              현금흐름에 이미 있는 세목은 동일 세금이 두 번 차감되지 않도록 운용 추정치를 미반영 처리합니다.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {adjustedProjection.taxSources.map((source) => (
+              <div key={source.item} className="rounded-xl border border-border bg-surface-2 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs font-black text-fg">{source.item}</p>
+                  <SourceBadge source={source.source} />
+                </div>
+                <p className="text-sm font-black tabular-nums text-fg">{formatKRW(source.amountWon)}</p>
+                {source.ignoredAmountWon ? (
+                  <p className="mt-1 text-[11px] font-bold text-rose-700">
+                    중복 방지 미반영 {formatKRW(source.ignoredAmountWon)}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-muted">{source.note}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -496,6 +631,38 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
               />
               법인세 간이 적용
             </label>
+          </div>
+          <div className="mt-4 space-y-2 rounded-xl border border-border bg-surface p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-black text-fg">프로필 데이터 출처</p>
+              <button
+                type="button"
+                onClick={() => setTaxProfileOverrides({})}
+                className="rounded-md border border-border bg-surface-2 px-2 py-1 text-[10px] font-bold text-fg-muted hover:text-fg"
+              >
+                수동값 초기화
+              </button>
+            </div>
+            <SourceRow
+              label="기존 금융소득"
+              value={formatKRW(mergedTaxProfile.sources.annualFinancialIncomeWon.value)}
+              meta={mergedTaxProfile.sources.annualFinancialIncomeWon}
+            />
+            <SourceRow
+              label="한계세율"
+              value={`${mergedTaxProfile.sources.marginalTaxRatePct.value}%`}
+              meta={mergedTaxProfile.sources.marginalTaxRatePct}
+            />
+            <SourceRow
+              label="법인세 적용"
+              value={mergedTaxProfile.sources.isCorporate.value ? "적용" : "미적용"}
+              meta={mergedTaxProfile.sources.isCorporate}
+            />
+            <SourceRow
+              label="수수료·보수"
+              value={`${mergedTaxProfile.sources.feeRatePct.value}%`}
+              meta={mergedTaxProfile.sources.feeRatePct}
+            />
           </div>
         </div>
 
