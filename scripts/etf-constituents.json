@@ -1,6 +1,6 @@
 {
-  "capturedAt": "2026-06-22T05:46:35.419Z",
-  "trdDd": "20260622",
+  "capturedAt": "2026-06-23T17:45:20.989Z",
+  "trdDd": "20260624",
   "note": "KRX MDCSTAT04601(ISIN맵) + MDCSTAT05001(구성종목) 브라우저 세션 캡처. 분기마다 갱신 권장.",
   "etfs": {
     "117460": {
@@ -947,6 +947,150 @@
           "code": "299030",
           "name": "하나기술",
           "weightPct": 0.06
+        }
+      ]
+    },
+    "441540": {
+      "label": "HANARO Fn조선해운",
+      "isin": "KR7441540002",
+      "count": 15,
+      "holdings": [
+        {
+          "code": "042660",
+          "name": "한화오션",
+          "weightPct": 15.58
+        },
+        {
+          "code": "009540",
+          "name": "HD한국조선해양",
+          "weightPct": 15.52
+        },
+        {
+          "code": "011200",
+          "name": "HMM",
+          "weightPct": 15.12
+        },
+        {
+          "code": "010140",
+          "name": "삼성중공업",
+          "weightPct": 15.06
+        },
+        {
+          "code": "329180",
+          "name": "HD현대중공업",
+          "weightPct": 14.66
+        },
+        {
+          "code": "443060",
+          "name": "HD현대마린솔루션",
+          "weightPct": 7.89
+        },
+        {
+          "code": "082740",
+          "name": "한화엔진",
+          "weightPct": 6.05
+        },
+        {
+          "code": "071970",
+          "name": "HD현대마린엔진",
+          "weightPct": 2.83
+        },
+        {
+          "code": "028670",
+          "name": "팬오션",
+          "weightPct": 2.3
+        },
+        {
+          "code": "439260",
+          "name": "대한조선",
+          "weightPct": 2.17
+        },
+        {
+          "code": "077970",
+          "name": "STX엔진",
+          "weightPct": 0.92
+        },
+        {
+          "code": "075580",
+          "name": "세진중공업",
+          "weightPct": 0.59
+        },
+        {
+          "code": "460930",
+          "name": "현대힘스",
+          "weightPct": 0.59
+        },
+        {
+          "code": "005880",
+          "name": "대한해운",
+          "weightPct": 0.53
+        },
+        {
+          "code": "014940",
+          "name": "오리엔탈정공",
+          "weightPct": 0.2
+        }
+      ]
+    },
+    "463250": {
+      "label": "TIGER K방산&우주",
+      "isin": "KR7463250001",
+      "count": 11,
+      "holdings": [
+        {
+          "code": "064350",
+          "name": "현대로템",
+          "weightPct": 24.42
+        },
+        {
+          "code": "079550",
+          "name": "LIG디펜스앤에어로스페이스",
+          "weightPct": 20.98
+        },
+        {
+          "code": "012450",
+          "name": "한화에어로스페이스",
+          "weightPct": 18.87
+        },
+        {
+          "code": "047810",
+          "name": "한국항공우주",
+          "weightPct": 18.13
+        },
+        {
+          "code": "272210",
+          "name": "한화시스템",
+          "weightPct": 12.14
+        },
+        {
+          "code": "103140",
+          "name": "풍산",
+          "weightPct": 2.11
+        },
+        {
+          "code": "099320",
+          "name": "쎄트렉아이",
+          "weightPct": 1.28
+        },
+        {
+          "code": "189300",
+          "name": "인텔리안테크",
+          "weightPct": 1.28
+        },
+        {
+          "code": "214430",
+          "name": "아이쓰리시스템",
+          "weightPct": 0.54
+        },
+        {
+          "code": "211270",
+          "name": "AP위성",
+          "weightPct": 0.15
+        },
+        {
+          "code": "361390",
+          "name": "제노코",
+          "weightPct": 0.1
         }
       ]
     },

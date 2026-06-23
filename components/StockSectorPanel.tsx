@@ -77,6 +77,8 @@ const SECTOR_COLOR: Record<string, string> = {
   it:            'bg-cyan-100 text-cyan-800 border-cyan-200',
   auto:          'bg-rose-100 text-rose-800 border-rose-200',
   healthcare:    'bg-pink-100 text-pink-800 border-pink-200',
+  shipbuilding:  'bg-sky-100 text-sky-800 border-sky-200',
+  defense:       'bg-red-100 text-red-800 border-red-200',
   market:        'bg-gray-100 text-gray-600 border-gray-200',
 };
 
@@ -90,6 +92,8 @@ const SECTOR_ETF: Record<string, { code: string; name: string }> = {
   steel:         { code: '117680', name: 'KODEX 철강' },
   it:            { code: '266360', name: 'KODEX IT' },
   auto:          { code: '091180', name: 'KODEX 자동차' },
+  shipbuilding:  { code: '441540', name: 'HANARO Fn조선해운' },
+  defense:       { code: '463250', name: 'TIGER K방산&우주' },
 };
 
 // 집중도 바 색상
@@ -103,6 +107,8 @@ const SECTOR_BAR: Record<string, string> = {
   it:            'bg-cyan-500',
   auto:          'bg-rose-500',
   healthcare:    'bg-pink-500',
+  shipbuilding:  'bg-sky-500',
+  defense:       'bg-red-500',
   market:        'bg-gray-400',
 };
 

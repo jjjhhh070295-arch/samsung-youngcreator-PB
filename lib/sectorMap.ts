@@ -16,6 +16,8 @@ export type SectorId =
   | "steel"
   | "it"
   | "auto"
+  | "shipbuilding"
+  | "defense"
   | "market"; // 매핑 없는 종목 → KOSPI 폴백
 
 export const SECTOR_LABELS: Record<SectorId, string> = {
@@ -28,6 +30,8 @@ export const SECTOR_LABELS: Record<SectorId, string> = {
   steel:         "철강",
   it:            "IT",
   auto:          "자동차",
+  shipbuilding:  "조선",
+  defense:       "방산",
   market:        "시장 기준(섹터 미특정)",
 };
 
@@ -42,6 +46,8 @@ export const SECTOR_ETF: Record<Exclude<SectorId, "market">, string> = {
   steel:         "117680.KS", // KODEX 철강
   it:            "266360.KS", // KODEX IT
   auto:          "091180.KS", // KODEX 자동차
+  shipbuilding:  "441540.KS", // HANARO Fn조선해운
+  defense:       "463250.KS", // TIGER K방산&우주
 };
 
 export const SECTOR_ETF_NAMES: Record<Exclude<SectorId, "market">, string> = {
@@ -54,6 +60,8 @@ export const SECTOR_ETF_NAMES: Record<Exclude<SectorId, "market">, string> = {
   steel:         "KODEX 철강",
   it:            "KODEX IT",
   auto:          "KODEX 자동차",
+  shipbuilding:  "HANARO Fn조선해운",
+  defense:       "TIGER K방산&우주",
 };
 
 // ── KOSPI 상위 30개 종목 → 섹터 매핑 ─────────────────────────────────────

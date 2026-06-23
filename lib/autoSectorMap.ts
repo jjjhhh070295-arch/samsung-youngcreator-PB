@@ -10,7 +10,8 @@ import etfData from "../scripts/etf-constituents.json";
 // SectorId는 sectorMap.ts에서 가져오면 순환참조 → 여기서 독립 정의
 export type SectorIdCore =
   | "semiconductor" | "battery" | "bio" | "finance"
-  | "energy_chem"  | "healthcare" | "steel" | "it" | "auto";
+  | "energy_chem"  | "healthcare" | "steel" | "it" | "auto"
+  | "shipbuilding" | "defense";
 
 export const ETF_TO_SECTOR: Record<string, SectorIdCore> = {
   "091160": "semiconductor",
@@ -21,6 +22,8 @@ export const ETF_TO_SECTOR: Record<string, SectorIdCore> = {
   "091180": "auto",
   "117460": "energy_chem",
   "117680": "steel",
+  "441540": "shipbuilding",
+  "463250": "defense",
 };
 
 export interface SectorMembership {
