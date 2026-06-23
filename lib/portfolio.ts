@@ -10,7 +10,7 @@ import {
   type ResearchSignal,
 } from "./portfolioResearch";
 import { scoreTaxPainPoints, type TaxPainId } from "./taxPainScoring";
-import { FALLBACK_PROXY_RETURN_ESTIMATES as PROXY_FALLBACKS } from "./proxyReturns";
+import { FALLBACK_PROXY_RETURN_ESTIMATES as PROXY_FALLBACKS, type ProxyReturnEstimate } from "./proxyReturns";
 
 export { FALLBACK_PROXY_RETURN_ESTIMATES, RETURN_ESTIMATE_LABEL } from "./proxyReturns";
 
@@ -176,20 +176,23 @@ export function getVolatilityRanges(volatility: number) {
   return { normalLow: round(volatility * 0.8), normalHigh: round(volatility * 1.25), stressLow: round(volatility * 1.8), stressHigh: round(volatility * 2.65) };
 }
 
-export function calculateSimulatedMetrics(weights: PortfolioOption['weights']) {
+export function calculateSimulatedMetrics(weights: PortfolioOption['weights'], proxyReturns?: ProxyReturnEstimate[]) {
   // 실제 정밀 엔진 대신 MVP용 가중치 기반 근사치 계산 로직
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
-  const normalized = total === 0 ? weights : weights; 
-
+  const normalized = total === 0 ? weights : weights;
+  const rate = (key: keyof typeof PROXY_FALLBACKS): number => {
+    const found = proxyReturns?.find((e) => e.key === key);
+    return (found ? found.annualizedReturnPct : PROXY_FALLBACKS[key]) / 100;
+  };
   const effectiveBond = normalized.bond + normalized.els * 0.7;
   const effectiveMmf = normalized.mmf + normalized.els * 0.3;
   const expReturn =
-    (normalized.etf * PROXY_FALLBACKS.sp500 / 100) +
-    (effectiveBond * PROXY_FALLBACKS.bond / 100) +
-    (effectiveMmf * PROXY_FALLBACKS.mmf / 100) +
-    (normalized.gold * PROXY_FALLBACKS.gold / 100) +
-    (normalized.dollar * PROXY_FALLBACKS.dollar / 100) +
-    (normalized.raw * PROXY_FALLBACKS.raw / 100);
+    (normalized.etf * rate('sp500')) +
+    (effectiveBond * rate('bond')) +
+    (effectiveMmf * rate('mmf')) +
+    (normalized.gold * rate('gold')) +
+    (normalized.dollar * rate('dollar')) +
+    (normalized.raw * rate('raw'));
   const vol = calculateVolatilityEstimate(normalized);
 
   return {
@@ -265,6 +268,7 @@ interface PreferenceFeasibilityOptions {
   investableKrw?: number;
   mmfFloorPct?: number;
   liquidityReasons?: string[];
+  proxyReturns?: ProxyReturnEstimate[];
 }
 
 export interface KodexProduct {
@@ -729,14 +733,19 @@ function liquidityReasonsFor(client: Client, cashflow: CashflowPortfolioSummary,
 function estimateMaxAchievableReturn(
   weights: PortfolioOption["weights"],
   mmfFloorPct: number,
+  proxyReturns?: ProxyReturnEstimate[],
 ): number {
+  const rate = (key: keyof typeof PROXY_FALLBACKS): number => {
+    const found = proxyReturns?.find((e) => e.key === key);
+    return (found ? found.annualizedReturnPct : PROXY_FALLBACKS[key]) / 100;
+  };
   const mmfFloor = clampNumber(mmfFloorPct, 0, 100);
   const dollarFloor = clampNumber(weights.dollar, 0, 100 - mmfFloor);
   const investableRiskBudget = Math.max(0, 100 - mmfFloor - dollarFloor);
   const maxReturn =
-    investableRiskBudget * PROXY_FALLBACKS.sp500 / 100 +
-    mmfFloor * PROXY_FALLBACKS.mmf / 100 +
-    dollarFloor * PROXY_FALLBACKS.dollar / 100;
+    investableRiskBudget * rate('sp500') +
+    mmfFloor * rate('mmf') +
+    dollarFloor * rate('dollar');
 
   return Math.round(maxReturn * 10) / 10;
 }
@@ -774,9 +783,9 @@ export function evaluatePreferenceFeasibility(
   options: PreferenceFeasibilityOptions = {},
 ): PreferenceFeasibilityReport {
   const riskTilt = options.riskTilt ?? 0;
-  const metrics = calculateSimulatedMetrics(weights);
+  const metrics = calculateSimulatedMetrics(weights, options.proxyReturns);
   const mmfFloorPct = Math.round((options.mmfFloorPct ?? weights.mmf) * 10) / 10;
-  const maxAchievableReturn = estimateMaxAchievableReturn(weights, mmfFloorPct);
+  const maxAchievableReturn = estimateMaxAchievableReturn(weights, mmfFloorPct, options.proxyReturns);
   const requestedTargetReturn = requestedAggressiveReturn(preference, riskTilt, options.benchmarkTargetReturn);
   const tolerance = 0.2;
   const suppressedPreferences: string[] = [];
@@ -1148,11 +1157,12 @@ export function preferenceAdjustedMetrics(
   riskTilt: -1 | 0 | 1,
   benchmarkTargetReturn?: number,
   feasibilityReport?: PreferenceFeasibilityReport,
+  proxyReturns?: ProxyReturnEstimate[],
 ) {
-  const metrics = calculateSimulatedMetrics(weights);
+  const metrics = calculateSimulatedMetrics(weights, proxyReturns);
   const feasibility =
     feasibilityReport ??
-    evaluatePreferenceFeasibility(weights, preference, { riskTilt, benchmarkTargetReturn });
+    evaluatePreferenceFeasibility(weights, preference, { riskTilt, benchmarkTargetReturn, proxyReturns });
   const isSuppressed = (key: string) => feasibility.suppressedPreferences.includes(key);
 
   if (preference.overseasSingleStock && !isSuppressed("overseasSingleStock")) {
@@ -1195,6 +1205,7 @@ function optionFromAnalysis(
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
   investableKrw?: number,
+  proxyReturns?: ProxyReturnEstimate[],
 ): PortfolioOption {
   const weights = weightsFromAnalysis(client, cashflow, signals, preference, meta.riskTilt, investableKrw);
   const feasibility = evaluatePreferenceFeasibility(weights, preference, {
@@ -1202,8 +1213,9 @@ function optionFromAnalysis(
     cashflow,
     riskTilt: meta.riskTilt,
     investableKrw,
+    proxyReturns,
   });
-  const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt, undefined, feasibility);
+  const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt, undefined, feasibility, proxyReturns);
   return {
     id: meta.id,
     name: meta.name,
@@ -1617,6 +1629,7 @@ export function buildPortfolioViewModel(
   client: Client,
   researchItems: MarketResearchItem[] = FALLBACK_MARKET_RESEARCH,
   heldAssets?: HeldAssets,
+  proxyReturns?: ProxyReturnEstimate[],
 ): PortfolioViewModel {
   const items = researchItems.length > 0 ? researchItems : FALLBACK_MARKET_RESEARCH;
   const researchSignals = scoreResearchSignals(items);
@@ -1626,7 +1639,7 @@ export function buildPortfolioViewModel(
     ? heldAssets.totalKrw - heldAssets.realEstateKrw
     : undefined;
   const portfolioOptions = PORTFOLIO_OPTION_META.map((meta) =>
-    optionFromAnalysis(meta, client, cashflowSummary, researchSignals, preferenceProfile, investableKrw),
+    optionFromAnalysis(meta, client, cashflowSummary, researchSignals, preferenceProfile, investableKrw, proxyReturns),
   );
   const scores = factorScoreSummary(client);
   const taxPressurePct = percentOfAssets(cashflowSummary.taxOutflow, client);
@@ -1654,6 +1667,7 @@ export function buildPortfolioViewModel(
     cashflow: cashflowSummary,
     riskTilt: recommendedMeta.riskTilt,
     investableKrw,
+    proxyReturns,
   });
   const topResearch = items.slice(0, 4).map((item) => `${item.source} '${item.title}'`).join(", ");
   const highSignal = researchSignals[0] ?? { label: "중립", score: 0, signal: "risk" as ResearchSignal };

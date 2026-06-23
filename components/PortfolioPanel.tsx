@@ -1054,7 +1054,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
   useEffect(() => { onHeldAssetsChange?.(heldAssets); }, [heldAssets, onHeldAssetsChange]);
 
-  const model = useMemo(() => buildPortfolioViewModel(client, researchItems, heldAssets), [client, researchItems, heldAssets]);
+  const model = useMemo(() => buildPortfolioViewModel(client, researchItems, heldAssets, proxyReturns.length > 0 ? proxyReturns : undefined), [client, researchItems, heldAssets, proxyReturns]);
   const portfolioOptions = model.portfolioOptions;
 
   useEffect(() => {
@@ -1188,6 +1188,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           riskTilt: riskTiltForOption(option.id),
           benchmarkTargetReturn,
           liquidityReasons: model.preferenceFeasibility.liquidityReasons,
+          proxyReturns: proxyReturns.length > 0 ? proxyReturns : undefined,
         });
         const optionMetrics = preferenceAdjustedMetrics(
           option.weights,
@@ -1195,6 +1196,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           riskTiltForOption(option.id),
           benchmarkTargetReturn,
           optionFeasibility,
+          proxyReturns.length > 0 ? proxyReturns : undefined,
         );
         const optionHoldings = buildDetailedHoldings(option.weights, model.preferenceProfile, option.id);
         const proxyExpectedReturn = proxyReturns.length > 0
@@ -1220,12 +1222,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         riskTilt: selectedRiskTilt,
         benchmarkTargetReturn,
         liquidityReasons: model.preferenceFeasibility.liquidityReasons,
+        proxyReturns: proxyReturns.length > 0 ? proxyReturns : undefined,
       }),
-    [adjustedWeights, benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, selectedRiskTilt],
+    [adjustedWeights, benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, selectedRiskTilt, proxyReturns],
   );
   const metrics = useMemo(
-    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn, selectedFeasibility),
-    [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedFeasibility, selectedRiskTilt],
+    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn, selectedFeasibility, proxyReturns.length > 0 ? proxyReturns : undefined),
+    [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedFeasibility, selectedRiskTilt, proxyReturns],
   );
   const volatilityRanges = useMemo(() => getVolatilityRanges(metrics.volatility), [metrics.volatility]);
   const benchmarkChartData = useMemo(
