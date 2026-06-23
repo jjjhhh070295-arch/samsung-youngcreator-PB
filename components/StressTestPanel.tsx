@@ -10,6 +10,8 @@ import { setToMacroApiParams } from "@/lib/assetMapping";
 
 interface Props {
   portfolios: Portfolio[];
+  investableKrw?: number;
+  assetBaseEstimated?: boolean;
   /**
    * SET 6자산 비중 배열 (optional). 제공 시 convertSetToIndices를 통해
    * sp500/kospi/treasury를 자동 추출하여 macroStress API에 넘김.
@@ -61,8 +63,14 @@ function displayShock(id:MacroFactorId,value:number){
   const unit=id==="d_vix"?"pt":id==="d_fed"||id==="d_ust"||id==="infl"?"%p":"%";
   return (value>=0?"+":"")+value.toFixed(2)+unit;
 }
+function formatKrw(value:number){
+  const amount=Math.abs(value);
+  if(amount>=100_000_000)return (amount/100_000_000).toLocaleString("ko-KR",{maximumFractionDigits:1})+"억원";
+  if(amount>=10_000)return Math.round(amount/10_000).toLocaleString("ko-KR")+"만원";
+  return Math.round(amount).toLocaleString("ko-KR")+"원";
+}
 
-export default function StressTestPanel({portfolios,portfolioWeights}:Props){
+export default function StressTestPanel({portfolios,portfolioWeights,investableKrw=0,assetBaseEstimated=false}:Props){
   const [shock,setShock]=useState<ScenarioShock>(zeroShock());
   const [presetId,setPresetId]=useState("none");
   const [scenarioOpen,setScenarioOpen]=useState(false);
@@ -118,6 +126,19 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
 
   const applyPreset=(id:string)=>{setPresetId(id);setScenarioOpen(false);};
   const reset=()=>{setPresetId("none");setScenarioOpen(false);setShock(zeroShock())};
+  const coverage=Math.max(0,Math.min(1,(autoParams?.equityBondPct??100)/100));
+  const assetBase=Math.max(0,investableKrw);
+  const scenarioWholeReturn=analysis?(analysis.scenario.actualReturn??analysis.scenario.metrics.meanReturn)*coverage:0;
+  const scenarioAmount=assetBase*scenarioWholeReturn;
+  const cvar95Loss=analysis?assetBase*Math.max(0,-analysis.scenario.metrics.cvar95*coverage):0;
+  const worstLoss=analysis?assetBase*Math.max(0,-analysis.scenario.metrics.worstReturn*coverage):0;
+  const excludedAmount=assetBase*(1-coverage);
+  const exposureItems=[
+    {key:"sp500",label:"미국주식",pct:targetWeights.sp500*coverage,color:"#1f4e79"},
+    {key:"kospi",label:"국내주식",pct:targetWeights.kospi*coverage,color:"#d4a017"},
+    {key:"treasury",label:"채권",pct:targetWeights.treasury*coverage,color:"#0f766e"},
+    {key:"excluded",label:"분석 제외",pct:1-coverage,color:"#cbd5e1"},
+  ].filter(item=>item.pct>.0001);
 
   return <div className="space-y-4">
     <div className="card p-4">
@@ -180,6 +201,58 @@ export default function StressTestPanel({portfolios,portfolioWeights}:Props){
     {analysisStatus==="loading"&&<div className="card p-5 text-center text-sm text-fg-muted">{"\uC7A5\uAE30 \uB370\uC774\uD130\uB97C \uC900\uBE44\uD558\uACE0 50,000\uD68C \uBAAC\uD14C\uCE74\uB97C\uB85C\uB97C \uACC4\uC0B0\uD558\uB294 \uC911\uC785\uB2C8\uB2E4..."}</div>}
     {analysisStatus==="error"&&<div className="card border-red-300 p-4 text-sm text-red-600"><p>{"\uC7A5\uAE30 \uB370\uC774\uD130 \uBD84\uC11D\uC744 \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694."}</p>{analysisError&&<p className="mt-1 text-xs text-red-500/80">{"\uC624\uB958: "}{analysisError}</p>}</div>}
     {analysis&&<div className="space-y-4">
+      <div className="card overflow-hidden p-0">
+        <div className="border-b border-border/70 px-4 py-4 sm:px-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-fg">포트폴리오 예상 손실 금액</h3>
+              <p className="mt-1 text-[11px] text-fg-muted">
+                투자가능자산 {formatKrw(assetBase)} 기준
+                <span aria-hidden="true" className="mx-1.5 text-fg-muted/40">&middot;</span>
+                분석 커버리지 {(coverage*100).toFixed(1)}%
+              </p>
+            </div>
+            <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-fg-muted">
+              {assetBaseEstimated?"등록 자산규모 기준":"부동산 제외 운용자산 기준"}
+            </span>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div className="rounded-md border border-border/70 bg-surface-2 p-3">
+              <p className="text-[10px] font-medium text-fg-muted">시나리오 예상 손익</p>
+              <p className={"mt-1 text-lg font-bold tabular-nums "+(scenarioAmount<0?"text-red-600":"text-emerald-600")}>
+                {formatKrw(scenarioAmount)} {scenarioAmount<0?"손실":"이익"}
+              </p>
+              <p className="mt-0.5 text-[10px] tabular-nums text-fg-muted">전체 기준 {(scenarioWholeReturn*100).toFixed(1)}%</p>
+            </div>
+            <div className="rounded-md border border-red-200/70 bg-red-50/50 p-3 dark:border-red-900/40 dark:bg-red-950/10">
+              <p className="text-[10px] font-medium text-fg-muted">CVaR 95% 손실액</p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-red-600">{formatKrw(cvar95Loss)}</p>
+              <p className="mt-0.5 text-[10px] tabular-nums text-fg-muted">전체 기준 {(analysis.scenario.metrics.cvar95*coverage*100).toFixed(1)}%</p>
+            </div>
+            <div className="rounded-md border border-red-200/70 bg-red-50/50 p-3 dark:border-red-900/40 dark:bg-red-950/10">
+              <p className="text-[10px] font-medium text-fg-muted">최악 경로 손실액</p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-red-600">{formatKrw(worstLoss)}</p>
+              <p className="mt-0.5 text-[10px] tabular-nums text-fg-muted">전체 기준 {(analysis.scenario.metrics.worstReturn*coverage*100).toFixed(1)}%</p>
+            </div>
+            <div className="rounded-md border border-border/70 bg-surface-2 p-3">
+              <p className="text-[10px] font-medium text-fg-muted">이번 모델의 분석 제외 금액</p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-fg">{formatKrw(excludedAmount)}</p>
+              <p className="mt-0.5 text-[10px] text-fg-muted">금·달러·원자재·MMF 등</p>
+            </div>
+          </div>
+        </div>
+        <div className="px-4 py-4 sm:px-5">
+          <div className="flex h-3 w-full overflow-hidden rounded-sm bg-surface-2">
+            {exposureItems.map(item=><div key={item.key} style={{width:(item.pct*100)+"%",backgroundColor:item.color}} title={item.label+" "+(item.pct*100).toFixed(1)+"%"}/>)}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+            {exposureItems.map(item=><div key={item.key} className="flex items-center gap-2 text-[11px]"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{backgroundColor:item.color}}/><span className="min-w-0 text-fg-muted">{item.label}</span><span className="ml-auto font-semibold tabular-nums text-fg">{formatKrw(assetBase*item.pct)}</span></div>)}
+          </div>
+          <p className="mt-3 rounded-md bg-surface-2 px-3 py-2 text-[10px] leading-relaxed text-fg-muted">
+            국내주식은 KOSPI, 미국주식은 S&amp;P 500, 채권은 미국채 대용 수익률로 추정합니다. 분석 제외 자산은 이번 금액 환산에서 수익률 0%로 두며, 이는 위험이 없다는 뜻이 아니라 현재 모델에서 손익을 추정하지 않았다는 뜻입니다.
+          </p>
+        </div>
+      </div>
       <div className="card p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div><h3 className="text-sm font-semibold text-fg">{analysis.scenario.dataStatus==="actual"?"\uC2E4\uC81C \uC5ED\uC0AC \uC2DC\uB098\uB9AC\uC624 \uBD84\uC11D":"\uC0AC\uC6A9\uC790 \uC815\uC758 \uC2DC\uB098\uB9AC\uC624 \uBD84\uC11D"}</h3><p className="mt-1 text-xs text-fg-muted">{analysis.scenario.period}<span aria-hidden="true" className="mx-1 text-fg-muted/40">&middot;</span>{analysis.scenario.months}{"\uAC1C\uC6D4"}<span aria-hidden="true" className="mx-1 text-fg-muted/40">&middot;</span>{"\uD68C\uADC0 \uD45C\uBCF8 "}{analysis.sample.actualStart}~{analysis.sample.actualEnd} ({analysis.sample.months}{"\uAC1C\uC6D4"})</p></div>

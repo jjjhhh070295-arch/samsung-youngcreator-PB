@@ -167,14 +167,20 @@ export default function IPSResultTabs({
   // SET 6자산 비중: 확정된 안의 weights만 추출해 StressTestPanel에 전달.
   // PortfolioPanel과 동일하게 heldAssets(보유자산)+researchItems를 사용해
   // 화면 표시와 스트레스 입력 weights를 일치시킨다.
+  const stressPortfolioModel = useMemo(
+    () => buildPortfolioViewModel(client, researchItems, heldAssets),
+    [client, researchItems, heldAssets],
+  );
   const portfolioWeights = useMemo(() => {
-    const vm = buildPortfolioViewModel(client, researchItems, heldAssets);
+    const vm = stressPortfolioModel;
     const confirmedId = client.portfolios[0]?.id;
     const confirmed = confirmedId
       ? vm.portfolioOptions.find((o) => o.id === confirmedId)
       : undefined;
     return [(confirmed ?? vm.portfolioOptions[1]).weights];
-  }, [client, researchItems, heldAssets]);
+  }, [client.portfolios, stressPortfolioModel]);
+  const stressInvestableKrw = stressPortfolioModel.assetLayer?.investableKrw ?? client.assetSize;
+  const stressAssetBaseEstimated = stressPortfolioModel.assetLayer == null;
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -447,7 +453,12 @@ export default function IPSResultTabs({
               <div className="mb-3 flex items-center justify-end">
                 <StageToggle k="stress" />
               </div>
-              <StressTestPanel portfolios={client.portfolios} portfolioWeights={portfolioWeights} />
+              <StressTestPanel
+                portfolios={client.portfolios}
+                portfolioWeights={portfolioWeights}
+                investableKrw={stressInvestableKrw}
+                assetBaseEstimated={stressAssetBaseEstimated}
+              />
             </>
           ) : (
             <div className="card flex flex-col items-center gap-2 p-8 text-center">
