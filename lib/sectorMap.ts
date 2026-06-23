@@ -95,8 +95,6 @@ export const STOCK_SECTOR_MAP: StockEntry[] = [
   // ── IT ──
   { name: "NAVER",            code: "035420", sector: "it" },
   { name: "카카오",           code: "035720", sector: "it" },
-  { name: "SK텔레콤",         code: "017670", sector: "it" },
-  { name: "LG전자",           code: "066570", sector: "it" },
 
   // ── 자동차 ──
   { name: "현대차",           code: "005380", sector: "auto" },
