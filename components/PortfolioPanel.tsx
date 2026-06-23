@@ -14,6 +14,7 @@ import type { Client, Portfolio } from '@/lib/types';
 import {
   buildDetailedHoldings,
   buildPortfolioViewModel,
+  evaluatePreferenceFeasibility,
   getVolatilityRanges,
   preferenceAdjustedMetrics,
   type HeldAssets,
@@ -1135,14 +1136,21 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     () => latestBenchmarkTarget(benchmarkPoints, model.preferenceProfile),
     [benchmarkPoints, model.preferenceProfile],
   );
+  const selectedRiskTilt = riskTiltForOption(selectedBase);
   const displayPortfolioOptions = useMemo(
     () =>
       portfolioOptions.map((option) => {
+        const optionFeasibility = evaluatePreferenceFeasibility(option.weights, model.preferenceProfile, {
+          riskTilt: riskTiltForOption(option.id),
+          benchmarkTargetReturn,
+          liquidityReasons: model.preferenceFeasibility.liquidityReasons,
+        });
         const optionMetrics = preferenceAdjustedMetrics(
           option.weights,
           model.preferenceProfile,
           riskTiltForOption(option.id),
           benchmarkTargetReturn,
+          optionFeasibility,
         );
         return {
           ...option,
@@ -1152,12 +1160,20 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           taxReturn: optionMetrics.taxReturn,
         };
       }),
-    [benchmarkTargetReturn, model.preferenceProfile, portfolioOptions],
+    [benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, portfolioOptions],
   );
-  const selectedRiskTilt = riskTiltForOption(selectedBase);
+  const selectedFeasibility = useMemo(
+    () =>
+      evaluatePreferenceFeasibility(adjustedWeights, model.preferenceProfile, {
+        riskTilt: selectedRiskTilt,
+        benchmarkTargetReturn,
+        liquidityReasons: model.preferenceFeasibility.liquidityReasons,
+      }),
+    [adjustedWeights, benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, selectedRiskTilt],
+  );
   const metrics = useMemo(
-    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn),
-    [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedRiskTilt],
+    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn, selectedFeasibility),
+    [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedFeasibility, selectedRiskTilt],
   );
   const volatilityRanges = useMemo(() => getVolatilityRanges(metrics.volatility), [metrics.volatility]);
   const benchmarkChartData = useMemo(
@@ -1220,7 +1236,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       }),
     [selectedResearchItems, analyzedById],
   );
-  const selectedExecutiveConclusion = `${currentPortfolioName}입니다. 7요인, 현금흐름, 최신 리서치${model.preferenceProfile.hasRequirement ? ', 고유 요구조건' : ''}을 순서대로 반영해 현재 비중을 산출했습니다. ${selectedProfile.clientMessage}`;
+  const selectedExecutiveConclusion = `${currentPortfolioName}입니다. 7요인, 현금흐름, 최신 리서치를 반영해 현재 비중을 산출했습니다. ${
+    model.preferenceProfile.hasRequirement && !selectedFeasibility.feasible
+      ? '고유 요구조건의 공격적 수익·위험 가정은 실제 비중으로 달성 불가해 KPI에서 제외했습니다.'
+      : model.preferenceProfile.hasRequirement
+        ? '고유 요구조건은 달성 가능 범위에서 반영했습니다.'
+        : '고객 입력 조건 기준으로 산출했습니다.'
+  } ${selectedProfile.clientMessage}`;
 
   useEffect(() => {
     if (!onSelectionChange) return;
@@ -1410,11 +1432,20 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
-                <span className="block text-[10px] font-medium text-fg-muted">예상 수익률</span>
-                <span className="mt-0.5 block text-xl font-black text-emerald-400">{metrics.expectedReturn}%</span>
-              </div>
+	            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+	              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
+	                <span className="block text-[10px] font-medium text-fg-muted">
+	                  예상 수익률{!selectedFeasibility.feasible ? ' (비중 기반)' : ''}
+	                </span>
+	                <span className={`mt-0.5 block text-xl font-black ${selectedFeasibility.feasible ? 'text-emerald-400' : 'text-amber-300'}`}>
+	                  {metrics.expectedReturn}%
+	                </span>
+	                {!selectedFeasibility.feasible && (
+	                  <span className="mt-1 block text-[9px] font-bold text-rose-200">
+	                    요구 {selectedFeasibility.requestedTargetReturn ?? '-'}% 미반영
+	                  </span>
+	                )}
+	              </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">세후 가상수익률</span>
                 <span className="mt-0.5 block text-xl font-black text-blue-400">{metrics.taxReturn}%</span>
@@ -1429,10 +1460,25 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">시뮬레이션 MDD</span>
                 <span className="mt-0.5 block text-xl font-black text-rose-400">{metrics.mdd}%</span>
-              </div>
-            </div>
-          </div>
-        </div>
+	              </div>
+	            </div>
+	            {!selectedFeasibility.feasible && (
+	              <div className="rounded-lg border border-rose-400/70 bg-rose-950/60 p-3 text-xs leading-relaxed text-rose-50">
+	                <p className="font-black text-white">PB 세부 커스텀 조정 필요</p>
+	                <p className="mt-1">
+	                  현재 비중 기준 기대수익률 {selectedFeasibility.weightBasedReturn}% / 변동성 {selectedFeasibility.weightBasedVolatility}%입니다.
+	                  MMF floor {selectedFeasibility.mmfFloorPct}% 기준 최대 가능 수익률은 {selectedFeasibility.maxAchievableReturn}%로,
+	                  감지된 공격적 수익·위험 가정은 KPI에 반영하지 않았습니다.
+	                </p>
+	                {selectedFeasibility.liquidityReasons.length > 0 && (
+	                  <p className="mt-1 font-semibold text-rose-100">
+	                    유동성 근거: {selectedFeasibility.liquidityReasons.join(' · ')}
+	                  </p>
+	                )}
+	              </div>
+	            )}
+	          </div>
+	        </div>
 
         {/* 오른쪽 1열: 도넛형 자산비중 프리뷰 카드 */}
         <div className="xl:col-span-5 rounded-xl border border-border bg-surface p-4 shadow-sm flex flex-col justify-between">
@@ -1615,10 +1661,50 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </span>
         </div>
 
-        {model.preferenceProfile.hasRequirement ? (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 lg:col-span-2">
-              <p className="text-xs font-bold text-rose-800">감지된 요구조건</p>
+	        {model.preferenceProfile.hasRequirement ? (
+	          <>
+	            {!selectedFeasibility.feasible && (
+	              <div className="mb-4 rounded-xl border-2 border-rose-500 bg-rose-50 p-4">
+	                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+	                  <div>
+	                    <p className="text-sm font-black text-rose-800">PB 세부 커스텀 조정 필요</p>
+	                    <p className="mt-1 text-xs leading-relaxed text-rose-900">
+	                      고객 고유 요구조건은 감지했지만 현재 현금흐름·세금 납부용 MMF 선확보와 충돌합니다.
+	                      공격적 수익률·위험도 가정은 포트폴리오 KPI에 반영하지 않았습니다.
+	                    </p>
+	                  </div>
+	                  <div className="grid min-w-[220px] grid-cols-2 gap-2 text-xs">
+	                    <div className="rounded-lg bg-surface px-3 py-2">
+	                      <span className="block text-fg-muted">비중 기반 수익률</span>
+	                      <span className="mt-0.5 block text-lg font-black text-fg">{selectedFeasibility.weightBasedReturn}%</span>
+	                    </div>
+	                    <div className="rounded-lg bg-surface px-3 py-2">
+	                      <span className="block text-fg-muted">상한 추정</span>
+	                      <span className="mt-0.5 block text-lg font-black text-fg">{selectedFeasibility.maxAchievableReturn}%</span>
+	                    </div>
+	                  </div>
+	                </div>
+	                <div className="mt-3 grid grid-cols-1 gap-2 text-xs lg:grid-cols-2">
+	                  <div className="rounded-lg border border-rose-100 bg-surface px-3 py-2">
+	                    <p className="font-bold text-rose-800">미반영 항목</p>
+	                    <p className="mt-1 leading-relaxed text-fg-muted">
+	                      {selectedFeasibility.suppressedPreferences.join(' · ')}
+	                    </p>
+	                  </div>
+	                  <div className="rounded-lg border border-rose-100 bg-surface px-3 py-2">
+	                    <p className="font-bold text-rose-800">충돌 근거</p>
+	                    <p className="mt-1 leading-relaxed text-fg-muted">
+	                      {selectedFeasibility.conflicts.join(' ')}
+	                    </p>
+	                  </div>
+	                </div>
+	              </div>
+	            )}
+	          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+	            <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 lg:col-span-2">
+	              <p className="text-xs font-bold text-rose-800">
+	                감지된 요구조건{!selectedFeasibility.feasible ? ' (KPI 미반영)' : ''}
+	              </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {model.preferenceProfile.tags.map((tag) => (
                   <span key={tag} className="rounded-full border border-rose-200 bg-surface px-2.5 py-1 text-[11px] font-bold text-rose-700">
@@ -1626,18 +1712,25 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   </span>
                 ))}
               </div>
-              <p className="mt-3 text-xs leading-relaxed text-rose-900">{model.rationale.preference}</p>
-              {model.preferenceProfile.benchmarkOutperformance && (
-                <div className="mt-3 rounded-lg border border-rose-200 bg-surface px-3 py-2">
-                  <p className="text-[11px] font-bold text-rose-800">벤치마크 초과수익 반영 방식</p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                    {model.preferenceProfile.benchmarkTargets.length > 0
-                      ? `${model.preferenceProfile.benchmarkTargets.join("·")} 대비 초과수익`
-                      : "벤치마크 대비 초과수익"}을 목표 요구조건으로 감지했습니다. 추천안은 수익추구형을 우선 선택하고,
-                    ETF·테마주·해외주식 버킷을 늘리는 대신 채권·MMF 방어 비중은 낮춰 알파 추구형으로 조정합니다.
-                  </p>
-                </div>
-              )}
+	              <p className="mt-3 text-xs leading-relaxed text-rose-900">
+	                {selectedFeasibility.feasible
+	                  ? model.rationale.preference
+	                  : '요구조건은 기록하되 현재 포트폴리오 지표에는 반영하지 않습니다. PB가 세금 납부 일정, 매각 가능 자산, 위험예산을 재확인해 별도 커스텀안을 작성해야 합니다.'}
+	              </p>
+	              {model.preferenceProfile.benchmarkOutperformance && (
+	                <div className="mt-3 rounded-lg border border-rose-200 bg-surface px-3 py-2">
+	                  <p className="text-[11px] font-bold text-rose-800">
+	                    벤치마크 초과수익 {selectedFeasibility.feasible ? '반영 방식' : '미반영'}
+	                  </p>
+	                  <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+	                    {selectedFeasibility.feasible
+	                      ? `${model.preferenceProfile.benchmarkTargets.length > 0
+	                        ? `${model.preferenceProfile.benchmarkTargets.join("·")} 대비 초과수익`
+	                        : "벤치마크 대비 초과수익"}을 목표 요구조건으로 감지했습니다. 추천안은 수익추구형을 우선 선택하고, ETF·테마주·해외주식 버킷을 늘리는 대신 채권·MMF 방어 비중은 낮춰 알파 추구형으로 조정합니다.`
+	                      : '벤치마크 초과수익 요구는 현재 MMF/RP 유동성 floor와 충돌하므로 KPI 수익률·위험도 상향에 사용하지 않습니다.'}
+	                  </p>
+	                </div>
+	              )}
               {model.preferenceProfile.taxPriority && (
                 <div className="mt-3 rounded-lg border border-green-200 bg-surface px-3 py-2">
                   <p className="text-[11px] font-bold text-green-800">절세 최우선 반영 방식</p>
@@ -1655,18 +1748,23 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 </p>
               )}
             </div>
-            <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
-              <p className="text-xs font-bold text-amber-800">PB 확인 필요</p>
-              <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-amber-900">
-                {model.preferenceProfile.warnings.length > 0 ? (
-                  model.preferenceProfile.warnings.map((warning) => <li key={warning}>• {warning}</li>)
-                ) : (
-                  <li>• 요구조건과 적합성·현금화 일정의 충돌 여부를 상담에서 최종 확인하세요.</li>
-                )}
-              </ul>
-            </div>
-          </div>
-        ) : (
+	            <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
+	              <p className="text-xs font-bold text-amber-800">
+	                {selectedFeasibility.feasible ? 'PB 확인 필요' : 'PB 세부 커스텀 조정 필요'}
+	              </p>
+	              <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-amber-900">
+	                {!selectedFeasibility.feasible ? (
+	                  selectedFeasibility.conflicts.map((warning) => <li key={warning}>• {warning}</li>)
+	                ) : model.preferenceProfile.warnings.length > 0 ? (
+	                  model.preferenceProfile.warnings.map((warning) => <li key={warning}>• {warning}</li>)
+	                ) : (
+	                  <li>• 요구조건과 적합성·현금화 일정의 충돌 여부를 상담에서 최종 확인하세요.</li>
+	                )}
+	              </ul>
+	            </div>
+	          </div>
+	          </>
+	        ) : (
           <p className="rounded-xl border border-border bg-surface-2 p-4 text-xs leading-relaxed text-fg-muted">
             고유상황에 “해외주식 단일종목만”, “기대수익률 20% 이상”, “세금을 최대한 적게 내고 싶다”처럼 명시된 요구가 있으면 이 영역에 자동 표시되고 포트폴리오 비중과 근거에 반영됩니다.
           </p>

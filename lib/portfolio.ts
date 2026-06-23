@@ -137,6 +137,14 @@ const PORTFOLIO_OPTION_META: Array<{
 ];
 
 // 간단한 시뮬레이션 계산 로직 (PB 편집 시 지표 연동용)
+const EXPECTED_RETURN_ASSUMPTIONS = {
+  etf: 0.12,
+  bond: 0.045,
+  mmf: 0.035,
+  gold: 0.05,
+  dollar: 0.02,
+} as const;
+
 const VOLATILITY_PROXY_ORDER = ["etf", "bond", "mmf", "gold", "dollar", "raw"] as const;
 const VOLATILITY_PROXY_ASSUMPTIONS: Record<(typeof VOLATILITY_PROXY_ORDER)[number], number> = {
   etf: 0.18, bond: 0.06, mmf: 0.01, gold: 0.16, dollar: 0.08, raw: 0.2,
@@ -169,7 +177,12 @@ export function calculateSimulatedMetrics(weights: PortfolioOption['weights']) {
 
   const effectiveBond = normalized.bond + normalized.els * 0.7;
   const effectiveMmf = normalized.mmf + normalized.els * 0.3;
-  const expReturn = (normalized.etf * 0.12) + (effectiveBond * 0.045) + (effectiveMmf * 0.035) + (normalized.gold * 0.05) + (normalized.dollar * 0.02);
+  const expReturn =
+    (normalized.etf * EXPECTED_RETURN_ASSUMPTIONS.etf) +
+    (effectiveBond * EXPECTED_RETURN_ASSUMPTIONS.bond) +
+    (effectiveMmf * EXPECTED_RETURN_ASSUMPTIONS.mmf) +
+    (normalized.gold * EXPECTED_RETURN_ASSUMPTIONS.gold) +
+    (normalized.dollar * EXPECTED_RETURN_ASSUMPTIONS.dollar);
   const vol = calculateVolatilityEstimate(normalized);
 
   return {
@@ -223,6 +236,28 @@ export interface ClientPreferenceProfile {
   tags: string[];
   warnings: string[];
   actions: string[];
+}
+
+export interface PreferenceFeasibilityReport {
+  feasible: boolean;
+  suppressedPreferences: string[];
+  conflicts: string[];
+  weightBasedReturn: number;
+  weightBasedVolatility: number;
+  requestedTargetReturn?: number;
+  maxAchievableReturn: number;
+  mmfFloorPct: number;
+  liquidityReasons: string[];
+}
+
+interface PreferenceFeasibilityOptions {
+  client?: Client;
+  cashflow?: CashflowPortfolioSummary;
+  riskTilt?: -1 | 0 | 1;
+  benchmarkTargetReturn?: number;
+  investableKrw?: number;
+  mmfFloorPct?: number;
+  liquidityReasons?: string[];
 }
 
 export interface KodexProduct {
@@ -280,6 +315,7 @@ export interface PortfolioViewModel {
   researchSignals: ReturnType<typeof scoreResearchSignals>;
   rationale: PortfolioRationale;
   preferenceProfile: ClientPreferenceProfile;
+  preferenceFeasibility: PreferenceFeasibilityReport;
   taxSavingPlan: TaxSavingPlan;
   taxPainPoints: TaxPainPoint[];
   executiveConclusion: string;
@@ -656,6 +692,162 @@ function liquidityReservePercent(
   return clampNumber(reserve, floor, cap);
 }
 
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function liquidityReasonsFor(client: Client, cashflow: CashflowPortfolioSummary, investableKrw?: number): string[] {
+  const base = investableKrw && investableKrw > 0 ? investableKrw : (client.assetSize || 0);
+  const reasons: string[] = [];
+  const taxFlowText = client.cashFlows
+    .filter((flow) => flow.amount < 0)
+    .map((flow) => `${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""}`)
+    .join(" ");
+  const uniqueText = factorValue(client, "unique", "");
+
+  if (/증여/.test(taxFlowText) || /증여/.test(uniqueText)) reasons.push("증여세 납부");
+  if (/상속/.test(taxFlowText) || /상속/.test(uniqueText)) reasons.push("상속세 납부");
+  if (/법인세/.test(taxFlowText) || /법인세/.test(uniqueText)) reasons.push("법인세 납부");
+  if (/양도세/.test(taxFlowText) || /양도세/.test(uniqueText)) reasons.push("양도세 납부");
+  if (cashflow.taxOutflow > 0) reasons.push(`taxOutflow ${Math.round(percentOfBase(cashflow.taxOutflow, base))}%`);
+  if (cashflow.scheduledOutflow > 0) reasons.push(`scheduledOutflow ${Math.round(percentOfBase(cashflow.scheduledOutflow, base))}%`);
+  if (cashflow.monthlyNet < 0) {
+    reasons.push(`annualDeficit ${Math.round(percentOfBase(Math.abs(cashflow.monthlyNet) * 12, base))}%`);
+  }
+  if (cashflow.nearestOutflow) reasons.push(`${cashflow.nearestOutflow.date} ${cashflow.nearestOutflow.label}`);
+
+  return uniqueStrings(reasons).slice(0, 6);
+}
+
+function estimateMaxAchievableReturn(
+  weights: PortfolioOption["weights"],
+  mmfFloorPct: number,
+): number {
+  const mmfFloor = clampNumber(mmfFloorPct, 0, 100);
+  const dollarFloor = clampNumber(weights.dollar, 0, 100 - mmfFloor);
+  const investableRiskBudget = Math.max(0, 100 - mmfFloor - dollarFloor);
+  const maxReturn =
+    investableRiskBudget * EXPECTED_RETURN_ASSUMPTIONS.etf +
+    mmfFloor * EXPECTED_RETURN_ASSUMPTIONS.mmf +
+    dollarFloor * EXPECTED_RETURN_ASSUMPTIONS.dollar;
+
+  return Math.round(maxReturn * 10) / 10;
+}
+
+function aggressiveBenchmarkTargetReturn(
+  preference: ClientPreferenceProfile,
+  riskTilt: -1 | 0 | 1,
+  benchmarkTargetReturn?: number,
+) {
+  if (!preference.benchmarkOutperformance) return undefined;
+
+  const tier = riskTilt + 1;
+  const internalAggressiveReturn = preference.highRiskAccepted
+    ? [35, 55, 80][tier]
+    : [18, 28, 42][tier];
+  const benchmarkFloor =
+    typeof benchmarkTargetReturn === "number" && Number.isFinite(benchmarkTargetReturn)
+      ? benchmarkTargetReturn + [4, 8, 14][tier]
+      : undefined;
+
+  return Math.min(300, Math.max(internalAggressiveReturn, benchmarkFloor ?? 0));
+}
+
+function requestedAggressiveReturn(
+  preference: ClientPreferenceProfile,
+  riskTilt: -1 | 0 | 1,
+  benchmarkTargetReturn?: number,
+) {
+  const requests = [
+    preference.targetReturn,
+    preference.overseasSingleStock ? 15 + riskTilt * 2 : undefined,
+    aggressiveBenchmarkTargetReturn(preference, riskTilt, benchmarkTargetReturn),
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+
+  return requests.length > 0 ? Math.max(...requests) : undefined;
+}
+
+export function evaluatePreferenceFeasibility(
+  weights: PortfolioOption["weights"],
+  preference: ClientPreferenceProfile,
+  options: PreferenceFeasibilityOptions = {},
+): PreferenceFeasibilityReport {
+  const riskTilt = options.riskTilt ?? 0;
+  const metrics = calculateSimulatedMetrics(weights);
+  const mmfFloorPct = Math.round((options.mmfFloorPct ?? weights.mmf) * 10) / 10;
+  const maxAchievableReturn = estimateMaxAchievableReturn(weights, mmfFloorPct);
+  const requestedTargetReturn = requestedAggressiveReturn(preference, riskTilt, options.benchmarkTargetReturn);
+  const tolerance = 0.2;
+  const suppressedPreferences: string[] = [];
+  const conflicts: string[] = [];
+
+  const addSuppression = (key: string) => {
+    if (!suppressedPreferences.includes(key)) suppressedPreferences.push(key);
+  };
+
+  if (preference.targetReturn && preference.targetReturn > maxAchievableReturn + tolerance) {
+    addSuppression("targetReturn");
+    conflicts.push(
+      `요구 목표수익률 ${preference.targetReturn}%는 MMF floor ${mmfFloorPct}% 기준 최대 가능 수익률 ${maxAchievableReturn}%를 초과합니다.`,
+    );
+  }
+
+  const benchmarkRequiredReturn = aggressiveBenchmarkTargetReturn(
+    preference,
+    riskTilt,
+    options.benchmarkTargetReturn,
+  );
+  if (
+    preference.benchmarkOutperformance &&
+    (!benchmarkRequiredReturn || benchmarkRequiredReturn > maxAchievableReturn + tolerance)
+  ) {
+    addSuppression("benchmarkOutperformance");
+    conflicts.push(
+      benchmarkRequiredReturn
+        ? `벤치마크 초과수익 가정 ${benchmarkRequiredReturn}%는 현재 비중으로 달성 가능한 상한 ${maxAchievableReturn}%를 초과합니다.`
+        : `벤치마크 초과수익 요구는 현재 비중 기반 기대수익률 ${metrics.expectedReturn}%와 별도 검증 없이는 KPI에 반영할 수 없습니다.`,
+    );
+  }
+
+  if (preference.overseasSingleStock && 15 + riskTilt * 2 > maxAchievableReturn + tolerance) {
+    addSuppression("overseasSingleStock");
+    conflicts.push(
+      `해외 단일종목 집중형 수익 가정은 현재 유동성 reserve 이후 남는 위험예산으로 검증되지 않았습니다.`,
+    );
+  }
+
+  const aggressiveRiskRequested =
+    preference.highRiskAccepted ||
+    (options.client ? factorScore(options.client, "risk") >= 4 : false);
+  if (aggressiveRiskRequested && suppressedPreferences.length > 0) {
+    addSuppression("aggressiveRisk");
+  }
+
+  if (suppressedPreferences.length > 0) {
+    conflicts.push(
+      `KPI는 고객 요구 수익률이 아니라 실제 자산비중 기반 예상 수익률 ${metrics.expectedReturn}%로 표시합니다.`,
+    );
+  }
+
+  const liquidityReasons =
+    options.liquidityReasons ??
+    (options.client && options.cashflow
+      ? liquidityReasonsFor(options.client, options.cashflow, options.investableKrw)
+      : []);
+
+  return {
+    feasible: suppressedPreferences.length === 0,
+    suppressedPreferences,
+    conflicts: uniqueStrings(conflicts),
+    weightBasedReturn: metrics.expectedReturn,
+    weightBasedVolatility: metrics.volatility,
+    requestedTargetReturn,
+    maxAchievableReturn,
+    mmfFloorPct,
+    liquidityReasons,
+  };
+}
+
 function dollarReservePercent(
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
@@ -790,22 +982,24 @@ function productsFor(
   weights: PortfolioOption["weights"],
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
+  feasibility?: PreferenceFeasibilityReport,
 ) {
   const products: string[] = [];
+  const suppressed = (key: string) => feasibility?.suppressedPreferences.includes(key) ?? false;
   if (preference.taxPriority) {
     products.push("브라질 국채 비과세 검토 바스켓");
     products.push("국내 상장주식 장내거래 절세 바스켓");
     products.push("개별채권 직접투자 매매차익 비과세 검토");
     products.push("연금저축·IRP 과세이연 KODEX");
   }
-  if (preference.overseasSingleStock) {
+  if (preference.overseasSingleStock && !suppressed("overseasSingleStock")) {
     products.push("해외 단일종목 8~12개 집중 바스켓");
     products.push("미국 대형 성장주·AI 반도체 개별주");
   }
-  if (preference.targetReturn && preference.targetReturn >= 15) {
+  if (preference.targetReturn && preference.targetReturn >= 15 && !suppressed("targetReturn")) {
     products.push(`목표수익률 ${preference.targetReturn}% 요구 반영형`);
   }
-  if (preference.benchmarkOutperformance) {
+  if (preference.benchmarkOutperformance && !suppressed("benchmarkOutperformance")) {
     if (preference.benchmarkTargets.includes("KOSPI")) products.push("KOSPI 초과수익 추구 국내 성장주·반도체 바스켓");
     if (preference.benchmarkTargets.includes("S&P500")) products.push("S&P500 초과수익 추구 미국 성장주·테크 바스켓");
     if (preference.benchmarkTargets.length === 0) products.push("벤치마크 알파 추구 ETF 바스켓");
@@ -950,31 +1144,29 @@ export function preferenceAdjustedMetrics(
   preference: ClientPreferenceProfile,
   riskTilt: -1 | 0 | 1,
   benchmarkTargetReturn?: number,
+  feasibilityReport?: PreferenceFeasibilityReport,
 ) {
   const metrics = calculateSimulatedMetrics(weights);
-  if (preference.overseasSingleStock) {
+  const feasibility =
+    feasibilityReport ??
+    evaluatePreferenceFeasibility(weights, preference, { riskTilt, benchmarkTargetReturn });
+  const isSuppressed = (key: string) => feasibility.suppressedPreferences.includes(key);
+
+  if (preference.overseasSingleStock && !isSuppressed("overseasSingleStock")) {
     metrics.expectedReturn = Math.max(metrics.expectedReturn, 15 + riskTilt * 2);
     metrics.volatility = Math.max(metrics.volatility, 22 + riskTilt * 4);
     metrics.mdd = Math.min(metrics.mdd, -26 - riskTilt * 5);
     metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
   }
-  if (preference.targetReturn && preference.targetReturn >= 15) {
+  if (preference.targetReturn && preference.targetReturn >= 15 && !isSuppressed("targetReturn")) {
     metrics.expectedReturn = Math.max(metrics.expectedReturn, Math.min(24, preference.targetReturn));
     metrics.volatility = Math.max(metrics.volatility, Math.min(36, preference.targetReturn * 1.35));
     metrics.mdd = Math.min(metrics.mdd, -Math.min(42, preference.targetReturn * 1.6));
     metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
   }
-  if (preference.benchmarkOutperformance) {
-    const targetCount = Math.max(1, preference.benchmarkTargets.length);
+  if (preference.benchmarkOutperformance && !isSuppressed("benchmarkOutperformance")) {
     const tier = riskTilt + 1;
-    const internalAggressiveReturn = preference.highRiskAccepted
-      ? [35, 55, 80][tier]
-      : [18, 28, 42][tier];
-    const benchmarkFloor =
-      typeof benchmarkTargetReturn === "number" && Number.isFinite(benchmarkTargetReturn)
-        ? benchmarkTargetReturn + [4, 8, 14][tier]
-        : 0;
-    const targetReturn = Math.min(300, Math.max(internalAggressiveReturn, benchmarkFloor));
+    const targetReturn = aggressiveBenchmarkTargetReturn(preference, riskTilt, benchmarkTargetReturn) ?? metrics.expectedReturn;
     metrics.expectedReturn = Math.max(metrics.expectedReturn, targetReturn);
     metrics.volatility = Math.max(
       metrics.volatility,
@@ -1020,7 +1212,13 @@ function optionFromAnalysis(
   investableKrw?: number,
 ): PortfolioOption {
   const weights = weightsFromAnalysis(client, cashflow, signals, preference, meta.riskTilt, investableKrw);
-  const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt);
+  const feasibility = evaluatePreferenceFeasibility(weights, preference, {
+    client,
+    cashflow,
+    riskTilt: meta.riskTilt,
+    investableKrw,
+  });
+  const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt, undefined, feasibility);
   return {
     id: meta.id,
     name: meta.name,
@@ -1029,7 +1227,7 @@ function optionFromAnalysis(
     volatility: metrics.volatility,
     mdd: metrics.mdd,
     taxReturn: metrics.taxReturn,
-    mainProducts: productsFor(weights, signals, preference),
+    mainProducts: productsFor(weights, signals, preference, feasibility),
     detailedHoldings: buildDetailedHoldings(weights, preference, meta.id),
   };
 }
@@ -1040,6 +1238,7 @@ function buildCalculationSteps(
   signals: ReturnType<typeof scoreResearchSignals>,
   preference: ClientPreferenceProfile,
   recommendedOption: PortfolioOption,
+  preferenceFeasibility?: PreferenceFeasibilityReport,
 ): PortfolioCalculationStep[] {
   const scores = factorScoreSummary(client);
   const factorSummary = FACTOR_META.map((factor) => `${factor.label} ${scores[factor.key]}점`).join(" · ");
@@ -1052,7 +1251,7 @@ function buildCalculationSteps(
     .map((signal) => `${signal.label} ${signal.score > 0 ? "+" : ""}${signal.score}`)
     .join(" · ");
   const requirementText = preference.hasRequirement
-    ? preference.tags.join(" · ")
+    ? `${preference.tags.join(" · ")}${preferenceFeasibility && !preferenceFeasibility.feasible ? " (공격적 수익·위험 KPI 미반영)" : ""}`
     : "별도 강한 요구조건 없음";
   const assetLabels: Record<keyof PortfolioOption["weights"], string> = {
     etf: "주식/ETF",
@@ -1091,7 +1290,9 @@ function buildCalculationSteps(
       order: 4,
       title: "고객 요구조건 반영",
       detail: requirementText,
-      impact: "명시 요구조건은 자산군 점수에 가산/차감하고, 현금화 일정과 충돌하는 경우 PB 확인 경고로 남겼습니다.",
+      impact: preferenceFeasibility && !preferenceFeasibility.feasible
+        ? "명시 요구조건이 MMF/RP 선확보와 충돌해 공격적 수익·위험 가정은 KPI에 반영하지 않고 PB 세부 커스텀 조정 알림으로 남겼습니다."
+        : "명시 요구조건은 자산군 점수에 가산/차감하고, 현금화 일정과 충돌하는 경우 PB 확인 경고로 남겼습니다.",
     },
     {
       order: 5,
@@ -1460,6 +1661,15 @@ export function buildPortfolioViewModel(
       : scores.risk >= 4 && scores.timeHorizon >= 4 && taxPressurePct < 3 && cashPressurePct < 15
       ? "growth"
       : "balanced";
+  const recommendedOption = portfolioOptions.find((option) => option.id === recommendedId) ?? portfolioOptions[1];
+  const recommendedMeta =
+    PORTFOLIO_OPTION_META.find((meta) => meta.id === recommendedOption.id) ?? PORTFOLIO_OPTION_META[1];
+  const preferenceFeasibility = evaluatePreferenceFeasibility(recommendedOption.weights, preferenceProfile, {
+    client,
+    cashflow: cashflowSummary,
+    riskTilt: recommendedMeta.riskTilt,
+    investableKrw,
+  });
   const topResearch = items.slice(0, 4).map((item) => `${item.source} '${item.title}'`).join(", ");
   const highSignal = researchSignals[0] ?? { label: "중립", score: 0, signal: "risk" as ResearchSignal };
   const clientSummary = clientSummaryFrom(client, cashflowSummary);
@@ -1467,7 +1677,9 @@ export function buildPortfolioViewModel(
   const taxSavingPlan = buildKodexTaxSavingPlan(client, cashflowSummary, preferenceProfile);
   const taxPainPoints = buildTaxPainPoints(client, cashflowSummary, preferenceProfile);
   const preferenceText = preferenceProfile.hasRequirement
-    ? `${preferenceProfile.tags.join(", ")}를 고객 요구조건으로 감지했습니다. ${preferenceProfile.actions.join(" ")} ${preferenceProfile.warnings.join(" ")}`
+    ? preferenceFeasibility.feasible
+      ? `${preferenceProfile.tags.join(", ")}를 고객 요구조건으로 감지했습니다. ${preferenceProfile.actions.join(" ")} ${preferenceProfile.warnings.join(" ")}`
+      : `${preferenceProfile.tags.join(", ")}를 고객 요구조건으로 감지했지만 현재 유동성 제약으로 달성 불가합니다. 공격적 수익·위험 가정은 포트폴리오 KPI에 반영하지 않고 PB 세부 커스텀 조정 필요 알림으로 분리했습니다. ${preferenceFeasibility.conflicts.join(" ")}`
     : "고유상황에 별도 상품 제약이나 목표수익률 요구가 없어 표준 고액자산가 유동성 버킷을 적용했습니다.";
 
   const rationale: PortfolioRationale = {
@@ -1487,7 +1699,6 @@ export function buildPortfolioViewModel(
     preference: preferenceText,
   };
 
-  const recommendedOption = portfolioOptions.find((option) => option.id === recommendedId) ?? portfolioOptions[1];
   // 유동성 버킷 금액 기준: 투자가능자산(부동산 제외) 우선, 없으면 총자산 폴백
   const allocationBase = heldAssets && heldAssets.totalKrw > 0
     ? heldAssets.totalKrw - heldAssets.realEstateKrw  // investableKrw
@@ -1506,6 +1717,7 @@ export function buildPortfolioViewModel(
     researchSignals,
     preferenceProfile,
     recommendedOption,
+    preferenceFeasibility,
   );
 
   const assetLayer = computeAssetLayer(heldAssets);
@@ -1520,9 +1732,10 @@ export function buildPortfolioViewModel(
     researchSignals,
     rationale,
     preferenceProfile,
+    preferenceFeasibility,
     taxSavingPlan,
     taxPainPoints,
-    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 7요인 분석, 현금흐름 분석, 최신 리서치의 ${highSignal.label} 신호, ${preferenceProfile.hasRequirement ? "고객 고유 요구조건" : "고객 입력 조건"}을 순서대로 반영해 비중을 산출했습니다.`,
+    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 7요인 분석, 현금흐름 분석, 최신 리서치의 ${highSignal.label} 신호를 반영해 비중을 산출했습니다. ${preferenceProfile.hasRequirement && !preferenceFeasibility.feasible ? "고객 고유 요구조건의 공격적 수익·위험 가정은 실제 비중으로 달성 불가해 KPI에서 제외했습니다." : preferenceProfile.hasRequirement ? "고객 고유 요구조건은 달성 가능 범위에서 반영했습니다." : "고객 입력 조건 기준으로 산출했습니다."}`,
     recommendedId,
     liquidityReserveManwon,
     calculationSteps,
