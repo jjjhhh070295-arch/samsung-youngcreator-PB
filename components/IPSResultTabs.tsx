@@ -7,6 +7,7 @@ import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages
 import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
 import StressTestPanel from "./StressTestPanel";
+import TaxProjectionPanel from "./TaxProjectionPanel";
 import ScoreRubricButton from "./ScoreRubricButton";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
@@ -33,6 +34,7 @@ export type Tab =
   | "questions"
   | "cashflow"
   | "portfolio"
+  | "taxProjection"
   | "stress"
   | "ips";
 
@@ -164,7 +166,7 @@ export default function IPSResultTabs({
     return list;
   }, [ips]);
 
-  // SET 6자산 비중: 확정된 안의 weights만 추출해 StressTestPanel에 전달.
+  // SET 6자산 비중: 확정된 안의 weights만 추출해 세후/StressTestPanel에 전달.
   // PortfolioPanel과 동일하게 heldAssets(보유자산)+researchItems를 사용해
   // 화면 표시와 스트레스 입력 weights를 일치시킨다.
   const stressPortfolioModel = useMemo(
@@ -443,6 +445,16 @@ export default function IPSResultTabs({
             )}
           </div>
         </div>
+      )}
+
+      {/* 세전·세후 — 포트폴리오 비중별 세금/비용/세후 금액 비교 */}
+      {tab === "taxProjection" && (
+        <TaxProjectionPanel
+          client={client}
+          baseWeights={portfolioWeights[0]}
+          principalWon={stressInvestableKrw}
+          assetBaseEstimated={stressAssetBaseEstimated}
+        />
       )}
 
       {/* 스트레스 — 포트폴리오 최종 확정 후 진행 */}
