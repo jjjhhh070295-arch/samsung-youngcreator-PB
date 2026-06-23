@@ -684,9 +684,13 @@ function liquidityReservePercent(
 
   const floor = preference.rejectsOtherProducts && cashflow.taxOutflow === 0 ? 0 : 4;
   const cap = preference.taxPriority || scores.liquidity >= 5 ? 48 : 42;
+  // 현금흐름이 유의미하게 입력됐으면(>5%p) 점수항을 절반으로 줄여 이중반영 완화.
+  // 미입력 시에는 점수항이 안전망 역할을 그대로 수행.
+  const cashflowPressure = scheduledPct + taxPct + annualDeficitPct;
+  const scoreMultiplier = cashflowPressure > 5 ? 0.5 : 1.0;
   const reserve =
     3 +
-    (scores.liquidity - 1) * 3.2 +
+    (scores.liquidity - 1) * 3.2 * scoreMultiplier +
     (scores.tax >= 4 ? 4 : 0) +
     (client.clientType === "corporate" ? 3 : 0) +
     (client.clientType === "sole_proprietor" ? 3 : 0) +
