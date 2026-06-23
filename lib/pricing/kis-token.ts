@@ -25,6 +25,9 @@ interface CachedToken {
 // ① global 캐시 (HMR 재로드에 생존)
 const g = global as typeof global & { __kisTokenCache?: CachedToken };
 
+// ④ single-flight: Promise.all 등 동시 진입 시 KIS 발급은 1회만
+let _pendingIssue: Promise<string> | null = null;
+
 // ── Supabase 캐시 (3순위) ──────────────────────────────────────────────────
 
 let _supabaseAdmin: ReturnType<typeof createClient> | null | undefined = undefined;
@@ -122,34 +125,43 @@ export async function getKisToken(appKey: string, appSecret: string): Promise<st
     return supabaseCached.access_token;
   }
 
-  // ④ KIS tokenP 신규 발급
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ grant_type: "client_credentials", appkey: appKey, appsecret: appSecret }),
-    cache: "no-store",
-  });
+  // ④ KIS tokenP 신규 발급 — 동시 요청은 같은 Promise를 공유해 1회만 발급
+  if (!_pendingIssue) {
+    _pendingIssue = (async () => {
+      try {
+        const res = await fetch(TOKEN_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grant_type: "client_credentials", appkey: appKey, appsecret: appSecret }),
+          cache: "no-store",
+        });
 
-  if (!res.ok) {
-    // 403/429 rate-limit: 만료된 캐시라도 반환 (오늘은 못 갱신)
-    const stale = g.__kisTokenCache ?? readFileCache();
-    if (stale) return stale.access_token;
-    throw new Error(`KIS token error: ${res.status}`);
+        if (!res.ok) {
+          // 403/429 rate-limit: 만료된 캐시라도 반환 (오늘은 못 갱신)
+          const stale = g.__kisTokenCache ?? readFileCache();
+          if (stale) return stale.access_token;
+          throw new Error(`KIS token error: ${res.status}`);
+        }
+
+        const json = await res.json();
+        if (!json.access_token) {
+          const stale = g.__kisTokenCache ?? readFileCache();
+          if (stale) return stale.access_token;
+          throw new Error(`KIS token missing in response`);
+        }
+
+        const cached: CachedToken = {
+          access_token: json.access_token,
+          expires_at:   now + (json.expires_in ?? 86_400) * 1_000,
+        };
+        g.__kisTokenCache = cached;
+        writeFileCache(cached);
+        await writeSupabaseCache(appKey, cached);
+        return cached.access_token;
+      } finally {
+        _pendingIssue = null;
+      }
+    })();
   }
-
-  const json = await res.json();
-  if (!json.access_token) {
-    const stale = g.__kisTokenCache ?? readFileCache();
-    if (stale) return stale.access_token;
-    throw new Error(`KIS token missing in response`);
-  }
-
-  const cached: CachedToken = {
-    access_token: json.access_token,
-    expires_at:   now + (json.expires_in ?? 86_400) * 1_000,
-  };
-  g.__kisTokenCache = cached;
-  writeFileCache(cached);
-  await writeSupabaseCache(appKey, cached); // Supabase에도 저장 (인스턴스 간 공유)
-  return cached.access_token;
+  return _pendingIssue;
 }
