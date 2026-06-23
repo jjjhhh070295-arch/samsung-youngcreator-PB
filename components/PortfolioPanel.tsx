@@ -362,6 +362,8 @@ function buildSimplifiedBenchmarkChartData(
   weights: PortfolioOption['weights'],
   detailedHoldings: ReturnType<typeof buildDetailedHoldings>,
   riskTilt: -1 | 0 | 1 = 0,
+  planSummary: Array<{ etfCode: string; amountKrw: number; isFallback: boolean }> = [],
+  sectorEtfData: Record<string, number[]> = {},
 ): BenchmarkChartPoint[] {
   const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
   const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
@@ -372,6 +374,20 @@ function buildSimplifiedBenchmarkChartData(
     0,
   );
   const domesticEquityWeight = Math.max(0, weights.etf - overseasEquityWeight);
+
+  // sector ETF weights for portfolio line (선B)
+  const etfKrw = new Map<string, number>();
+  for (const p of planSummary) {
+    if (p.isFallback || p.amountKrw <= 0) continue;
+    const series = sectorEtfData[p.etfCode];
+    if (!series || series.length < 2) continue;
+    etfKrw.set(p.etfCode, (etfKrw.get(p.etfCode) ?? 0) + p.amountKrw);
+  }
+  const totalEtfKrw = etfKrw.size > 0 ? Array.from(etfKrw.values()).reduce((a, b) => a + b, 0) : 0;
+  const etfEntries = totalEtfKrw > 0
+    ? Array.from(etfKrw.entries()).map(([code, krw]) => ({ krw, series: sectorEtfData[code] as number[] }))
+    : [];
+
   return sourcePoints.map((point, index) => {
     const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
     const mmf = finiteNumber(point.mmf, fixedIncomeProxy(index, sourcePoints.length, 3.0));
@@ -386,12 +402,25 @@ function buildSimplifiedBenchmarkChartData(
       (weights.gold / totalWeight) * gold +
       (weights.dollar / totalWeight) * dollar +
       (weights.raw / totalWeight) * commodity;
+
+    // 선B: 주식 부분을 PB 편입 섹터 ETF 가중 수익률로 대체 (데이터 없으면 선A 폴백)
+    const hasSectorData = etfEntries.length > 0 && etfEntries.every((e) => index < e.series.length);
+    const nonEquityReturn =
+      (weights.bond / totalWeight) * usTreasury10y +
+      (weights.mmf / totalWeight) * mmf +
+      (weights.gold / totalWeight) * gold +
+      (weights.dollar / totalWeight) * dollar +
+      (weights.raw / totalWeight) * commodity;
+    const portfolioReturn = hasSectorData
+      ? (weights.etf / totalWeight) * etfEntries.reduce((sum, e) => sum + (e.krw / totalEtfKrw) * (e.series[index] ?? 0), 0) + nonEquityReturn
+      : blendedBenchmark;
+
     return {
       ...point,
       sp500: roundPercent(finiteNumber(point.sp500)),
       kospi: roundPercent(finiteNumber(point.kospi, finiteNumber(point.sp500))),
       usTreasury10y: roundPercent(usTreasury10y),
-      portfolio: roundPercent(blendedBenchmark),
+      portfolio: roundPercent(portfolioReturn),
       blendedBenchmark: roundPercent(blendedBenchmark),
     };
   });
@@ -1205,8 +1234,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       adjustedWeights,
       buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase),
       selectedRiskTilt,
+      planSummary,
+      sectorEtfData,
     ),
-    [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedBase, selectedRiskTilt],
+    [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedBase, selectedRiskTilt, planSummary, sectorEtfData],
   );
   const selectedDetailedHoldings = useMemo(
     () => buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase),
