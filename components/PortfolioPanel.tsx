@@ -17,6 +17,7 @@ import {
   evaluatePreferenceFeasibility,
   getVolatilityRanges,
   preferenceAdjustedMetrics,
+  RETURN_ESTIMATE_LABEL,
   type HeldAssets,
   type PortfolioOption,
 } from '@/lib/portfolio';
@@ -1430,6 +1431,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <p className="mt-3 text-sm leading-relaxed text-slate-300">
                 {selectedExecutiveConclusion}
               </p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                본 포트폴리오는 고객 위험성향별 모델 포트폴리오를 기준으로 출발하며, 이후 현금흐름·세금·유동성·투자기간 등 고객 요인에 따라 조정됩니다.
+              </p>
             </div>
 
 	            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1440,6 +1444,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 	                <span className={`mt-0.5 block text-xl font-black ${selectedFeasibility.feasible ? 'text-emerald-400' : 'text-amber-300'}`}>
 	                  {metrics.expectedReturn}%
 	                </span>
+	                <span className="mt-1 block text-[9px] leading-relaxed text-slate-500">{RETURN_ESTIMATE_LABEL}</span>
 	                {!selectedFeasibility.feasible && (
 	                  <span className="mt-1 block text-[9px] font-bold text-rose-200">
 	                    요구 {selectedFeasibility.requestedTargetReturn ?? '-'}% 미반영

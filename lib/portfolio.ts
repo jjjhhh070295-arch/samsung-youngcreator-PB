@@ -137,13 +137,24 @@ const PORTFOLIO_OPTION_META: Array<{
 ];
 
 // 간단한 시뮬레이션 계산 로직 (PB 편집 시 지표 연동용)
-const EXPECTED_RETURN_ASSUMPTIONS = {
+/** Risk-profile model portfolio starting points. Customer factors adjust these weights. */
+export const MODEL_PORTFOLIO_TEMPLATES: Record<PortfolioOption["id"], PortfolioOption["weights"]> = {
+  stable: { etf: 25, bond: 52, els: 0, mmf: 10, gold: 8, dollar: 3, raw: 2 },
+  balanced: { etf: 34, bond: 45, els: 0, mmf: 8, gold: 7, dollar: 4, raw: 2 },
+  growth: { etf: 43, bond: 38, els: 0, mmf: 5, gold: 8, dollar: 4, raw: 2 },
+};
+
+/** Fallback proxy estimates, not forward-return targets or performance promises. */
+export const FALLBACK_PROXY_RETURN_ESTIMATES = {
   etf: 0.12,
   bond: 0.045,
   mmf: 0.035,
   gold: 0.05,
   dollar: 0.02,
+  raw: 0.036,
 } as const;
+
+export const RETURN_ESTIMATE_LABEL = "시장 proxy 미연결 시 fallback 기반 참고 수익률";
 
 const VOLATILITY_PROXY_ORDER = ["etf", "bond", "mmf", "gold", "dollar", "raw"] as const;
 const VOLATILITY_PROXY_ASSUMPTIONS: Record<(typeof VOLATILITY_PROXY_ORDER)[number], number> = {
@@ -178,11 +189,12 @@ export function calculateSimulatedMetrics(weights: PortfolioOption['weights']) {
   const effectiveBond = normalized.bond + normalized.els * 0.7;
   const effectiveMmf = normalized.mmf + normalized.els * 0.3;
   const expReturn =
-    (normalized.etf * EXPECTED_RETURN_ASSUMPTIONS.etf) +
-    (effectiveBond * EXPECTED_RETURN_ASSUMPTIONS.bond) +
-    (effectiveMmf * EXPECTED_RETURN_ASSUMPTIONS.mmf) +
-    (normalized.gold * EXPECTED_RETURN_ASSUMPTIONS.gold) +
-    (normalized.dollar * EXPECTED_RETURN_ASSUMPTIONS.dollar);
+    (normalized.etf * FALLBACK_PROXY_RETURN_ESTIMATES.etf) +
+    (effectiveBond * FALLBACK_PROXY_RETURN_ESTIMATES.bond) +
+    (effectiveMmf * FALLBACK_PROXY_RETURN_ESTIMATES.mmf) +
+    (normalized.gold * FALLBACK_PROXY_RETURN_ESTIMATES.gold) +
+    (normalized.dollar * FALLBACK_PROXY_RETURN_ESTIMATES.dollar) +
+    (normalized.raw * FALLBACK_PROXY_RETURN_ESTIMATES.raw);
   const vol = calculateVolatilityEstimate(normalized);
 
   return {
@@ -727,9 +739,9 @@ function estimateMaxAchievableReturn(
   const dollarFloor = clampNumber(weights.dollar, 0, 100 - mmfFloor);
   const investableRiskBudget = Math.max(0, 100 - mmfFloor - dollarFloor);
   const maxReturn =
-    investableRiskBudget * EXPECTED_RETURN_ASSUMPTIONS.etf +
-    mmfFloor * EXPECTED_RETURN_ASSUMPTIONS.mmf +
-    dollarFloor * EXPECTED_RETURN_ASSUMPTIONS.dollar;
+    investableRiskBudget * FALLBACK_PROXY_RETURN_ESTIMATES.etf +
+    mmfFloor * FALLBACK_PROXY_RETURN_ESTIMATES.mmf +
+    dollarFloor * FALLBACK_PROXY_RETURN_ESTIMATES.dollar;
 
   return Math.round(maxReturn * 10) / 10;
 }
@@ -739,18 +751,12 @@ function aggressiveBenchmarkTargetReturn(
   riskTilt: -1 | 0 | 1,
   benchmarkTargetReturn?: number,
 ) {
-  if (!preference.benchmarkOutperformance) return undefined;
-
-  const tier = riskTilt + 1;
-  const internalAggressiveReturn = preference.highRiskAccepted
-    ? [35, 55, 80][tier]
-    : [18, 28, 42][tier];
-  const benchmarkFloor =
-    typeof benchmarkTargetReturn === "number" && Number.isFinite(benchmarkTargetReturn)
-      ? benchmarkTargetReturn + [4, 8, 14][tier]
-      : undefined;
-
-  return Math.min(300, Math.max(internalAggressiveReturn, benchmarkFloor ?? 0));
+  // A request to outperform is not a return assumption. It is intentionally
+  // left for PB review and must not create a fixed alpha or KPI floor.
+  void preference;
+  void riskTilt;
+  void benchmarkTargetReturn;
+  return undefined;
 }
 
 function requestedAggressiveReturn(
@@ -797,11 +803,9 @@ export function evaluatePreferenceFeasibility(
     riskTilt,
     options.benchmarkTargetReturn,
   );
-  if (
-    preference.benchmarkOutperformance &&
-    (!benchmarkRequiredReturn || benchmarkRequiredReturn > maxAchievableReturn + tolerance)
-  ) {
+  if (preference.benchmarkOutperformance) {
     addSuppression("benchmarkOutperformance");
+    conflicts.push("벤치마크 초과수익 요구는 고정 alpha나 기대수익률 보정에 사용하지 않으며 PB 담당자 확인 항목으로 분리합니다.");
     conflicts.push(
       benchmarkRequiredReturn
         ? `벤치마크 초과수익 가정 ${benchmarkRequiredReturn}%는 현재 비중으로 달성 가능한 상한 ${maxAchievableReturn}%를 초과합니다.`
@@ -875,6 +879,9 @@ function assetScoresFromAnalysis(
   riskTilt: -1 | 0 | 1,
   investableKrw?: number,
 ): Omit<PortfolioOption["weights"], "mmf" | "dollar"> {
+  const template = MODEL_PORTFOLIO_TEMPLATES[
+    riskTilt < 0 ? "stable" : riskTilt > 0 ? "growth" : "balanced"
+  ];
   const scores = factorScoreSummary(client);
   const equitySignal = topSignalScore(signals, "equity");
   const bondSignal = topSignalScore(signals, "bond");
@@ -897,17 +904,16 @@ function assetScoresFromAnalysis(
     riskTilt * 11;
 
   const etf =
-    42 +
+    template.etf +
     growthCapacity +
     Math.max(0, equitySignal) * 2.2 +
     (preference.stockOnly ? 42 : 0) +
     (preference.overseasSingleStock ? 16 : 0) +
     (preference.targetReturn ? clampNumber(preference.targetReturn - 8, 0, 22) : 0) +
-    (preference.benchmarkOutperformance ? (preference.highRiskAccepted ? 36 : 24) : 0) -
     (preference.taxPriority ? 24 : 0);
 
   const bond =
-    46 -
+    template.bond -
     growthCapacity * 0.5 +
     Math.max(0, bondSignal) * 2.1 +
     (scores.tax - 3) * 7 +
@@ -919,18 +925,17 @@ function assetScoresFromAnalysis(
     (cashflow.corporateTaxOutflow > 0 ? 5 : 0) +
     (preference.taxPriority ? 44 : 0) +
     (riskSignal >= 6 ? riskSignal * 1.4 : 0) -
-    (preference.stockOnly ? 30 : 0) -
-    (preference.benchmarkOutperformance ? 12 : 0);
+    (preference.stockOnly ? 30 : 0);
 
   const gold =
-    8 +
+    template.gold +
     Math.max(0, goldSignal) * 1.5 +
     Math.max(0, riskSignal) * 0.55 +
     (scores.tax >= 4 ? 1 : 0) -
     (preference.stockOnly ? 4 : 0);
 
   const raw =
-    3 +
+    template.raw +
     Math.max(0, goldSignal - 4) * 0.9 +
     (scores.risk >= 4 ? 2 : 0) -
     (scores.liquidity >= 4 ? 2 : 0) -
@@ -957,8 +962,11 @@ function weightsFromAnalysis(
   riskTilt: -1 | 0 | 1,
   investableKrw?: number,
 ): PortfolioOption["weights"] {
-  const mmf = liquidityReservePercent(client, cashflow, preference, riskTilt, investableKrw);
-  const dollar = dollarReservePercent(signals, preference, riskTilt);
+  const template = MODEL_PORTFOLIO_TEMPLATES[
+    riskTilt < 0 ? "stable" : riskTilt > 0 ? "growth" : "balanced"
+  ];
+  const mmf = Math.max(template.mmf, liquidityReservePercent(client, cashflow, preference, riskTilt, investableKrw));
+  const dollar = Math.max(template.dollar, dollarReservePercent(signals, preference, riskTilt));
   const remaining = Math.max(0, 100 - mmf - dollar);
   const scores = assetScoresFromAnalysis(client, cashflow, signals, preference, riskTilt, investableKrw);
   const scoreSum = Object.values(scores).reduce((sum, score) => sum + Math.max(0, score), 0);
@@ -1162,24 +1170,6 @@ export function preferenceAdjustedMetrics(
     metrics.expectedReturn = Math.max(metrics.expectedReturn, Math.min(24, preference.targetReturn));
     metrics.volatility = Math.max(metrics.volatility, Math.min(36, preference.targetReturn * 1.35));
     metrics.mdd = Math.min(metrics.mdd, -Math.min(42, preference.targetReturn * 1.6));
-    metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
-  }
-  if (preference.benchmarkOutperformance && !isSuppressed("benchmarkOutperformance")) {
-    const tier = riskTilt + 1;
-    const targetReturn = aggressiveBenchmarkTargetReturn(preference, riskTilt, benchmarkTargetReturn) ?? metrics.expectedReturn;
-    metrics.expectedReturn = Math.max(metrics.expectedReturn, targetReturn);
-    metrics.volatility = Math.max(
-      metrics.volatility,
-      preference.highRiskAccepted ? [42, 68, 95][tier] : [24, 38, 56][tier],
-      Math.min(180, metrics.expectedReturn * (preference.highRiskAccepted ? 0.75 : 0.5)),
-    );
-    const tierMdd = preference.highRiskAccepted ? [-55, -75, -95][tier] : [-35, -55, -80][tier];
-    const volatilityMddCap = preference.highRiskAccepted ? [60, 82, 95][tier] : [42, 62, 85][tier];
-    metrics.mdd = Math.min(
-      metrics.mdd,
-      tierMdd,
-      -Math.min(volatilityMddCap, metrics.volatility * (preference.highRiskAccepted ? 0.9 : 0.75)),
-    );
     metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
   }
   if (preference.taxPriority) {

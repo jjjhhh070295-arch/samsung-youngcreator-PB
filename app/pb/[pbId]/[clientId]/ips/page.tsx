@@ -486,6 +486,9 @@ export default function IPSDocumentPage() {
                   <b>예상변동성</b> {pf.expectedRisk}%
                 </span>
               </div>
+              <p className="mb-3 text-[10px] leading-relaxed text-gray-500">
+                수익률은 시장 proxy 연결 전 fallback 기반 참고 추정치이며, 미래 성과 또는 벤치마크 초과수익을 의미하지 않습니다.
+              </p>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="rounded border border-gray-200 p-3">
                   <p className="mb-2 text-xs font-semibold text-gray-700">자산배분 도넛차트</p>

@@ -66,7 +66,6 @@ function bucketForAssetClass(assetClass: string): "equity" | "bond" | "cash" | "
 export function buildPortfolioBacktestSeries(
   allocations: AssetAllocation[],
   points: BenchmarkApiPoint[] = FALLBACK_BENCHMARK_POINTS,
-  alphaPct = 3.5,
 ): PortfolioBacktestPoint[] {
   const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
   const total = sourcePoints.length;
@@ -92,14 +91,15 @@ export function buildPortfolioBacktestSeries(
       const bucket = bucketForAssetClass(allocation.assetClass);
       return sum + (allocation.weight / totalWeight) * bucketReturns[bucket];
     }, 0);
-    const progress = total <= 1 ? 1 : index / (total - 1);
-
     return {
       ...point,
       sp500: roundPercent(sp500),
       kospi: roundPercent(kospi),
       usTreasury10y: roundPercent(usTreasury10y),
-      portfolio: roundPercent(blendedBenchmark + alphaPct * progress),
+      // The proposed portfolio and its blended benchmark use identical proxy
+      // returns and identical weights. Outperformance, if any, must come from
+      // realised holdings data—not a presentation-time alpha adjustment.
+      portfolio: roundPercent(blendedBenchmark),
       blendedBenchmark: roundPercent(blendedBenchmark),
     };
   });
