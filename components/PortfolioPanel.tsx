@@ -1514,9 +1514,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">포트폴리오 변동성</span>
                 <span className="mt-0.5 block text-xl font-black text-slate-200">{metrics.volatility}%</span>
-                <span className="mt-1 block text-[9px] leading-relaxed text-slate-400">일반 시장 범위 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
-                <span className="block text-[9px] leading-relaxed text-amber-200/80">{stressLossRange ? `스트레스 손실 범위 ${stressLossRange.low.toFixed(1)}~${stressLossRange.high.toFixed(1)}%` : '스트레스 손실 범위 불러오는 중'}</span>
-                <span className="mt-1 block text-[9px] leading-relaxed text-slate-500">일반 범위는 평상시 변동성 추정치이며, 스트레스 손실 범위는 과거 위기 시나리오 적용 시 최대낙폭(MDD) 기준입니다.</span>
+                <span className="mt-1 block text-[9px] leading-relaxed text-slate-400">일반 시장 변동성 범위 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
+                <span className="block text-[9px] leading-relaxed text-amber-200/80">{stressLossRange ? `스트레스 MDD 범위 ${stressLossRange.low.toFixed(1)}~${stressLossRange.high.toFixed(1)}%` : '스트레스 MDD 범위 불러오는 중'}</span>
+                <span className="mt-1 block text-[9px] leading-relaxed text-slate-500">일반 범위는 연율 변동성, 스트레스 범위는 과거 위기 시나리오 최대낙폭(MDD) 기준입니다.</span>
                 {false && <>
                 <span className="mt-1 block text-[9px] leading-relaxed text-slate-400">평상시 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
                 <span className="block text-[9px] leading-relaxed text-amber-200/80">위기 {volatilityRanges.stressLow}~{volatilityRanges.stressHigh}%</span>
@@ -1526,6 +1526,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">시뮬레이션 MDD</span>
                 <span className="mt-0.5 block text-xl font-black text-rose-400">{metrics.mdd}%</span>
+                <span className="mt-1 block text-[9px] leading-relaxed text-slate-500">일반 시장 가정의 확률 시뮬레이션 기준</span>
 	              </div>
 	            </div>
 	            {proxyReturnSummary && (
