@@ -1,4 +1,4 @@
-import { ASSETS, FACTORS, type AssetId, type MacroStressResponse, type MonthlyRow, type OlsModel, type RiskMetrics, type ScenarioResult, type Vector, type Weights } from "./types";
+import { ASSETS, FACTORS, type AssetId, type HistoricalStressRangeResponse, type MacroStressResponse, type MonthlyRow, type OlsModel, type RiskMetrics, type ScenarioResult, type Vector, type Weights } from "./types";
 import { cholesky, covariance, inverse, mean, multiply, normal, quantile, seeded, std } from "./math";
 import { loadMonthlyRows } from "./data";
 export const HISTORICAL_SCENARIOS={dotcom:{label:"Dot-com bubble",start:"2000-03",end:"2002-10"},gfc:{label:"Global financial crisis",start:"2007-10",end:"2009-03"},covid:{label:"COVID-19",start:"2020-02",end:"2020-04"},inflation_2022:{label:"2022 inflation/rate shock",start:"2022-01",end:"2022-10"}} as const;
@@ -24,6 +24,16 @@ function simulate(center:Vector,months:number,cov:number[][],models:OlsModel[],w
 }
 function evaluateWeights(flat:Float64Array,months:number,count:number,weights:Weights){const returns:number[]=[],mdds:number[]=[];for(let scenario=0;scenario<count;scenario++){let wealth=1,peak=1,mdd=0;for(let month=0;month<months;month++){const offset=(scenario*months+month)*3,value=flat[offset]*weights.sp500+flat[offset+1]*weights.kospi+flat[offset+2]*weights.treasury;wealth*=1+value;peak=Math.max(peak,wealth);mdd=Math.min(mdd,wealth/peak-1);}returns.push(wealth-1);mdds.push(mdd);}return metrics(returns,mdds);}
 function rebalance(flat:Float64Array,months:number,count:number,current:Weights,base:RiskMetrics){const sample=Math.min(count,1_000);let selected=current,best=base.cvar95+.3*base.meanMdd;for(let us=0;us<=1.0001;us+=.05)for(let kr=0;kr<=1-us+.0001;kr+=.05){const candidate={sp500:+us.toFixed(2),kospi:+kr.toFixed(2),treasury:+(1-us-kr).toFixed(2)};if(ASSETS.some(asset=>Math.abs(candidate[asset]-current[asset])>.2001))continue;const result=evaluateWeights(flat,months,sample,candidate),turnover=ASSETS.reduce((sum,asset)=>sum+Math.abs(candidate[asset]-current[asset]),0),score=result.cvar95+.3*result.meanMdd-.02*turnover;if(score>best){best=score;selected=candidate;}}return {weights:selected,metrics:evaluateWeights(flat,months,count,selected)};}
+export async function runHistoricalStressRange(weights:Weights):Promise<HistoricalStressRangeResponse>{
+  const loaded=await loadMonthlyRows(),rows=loaded.rows.filter(row=>row.month>="1990-01");
+  const scenarios=Object.entries(HISTORICAL_SCENARIOS).map(([id,definition])=>{
+    const window=rows.filter(row=>row.month>=definition.start&&row.month<=definition.end&&ASSETS.every(asset=>Number.isFinite(row.assets[asset])));
+    if(!window.length)throw new Error("No observations for historical scenario "+id);
+    const path=window.map(row=>ASSETS.reduce((sum,asset)=>sum+row.assets[asset]*weights[asset],0));
+    return {id,label:definition.label,period:definition.start+" ~ "+definition.end,actualReturn:cumulative(path),actualMdd:pathMdd(path)};
+  });
+  return {generatedAt:new Date().toISOString(),scenarios,warnings:loaded.warnings,sources:loaded.sources};
+}
 export async function runMacroStress(weights:Weights,scenarioId:HistoricalScenarioId|"custom",customCenter?:Vector,simulations=50_000):Promise<MacroStressResponse> {
   const loaded=await loadMonthlyRows(),rows=loaded.rows.filter(row=>row.month>="1990-01"),models=ASSETS.map(asset=>fit(rows,asset)),cov=covariance(rows.map(row=>FACTORS.map(factor=>row.factors[factor])));
   const definition=scenarioId==="custom"?null:HISTORICAL_SCENARIOS[scenarioId],window=definition?rows.filter(row=>row.month>=definition.start&&row.month<=definition.end&&ASSETS.every(asset=>Number.isFinite(row.assets[asset]))):[],months=definition?window.length:12;

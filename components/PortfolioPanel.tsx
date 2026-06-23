@@ -22,6 +22,8 @@ import {
   type PortfolioOption,
 } from '@/lib/portfolio';
 import { calculatePortfolioProxyReturn, type ProxyReturnEstimate } from '@/lib/proxyReturns';
+import { setToMacroApiParams } from '@/lib/assetMapping';
+import type { HistoricalStressRangeResponse } from '@/lib/macroStress/types';
 import { supabase } from '@/lib/supabase';
 import {
   FALLBACK_MARKET_RESEARCH,
@@ -895,6 +897,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [hasManualEdit, setHasManualEdit] = useState(false);
   const [benchmarkPoints, setBenchmarkPoints] = useState<BenchmarkApiPoint[]>(FALLBACK_BENCHMARK_POINTS);
   const [proxyReturns, setProxyReturns] = useState<ProxyReturnEstimate[]>([]);
+  const [stressRange, setStressRange] = useState<HistoricalStressRangeResponse | null>(null);
   const [benchmarkSource, setBenchmarkSource] = useState('로컬 예비 데이터');
   const [benchmarkFallback, setBenchmarkFallback] = useState(true);
   const [benchmarkUpdatedAt, setBenchmarkUpdatedAt] = useState<string | undefined>();
@@ -1219,6 +1222,25 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       : null,
     [adjustedWeights, proxyReturns, selectedDetailedHoldings],
   );
+  const stressParams = useMemo(
+    () => setToMacroApiParams(adjustedWeights, selectedDetailedHoldings.filter((holding) => holding.bucket === 'etf').map((holding) => ({ name: holding.name, weight: holding.weight }))),
+    [adjustedWeights, selectedDetailedHoldings],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    const query = new URLSearchParams({ summary: 'range', us: String(stressParams.us), kr: String(stressParams.kr), bond: String(stressParams.bond) });
+    fetch(`/api/macro-stress?${query}`, { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('stress range unavailable')))
+      .then((value: HistoricalStressRangeResponse) => { if (!cancelled) setStressRange(value); })
+      .catch(() => { if (!cancelled) setStressRange(null); });
+    return () => { cancelled = true; };
+  }, [stressParams.bond, stressParams.kr, stressParams.us]);
+  const stressLossRange = useMemo(() => {
+    if (!stressRange?.scenarios.length) return null;
+    const coverage = stressParams.equityBondPct / 100;
+    const losses = stressRange.scenarios.map((scenario) => scenario.actualMdd * coverage * 100);
+    return { low: Math.min(...losses), high: Math.max(...losses), count: losses.length };
+  }, [stressParams.equityBondPct, stressRange]);
   const displayedExpectedReturn = proxyReturnSummary?.annualizedReturnPct ?? metrics.expectedReturn;
   const returnEstimateLabel = !proxyReturnSummary || proxyReturnSummary.fallbackUsed
     ? '일부 자산군은 시장 데이터 미연결로 fallback 추정치를 사용했습니다.'
@@ -1492,9 +1514,15 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">포트폴리오 변동성</span>
                 <span className="mt-0.5 block text-xl font-black text-slate-200">{metrics.volatility}%</span>
+                <span className="mt-1 block text-[9px] leading-relaxed text-slate-400">일반 시장 변동성 범위 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
+                <span className="block text-[9px] leading-relaxed text-amber-200/80">{stressLossRange ? `스트레스 테스트 기반 손실 범위 ${stressLossRange.low.toFixed(1)}~${stressLossRange.high.toFixed(1)}%` : '스트레스 테스트 기반 손실 범위 불러오는 중'}</span>
+                <span className="mt-1 block text-[9px] text-slate-500">일반 범위는 proxy 변동성, 스트레스 범위는 역사 위기 시나리오 MDD 요약</span>
+                <span className="mt-1 block text-[9px] text-slate-500">일반 시장 범위는 포트폴리오의 기본 변동성 추정치이며, 스트레스 범위는 동일 포트폴리오를 과거 위기 시나리오에 적용해 계산한 최대낙폭(MDD) 범위입니다.</span>
+                {false && <>
                 <span className="mt-1 block text-[9px] leading-relaxed text-slate-400">평상시 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
                 <span className="block text-[9px] leading-relaxed text-amber-200/80">위기 {volatilityRanges.stressLow}~{volatilityRanges.stressHigh}%</span>
                 <span className="mt-1 block text-[9px] text-slate-500" title="대표지수 proxy 변동성·상관관계 기반 연율화 추정치">proxy 기반 연율화 추정치</span>
+                </>}
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-2 text-center">
                 <span className="block text-[10px] font-medium text-fg-muted">시뮬레이션 MDD</span>

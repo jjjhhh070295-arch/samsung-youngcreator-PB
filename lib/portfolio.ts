@@ -171,6 +171,8 @@ export function calculateVolatilityEstimate(weights: PortfolioOption["weights"])
 
 export function getVolatilityRanges(volatility: number) {
   const round = (value: number) => Math.round(value * 10) / 10;
+  // stressLow/stressHigh remain only for a non-rendered legacy JSX branch.
+  // New UI stress ranges come from runHistoricalStressRange() MDD results.
   return { normalLow: round(volatility * 0.8), normalHigh: round(volatility * 1.25), stressLow: round(volatility * 1.8), stressHigh: round(volatility * 2.65) };
 }
 
