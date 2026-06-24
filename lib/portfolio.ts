@@ -142,8 +142,8 @@ const PORTFOLIO_OPTION_META: Array<{
 // 간단한 시뮬레이션 계산 로직 (PB 편집 시 지표 연동용)
 /** Risk-profile model portfolio starting points. Customer factors adjust these weights. */
 export const MODEL_PORTFOLIO_TEMPLATES: Record<PortfolioOption["id"], PortfolioOption["weights"]> = {
-  stable: { etf: 25, bond: 52, els: 0, mmf: 10, gold: 8, dollar: 3, raw: 2 },
-  balanced: { etf: 34, bond: 45, els: 0, mmf: 8, gold: 7, dollar: 4, raw: 2 },
+  stable: { etf: 25, bond: 57, els: 0, mmf: 5, gold: 8, dollar: 3, raw: 2 },
+  balanced: { etf: 34, bond: 47, els: 0, mmf: 6, gold: 7, dollar: 4, raw: 2 },
   growth: { etf: 43, bond: 38, els: 0, mmf: 5, gold: 8, dollar: 4, raw: 2 },
 };
 
@@ -683,46 +683,32 @@ function topSignalScore(scores: ReturnType<typeof scoreResearchSignals>, signal:
   return scores.find((score) => score.signal === signal)?.score ?? 0;
 }
 
+// MMF(현금 버킷) = 실측 예정 지출만큼만 확보. 성향(방어/공격)은 MMF가 아니라 주식/채권 비율로 표현.
 function liquidityReservePercent(
   client: Client,
   cashflow: CashflowPortfolioSummary,
-  preference: ClientPreferenceProfile,
-  riskTilt: -1 | 0 | 1,
   investableKrw?: number,
 ): number {
-  const scores = factorScoreSummary(client);
-  // 현금흐름 압력 기준: 투자가능자산(heldAssets 있을 때) 우선, 없으면 총자산 폴백
-  const cashflowBase = investableKrw && investableKrw > 0 ? investableKrw : (client.assetSize || 0);
-  const scheduledPct = percentOfBase(cashflow.scheduledOutflow, cashflowBase);
-  const taxPct = percentOfBase(cashflow.taxOutflow, cashflowBase);
-  const annualDeficitPct = percentOfBase(Math.max(0, -cashflow.monthlyNet) * 12, cashflowBase);
-  const uniqueText = factorValue(client, "unique", "");
-  const hasNearLiquidityNeed =
-    Boolean(cashflow.nearestOutflow) || /증여|상속|ipo|m&a|매각|출자|법인세|양도세/i.test(uniqueText);
+  const base = investableKrw && investableKrw > 0 ? investableKrw : (client.assetSize || 0);
+  if (base <= 0) return 3; // 자산정보 없으면 최소가드만
 
-  const floor = preference.rejectsOtherProducts && cashflow.taxOutflow === 0 ? 0 : 4;
-  const cap = preference.taxPriority || scores.liquidity >= 5 ? 48 : 42;
-  // 현금흐름이 유의미하게 입력됐으면(>5%p) 점수항을 절반으로 줄여 이중반영 완화.
-  // 미입력 시에는 점수항이 안전망 역할을 그대로 수행.
-  const cashflowPressure = scheduledPct + taxPct + annualDeficitPct;
-  const scoreMultiplier = cashflowPressure > 5 ? 0.5 : 1.0;
-  const reserve =
-    3 +
-    (scores.liquidity - 1) * 3.2 * scoreMultiplier +
-    (scores.tax >= 4 ? 4 : 0) +
+  // 실측 지출 기반: 세금×1.1(확정+여유) + 일반비반복×1.0 + 연적자×0.5(6개월 비상현금)
+  // (세금/일반은 summarizeCashflows에서 category 하이브리드로 분리·이중계상 제거됨)
+  const reserveWon =
+    cashflow.taxOutflow * 1.1 +
+    cashflow.scheduledOutflow * 1.0 +
+    Math.max(0, -cashflow.monthlyNet) * 12 * 0.5;
+  const measuredPct = (reserveWon / base) * 100;
+
+  // 구조 플래그 (이번엔 유지 — 별도 결정 사항)
+  const flagPct =
     (client.clientType === "corporate" ? 3 : 0) +
     (client.clientType === "sole_proprietor" ? 3 : 0) +
     (client.accountSeparation && client.accountSeparation !== "separated" ? 4 : 0) +
-    (client.linkedClientId && client.isMajorityShareholder ? 2 : 0) +
-    (hasNearLiquidityNeed ? 4 : 0) +
-    scheduledPct * 0.34 +
-    taxPct * 0.7 +
-    annualDeficitPct * 0.45 -
-    (scores.timeHorizon - 3) * 1.8 -
-    riskTilt * 2.2 -
-    (preference.stockOnly && !preference.taxPriority ? 3 : 0);
+    (client.linkedClientId && client.isMajorityShareholder ? 2 : 0);
 
-  return clampNumber(reserve, floor, cap);
+  // 최소가드 3%(성향현금 아님, 깡통방지) ~ 상한 60%
+  return Math.min(60, Math.max(3, measuredPct + flagPct));
 }
 
 function uniqueStrings(values: string[]) {
@@ -991,7 +977,7 @@ function weightsFromAnalysis(
   const template = MODEL_PORTFOLIO_TEMPLATES[
     riskTilt < 0 ? "stable" : riskTilt > 0 ? "growth" : "balanced"
   ];
-  const mmf = Math.max(template.mmf, liquidityReservePercent(client, cashflow, preference, riskTilt, investableKrw));
+  const mmf = liquidityReservePercent(client, cashflow, investableKrw);
   const dollar = Math.max(template.dollar, dollarReservePercent(signals, preference, riskTilt));
   const remaining = Math.max(0, 100 - mmf - dollar);
   const scores = assetScoresFromAnalysis(client, cashflow, signals, preference, riskTilt, investableKrw);
