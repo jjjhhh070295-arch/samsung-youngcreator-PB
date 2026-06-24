@@ -12,20 +12,23 @@ export interface ProxyReturnEstimate {
   usedYears: number;
   annualizedReturnPct: number;
   fallback: boolean;
+  returnBasis: "price_cagr" | "income_proxy";
+  displayRange?: string;
+  displayNote?: string;
 }
 
 /** Used only when the market-data endpoint cannot supply a usable series. */
 export const FALLBACK_PROXY_RETURN_ESTIMATES: Record<ProxyAssetKey, number> = {
   sp500: 12,
   kospi: 12,
-  bond: 4.5,
-  mmf: 3.5,
+  bond: 3.25,
+  mmf: 2.75,
   gold: 5,
   dollar: 2,
   raw: 3.6,
 };
 
-export const RETURN_ESTIMATE_LABEL = "최근 5년 시장 proxy 기반 연율화 참고 수익률";
+export const RETURN_ESTIMATE_LABEL = "시장 proxy 기반 참고 수익률 구성";
 
 export function annualizedReturnFromPrices(rows: Array<{ close: number; localDate: string }>): { annualizedReturnPct: number; usedYears: number; startDate: string | null; endDate: string | null } | null {
   const usable = rows.filter((row) => Number.isFinite(row.close) && row.close > 0).sort((a, b) => a.localDate.localeCompare(b.localDate));
@@ -41,7 +44,20 @@ export function annualizedReturnFromPrices(rows: Array<{ close: number; localDat
 }
 
 export function fallbackProxyEstimate(key: ProxyAssetKey, label: string, proxy: string): ProxyReturnEstimate {
-  return { key, label, proxy, source: "fallback", startDate: null, endDate: null, usedYears: 0, annualizedReturnPct: FALLBACK_PROXY_RETURN_ESTIMATES[key], fallback: true };
+  return { key, label, proxy, source: "fallback", startDate: null, endDate: null, usedYears: 0, annualizedReturnPct: FALLBACK_PROXY_RETURN_ESTIMATES[key], fallback: true, returnBasis: "price_cagr" };
+}
+
+export function incomeProxyEstimate(key: "bond" | "mmf", label: string, proxy: string): ProxyReturnEstimate {
+  const isBond = key === "bond";
+  return {
+    key, label, proxy,
+    source: isBond ? "채권형 이자수익 proxy (fallback)" : "현금성·단기금리 proxy (fallback)",
+    startDate: null, endDate: null, usedYears: 0,
+    annualizedReturnPct: FALLBACK_PROXY_RETURN_ESTIMATES[key], fallback: true,
+    returnBasis: "income_proxy",
+    displayRange: isBond ? "3.0~3.5%" : "2.5~3.0%",
+    displayNote: isBond ? "이자수익 proxy" : "단기금리 proxy",
+  };
 }
 
 export function calculatePortfolioProxyReturn(weights: SetWeights, estimates: ProxyReturnEstimate[], etfHoldings?: EtfHolding[]) {

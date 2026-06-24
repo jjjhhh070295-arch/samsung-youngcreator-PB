@@ -1565,12 +1565,15 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 	            </div>
 	            {proxyReturnSummary && (
 	              <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/40 p-3 text-[10px] text-slate-300">
-	                <p className="font-bold text-slate-100">최근 5년 시장 proxy 연율화 참고 수익률 구성</p>
+	                <p className="font-bold text-slate-100">시장 proxy 기반 참고 수익률 구성</p>
+	                <p className="mt-1 text-slate-400">주식·대체자산은 최근 5년 가격 연율화, 채권·현금성 자산은 이자수익 특성을 반영한 proxy 기준입니다.</p>
 	                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
 	                  {proxyReturnSummary.estimates.map((estimate) => (
 	                    <span key={estimate.key}>
-	                      {estimate.label} · {estimate.proxy} · {estimate.annualizedReturnPct.toFixed(1)}%
-	                      {estimate.fallback ? ' · fallback' : ` · ${estimate.usedYears.toFixed(1)}년`}
+	                      {estimate.label} · {estimate.proxy} · {estimate.displayRange ?? `${estimate.annualizedReturnPct.toFixed(1)}%`}
+	                      {estimate.returnBasis === 'income_proxy'
+	                        ? ` · ${estimate.displayNote ?? estimate.source}`
+	                        : estimate.fallback ? ' · fallback' : ` · ${estimate.usedYears.toFixed(1)}년`}
 	                    </span>
 	                  ))}
 	                </div>

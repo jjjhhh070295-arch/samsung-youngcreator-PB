@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { annualizedReturnFromPrices, fallbackProxyEstimate, type ProxyAssetKey, type ProxyReturnEstimate } from "@/lib/proxyReturns";
+import { annualizedReturnFromPrices, fallbackProxyEstimate, incomeProxyEstimate, type ProxyAssetKey, type ProxyReturnEstimate } from "@/lib/proxyReturns";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +50,9 @@ function fallbackFor(definition: BenchmarkDefinition): BenchmarkSeries {
       label: index === values.length - 1 ? "현재" : `${values.length - 1 - index}M 전`,
       value,
     })),
-    proxyEstimate: fallbackProxyEstimate(definition.proxyKey, definition.label, definition.symbol),
+    proxyEstimate: definition.proxyKey === "bond" || definition.proxyKey === "mmf"
+      ? incomeProxyEstimate(definition.proxyKey, definition.label, definition.symbol)
+      : fallbackProxyEstimate(definition.proxyKey, definition.label, definition.symbol),
   };
 }
 
@@ -187,9 +189,12 @@ async function fetchBenchmark(definition: BenchmarkDefinition): Promise<Benchmar
     asOf: points.at(-1)?.date ?? "",
     points,
     proxyEstimate: (() => {
+      if (definition.proxyKey === "bond" || definition.proxyKey === "mmf") {
+        return incomeProxyEstimate(definition.proxyKey, definition.label, definition.symbol);
+      }
       const annualized = annualizedReturnFromPrices(rows);
       if (!annualized) throw new Error(`${definition.symbol} has insufficient annualization history`);
-      return { key: definition.proxyKey, label: definition.label, proxy: definition.symbol, source: "Yahoo Finance adjusted close", fallback: false, ...annualized };
+      return { key: definition.proxyKey, label: definition.label, proxy: definition.symbol, source: "Yahoo Finance adjusted close", fallback: false, returnBasis: "price_cagr" as const, ...annualized };
     })(),
   };
 }
