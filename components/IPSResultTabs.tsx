@@ -73,6 +73,7 @@ export default function IPSResultTabs({
 
   // 포트폴리오 패널에서 현재 선택·편집 중인 포트폴리오 (최종 확정 저장용)
   const [chosen, setChosen] = useState<Portfolio | null>(null);
+  const [portfolioDetailMode, setPortfolioDetailMode] = useState(false);
 
   const [finalizing, setFinalizing] = useState(false);
 
@@ -377,9 +378,17 @@ export default function IPSResultTabs({
       {/* 포트폴리오 — 패널 편집 + 최종 확정 */}
       {tab === "portfolio" && (
         <div>
-          <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} onHeldAssetsChange={setHeldAssets} />
+          <PortfolioPanel
+            client={client}
+            pbId={pbId}
+            clientId={clientId}
+            onSelectionChange={setChosen}
+            onHeldAssetsChange={setHeldAssets}
+            onDetailModeChange={setPortfolioDetailMode}
+          />
 
           {/* 최종 확정 단계 */}
+          {!portfolioDetailMode && (
           <div
             className={`mt-4 rounded-xl border-2 p-5 shadow-card ${
               done.portfolio
@@ -444,6 +453,7 @@ export default function IPSResultTabs({
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 
