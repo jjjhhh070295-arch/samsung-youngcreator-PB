@@ -1577,6 +1577,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 	                    </span>
 	                  ))}
 	                </div>
+	                <details className="mt-2 rounded border border-slate-700/70 bg-slate-950/40 px-2 py-1.5">
+	                  <summary className="cursor-pointer font-semibold text-slate-200">수익률 기여도 확인</summary>
+	                  <div className="mt-2 overflow-x-auto">
+	                    <table className="w-full text-left text-[10px]">
+	                      <thead className="text-slate-400"><tr><th>assetGroup</th><th>weight</th><th>appliedReturn</th><th>contribution</th><th>source</th></tr></thead>
+	                      <tbody>{proxyReturnSummary.contributions.map((item) => (
+	                        <tr key={item.assetGroup} className="border-t border-slate-800"><td>{item.assetGroup}</td><td>{item.weight.toFixed(1)}%</td><td>{item.appliedReturn.toFixed(2)}%</td><td>{item.contribution.toFixed(3)}%p</td><td>{item.source}</td></tr>
+	                      ))}</tbody>
+	                    </table>
+	                  </div>
+	                </details>
 	              </div>
 	            )}
 	            {!selectedFeasibility.feasible && (

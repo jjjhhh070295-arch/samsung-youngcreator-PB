@@ -17,6 +17,14 @@ export interface ProxyReturnEstimate {
   displayNote?: string;
 }
 
+export interface ProxyReturnContribution {
+  assetGroup: string;
+  weight: number;
+  appliedReturn: number;
+  contribution: number;
+  source: string;
+}
+
 /** Used only when the market-data endpoint cannot supply a usable series. */
 export const FALLBACK_PROXY_RETURN_ESTIMATES: Record<ProxyAssetKey, number> = {
   sp500: 12,
@@ -62,19 +70,36 @@ export function incomeProxyEstimate(key: "bond" | "mmf", label: string, proxy: s
 
 export function calculatePortfolioProxyReturn(weights: SetWeights, estimates: ProxyReturnEstimate[], etfHoldings?: EtfHolding[]) {
   const byKey = new Map(estimates.map((estimate) => [estimate.key, estimate]));
-  const rate = (key: ProxyAssetKey) => (byKey.get(key)?.annualizedReturnPct ?? FALLBACK_PROXY_RETURN_ESTIMATES[key]) / 100;
+  const estimateFor = (key: ProxyAssetKey) => byKey.get(key);
+  const ratePct = (key: ProxyAssetKey) => estimateFor(key)?.annualizedReturnPct ?? FALLBACK_PROXY_RETURN_ESTIMATES[key];
+  const sourceFor = (key: ProxyAssetKey) => estimateFor(key)?.source ?? "fallback";
   const indices = convertSetToIndices(weights, etfHoldings);
-  const annualizedReturnPct =
-    indices.sp500 * rate("sp500") +
-    indices.kospi * rate("kospi") +
-    indices.treasury * rate("bond") +
-    indices.hedge.mmf * rate("mmf") +
-    indices.hedge.gold * rate("gold") +
-    indices.hedge.dollar * rate("dollar") +
-    indices.hedge.raw * rate("raw");
+  const components: Array<{ assetGroup: string; weight: number; key: ProxyAssetKey }> = [
+    { assetGroup: "주식/ETF (S&P500)", weight: indices.sp500, key: "sp500" },
+    { assetGroup: "주식/ETF (KOSPI)", weight: indices.kospi, key: "kospi" },
+    { assetGroup: "bond", weight: indices.treasury, key: "bond" },
+    { assetGroup: "cash/MMF/RP", weight: indices.hedge.mmf, key: "mmf" },
+    { assetGroup: "gold", weight: indices.hedge.gold, key: "gold" },
+    { assetGroup: "dollar", weight: indices.hedge.dollar, key: "dollar" },
+    { assetGroup: "commodity", weight: indices.hedge.raw, key: "raw" },
+  ];
+  const contributions: ProxyReturnContribution[] = components
+    .filter((component) => component.weight > 0)
+    .map((component) => {
+      const appliedReturn = ratePct(component.key);
+      return {
+        assetGroup: component.assetGroup,
+        weight: component.weight,
+        appliedReturn,
+        contribution: (component.weight / 100) * appliedReturn,
+        source: sourceFor(component.key),
+      };
+    });
+  const annualizedReturnPct = contributions.reduce((sum, item) => sum + item.contribution, 0);
   return {
     annualizedReturnPct: Math.round(annualizedReturnPct * 10) / 10,
     fallbackUsed: estimates.some((estimate) => estimate.fallback),
     estimates,
+    contributions: contributions.map((item) => ({ ...item, contribution: Math.round(item.contribution * 1000) / 1000 })),
   };
 }
