@@ -20,6 +20,7 @@ export default function PortfolioPage() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   // 패널에서 현재 선택·편집 중인 포트폴리오 (최종 확정 시 저장)
   const [chosen, setChosen] = useState<Portfolio | null>(null);
+  const [portfolioDetailMode, setPortfolioDetailMode] = useState(false);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -154,10 +155,11 @@ export default function PortfolioPage() {
       {/* 포트폴리오 후보 */}
 <section className="relative left-1/2 w-[calc(100vw-1.5rem)] -translate-x-1/2">
   <h2 className="mb-2 text-sm font-semibold text-fg-muted">포트폴리오 후보 3개</h2>
-  <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} />
+  <PortfolioPanel client={client} pbId={pbId} clientId={clientId} onSelectionChange={setChosen} onDetailModeChange={setPortfolioDetailMode} />
 </section>
 
       {/* 포트폴리오 최종 확정 단계 */}
+      {!portfolioDetailMode && (
       <section
         className={`rounded-xl border-2 p-5 shadow-card ${
           client.stages?.portfolio
@@ -210,6 +212,7 @@ export default function PortfolioPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* 스트레스 테스트 — 포트폴리오 최종 확정 후 진행 */}
 
