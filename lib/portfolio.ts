@@ -966,6 +966,28 @@ function assetScoresFromAnalysis(
   };
 }
 
+// 잔여 비중을 자산 점수 비율로 배분 (정규화 전 raw 비중). weightsFromAnalysis가 신호 반영/미반영 두 번 호출.
+function splitRemaining(
+  scores: Omit<PortfolioOption["weights"], "mmf" | "dollar">,
+  remaining: number,
+  mmf: number,
+  dollar: number,
+): PortfolioOption["weights"] {
+  const scoreSum = Object.values(scores).reduce((sum, score) => sum + Math.max(0, score), 0);
+  if (scoreSum <= 0) {
+    return { etf: 0, bond: remaining, els: 0, mmf, gold: 0, dollar, raw: 0 };
+  }
+  return {
+    etf: (remaining * scores.etf) / scoreSum,
+    bond: (remaining * scores.bond) / scoreSum,
+    els: 0,
+    mmf,
+    gold: (remaining * scores.gold) / scoreSum,
+    dollar,
+    raw: (remaining * scores.raw) / scoreSum,
+  };
+}
+
 function weightsFromAnalysis(
   client: Client,
   cashflow: CashflowPortfolioSummary,
@@ -977,25 +999,29 @@ function weightsFromAnalysis(
   const template = MODEL_PORTFOLIO_TEMPLATES[
     riskTilt < 0 ? "stable" : riskTilt > 0 ? "growth" : "balanced"
   ];
-  const mmf = liquidityReservePercent(client, cashflow, investableKrw);
+  const mmf = liquidityReservePercent(client, cashflow, investableKrw); // 신호 무관(실측)
+
+  // 신호 반영 비중
   const dollar = Math.max(template.dollar, dollarReservePercent(signals, preference, riskTilt));
-  const remaining = Math.max(0, 100 - mmf - dollar);
-  const scores = assetScoresFromAnalysis(client, cashflow, signals, preference, riskTilt, investableKrw);
-  const scoreSum = Object.values(scores).reduce((sum, score) => sum + Math.max(0, score), 0);
+  const withSig = splitRemaining(
+    assetScoresFromAnalysis(client, cashflow, signals, preference, riskTilt, investableKrw),
+    Math.max(0, 100 - mmf - dollar), mmf, dollar,
+  );
 
-  if (scoreSum <= 0) {
-    return normalizeOptionWeights({ etf: 0, bond: remaining, els: 0, mmf, gold: 0, dollar, raw: 0 });
-  }
+  // 신호=[] 미적용 baseline 비중
+  const noSignals: ReturnType<typeof scoreResearchSignals> = [];
+  const dollarBase = Math.max(template.dollar, dollarReservePercent(noSignals, preference, riskTilt));
+  const baseline = splitRemaining(
+    assetScoresFromAnalysis(client, cashflow, noSignals, preference, riskTilt, investableKrw),
+    Math.max(0, 100 - mmf - dollarBase), mmf, dollarBase,
+  );
 
-  return normalizeOptionWeights({
-    etf: (remaining * scores.etf) / scoreSum,
-    bond: (remaining * scores.bond) / scoreSum,
-    els: 0,
-    mmf,
-    gold: (remaining * scores.gold) / scoreSum,
-    dollar,
-    raw: (remaining * scores.raw) / scoreSum,
+  // 신호의 자산별 비중 영향을 ±9%p로 clamp(재정규화 후 ~±10%p, 제로섬 대칭) — 비례배분 비대칭 해소
+  const clamped = {} as PortfolioOption["weights"];
+  (Object.keys(withSig) as (keyof PortfolioOption["weights"])[]).forEach((k) => {
+    clamped[k] = Math.max(0, baseline[k] + clampNumber(withSig[k] - baseline[k], -9, 9));
   });
+  return normalizeOptionWeights(clamped);
 }
 
 function productsFor(
