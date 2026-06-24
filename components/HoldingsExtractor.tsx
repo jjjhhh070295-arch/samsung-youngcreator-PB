@@ -309,6 +309,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
       .filter((r) => r.name.trim())
       .map(({ _key: _k, validation: _v, current_price: _cp, notes: _n, ...r }) => ({
         client_id: clientId,
+        owner_party_id: clientId,
         name: r.name.trim(),
         ticker: r.ticker || null,
         market: r.market || null,
@@ -348,6 +349,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
     setManualMsg(null);
     const { error: err } = await supabase.from("client_holdings").insert([{
       client_id: clientId,
+      owner_party_id: clientId,
       name: form.name.trim(),
       ticker: form.ticker || null,
       market: form.market || null,

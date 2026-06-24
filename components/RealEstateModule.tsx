@@ -180,6 +180,7 @@ export default function RealEstateModule({ clientId }: Props) {
     const shareVal = Number(form.ownership_share) / 100;
     const { error } = await supabase.from("client_real_estate").insert([{
       client_id: clientId,
+      owner_party_id: clientId,
       property_type: form.property_type,
       address: form.address || null,
       complex_name: form.complex_name || null,
