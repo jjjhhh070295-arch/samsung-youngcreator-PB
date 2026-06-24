@@ -875,7 +875,7 @@ function dollarReservePercent(
   const reserve =
     1.5 +
     Math.max(0, dollarSignal) * 0.45 +
-    Math.max(0, riskSignal) * 0.18 +
+    riskSignal * 0.18 +
     (preference.overseasSingleStock ? 3 : 0) +
     (preference.benchmarkTargets.includes("S&P500") ? 2 : 0) +
     riskTilt * 0.8;
@@ -918,7 +918,7 @@ function assetScoresFromAnalysis(
   const etf =
     template.etf +
     growthCapacity +
-    Math.max(0, equitySignal) * 2.2 +
+    equitySignal * 2.2 +
     (preference.stockOnly ? 42 : 0) +
     (preference.overseasSingleStock ? 16 : 0) +
     (preference.targetReturn ? clampNumber(preference.targetReturn - 8, 0, 22) : 0) +
@@ -927,7 +927,7 @@ function assetScoresFromAnalysis(
   const bond =
     template.bond -
     growthCapacity * 0.5 +
-    Math.max(0, bondSignal) * 2.1 +
+    bondSignal * 2.1 +
     (scores.tax - 3) * 7 +
     (scores.liquidity - 3) * 4 +
     Math.max(0, scores.legal - 1) * 6 +
@@ -941,8 +941,8 @@ function assetScoresFromAnalysis(
 
   const gold =
     template.gold +
-    Math.max(0, goldSignal) * 1.5 +
-    Math.max(0, riskSignal) * 0.55 +
+    goldSignal * 1.5 +
+    riskSignal * 0.55 +
     (scores.tax >= 4 ? 1 : 0) -
     (preference.stockOnly ? 4 : 0);
 
