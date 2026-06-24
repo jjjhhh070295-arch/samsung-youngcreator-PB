@@ -823,6 +823,10 @@ function ObjectiveMetricsTable({
     () => computeMetrics(usePlanData ? planPortfolioSeries! : data.map((p) => p.portfolio)),
     [data, planPortfolioSeries, usePlanData],
   );
+  const baseMetrics = useMemo(
+    () => computeMetrics(data.map((p) => p.blendedBenchmark)),
+    [data],
+  );
   const sp500Metrics = useMemo(
     () => computeMetrics(data.map((p) => finiteNumber(p.sp500))),
     [data],
@@ -836,11 +840,11 @@ function ObjectiveMetricsTable({
     ? new Date(updatedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
     : '';
 
-  const rows: Array<{ label: string; fmt: (v: number) => string; portfolio: number; sp500: number; kospi: number }> = [
-    { label: '수익률 (1년)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.returnPct, sp500: sp500Metrics.returnPct, kospi: kospiMetrics.returnPct },
-    { label: '변동성 (연율화)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.volatilityPct, sp500: sp500Metrics.volatilityPct, kospi: kospiMetrics.volatilityPct },
-    { label: '최대낙폭 (MDD)', fmt: (v) => `${v.toFixed(1)}%`, portfolio: portfolioMetrics.mddPct, sp500: sp500Metrics.mddPct, kospi: kospiMetrics.mddPct },
-    { label: '샤프지수', fmt: (v) => v.toFixed(2), portfolio: portfolioMetrics.sharpe, sp500: sp500Metrics.sharpe, kospi: kospiMetrics.sharpe },
+  const rows: Array<{ label: string; fmt: (v: number) => string; base: number; portfolio: number; sp500: number; kospi: number }> = [
+    { label: '수익률 (1년)', fmt: (v) => `${v.toFixed(1)}%`, base: baseMetrics.returnPct, portfolio: portfolioMetrics.returnPct, sp500: sp500Metrics.returnPct, kospi: kospiMetrics.returnPct },
+    { label: '변동성 (연율화)', fmt: (v) => `${v.toFixed(1)}%`, base: baseMetrics.volatilityPct, portfolio: portfolioMetrics.volatilityPct, sp500: sp500Metrics.volatilityPct, kospi: kospiMetrics.volatilityPct },
+    { label: '최대낙폭 (MDD)', fmt: (v) => `${v.toFixed(1)}%`, base: baseMetrics.mddPct, portfolio: portfolioMetrics.mddPct, sp500: sp500Metrics.mddPct, kospi: kospiMetrics.mddPct },
+    { label: '샤프지수', fmt: (v) => v.toFixed(2), base: baseMetrics.sharpe, portfolio: portfolioMetrics.sharpe, sp500: sp500Metrics.sharpe, kospi: kospiMetrics.sharpe },
   ];
 
   return (
@@ -863,7 +867,8 @@ function ObjectiveMetricsTable({
           <thead>
             <tr className="border-b border-border text-xs text-fg-muted dark:border-slate-700">
               <th className="pb-2 pr-4 text-left font-medium">지표</th>
-              <th className="pb-2 text-center font-semibold text-slate-800 dark:text-slate-100">자산배분 포트폴리오</th>
+              <th className="pb-2 text-center font-medium">자산배분 기준안 (커스텀 전)</th>
+              <th className="pb-2 text-center font-semibold text-slate-800 dark:text-slate-100">제안 포트폴리오 (커스텀 후)</th>
               <th className="pb-2 text-center font-medium">S&P500</th>
               <th className="pb-2 text-center font-medium">KOSPI</th>
             </tr>
@@ -872,6 +877,9 @@ function ObjectiveMetricsTable({
             {rows.map((row) => (
               <tr key={row.label} className="border-b border-border last:border-0 dark:border-slate-800">
                 <td className="py-2.5 pr-4 text-xs text-fg-muted">{row.label}</td>
+                <td className="py-2.5 text-center text-sm font-semibold text-fg-muted">
+                  {row.fmt(row.base)}
+                </td>
                 <td className="py-2.5 text-center text-sm font-bold text-fg dark:text-slate-100">
                   {row.fmt(row.portfolio)}
                 </td>
