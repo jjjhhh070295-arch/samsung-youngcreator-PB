@@ -627,14 +627,30 @@ function normalizeOptionWeights(weights: PortfolioOption["weights"]): PortfolioO
   return normalized;
 }
 
+// 세금 판정 키워드 (bare "세" 제외 → "월세" 오인 방지)
+const TAX_KEYWORDS = /세금|법인세|소득세|양도|증여|상속|재산세|종부|종합부동산|취득세|tax/i;
+// 비세금(임대료·관리비류) — 라벨 폴백 시 세금 매칭에서 제외
+const NON_TAX_EXPENSE = /월세|전세|임대|임차|세입|관리비/;
+
+// 유출 항목의 세금 여부 — category 우선·단독, 없으면 라벨 정규식 폴백.
+// category가 있으면 label/note는 보지 않음(월세 등 라벨 오염 차단).
+function isTaxFlow(flow: CashFlow): boolean {
+  const category = (flow.category ?? "").trim();
+  if (category) return TAX_KEYWORDS.test(category); // ① category 우선·단독
+  // ② category 비면(레거시) 라벨 폴백 — 임대료·관리비류는 세금에서 제외
+  const text = `${flow.label} ${flow.taxAccountingNote ?? ""}`;
+  if (NON_TAX_EXPENSE.test(text)) return false;
+  return TAX_KEYWORDS.test(text);
+}
+
 function summarizeCashflows(cashFlows: CashFlow[]): CashflowPortfolioSummary {
   const recurring = cashFlows.filter((flow) => flow.recurring);
-  const scheduled = cashFlows.filter((flow) => !flow.recurring && flow.amount < 0);
-  const taxFlows = cashFlows.filter((flow) =>
-    /세|법인세|증여|상속|양도|재산|종부|tax/i.test(
-      `${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""}`,
-    ),
-  );
+  // 세금 판정된 유출 (category 우선 하이브리드)
+  const taxOutflows = cashFlows.filter((flow) => flow.amount < 0 && isTaxFlow(flow));
+  const taxIds = new Set(taxOutflows.map((flow) => flow.id));
+  // 비반복 유출: 전체(날짜 신호용) vs 세금 제외분(합계 — 이중계상 방지)
+  const scheduledAll = cashFlows.filter((flow) => !flow.recurring && flow.amount < 0);
+  const scheduledNonTax = scheduledAll.filter((flow) => !taxIds.has(flow.id));
   const corporateTaxFlows = cashFlows.filter((flow) =>
     flow.amount < 0 && /법인세|corporate[_\s-]?tax/i.test(`${flow.label} ${flow.category ?? ""}`),
   );
@@ -643,7 +659,8 @@ function summarizeCashflows(cashFlows: CashFlow[]): CashflowPortfolioSummary {
   const linkedDividendFlows = cashFlows.filter((flow) =>
     /배당|dividend/i.test(`${flow.label} ${flow.category ?? ""}`),
   );
-  const nearestOutflow = scheduled.slice().sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"))[0];
+  // 가장 임박한 비반복 유출(세금 포함) — 날짜 신호는 유지
+  const nearestOutflow = scheduledAll.slice().sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"))[0];
   const monthlyIncome = recurring.filter((flow) => flow.amount > 0).reduce((sum, flow) => sum + flow.amount, 0);
   const monthlyOutflow = recurring.filter((flow) => flow.amount < 0).reduce((sum, flow) => sum + Math.abs(flow.amount), 0);
 
@@ -651,8 +668,9 @@ function summarizeCashflows(cashFlows: CashFlow[]): CashflowPortfolioSummary {
     monthlyIncome,
     monthlyOutflow,
     monthlyNet: monthlyIncome - monthlyOutflow,
-    scheduledOutflow: scheduled.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
-    taxOutflow: taxFlows.filter((flow) => flow.amount < 0).reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
+    // 세금은 scheduled 합계에서 제외 → 세금 0.7만, 일반 비반복 0.34만 (이중계상 제거)
+    scheduledOutflow: scheduledNonTax.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
+    taxOutflow: taxOutflows.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
     corporateTaxOutflow: corporateTaxFlows.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
     soleBusinessNet: soleBusinessFlows.reduce((sum, flow) => sum + flow.amount, 0),
     mixedEntityOutflow: mixedOutflows.reduce((sum, flow) => sum + Math.abs(flow.amount), 0),
