@@ -14,6 +14,7 @@ import type { Client, Portfolio } from '@/lib/types';
 import {
   buildDetailedHoldings,
   buildPortfolioViewModel,
+  buildSetAllocationsFromWeights,
   evaluatePreferenceFeasibility,
   getVolatilityRanges,
   preferenceAdjustedMetrics,
@@ -1354,7 +1355,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
   useEffect(() => {
     if (!onSelectionChange) return;
-    const allocations = buildMacroStressAllocations(selectedDetailedHoldings);
+    const allocations = buildSetAllocationsFromWeights(adjustedWeights);
 
     onSelectionChange({
       id: selectedBase,

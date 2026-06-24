@@ -26,6 +26,10 @@ import {
   type BenchmarkApiPoint,
   type BenchmarkApiResponse,
 } from "@/lib/portfolioBacktest";
+import {
+  buildPortfolioViewModel,
+  resolvePortfolioDisplayAllocations,
+} from "@/lib/portfolio";
 import { scoreReadinessEvents } from "@/lib/taxReadinessScoring";
 import { buildPeriodCashflowSeries } from "@/lib/periodCashflow";
 import type { TaxPaymentEvent } from "@/lib/cashflowUpload";
@@ -230,11 +234,15 @@ export default function IPSDocumentPage() {
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
   const pf = client.portfolios[0];
   const cashflowSummary = buildCashflowSummary(client.cashFlows);
-  const allocationChartData = pf?.allocations.map((allocation) => ({
+  const confirmedWeights = pf
+    ? buildPortfolioViewModel(client).portfolioOptions.find((option) => option.id === pf.id)?.weights
+    : undefined;
+  const displayAllocations = pf ? resolvePortfolioDisplayAllocations(pf, confirmedWeights) : [];
+  const allocationChartData = displayAllocations.map((allocation) => ({
     name: allocation.assetClass,
     value: allocation.weight,
-  })) ?? [];
-  const backtestData = pf ? buildPortfolioBacktestSeries(pf.allocations, benchmarkPoints) : [];
+  }));
+  const backtestData = pf ? buildPortfolioBacktestSeries(displayAllocations, benchmarkPoints) : [];
   const periodSeries = buildPeriodCashflowSeries(client.cashFlows);
 
   // 담당 PB 이름 (ID → 이름)
@@ -549,7 +557,7 @@ export default function IPSDocumentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pf.allocations.map((a, i) => (
+                  {displayAllocations.map((a, i) => (
                     <tr key={i} className="border-b border-gray-100">
                       <td className="py-1.5">{a.assetClass}</td>
                       <td className="py-1.5 text-right font-medium">{a.weight}%</td>

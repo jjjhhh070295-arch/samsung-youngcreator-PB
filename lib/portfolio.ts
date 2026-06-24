@@ -62,6 +62,55 @@ export function normalizeWeights(p: Portfolio): Portfolio {
 export function weightSum(p: Portfolio): number {
   return Math.round(p.allocations.reduce((s, a) => s + a.weight, 0) * 10) / 10;
 }
+
+/** 포트폴리오 추천 패널 도넛·IPS 문서와 동일한 6자산군 라벨 */
+export const SET_ALLOCATION_LABELS: Record<keyof PortfolioOption["weights"], string> = {
+  etf: "주식 / ETF",
+  bond: "채권 인컴",
+  els: "채권 인컴",
+  mmf: "MMF/RP",
+  gold: "금",
+  dollar: "달러",
+  raw: "원자재",
+};
+
+/** SET 6자산 비중 → 확정 포트폴리오 allocations (IPS·도넛 차트용) */
+export function buildSetAllocationsFromWeights(
+  weights: PortfolioOption["weights"],
+): AssetAllocation[] {
+  const normalized = normalizeOptionWeights(weights);
+  const merged = new Map<string, number>();
+  for (const [key, weight] of Object.entries(normalized) as Array<
+    [keyof PortfolioOption["weights"], number]
+  >) {
+    if (weight <= 0) continue;
+    const label = SET_ALLOCATION_LABELS[key];
+    merged.set(label, (merged.get(label) ?? 0) + weight);
+  }
+  return Array.from(merged.entries()).map(([assetClass, weight]) => ({ assetClass, weight }));
+}
+
+function isMacroStressAllocation(allocations: AssetAllocation[]): boolean {
+  if (allocations.length === 0) return false;
+  return allocations.some((a) =>
+    /KOSPI|S&P|미국채\s*10년물|국내주식|미국주식/.test(a.assetClass),
+  );
+}
+
+/** 저장된 allocations가 구(매크로 3분할) 형식이면 SET 비중으로 보정 */
+export function resolvePortfolioDisplayAllocations(
+  portfolio: Portfolio,
+  weights?: PortfolioOption["weights"],
+): AssetAllocation[] {
+  if (!isMacroStressAllocation(portfolio.allocations)) {
+    return portfolio.allocations;
+  }
+  // 구 확정 데이터는 IPS 표시 시 보정한다. 저장값까지 완전 일치시키려면 PB가 포트폴리오를 재확정해야 한다.
+  if (weights) {
+    return buildSetAllocationsFromWeights(weights);
+  }
+  return portfolio.allocations;
+}
 // 1. 고객 요약 카드 타입
 export interface ClientSummary {
   clientType: string;
