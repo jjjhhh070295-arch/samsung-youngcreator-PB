@@ -113,24 +113,6 @@ export default function AppNav() {
             );
           })}
 
-          {/* 성향 시각화 */}
-          <div className="border-t border-border mt-2 pt-1">
-            <button
-              onClick={() => goTo("visualization")}
-              className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                activeView === "visualization"
-                  ? "bg-[#1428A0] text-white font-semibold"
-                  : "text-fg hover:bg-white"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <span>📈</span>
-                <span>성향시각화</span>
-              </span>
-              <span className={activeView === "visualization" ? "text-white/60" : "text-fg-muted"}>›</span>
-            </button>
-          </div>
-
           <div className="border-t border-border mt-2 pt-2">
             <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
             <Link href="/" className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
