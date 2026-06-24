@@ -85,14 +85,18 @@ export interface TaxProjectionResult {
     dividendTaxWon: number;
     capitalGainTaxWon: number;
     comprehensiveTaxWon: number;
+    corporateOverlayTaxWon: number;
     scheduledTaxWon: number;
+    scheduledByBucket: Record<ScheduledTaxBucket, number>;
     totalTaxWon: number;
   };
   feesWon: number;
+  operatingNetWon: number;
   netEndingWon: number;
   effectiveTaxRatePct: number;
   preTaxReturnPct: number;
   afterTaxReturnPct: number;
+  isCorporate: boolean;
   breakdownByAsset: Array<{ asset: string; grossWon: number; taxWon: number }>;
   assumptions: string[];
   warnings: string[];
@@ -175,10 +179,18 @@ function pensionTaxDiscountWon(investmentTaxWon: number, grossReturnWon: number,
 }
 
 function applyProportionalDiscount(
-  taxes: Pick<TaxProjectionResult["taxes"], "interestTaxWon" | "dividendTaxWon" | "capitalGainTaxWon" | "comprehensiveTaxWon">,
+  taxes: Pick<
+    TaxProjectionResult["taxes"],
+    "interestTaxWon" | "dividendTaxWon" | "capitalGainTaxWon" | "comprehensiveTaxWon" | "corporateOverlayTaxWon"
+  >,
   discountWon: number,
 ) {
-  const total = taxes.interestTaxWon + taxes.dividendTaxWon + taxes.capitalGainTaxWon + taxes.comprehensiveTaxWon;
+  const total =
+    taxes.interestTaxWon +
+    taxes.dividendTaxWon +
+    taxes.capitalGainTaxWon +
+    taxes.comprehensiveTaxWon +
+    taxes.corporateOverlayTaxWon;
   if (total <= 0 || discountWon <= 0) return taxes;
   const ratio = Math.min(1, discountWon / total);
   return {
@@ -186,6 +198,7 @@ function applyProportionalDiscount(
     dividendTaxWon: taxes.dividendTaxWon * (1 - ratio),
     capitalGainTaxWon: taxes.capitalGainTaxWon * (1 - ratio),
     comprehensiveTaxWon: taxes.comprehensiveTaxWon * (1 - ratio),
+    corporateOverlayTaxWon: taxes.corporateOverlayTaxWon * (1 - ratio),
   };
 }
 
@@ -194,9 +207,18 @@ const SCHEDULED_TAX_BUCKET_LABELS: Record<ScheduledTaxBucket, string> = {
   inheritance: "상속세",
   capitalGain: "양도세",
   corporate: "법인세",
-  property: "재산/종부세",
+  property: "재산·종부세",
   other: "기타 세금",
 };
+
+const SCHEDULED_TAX_BUCKETS: ScheduledTaxBucket[] = [
+  "gift",
+  "inheritance",
+  "capitalGain",
+  "corporate",
+  "property",
+  "other",
+];
 
 export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
   const label = input.label ?? "세후 추정";
@@ -267,6 +289,7 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
     ? 0
     : financialIncomeExtraTax(interestIncomeWon + dividendIncomeWon, profile, horizonYears);
   let estimatedCorporateOverlayWon = 0;
+  let corporateOverlayTaxWon = 0;
 
   const grossReturnWon = interestIncomeWon + dividendIncomeWon + domesticCapitalGainWon + overseasCapitalGainWon + otherCapitalGainWon;
   if (profile.isCorporate && !hasScheduledCorporateTax) {
@@ -274,7 +297,7 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
     const corporateTaxWon = grossReturnWon * (corporateRate / 100);
     const bucketTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon;
     estimatedCorporateOverlayWon = Math.max(0, corporateTaxWon - bucketTaxWon);
-    comprehensiveTaxWon = estimatedCorporateOverlayWon;
+    corporateOverlayTaxWon = estimatedCorporateOverlayWon;
   } else if (profile.isCorporate && hasScheduledCorporateTax) {
     const corporateRate = profile.corporateTaxRatePct ?? corporateTaxRateForTaxableIncome(grossReturnWon);
     const corporateTaxWon = grossReturnWon * (corporateRate / 100);
@@ -283,13 +306,18 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
   }
 
   const discounted = applyProportionalDiscount(
-    { interestTaxWon, dividendTaxWon, capitalGainTaxWon, comprehensiveTaxWon },
-    pensionTaxDiscountWon(interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon, grossReturnWon, profile),
+    { interestTaxWon, dividendTaxWon, capitalGainTaxWon, comprehensiveTaxWon, corporateOverlayTaxWon },
+    pensionTaxDiscountWon(
+      interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon + corporateOverlayTaxWon,
+      grossReturnWon,
+      profile,
+    ),
   );
   interestTaxWon = discounted.interestTaxWon;
   dividendTaxWon = discounted.dividendTaxWon;
   capitalGainTaxWon = discounted.capitalGainTaxWon;
   comprehensiveTaxWon = discounted.comprehensiveTaxWon;
+  corporateOverlayTaxWon = discounted.corporateOverlayTaxWon;
 
   for (const [asset, item] of Object.entries(breakdownSource) as Array<[keyof PortfolioOption["weights"], { grossWon: number; taxWon: number }]>) {
     const split = TAXABLE_RETURN_SPLIT[asset];
@@ -307,9 +335,11 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
 
   const scheduledTax = cashflowSummary.scheduledTaxes.totalTaxWon;
   const feesWon = principalWon * (feeRatePct / 100) * horizonYears;
-  const totalTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon + scheduledTax;
+  const operatingTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon + corporateOverlayTaxWon;
+  const totalTaxWon = operatingTaxWon + scheduledTax;
+  const operatingNetWon = principalWon + grossReturnWon - operatingTaxWon - feesWon;
   const netEndingWon = principalWon + grossReturnWon - totalTaxWon - feesWon;
-  const investmentTaxesWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon;
+  const investmentTaxesWon = operatingTaxWon;
   const scheduledBucketText = Object.entries(cashflowSummary.scheduledTaxes.byBucket)
     .filter(([, amount]) => amount > 0)
     .map(([bucket, amount]) => `${SCHEDULED_TAX_BUCKET_LABELS[bucket as ScheduledTaxBucket]} ${roundWon(amount).toLocaleString("ko-KR")}원`)
@@ -328,7 +358,7 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       ? [`현금흐름 중복 세금 일정 ${cashflowSummary.scheduledTaxes.ignoredDuplicates.length}건은 제외했습니다.`]
       : []),
     ...(profile.isLargeShareholder ? ["대주주 플래그가 켜져 국내주식 양도세율을 높게 적용했습니다."] : []),
-    ...(profile.isCorporate && !hasScheduledCorporateTax ? ["법인 고객은 법인세 간이세율을 종합/법인세 항목에 반영했습니다."] : []),
+    ...(profile.isCorporate && !hasScheduledCorporateTax ? ["법인 고객은 운용수익 법인세 오버레이를 별도 항목으로 반영했습니다."] : []),
   ];
   const taxSources: TaxProjectionTaxSource[] = [
     {
@@ -353,24 +383,34 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
         : "국내/해외 ETF·금·달러·원자재 차익을 자산 비중으로 추정했습니다.",
     },
     {
-      item: profile.isCorporate ? "법인세 오버레이" : "금융소득종합과세",
-      source: profile.isCorporate && hasScheduledCorporateTax ? "ignored" : "estimated",
+      item: "종합과세",
+      source: profile.isCorporate ? "ignored" : "estimated",
       amountWon: roundWon(comprehensiveTaxWon),
-      ignoredAmountWon: profile.isCorporate && hasScheduledCorporateTax ? roundWon(estimatedCorporateOverlayWon) : undefined,
-      note: profile.isCorporate && hasScheduledCorporateTax
-        ? "현금흐름 법인세가 1차 데이터이므로 운용수익 법인세 오버레이를 차감하지 않았습니다."
-        : profile.isCorporate
-          ? "법인세율 구간을 운용수익에 간이 적용했습니다."
-          : "기존 금융소득과 신규 이자·배당의 2,000만원 초과분만 추가 과세로 추정했습니다.",
+      note: profile.isCorporate
+        ? "법인 고객이므로 개인 금융소득종합과세는 표에서 분리해 미반영합니다."
+        : "기존 금융소득과 신규 이자·배당의 2,000만원 초과분만 추가 과세로 추정했습니다.",
     },
-    {
-      item: "일정 세금",
-      source: scheduledTax > 0 ? "cashflow" : "estimated",
-      amountWon: roundWon(scheduledTax),
-      note: scheduledTax > 0
-        ? "증여·상속·양도·법인세 등 현금흐름에 입력된 납부 일정을 그대로 반영했습니다."
-        : "현금흐름에 별도 일정 세금이 없습니다.",
-    },
+    ...(profile.isCorporate
+      ? [{
+          item: "법인세 (운용 추정)",
+          source: hasScheduledCorporateTax ? "ignored" as const : "estimated" as const,
+          amountWon: roundWon(corporateOverlayTaxWon),
+          ignoredAmountWon: hasScheduledCorporateTax ? roundWon(estimatedCorporateOverlayWon) : undefined,
+          note: hasScheduledCorporateTax
+            ? "현금흐름 법인세가 1차 데이터이므로 운용수익 법인세 오버레이를 차감하지 않았습니다."
+            : "법인세율 구간을 운용수익에 간이 적용했습니다.",
+        }]
+      : []),
+    ...SCHEDULED_TAX_BUCKETS
+      .map((bucket) => ({
+        item: `${SCHEDULED_TAX_BUCKET_LABELS[bucket]} 납부 일정`,
+        source: "cashflow" as const,
+        amountWon: roundWon(cashflowSummary.scheduledTaxes.byBucket[bucket]),
+        note: cashflowSummary.scheduledTaxes.byBucket[bucket] > 0
+          ? "현금흐름에 입력된 납부 일정을 그대로 반영했습니다."
+          : "현금흐름에 해당 세목 납부 일정이 없습니다.",
+      }))
+      .filter((source) => source.amountWon > 0),
   ];
 
   return {
@@ -382,14 +422,20 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       dividendTaxWon: roundWon(dividendTaxWon),
       capitalGainTaxWon: roundWon(capitalGainTaxWon),
       comprehensiveTaxWon: roundWon(comprehensiveTaxWon),
+      corporateOverlayTaxWon: roundWon(corporateOverlayTaxWon),
       scheduledTaxWon: roundWon(scheduledTax),
+      scheduledByBucket: Object.fromEntries(
+        SCHEDULED_TAX_BUCKETS.map((bucket) => [bucket, roundWon(cashflowSummary.scheduledTaxes.byBucket[bucket])]),
+      ) as Record<ScheduledTaxBucket, number>,
       totalTaxWon: roundWon(totalTaxWon),
     },
     feesWon: roundWon(feesWon),
+    operatingNetWon: roundWon(operatingNetWon),
     netEndingWon: roundWon(netEndingWon),
     effectiveTaxRatePct: grossReturnWon > 0 ? roundPct((investmentTaxesWon / grossReturnWon) * 100) : 0,
     preTaxReturnPct: principalWon > 0 ? roundPct((grossReturnWon / principalWon) * 100) : 0,
     afterTaxReturnPct: principalWon > 0 ? roundPct(((netEndingWon - principalWon) / principalWon) * 100) : 0,
+    isCorporate: Boolean(profile.isCorporate),
     breakdownByAsset: (Object.entries(breakdownSource) as Array<[keyof PortfolioOption["weights"], { grossWon: number; taxWon: number }]>)
       .filter(([, item]) => Math.abs(item.grossWon) >= 1)
       .map(([asset, item]) => ({ asset: ASSET_LABELS[asset], grossWon: roundWon(item.grossWon), taxWon: roundWon(item.taxWon) })),

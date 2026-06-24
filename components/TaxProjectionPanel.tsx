@@ -74,7 +74,7 @@ const SCHEDULED_TAX_LABELS: Record<ScheduledTaxBucket, string> = {
   inheritance: "상속세",
   capitalGain: "양도세",
   corporate: "법인세",
-  property: "재산/종부세",
+  property: "재산·종부세",
   other: "기타 세금",
 };
 
@@ -156,18 +156,142 @@ function pctDelta(value: number) {
   return `${value > 0 ? "+" : ""}${value.toFixed(1)}%p`;
 }
 
-function resultRows(result: TaxProjectionResult) {
+type ProjectionRow = {
+  key: string;
+  block: "operating" | "scheduled" | "total";
+  label: string;
+  amount: number;
+  tone: string;
+  source?: TaxDataSource;
+  note?: string;
+  strong?: boolean;
+};
+
+const PROJECTION_BLOCK_LABELS: Record<ProjectionRow["block"], string> = {
+  operating: "운용",
+  scheduled: "현금흐름 일정",
+  total: "합산",
+};
+
+function projectionRows(result: TaxProjectionResult): ProjectionRow[] {
+  const hasScheduledCapitalGainTax = result.taxes.scheduledByBucket.capitalGain > 0;
+  const hasScheduledCorporateTax = result.taxes.scheduledByBucket.corporate > 0;
+  const scheduledRows = SCHEDULED_TAX_BUCKETS
+    .map((bucket): ProjectionRow => ({
+      key: `scheduled-${bucket}`,
+      block: "scheduled",
+      label: `${SCHEDULED_TAX_LABELS[bucket]} (납부 일정)`,
+      amount: -result.taxes.scheduledByBucket[bucket],
+      tone: "text-rose-600",
+      source: "cashflow",
+      note: "현금흐름 세금 일정에서 반영",
+    }))
+    .filter((row) => row.amount !== 0);
+
   return [
-    ["투자원금", result.principalWon, "text-fg"],
-    ["세전 수익", result.grossReturnWon, "text-emerald-700"],
-    ["이자세", -result.taxes.interestTaxWon, "text-rose-600"],
-    ["배당세", -result.taxes.dividendTaxWon, "text-rose-600"],
-    ["양도세", -result.taxes.capitalGainTaxWon, "text-rose-600"],
-    ["종합과세/법인세", -result.taxes.comprehensiveTaxWon, "text-rose-600"],
-    ["일정 세금", -result.taxes.scheduledTaxWon, "text-rose-600"],
-    ["비용", -result.feesWon, "text-amber-700"],
-    ["세후 기말자산", result.netEndingWon, "text-blue-700"],
-  ] as const;
+    {
+      key: "principal",
+      block: "operating",
+      label: "투자원금",
+      amount: result.principalWon,
+      tone: "text-fg",
+      strong: true,
+    },
+    {
+      key: "gross-return",
+      block: "operating",
+      label: "세전 수익",
+      amount: result.grossReturnWon,
+      tone: "text-emerald-700",
+      strong: true,
+    },
+    {
+      key: "interest-tax",
+      block: "operating",
+      label: "이자세",
+      amount: -result.taxes.interestTaxWon,
+      tone: "text-rose-600",
+      source: "estimated",
+    },
+    {
+      key: "dividend-tax",
+      block: "operating",
+      label: "배당세",
+      amount: -result.taxes.dividendTaxWon,
+      tone: "text-rose-600",
+      source: "estimated",
+    },
+    {
+      key: "capital-gain-tax",
+      block: "operating",
+      label: "양도세 (운용 추정)",
+      amount: -result.taxes.capitalGainTaxWon,
+      tone: "text-rose-600",
+      source: hasScheduledCapitalGainTax ? "ignored" : "estimated",
+      note: hasScheduledCapitalGainTax
+        ? "현금흐름 양도세 일정이 있어 운용 추정치는 중복 차감하지 않음"
+        : "포트폴리오 비중 기반 실현차익 추정",
+    },
+    ...(!result.isCorporate
+      ? [{
+          key: "comprehensive-tax",
+          block: "operating" as const,
+          label: "종합과세",
+          amount: -result.taxes.comprehensiveTaxWon,
+          tone: "text-rose-600",
+          source: "estimated" as const,
+          note: "개인 금융소득종합과세 간이 추정",
+        }]
+      : []),
+    ...(result.isCorporate && !hasScheduledCorporateTax
+      ? [{
+          key: "corporate-overlay-tax",
+          block: "operating" as const,
+          label: "법인세 (운용 추정)",
+          amount: -result.taxes.corporateOverlayTaxWon,
+          tone: "text-rose-600",
+          source: "estimated" as const,
+          note: "현금흐름 법인세 일정이 없을 때만 운용수익에 간이 적용",
+        }]
+      : []),
+    {
+      key: "fees",
+      block: "operating",
+      label: "비용",
+      amount: -result.feesWon,
+      tone: "text-amber-700",
+      source: "estimated",
+    },
+    {
+      key: "operating-net",
+      block: "operating",
+      label: "운용 소계 세후",
+      amount: result.operatingNetWon,
+      tone: "text-blue-700",
+      strong: true,
+      note: "투자원금 + 세전 수익 - 운용세금 - 비용",
+    },
+    ...scheduledRows,
+    ...(scheduledRows.length > 0
+      ? [{
+          key: "scheduled-subtotal",
+          block: "scheduled" as const,
+          label: "일정 세금 소계",
+          amount: -result.taxes.scheduledTaxWon,
+          tone: "text-rose-600",
+          source: "cashflow" as const,
+          strong: true,
+        }]
+      : []),
+    {
+      key: "net-ending",
+      block: "total",
+      label: "세후 기말자산",
+      amount: result.netEndingWon,
+      tone: "text-blue-700",
+      strong: true,
+    },
+  ];
 }
 
 function weightNarratives(base: PortfolioOption["weights"], adjusted: PortfolioOption["weights"]) {
@@ -238,6 +362,10 @@ function ProjectionTable({
   result: TaxProjectionResult;
   compareTo?: TaxProjectionResult;
 }) {
+  const rows = projectionRows(result);
+  const compareRows = compareTo ? new Map(projectionRows(compareTo).map((row) => [row.key, row.amount])) : undefined;
+  let lastBlock: ProjectionRow["block"] | null = null;
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
       <div className="border-b border-border bg-surface-2 px-4 py-3">
@@ -248,20 +376,39 @@ function ProjectionTable({
       </div>
       <table className="w-full text-xs">
         <tbody>
-          {resultRows(result).map(([label, amount, tone]) => {
-            const baseAmount = compareTo
-              ? resultRows(compareTo).find(([baseLabel]) => baseLabel === label)?.[1] ?? 0
-              : 0;
-            const delta = compareTo ? amount - baseAmount : 0;
+          {rows.map((row) => {
+            const showBlock = row.block !== lastBlock;
+            lastBlock = row.block;
+            const baseAmount = compareRows?.get(row.key) ?? 0;
+            const delta = compareTo ? row.amount - baseAmount : 0;
             return (
-              <tr key={label} className="border-b border-border last:border-0">
-                <td className="px-4 py-2 text-fg-muted">{label}</td>
-                <td className={`px-4 py-2 text-right font-bold tabular-nums ${tone}`}>{formatKRW(amount)}</td>
-                {compareTo && (
+              <tr
+                key={row.key}
+                className={`${showBlock ? "border-t border-border" : ""} border-b border-border last:border-0 ${
+                  row.strong ? "bg-surface-2/70" : ""
+                }`}
+                title={row.note}
+              >
+                <td className="px-4 py-2">
+                  {showBlock ? (
+                    <p className="mb-1 text-[10px] font-black text-fg-muted">
+                      {PROJECTION_BLOCK_LABELS[row.block]}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`${row.strong ? "font-black text-fg" : "text-fg-muted"}`}>{row.label}</span>
+                    {row.source ? <SourceBadge source={row.source} /> : null}
+                  </div>
+                  {row.note ? <p className="mt-0.5 text-[10px] leading-relaxed text-fg-muted">{row.note}</p> : null}
+                </td>
+                <td className={`px-4 py-2 text-right ${row.strong ? "font-black" : "font-bold"} tabular-nums ${row.tone}`}>
+                  {formatKRW(row.amount)}
+                </td>
+                {compareTo ? (
                   <td className={`px-4 py-2 text-right font-semibold tabular-nums ${delta >= 0 ? "text-emerald-700" : "text-rose-600"}`}>
                     {formatDeltaWon(delta)}
                   </td>
-                )}
+                ) : null}
               </tr>
             );
           })}
