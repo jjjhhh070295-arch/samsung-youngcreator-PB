@@ -1736,10 +1736,14 @@ export function buildPortfolioViewModel(
   const allocationBase = heldAssets && heldAssets.totalKrw > 0
     ? heldAssets.totalKrw - heldAssets.realEstateKrw  // investableKrw
     : (client.assetSize || 0);
+  // 단기유동성 표시 상한: 투자가능자산의 60%(MMF cap 60%와 정합). 자산정보 없으면 3억 폴백.
+  const liquidityCapManwon = allocationBase > 0
+    ? Math.round((allocationBase * 0.60) / 10_000)
+    : 30_000;
   const liquidityReserveManwon = Math.max(
     1_000,
     Math.min(
-      30_000,
+      liquidityCapManwon,
       Math.round((allocationBase * (recommendedOption.weights.mmf + recommendedOption.weights.dollar)) / 100 / 10_000) ||
         Math.round((cashflowSummary.taxOutflow || allocationBase * 0.03) / 10_000),
     ),

@@ -2328,14 +2328,18 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                 <input
                   type="range"
                   min="1000"
-                  max="30000"
+                  max={(model.assetLayer?.investableKrw ?? client.assetSize ?? 0) > 0
+                    ? Math.max(1000, Math.round(((model.assetLayer?.investableKrw ?? client.assetSize) * 0.60) / 10000))
+                    : 30000}
                   step="500"
                   value={liquidityAmount}
                   onChange={(event) => {
                     const value = Number(event.target.value);
                     setHasManualEdit(true);
                     setLiquidityAmount(value);
-                    handleWeightChange('mmf', Math.min(Math.round((value / 100000) * 100), 40));
+                    const investableManwon = (model.assetLayer?.investableKrw ?? client.assetSize ?? 0) / 10000;
+                    const mmfPct = investableManwon > 0 ? (value / investableManwon) * 100 : 0;
+                    handleWeightChange('mmf', Math.min(Math.round(mmfPct), 60));
                   }}
                   className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-surface-2 accent-indigo-600"
                 />
