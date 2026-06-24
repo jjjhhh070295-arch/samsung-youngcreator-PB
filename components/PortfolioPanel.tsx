@@ -894,6 +894,12 @@ function ObjectiveMetricsTable({
           </tbody>
         </table>
       </div>
+      {(portfolioMetrics.returnPct - baseMetrics.returnPct) >= 30 && (
+        <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+          <span className="shrink-0">⚠️</span>
+          <span>이 수익률은 최근 1년 섹터 급등 구간의 과거 실현치이며, 미래 기대수익률이 아닙니다. 고객 안내 시 주의하세요.</span>
+        </div>
+      )}
       <p className="mt-4 text-[10px] leading-relaxed text-fg-muted">
         과거 1년 실제 시장 데이터. 과거 성과는 미래를 보장하지 않습니다. 샤프지수 무위험수익률 연 3% 기준.
         {usePlanData && ' · 주식 부분은 PB 종목 선택 섹터 ETF 실제 수익률 가중 반영.'}
