@@ -2570,13 +2570,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </section>
 
-      <SimplifiedBenchmarkReturnChart
-        data={benchmarkChartData}
-        source={benchmarkSource}
-        fallback={benchmarkFallback}
-        updatedAt={benchmarkUpdatedAt}
-      />
-
       {activePortfolioDetail === 'evidence' && (
       <section id="portfolio-evidence" className="scroll-mt-24 rounded-2xl border border-violet-200 bg-surface p-5 shadow-sm ring-4 ring-violet-50">
         <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
@@ -2903,6 +2896,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
         )}
       </section>
+
+      <SimplifiedBenchmarkReturnChart
+        data={benchmarkChartData}
+        source={benchmarkSource}
+        fallback={benchmarkFallback}
+        updatedAt={benchmarkUpdatedAt}
+      />
 
       <div className="grid grid-cols-1 gap-5">
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
