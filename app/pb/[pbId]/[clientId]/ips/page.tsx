@@ -172,6 +172,22 @@ function buildSummary(client: Client): string {
   return seg.join(" ");
 }
 
+function portfolioTypeOnlyLabel(portfolio: Client["portfolios"][number]): string {
+  const id = portfolio.id.toLowerCase();
+  if (id === "defensive" || id === "stable") return "방어형";
+  if (id === "balanced") return "균형형";
+  if (id === "growth" || id === "aggressive") return "성장형";
+
+  const label = portfolio.label.trim();
+  if (/방어|안정|defensive|stable/i.test(label)) return "방어형";
+  if (/균형|balanced/i.test(label)) return "균형형";
+  if (/성장|적극|공격|growth|aggressive/i.test(label)) return "성장형";
+
+  return label
+    .replace(/포트폴리오|추천안|추천|자산배분|도넛차트/gi, "")
+    .trim() || label;
+}
+
 export default function IPSDocumentPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
@@ -499,7 +515,7 @@ export default function IPSDocumentPage() {
               </p>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="rounded border border-gray-200 p-3">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">자산배분 도넛차트</p>
+                  <p className="mb-2 text-xs font-semibold text-gray-700">{portfolioTypeOnlyLabel(pf)}</p>
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
