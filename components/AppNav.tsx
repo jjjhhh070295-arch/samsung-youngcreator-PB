@@ -12,7 +12,6 @@ const MAIN_SECTIONS = [
 ];
 
 const ANALYSIS_TABS = [
-  { id: "basic", label: "기본정보" },
   { id: "factors", label: "7요인" },
   { id: "cashflow", label: "현금흐름" },
   { id: "portfolio", label: "포트폴리오" },
