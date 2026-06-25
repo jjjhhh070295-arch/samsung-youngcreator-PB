@@ -11,7 +11,7 @@ import {
   deletePb,
   usingLocalFallback,
 } from "@/lib/store";
-import { getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
+import { setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import MarketMiniChart from "@/components/MarketMiniChart";
@@ -107,15 +107,6 @@ export default function HomePage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  // 이미 로그인돼 있으면 PB 페이지로
-  useEffect(() => {
-    if (status !== "ready") return;
-    const pbId = getLoggedInPbId();
-    if (pbId && pbs.some((p) => p.id === pbId)) {
-      router.replace(`/pb/${pbId}`);
-    }
-  }, [status, pbs, router]);
 
   const clientCount = (pbId: string) => clients.filter((c) => c.assignedPbId === pbId).length;
 
