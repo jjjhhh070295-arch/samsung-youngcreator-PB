@@ -123,16 +123,6 @@ export default function AppNav() {
             </Link>
           </div>
         </nav>
-
-        <div className="border-t border-border p-3 shrink-0">
-          <button
-            className="w-full btn-primary text-xs py-2"
-            onClick={() => router.push(`/client/${clientId}`)}
-          >
-            고객 화면 →
-          </button>
-          <p className="mt-2 text-center text-[10px] text-fg-muted">참고용 · 투자권유 아님</p>
-        </div>
       </aside>
     );
   }
