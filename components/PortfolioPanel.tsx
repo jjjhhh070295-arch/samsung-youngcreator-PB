@@ -1978,8 +1978,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </p>
             </div>
 
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
-              <div className="flex h-auto flex-col rounded-xl border border-slate-700/60 bg-slate-950/35 p-3.5 xl:h-[348px]">
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.95fr)_420px]">
+              <div className="flex h-auto flex-col rounded-xl border border-slate-700/60 bg-slate-950/35 p-3.5 xl:h-[320px]">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <span className="h-2.5 w-2.5 rounded-full bg-blue-400"></span>
@@ -1990,8 +1990,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   </span>
                 </div>
 
-                <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[230px_1fr] lg:items-center">
-                  <div className="relative mx-auto h-52 w-52 flex-shrink-0">
+                <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[170px_1fr] lg:items-center">
+                  <div className="relative mx-auto h-40 w-40 flex-shrink-0">
                     <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 42 42">
                       <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(148,163,184,0.22)" strokeWidth="4" />
                       {(() => {
@@ -2008,6 +2008,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                         };
                         return (Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
                           .filter(([, w]) => w > 0)
+                          .sort(([, a], [, b]) => b - a)
                           .map(([asset, w]) => {
                             const percentage = (w / total) * 100;
                             const dashArray = `${percentage} ${100 - percentage}`;
@@ -2035,23 +2036,24 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-1.5">
                     {(Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
                       .filter(([, weight]) => weight > 0)
+                      .sort(([, a], [, b]) => b - a)
                       .map(([asset, weight]) => (
-                        <div key={asset} className="flex min-h-[46px] items-center justify-between gap-2 rounded-lg border border-slate-700/60 bg-slate-900/55 px-3 py-2">
+                        <div key={asset} className="flex min-h-[36px] items-center justify-between gap-2 rounded-lg border border-slate-700/60 bg-slate-900/55 px-3 py-1.5">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className={`block h-2.5 w-2.5 flex-shrink-0 rounded-sm ${barColors[asset]}`}></span>
                             <span className="truncate text-sm font-medium text-slate-300">{weightLabels[asset]}</span>
                           </div>
-                          <span className="text-lg font-black text-white">{weight}%</span>
+                          <span className="text-base font-black text-white">{weight}%</span>
                         </div>
                       ))}
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 xl:h-[348px] xl:grid-cols-1 xl:grid-rows-[78px_56px_128px_62px]">
+              <div className="grid grid-cols-2 gap-2 xl:h-[320px] xl:grid-cols-1 xl:grid-rows-[70px_52px_118px_56px]">
                 <div
                   className="flex min-h-0 flex-col items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 text-center"
                   title={returnEstimateLabel}
