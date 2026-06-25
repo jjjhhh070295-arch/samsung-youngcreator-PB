@@ -1223,6 +1223,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           benchmarkTargetReturn,
           optionFeasibility,
           proxyReturns.length > 0 ? proxyReturns : undefined,
+          { client, cashflow: model.cashflowSummary },
         );
         const optionHoldings = buildDetailedHoldings(option.weights, model.preferenceProfile, option.id);
         const proxyExpectedReturn = proxyReturns.length > 0
@@ -1235,12 +1236,15 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         return {
           ...option,
           expectedReturn: proxyExpectedReturn,
+          preTaxReturn: optionMetrics.expectedReturn,
           volatility: optionMetrics.volatility,
           mdd: optionMetrics.mdd,
           taxReturn: optionMetrics.taxReturn,
+          taxDrag: optionMetrics.taxDrag,
+          taxDragReasons: optionMetrics.taxDragReasons,
         };
       }),
-    [benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, portfolioOptions, proxyReturns],
+    [benchmarkTargetReturn, client, model.cashflowSummary, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, portfolioOptions, proxyReturns],
   );
   const selectedFeasibility = useMemo(
     () =>
@@ -1253,8 +1257,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     [adjustedWeights, benchmarkTargetReturn, model.preferenceFeasibility.liquidityReasons, model.preferenceProfile, selectedRiskTilt, proxyReturns],
   );
   const metrics = useMemo(
-    () => preferenceAdjustedMetrics(adjustedWeights, model.preferenceProfile, selectedRiskTilt, benchmarkTargetReturn, selectedFeasibility, proxyReturns.length > 0 ? proxyReturns : undefined),
-    [adjustedWeights, benchmarkTargetReturn, model.preferenceProfile, selectedFeasibility, selectedRiskTilt, proxyReturns],
+    () =>
+      preferenceAdjustedMetrics(
+        adjustedWeights,
+        model.preferenceProfile,
+        selectedRiskTilt,
+        benchmarkTargetReturn,
+        selectedFeasibility,
+        proxyReturns.length > 0 ? proxyReturns : undefined,
+        { client, cashflow: model.cashflowSummary },
+      ),
+    [adjustedWeights, benchmarkTargetReturn, client, model.cashflowSummary, model.preferenceProfile, selectedFeasibility, selectedRiskTilt, proxyReturns],
   );
   const volatilityRanges = useMemo(() => getVolatilityRanges(metrics.volatility), [metrics.volatility]);
   const benchmarkChartData = useMemo(
@@ -2122,9 +2135,18 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     </span>
                   )}
                 </div>
-                <div className="flex min-h-0 flex-col items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 text-center">
+                <div
+                  className="flex min-h-0 flex-col items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 text-center"
+                  title="세후수익률은 세전 기대수익률에서 고객 세금 분석 결과에 따른 tax drag를 차감한 참고값입니다."
+                >
                   <span className="block text-[10px] font-medium leading-none text-fg-muted">세후 가상수익률</span>
                   <span className="mt-0.5 block text-xl font-black leading-none text-blue-400">{metrics.taxReturn}%</span>
+                  <span className="mt-1 block text-[9px] leading-tight text-slate-400">
+                    세전 {metrics.expectedReturn}% - 세금 조정 {metrics.taxDrag ?? 0}%p
+                  </span>
+                  <span className="block text-[9px] leading-tight text-slate-500">
+                    tax drag proxy: {metrics.taxDragReasons?.[0] ?? "고객 세금 분석 결과 반영"}
+                  </span>
                 </div>
                 <div
                   className="flex min-h-0 flex-col items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 text-center"

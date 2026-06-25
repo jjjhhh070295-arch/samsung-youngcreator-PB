@@ -146,9 +146,12 @@ export interface PortfolioOption {
   id: 'stable' | 'balanced' | 'growth';
   name: string;
   expectedReturn: number;
+  preTaxReturn?: number;
   volatility: number;
   mdd: number;
   taxReturn: number;
+  taxDrag?: number;
+  taxDragReasons?: string[];
   weights: {
     etf: number;
     bond: number;
@@ -170,6 +173,13 @@ export interface PortfolioDetailHolding {
   taxNote: string;
   source: string;
   sourceType?: "fixed_sleeve" | "representative_product" | "legacy_inactive";
+}
+
+export interface TaxDragProxyResult {
+  preTaxReturn: number;
+  taxDrag: number;
+  afterTaxReturn: number;
+  reasons: string[];
 }
 
 // 4. 상품군 적합도 타입
@@ -255,6 +265,124 @@ export function calculateSimulatedMetrics(weights: PortfolioOption['weights'], p
     volatility: Math.round(vol * 10) / 10,
     mdd: Math.round((vol * -1.3) * 10) / 10,
     taxReturn: Math.round((expReturn * 0.846) * 10) / 10 // 대략적인 세율 감안
+  };
+}
+
+const roundOneDecimal = (value: number) => Math.round(value * 10) / 10;
+
+const taxContextText = (client: Client, cashflow?: CashflowPortfolioSummary) => {
+  const flows = client.cashFlows ?? [];
+  const flowText = flows
+    .map((flow) => `${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""} ${flow.accountType ?? ""}`)
+    .join(" ");
+  const ipsText = Object.values(client.ips ?? {})
+    .map((factor) => `${factor?.value ?? ""} ${factor?.notes ?? ""} ${factor?.evidence ?? ""}`)
+    .join(" ");
+  return `${client.consultationNotes ?? ""} ${ipsText} ${flowText} 세금성예정유출 ${cashflow?.taxOutflow ?? 0}`;
+};
+
+function sumCashflowsByPattern(cashFlows: CashFlow[], pattern: RegExp, direction: "positive" | "negativeAbs" | "absolute") {
+  return cashFlows.reduce((sum, flow) => {
+    const text = `${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""} ${flow.accountType ?? ""}`;
+    if (!pattern.test(text)) return sum;
+    if (direction === "positive") return flow.amount > 0 ? sum + flow.amount : sum;
+    if (direction === "negativeAbs") return flow.amount < 0 ? sum + Math.abs(flow.amount) : sum;
+    return sum + Math.abs(flow.amount);
+  }, 0);
+}
+
+export function calculateTaxDragProxy({
+  preTaxReturn,
+  weights,
+  client,
+  cashflow,
+  preference,
+}: {
+  preTaxReturn: number;
+  weights: PortfolioOption["weights"];
+  client?: Client;
+  cashflow?: CashflowPortfolioSummary;
+  preference?: ClientPreferenceProfile;
+}): TaxDragProxyResult {
+  const roundedPreTaxReturn = roundOneDecimal(preTaxReturn);
+  if (!client) {
+    return {
+      preTaxReturn: roundedPreTaxReturn,
+      taxDrag: 0,
+      afterTaxReturn: roundedPreTaxReturn,
+      reasons: ["고객 세금 분석 입력값이 없어 tax drag를 0.0%p로 둠"],
+    };
+  }
+
+  const reasons: string[] = [];
+  const flows = client.cashFlows ?? [];
+  const taxScore = factorScore(client, "tax");
+  const taxOutflowWon =
+    cashflow?.taxOutflow ??
+    flows.filter((flow) => flow.amount < 0 && isTaxFlow(flow)).reduce((sum, flow) => sum + Math.abs(flow.amount), 0);
+  const taxOutflowPct = percentOfAssets(taxOutflowWon, client);
+  const text = taxContextText(client, cashflow);
+  const financialIncomeWon = sumCashflowsByPattern(flows, /금융소득|이자|배당|coupon|dividend|interest|MMF|RP|CMA|채권|bond/i, "positive");
+  const capitalGainTaxWon = sumCashflowsByPattern(flows, /양도세|양도소득|해외주식|대주주|IPO|보호예수|비상장|capital/i, "negativeAbs");
+  const taxPainCount = scoreTaxPainPoints({
+    client,
+    fullText: text,
+    taxPriority: Boolean(preference?.taxPriority),
+    taxFactorScore: taxScore,
+    taxOutflowWon,
+  }).length;
+
+  const incomeSensitiveWeight = Math.max(0, weights.bond + weights.mmf + weights.dollar);
+  const equityTaxSensitiveWeight = Math.max(0, weights.etf + weights.raw + weights.gold);
+
+  let drag = 0;
+  drag += Math.max(0, taxScore - 1) * 0.12;
+  if (taxScore >= 4) reasons.push(`7요인 세금 점수 ${taxScore}/5`);
+
+  drag += Math.min(0.45, taxOutflowPct * 0.035);
+  if (taxOutflowWon > 0) reasons.push(`예정 세금 유출 ${formatKRWShortLocal(taxOutflowWon)}`);
+
+  drag += Math.min(0.4, incomeSensitiveWeight * 0.004);
+  if (incomeSensitiveWeight >= 35) reasons.push(`채권·MMF/RP·달러 등 이자/분배 과세 민감 자산 ${roundOneDecimal(incomeSensitiveWeight)}%`);
+
+  drag += Math.min(0.18, equityTaxSensitiveWeight * 0.0015);
+  if (capitalGainTaxWon > 0) {
+    drag += 0.18;
+    reasons.push(`양도세/주식 과세 이벤트 ${formatKRWShortLocal(capitalGainTaxWon)}`);
+  }
+
+  if (financialIncomeWon >= 20_000_000 || /금융소득종합과세|종합과세/i.test(text)) {
+    drag += 0.25;
+    reasons.push(`금융소득종합과세 점검 구간 ${formatKRWShortLocal(financialIncomeWon)}`);
+  } else if (financialIncomeWon >= 15_000_000) {
+    drag += 0.12;
+    reasons.push(`금융소득 점검 구간 ${formatKRWShortLocal(financialIncomeWon)}`);
+  }
+
+  if (client.clientType === "corporate") {
+    drag += 0.12;
+    reasons.push("법인 고객 과세·회계 검토 필요");
+  } else if (client.clientType === "sole_proprietor") {
+    drag += 0.18;
+    reasons.push("개인사업자 사업/개인 세금 분리 필요");
+  }
+
+  if (preference?.taxPriority) {
+    drag += 0.18;
+    reasons.push("절세/세후 효율 우선 선호");
+  }
+
+  if (taxPainCount > 0) {
+    drag += Math.min(0.2, taxPainCount * 0.05);
+    reasons.push(`세금 고충 항목 ${taxPainCount}개 감지`);
+  }
+
+  const taxDrag = roundOneDecimal(Math.min(1.5, Math.max(0, drag)));
+  return {
+    preTaxReturn: roundedPreTaxReturn,
+    taxDrag,
+    afterTaxReturn: roundOneDecimal(Math.max(0, roundedPreTaxReturn - taxDrag)),
+    reasons: reasons.length > 0 ? reasons.slice(0, 4) : ["세금성 이벤트가 낮아 최소 tax drag 적용"],
   };
 }
 
@@ -1309,8 +1437,12 @@ export function preferenceAdjustedMetrics(
   benchmarkTargetReturn?: number,
   feasibilityReport?: PreferenceFeasibilityReport,
   proxyReturns?: ProxyReturnEstimate[],
+  taxContext?: { client?: Client; cashflow?: CashflowPortfolioSummary },
 ) {
-  const metrics = calculateSimulatedMetrics(weights, proxyReturns);
+  const metrics = calculateSimulatedMetrics(weights, proxyReturns) as ReturnType<typeof calculateSimulatedMetrics> & {
+    taxDrag?: number;
+    taxDragReasons?: string[];
+  };
   const feasibility =
     feasibilityReport ??
     evaluatePreferenceFeasibility(weights, preference, { riskTilt, benchmarkTargetReturn, proxyReturns });
@@ -1320,13 +1452,11 @@ export function preferenceAdjustedMetrics(
     metrics.expectedReturn = Math.max(metrics.expectedReturn, 15 + riskTilt * 2);
     metrics.volatility = Math.max(metrics.volatility, 22 + riskTilt * 4);
     metrics.mdd = Math.min(metrics.mdd, -26 - riskTilt * 5);
-    metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
   }
   if (preference.targetReturn && preference.targetReturn >= 15 && !isSuppressed("targetReturn")) {
     metrics.expectedReturn = Math.max(metrics.expectedReturn, Math.min(24, preference.targetReturn));
     metrics.volatility = Math.max(metrics.volatility, Math.min(36, preference.targetReturn * 1.35));
     metrics.mdd = Math.min(metrics.mdd, -Math.min(42, preference.targetReturn * 1.6));
-    metrics.taxReturn = Math.round(metrics.expectedReturn * 0.846 * 10) / 10;
   }
   if (preference.taxPriority) {
     const tier = riskTilt + 1;
@@ -1335,17 +1465,24 @@ export function preferenceAdjustedMetrics(
     const volatilityFloor = [6.5, 10, 16][tier];
     const volatilityCap = [10, 16, 28][tier];
     const mddGuide = [-10, -18, -30][tier];
-    const taxEfficiency = [0.96, 0.95, 0.93][tier];
 
     metrics.expectedReturn = Math.min(Math.max(metrics.expectedReturn * 0.62, expectedFloor), expectedCap);
     metrics.volatility = Math.min(Math.max(metrics.volatility * 0.55, volatilityFloor), volatilityCap);
     metrics.mdd = Math.min(metrics.mdd, mddGuide);
-    metrics.taxReturn = Math.round(metrics.expectedReturn * taxEfficiency * 10) / 10;
   }
   metrics.expectedReturn = Math.round(metrics.expectedReturn * 10) / 10;
   metrics.volatility = Math.round(metrics.volatility * 10) / 10;
   metrics.mdd = Math.round(Math.max(metrics.mdd, -95) * 10) / 10;
-  metrics.taxReturn = Math.round(metrics.taxReturn * 10) / 10;
+  const taxDrag = calculateTaxDragProxy({
+    preTaxReturn: metrics.expectedReturn,
+    weights,
+    client: taxContext?.client,
+    cashflow: taxContext?.cashflow,
+    preference,
+  });
+  metrics.taxReturn = taxDrag.afterTaxReturn;
+  metrics.taxDrag = taxDrag.taxDrag;
+  metrics.taxDragReasons = taxDrag.reasons;
   return metrics;
 }
 
@@ -1366,15 +1503,18 @@ function optionFromAnalysis(
     investableKrw,
     proxyReturns,
   });
-  const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt, undefined, feasibility, proxyReturns);
+  const metrics = preferenceAdjustedMetrics(weights, preference, meta.riskTilt, undefined, feasibility, proxyReturns, { client, cashflow });
   return {
     id: meta.id,
     name: meta.name,
     weights,
     expectedReturn: metrics.expectedReturn,
+    preTaxReturn: metrics.expectedReturn,
     volatility: metrics.volatility,
     mdd: metrics.mdd,
     taxReturn: metrics.taxReturn,
+    taxDrag: metrics.taxDrag,
+    taxDragReasons: metrics.taxDragReasons,
     mainProducts: productsFor(weights, signals, preference, feasibility),
     detailedHoldings: buildDetailedHoldings(weights, preference, meta.id),
   };
