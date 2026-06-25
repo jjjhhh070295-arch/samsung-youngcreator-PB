@@ -44,7 +44,8 @@ export const OVERSEAS_PATTERN =
   /S&P|NVIDIA|Microsoft|Apple|Broadcom|Eli Lilly|Nasdaq|Nifty|미국|해외|나스닥|인도/i;
 
 /** ETF holdings 없을 때 기본 해외:국내 비율 (B1/B3 기준 S&P500 60% : KOSPI 40%) */
-export const ETF_OVERSEAS_RATIO_DEFAULT = 0.6;
+export const DEFAULT_EQUITY_REGION_SPLIT = { us: 0.6, kr: 0.4 } as const;
+export const ETF_OVERSEAS_RATIO_DEFAULT = DEFAULT_EQUITY_REGION_SPLIT.us;
 
 function round1(v: number): number {
   return Math.round(v * 10) / 10;
@@ -126,22 +127,11 @@ export function convertSetToIndices(
   const effectiveMmf = set.mmf + els * 0.3;
 
   // ETF → sp500 / kospi 분리
-  let sp500: number;
-  let kospi: number;
-
-  if (etfHoldings && etfHoldings.length > 0) {
-    const etfTotal = etfHoldings.reduce((s, h) => s + h.weight, 0) || 1;
-    const overseasWeight = etfHoldings.reduce(
-      (s, h) => s + (OVERSEAS_PATTERN.test(h.name) ? h.weight : 0),
-      0,
-    );
-    const overseasRatio = Math.min(1, Math.max(0, overseasWeight / etfTotal));
-    sp500 = set.etf * overseasRatio;
-    kospi = set.etf * (1 - overseasRatio);
-  } else {
-    sp500 = set.etf * ETF_OVERSEAS_RATIO_DEFAULT;
-    kospi = set.etf * (1 - ETF_OVERSEAS_RATIO_DEFAULT);
-  }
+  // ETF sleeve is fixed at S&P500 60% / KOSPI 40% across risk profiles.
+  // Risk profiles adjust total ETF/bond/cash weights, not regional split.
+  void etfHoldings;
+  const sp500 = set.etf * DEFAULT_EQUITY_REGION_SPLIT.us;
+  const kospi = set.etf * DEFAULT_EQUITY_REGION_SPLIT.kr;
 
   const hedge = {
     gold: set.gold,

@@ -12,6 +12,7 @@ import {
 import { scoreTaxPainPoints, type TaxPainId } from "./taxPainScoring";
 import { FALLBACK_PROXY_RETURN_ESTIMATES as PROXY_FALLBACKS, type ProxyReturnEstimate } from "./proxyReturns";
 import { isTaxFlow } from "./cashflowTaxRules";
+import { DEFAULT_EQUITY_REGION_SPLIT } from "./assetMapping";
 
 export { FALLBACK_PROXY_RETURN_ESTIMATES, RETURN_ESTIMATE_LABEL } from "./proxyReturns";
 
@@ -236,8 +237,11 @@ export function calculateSimulatedMetrics(weights: PortfolioOption['weights'], p
   };
   const effectiveBond = normalized.bond + normalized.els * 0.7;
   const effectiveMmf = normalized.mmf + normalized.els * 0.3;
+  const equityBlendReturn =
+    (DEFAULT_EQUITY_REGION_SPLIT.us * rate('sp500')) +
+    (DEFAULT_EQUITY_REGION_SPLIT.kr * rate('kospi'));
   const expReturn =
-    (normalized.etf * rate('sp500')) +
+    (normalized.etf * equityBlendReturn) +
     (effectiveBond * rate('bond')) +
     (effectiveMmf * rate('mmf')) +
     (normalized.gold * rate('gold')) +
@@ -838,8 +842,11 @@ function estimateMaxAchievableReturn(
   const mmfFloor = clampNumber(mmfFloorPct, 0, 100);
   const dollarFloor = clampNumber(weights.dollar, 0, 100 - mmfFloor);
   const investableRiskBudget = Math.max(0, 100 - mmfFloor - dollarFloor);
+  const equityBlendReturn =
+    (DEFAULT_EQUITY_REGION_SPLIT.us * rate('sp500')) +
+    (DEFAULT_EQUITY_REGION_SPLIT.kr * rate('kospi'));
   const maxReturn =
-    investableRiskBudget * rate('sp500') +
+    investableRiskBudget * equityBlendReturn +
     mmfFloor * rate('mmf') +
     dollarFloor * rate('dollar');
 
@@ -1196,8 +1203,17 @@ export function buildDetailedHoldings(
         ? [30, 25, 20, 15, 10]
         : [35, 25, 20, 20],
   );
+  const fixedEtfSleeve = splitWeight(weights.etf, [
+    DEFAULT_EQUITY_REGION_SPLIT.us * 100,
+    DEFAULT_EQUITY_REGION_SPLIT.kr * 100,
+  ]);
+  details.push(
+    detail("etf", "KODEX 미국S&P500", fixedEtfSleeve[0], "ETF sleeve 미국 대표지수 60%", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
+    detail("etf", "KODEX 200", fixedEtfSleeve[1], "ETF sleeve 국내 대표지수 40%", "국내 ETF 과세 확인", "삼성자산운용 KODEX"),
+  );
+  const useFixedEtfSleeve = true;
 
-  if (taxPriority) {
+  if (!useFixedEtfSleeve && taxPriority) {
     details.push(
       detail("etf", "삼성전자", etf[0], "국내 상장 대형주 장내거래 후보", "대주주 요건·특수관계자 지분율 확인 전제", "국내 상장주식 절세 후보"),
       detail("etf", "SK하이닉스", etf[1], "반도체 대표주 장내거래 후보", "대주주 요건·매매 시점별 양도세 확인", "국내 상장주식 절세 후보"),
@@ -1205,7 +1221,7 @@ export function buildDetailedHoldings(
       detail("etf", "KODEX MSCI KOREA TR", etf[3], "국내 대형주 분산 ETF", "TR 구조와 보유계좌 과세 확인", "삼성자산운용 KODEX"),
       detail("etf", "현대차", etf[4], "국내 대형 가치주 보완 후보", "대주주 요건·배당소득 과세 확인", "국내 상장주식 절세 후보"),
     );
-  } else if (preference.overseasSingleStock) {
+  } else if (!useFixedEtfSleeve && preference.overseasSingleStock) {
     details.push(
       detail("etf", "NVIDIA", etf[0], "AI 반도체 핵심 개별주", "해외주식 양도소득세·환율 변동 확인", "해외 단일종목 후보"),
       detail("etf", "Microsoft", etf[1], "클라우드·AI 플랫폼 개별주", "해외주식 양도소득세 확인", "해외 단일종목 후보"),
@@ -1213,7 +1229,7 @@ export function buildDetailedHoldings(
       detail("etf", "Broadcom", etf[3], "AI 인프라·반도체 보완", "해외주식 양도세 확인", "해외 단일종목 후보"),
       detail("etf", "Eli Lilly", etf[4], "헬스케어 성장 분산", "환율·해외 양도세 확인", "해외 단일종목 후보"),
     );
-  } else if (aggressive) {
+  } else if (!useFixedEtfSleeve && aggressive) {
     details.push(
       detail("etf", "KODEX 미국S&P500", etf[0], "미국 대표지수 핵심", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
       detail("etf", "KODEX 미국나스닥100", etf[1], "미국 성장주 비중 확대", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
@@ -1221,7 +1237,7 @@ export function buildDetailedHoldings(
       detail("etf", "KODEX 인도Nifty50", etf[3], "신흥국 성장 분산", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
       detail("etf", "KODEX 200", etf[4], "국내 지수 보완", "국내 ETF 과세 확인", "삼성자산운용 KODEX"),
     );
-  } else {
+  } else if (!useFixedEtfSleeve) {
     details.push(
       detail("etf", "KODEX 200TR", etf[0], "국내 대표지수 분산", "분배금·매매차익 과세 구조 확인", "삼성자산운용 KODEX"),
       detail("etf", "KODEX 미국S&P500", etf[1], "미국 대표지수 핵심", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),

@@ -23,7 +23,7 @@ import {
   type PortfolioOption,
 } from '@/lib/portfolio';
 import { calculatePortfolioProxyReturn, type ProxyReturnEstimate } from '@/lib/proxyReturns';
-import { setToMacroApiParams } from '@/lib/assetMapping';
+import { DEFAULT_EQUITY_REGION_SPLIT, setToMacroApiParams } from '@/lib/assetMapping';
 import type { HistoricalStressRangeResponse } from '@/lib/macroStress/types';
 import { supabase } from '@/lib/supabase';
 import {
@@ -375,12 +375,10 @@ function buildSimplifiedBenchmarkChartData(
   const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
   const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
   const overseasPattern = /S&P|NVIDIA|Microsoft|Apple|Broadcom|Eli Lilly|Nasdaq|Nifty|미국|해외|나스닥|인도/i;
-  const etfHoldings = detailedHoldings.filter((holding) => holding.bucket === 'etf');
-  const overseasEquityWeight = etfHoldings.reduce(
-    (sum, holding) => sum + (overseasPattern.test(holding.name) ? holding.weight : 0),
-    0,
-  );
-  const domesticEquityWeight = Math.max(0, weights.etf - overseasEquityWeight);
+  void overseasPattern;
+  void detailedHoldings;
+  const overseasEquityWeight = weights.etf * DEFAULT_EQUITY_REGION_SPLIT.us;
+  const domesticEquityWeight = weights.etf * DEFAULT_EQUITY_REGION_SPLIT.kr;
 
   // sector ETF weights for portfolio line (선B)
   const etfKrw = new Map<string, number>();
@@ -1552,6 +1550,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="space-y-4 text-xs">
                 <p className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 leading-relaxed text-indigo-900">
                   주식·대체자산은 최근 5년 가격 연율화, 채권·현금성 자산은 이자수익 특성을 반영한 proxy 기준입니다.
+                </p>
+                <p className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 leading-relaxed text-blue-900">
+                  ETF 내부 지역배분은 S&amp;P500 60%, KOSPI 40%의 글로벌/국내 분산 기준을 적용하고, 위험성향은 전체 주식·채권·현금성 비중 조절로 반영됩니다.
                 </p>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {proxyReturnSummary.estimates.map((estimate) => (
