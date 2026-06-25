@@ -1,4 +1,5 @@
 import type { CashFlow } from "@/lib/types";
+import { isTaxFlow } from "@/lib/cashflowTaxRules";
 
 export type TaxDataSource = "cashflow" | "manual" | "inferred" | "estimated" | "ignored";
 
@@ -65,7 +66,6 @@ const FINANCIAL_EXCLUDE_PATTERN =
   /급여|월급|근로|사업소득|사업수입|매출|임대|월세|용돈|대여|상환|loan|salary|wage|business|revenue|sales|rent/i;
 const INTEREST_PATTERN = /이자|interest|mmf|rp|cma|채권|bond|예금|적금|금융소득|이자배당/i;
 const DIVIDEND_PATTERN = /배당|dividend|distribution/i;
-const TAX_PATTERN = /세|증여|상속|양도|법인세|종부|재산|tax|inheritance|gift/i;
 
 function roundWon(value: number) {
   return Math.round(Number.isFinite(value) ? value : 0);
@@ -108,16 +108,14 @@ export function annualizeRecurring(flow: CashFlow) {
 }
 
 function classifyScheduledTaxBucket(flow: CashFlow): ScheduledTaxBucket | null {
-  const label = normalizeCashflowTaxText(flow.label);
+  if (!isTaxFlow(flow)) return null;
   const text = normalizeCashflowTaxText(flowText(flow));
-  if ((label.includes("증여실행") || label.includes("giftamount")) && !/세|tax/.test(label)) return null;
-  if (!TAX_PATTERN.test(flowText(flow))) return null;
-  if (/증여세|gifttax|gift/.test(text)) return "gift";
-  if (/상속세|inheritance/.test(text)) return "inheritance";
+  if (/증여|gifttax|gift/.test(text)) return "gift";
+  if (/상속|inheritance/.test(text)) return "inheritance";
   if (/법인세|corporatetax|corporate/.test(text)) return "corporate";
   if (/양도세|양도소득|capitalgain|capitalgains|stocktax|주식양도|부동산양도/.test(text)) return "capitalGain";
-  if (/재산세|종부세|종합부동산세|property|realestate/.test(text)) return "property";
-  return /세|tax/.test(text) ? "other" : null;
+  if (/재산세|종부세|종합부동산세|취득세|property|realestate|acquisitiontax/.test(text)) return "property";
+  return "other";
 }
 
 function emptyBucketTotals(): Record<ScheduledTaxBucket, number> {
