@@ -557,18 +557,71 @@ const TAX_PAIN_SOURCES = {
   },
 };
 
+const RETURN_SCORE_TARGET_PCT: Record<number, number> = {
+  1: 3,
+  2: 5,
+  3: 7,
+  4: 10,
+  5: 20,
+};
+
+function saneTargetReturn(value: number) {
+  return Number.isFinite(value) && value > 0 && value <= 80 ? value : undefined;
+}
+
+function parseStandalonePercent(text: string): number | undefined {
+  const percent = /(?:^|[^\d])(\d{1,2}(?:\.\d+)?)\s*%/.exec(text);
+  if (percent) return saneTargetReturn(Number(percent[1]));
+
+  const trimmed = text.trim();
+  if (/^\d{1,2}(?:\.\d+)?$/.test(trimmed)) return saneTargetReturn(Number(trimmed));
+  return undefined;
+}
+
 function parseTargetReturn(text: string): number | undefined {
   const patterns = [
-    /(?:기대수익률|목표수익률|수익률)[^\d]{0,12}(\d{1,2}(?:\.\d+)?)\s*%?\s*(?:이상|넘|초과)?/i,
-    /(\d{1,2}(?:\.\d+)?)\s*%\s*(?:이상|넘|초과|나왔)/i,
+    /(?:기대\s*수익률|목표\s*수익률|목표|수익률|return|target)[^\d]{0,16}(\d{1,2}(?:\.\d+)?)\s*%?\s*(?:이상|넘|초과|목표)?/i,
+    /(?:연|연간|년|yearly|annual)[^\d]{0,8}(\d{1,2}(?:\.\d+)?)\s*%/i,
+    /(\d{1,2}(?:\.\d+)?)\s*%\s*(?:이상|넘|초과|목표|기대|나왔)?/i,
   ];
   for (const pattern of patterns) {
     const match = pattern.exec(text);
     if (match) {
       const value = Number(match[1]);
-      if (!Number.isNaN(value) && value > 0) return value;
+      const target = saneTargetReturn(value);
+      if (target) return target;
     }
   }
+  return undefined;
+}
+
+export function resolveClientTargetReturnPct(client: Client): number | undefined {
+  const uniqueAndReturnText = [
+    client.ips.unique.value,
+    client.ips.unique.inferenceHint,
+    client.ips.unique.notes,
+    client.ips.return.value,
+    client.ips.return.inferenceHint,
+    client.ips.return.notes,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const explicitTextTarget = parseTargetReturn(uniqueAndReturnText);
+  if (explicitTextTarget) return explicitTextTarget;
+
+  const returnOnlyText = [
+    client.ips.return.value,
+    client.ips.return.inferenceHint,
+    client.ips.return.notes,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const standaloneReturnTarget = parseStandalonePercent(returnOnlyText);
+  if (standaloneReturnTarget) return standaloneReturnTarget;
+
+  const score = client.ips.return.score;
+  if (typeof score === "number") return RETURN_SCORE_TARGET_PCT[Math.round(score)];
   return undefined;
 }
 
@@ -578,6 +631,7 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
     client.ips.unique.inferenceHint,
     client.ips.unique.notes,
     client.ips.return.value,
+    client.ips.return.inferenceHint,
     client.ips.return.notes,
   ]
     .filter(Boolean)
@@ -588,7 +642,7 @@ function parsePreferenceProfile(client: Client): ClientPreferenceProfile {
   const stockOnly = overseasSingleStock || /주식형|주식만|주식 100|전부 주식|올인|몰빵|equity only/.test(lower);
   const rejectsOtherProducts = /다른 상품.*싫|다른상품.*싫|채권.*싫|els.*싫|펀드.*싫|현금.*싫|싫어요|제외|빼고|only/.test(lower);
   const highRiskAccepted = /아무리 위험|위험해도|고위험|공격적|공격형|적극|손실.*감수|리스크.*감수/.test(lower);
-  const targetReturn = parseTargetReturn(rawText);
+  const targetReturn = resolveClientTargetReturnPct(client);
   const benchmarkOutperformance = /(?:벤치마크|benchmark|kospi|코스피|kospi200|코스피200|s&p|snp|sp500|s&p500|에스앤피).{0,24}(?:보다|대비|이상|초과|상회|넘|높|이기|웃돌)|(?:보다|대비).{0,16}(?:수익률|성과).{0,12}(?:높|초과|상회|이기)|(?:알파|초과수익)/i.test(lower);
   const taxPriority = /(?:세금|절세|세후|비과세|과세이연|분리과세|금융소득종합과세|양도세|이자소득세).{0,24}(?:최대한|가장|최우선|우선|적게|줄|낮|절감|아끼|최소|안\s*내|안내|비과세)|(?:최대한|가장|최우선|우선).{0,16}(?:절세|세금|세후|비과세)|tax\s*(?:first|priority|efficient)/i.test(lower);
   const specificBenchmarkTargets = [
@@ -829,7 +883,7 @@ export function evaluatePreferenceFeasibility(
   const mmfFloorPct = Math.round((options.mmfFloorPct ?? weights.mmf) * 10) / 10;
   const maxAchievableReturn = estimateMaxAchievableReturn(weights, mmfFloorPct, options.proxyReturns);
   const requestedTargetReturn = requestedAggressiveReturn(preference, riskTilt, options.benchmarkTargetReturn);
-  const tolerance = 0.2;
+  const tolerance = 0.5;
   const suppressedPreferences: string[] = [];
   const conflicts: string[] = [];
 
@@ -837,11 +891,16 @@ export function evaluatePreferenceFeasibility(
     if (!suppressedPreferences.includes(key)) suppressedPreferences.push(key);
   };
 
-  if (preference.targetReturn && preference.targetReturn > maxAchievableReturn + tolerance) {
+  if (preference.targetReturn && preference.targetReturn > metrics.expectedReturn + tolerance) {
     addSuppression("targetReturn");
     conflicts.push(
-      `요구 목표수익률 ${preference.targetReturn}%는 MMF floor ${mmfFloorPct}% 기준 최대 가능 수익률 ${maxAchievableReturn}%를 초과합니다.`,
+      `고객 요구 목표수익률 ${preference.targetReturn}%와 현재 포트폴리오 비중 기반 예상수익률 ${metrics.expectedReturn}%가 충돌합니다.`,
     );
+    if (preference.targetReturn > maxAchievableReturn + tolerance) {
+      conflicts.push(
+        `요구 목표수익률 ${preference.targetReturn}%는 MMF floor ${mmfFloorPct}% 기준 최대 가능 수익률 ${maxAchievableReturn}%도 초과합니다.`,
+      );
+    }
   }
 
   const benchmarkRequiredReturn = aggressiveBenchmarkTargetReturn(

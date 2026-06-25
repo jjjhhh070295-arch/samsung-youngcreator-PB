@@ -347,6 +347,9 @@ const formatWonShort = (won: number) => {
 
 const formatPercent = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 
+const targetReturnLabel = (value?: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? `${value}%` : '별도 확인';
+
 function finiteNumber(value: number | null | undefined, fallback = 0) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -1608,6 +1611,39 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </div>
 
               {model.preferenceProfile.hasRequirement ? (
+                <>
+                {!selectedFeasibility.feasible && (
+                  <div className="mb-4 rounded-xl border-2 border-rose-500 bg-rose-50 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-sm font-black text-rose-800">
+                          고객 요구 수익률과 포트폴리오 수익률 충돌
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-rose-900">
+                          공격적 목표수익률·위험도 가정은 화면 KPI에 반영하지 않았습니다.
+                          PB가 세금 납부 일정, MMF/RP 유동성 floor, 매각 가능 자산을 재확인해 세부 커스텀 조정안을 별도 상담해야 합니다.
+                        </p>
+                      </div>
+                      <div className="grid min-w-[260px] grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg bg-surface px-3 py-2">
+                          <span className="block text-fg-muted">고객 요구 수익률</span>
+                          <span className="mt-0.5 block text-lg font-black text-rose-700">
+                            {targetReturnLabel(selectedFeasibility.requestedTargetReturn ?? model.preferenceProfile.targetReturn)}
+                          </span>
+                        </div>
+                        <div className="rounded-lg bg-surface px-3 py-2">
+                          <span className="block text-fg-muted">실제 비중 기반</span>
+                          <span className="mt-0.5 block text-lg font-black text-fg">
+                            {selectedFeasibility.weightBasedReturn}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-3 rounded-lg border border-rose-100 bg-surface px-3 py-2 text-xs font-semibold leading-relaxed text-rose-800">
+                      {selectedFeasibility.conflicts.join(' ')}
+                    </p>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
                   <div className="rounded-xl border border-rose-100 bg-rose-50 p-4 lg:col-span-2">
                     <p className="text-xs font-bold text-rose-800">
@@ -1646,6 +1682,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     </ul>
                   </div>
                 </div>
+                </>
               ) : (
                 <p className="rounded-xl border border-border bg-surface-2 p-4 text-xs leading-relaxed text-fg-muted">
                   고객 고유상황이 입력되면 이 영역에서 요구조건, 충돌 가능성, PB 확인 항목을 분리해 보여줍니다.
@@ -2302,7 +2339,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 	                      공격적 수익률·위험도 가정은 포트폴리오 KPI에 반영하지 않았습니다.
 	                    </p>
 	                  </div>
-	                  <div className="grid min-w-[220px] grid-cols-2 gap-2 text-xs">
+	                  <div className="grid min-w-[260px] grid-cols-3 gap-2 text-xs">
+	                    <div className="rounded-lg bg-surface px-3 py-2">
+	                      <span className="block text-fg-muted">고객 요구</span>
+	                      <span className="mt-0.5 block text-lg font-black text-rose-700">
+	                        {targetReturnLabel(selectedFeasibility.requestedTargetReturn ?? model.preferenceProfile.targetReturn)}
+	                      </span>
+	                    </div>
 	                    <div className="rounded-lg bg-surface px-3 py-2">
 	                      <span className="block text-fg-muted">비중 기반 수익률</span>
 	                      <span className="mt-0.5 block text-lg font-black text-fg">{selectedFeasibility.weightBasedReturn}%</span>
