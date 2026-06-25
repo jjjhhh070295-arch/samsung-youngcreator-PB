@@ -5,10 +5,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Cell,
-  Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -21,15 +21,10 @@ import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META } from "@/lib/
 import { getClient, listPbs } from "@/lib/store";
 import { formatKRW, formatDate } from "@/lib/format";
 import {
-  FALLBACK_BENCHMARK_POINTS,
-  buildPortfolioBacktestSeries,
-  type BenchmarkApiPoint,
-  type BenchmarkApiResponse,
-} from "@/lib/portfolioBacktest";
-import {
   buildPortfolioViewModel,
   resolvePortfolioDisplayAllocations,
 } from "@/lib/portfolio";
+import { buildReturnContributionsFromPortfolio } from "@/lib/portfolioReturnContribution";
 import { scoreReadinessEvents } from "@/lib/taxReadinessScoring";
 import { buildPeriodCashflowSeries } from "@/lib/periodCashflow";
 import type { TaxPaymentEvent } from "@/lib/cashflowUpload";
@@ -194,8 +189,6 @@ export default function IPSDocumentPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
-  const [benchmarkPoints, setBenchmarkPoints] = useState<BenchmarkApiPoint[]>(FALLBACK_BENCHMARK_POINTS);
-  const [benchmarkSource, setBenchmarkSource] = useState("로컬 예비 데이터");
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -215,33 +208,6 @@ export default function IPSDocumentPage() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadBenchmarks() {
-      try {
-        const res = await fetch("/api/benchmarks", { cache: "no-store" });
-        if (!res.ok) throw new Error("benchmark api failed");
-        const data = (await res.json()) as BenchmarkApiResponse;
-        if (cancelled) return;
-        if (Array.isArray(data.points) && data.points.length > 0) {
-          setBenchmarkPoints(data.points);
-          setBenchmarkSource(data.source ?? "Naver Finance / Yahoo Finance");
-          return;
-        }
-        throw new Error("benchmark points missing");
-      } catch {
-        if (!cancelled) {
-          setBenchmarkPoints(FALLBACK_BENCHMARK_POINTS);
-          setBenchmarkSource("로컬 예비 데이터");
-        }
-      }
-    }
-    loadBenchmarks();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   if (status === "loading") return <LoadingView />;
   if (status === "error" || !client)
     return <ErrorView message="고객 정보를 불러올 수 없습니다." onRetry={load} />;
@@ -258,7 +224,7 @@ export default function IPSDocumentPage() {
     name: allocation.assetClass,
     value: allocation.weight,
   }));
-  const backtestData = pf ? buildPortfolioBacktestSeries(displayAllocations, benchmarkPoints) : [];
+  const returnContributions = pf ? buildReturnContributionsFromPortfolio(displayAllocations, pf.expectedReturn) : [];
   const periodSeries = buildPeriodCashflowSeries(client.cashFlows);
 
   // 담당 PB 이름 (ID → 이름)
@@ -547,21 +513,35 @@ export default function IPSDocumentPage() {
                   </div>
                 </div>
                 <div className="rounded border border-gray-200 p-3">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">최근 1년 백테스트 추정</p>
+                  <p className="mb-2 text-xs font-semibold text-gray-700">자산군별 수익률 기여도</p>
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={backtestData} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
-                        <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
-                        <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#6b7280" }} />
-                        <YAxis unit="%" tick={{ fontSize: 9, fill: "#6b7280" }} />
-                        <Tooltip formatter={(value: unknown) => `${Number(value).toFixed(1)}%`} />
-                        <Line type="monotone" dataKey="portfolio" name="제안 포트폴리오" stroke="#0f172a" strokeWidth={2.5} dot={false} />
-                        <Line type="monotone" dataKey="blendedBenchmark" name="혼합 벤치마크" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={false} />
-                      </LineChart>
+                      <BarChart data={returnContributions} layout="vertical" margin={{ top: 4, right: 28, bottom: 0, left: 8 }}>
+                        <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" horizontal={false} />
+                        <XAxis type="number" unit="%p" tick={{ fontSize: 9, fill: "#6b7280" }} />
+                        <YAxis type="category" dataKey="name" width={64} tick={{ fontSize: 9, fill: "#6b7280" }} />
+                        <Tooltip formatter={(value: unknown) => `${Number(value).toFixed(2)}%p`} />
+                        <Bar dataKey="contributionPct" name="기여도" radius={[0, 3, 3, 0]}>
+                          {returnContributions.map((entry, index) => (
+                            <Cell key={entry.name} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
+                  <div className="mt-2 grid grid-cols-1 gap-0.5 text-[10px]">
+                    {returnContributions.map((c) => (
+                      <div key={c.name} className="flex items-center justify-between text-gray-600">
+                        <span>{c.name}</span>
+                        <span>
+                          {c.weightPct}% × {c.appliedReturnPct}% ={" "}
+                          <b className="text-gray-800">{c.contributionPct}%p</b>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                   <p className="mt-1 text-[10px] leading-relaxed text-gray-400">
-                    {benchmarkSource} 기반 12개월 누적수익률 추정치입니다. 과거 성과는 미래 수익을 보장하지 않습니다.
+                    각 자산군 비중 × 적용 연수익률의 기여도이며, 합계는 예상수익률 {pf.expectedReturn}%와 일치합니다. 시장 proxy 기반 참고치로 미래 성과를 보장하지 않습니다.
                   </p>
                 </div>
               </div>
