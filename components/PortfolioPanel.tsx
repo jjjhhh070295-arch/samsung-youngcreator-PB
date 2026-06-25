@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -35,6 +35,7 @@ import { listPbs } from '@/lib/store';
 import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
 import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem } from '@/components/StockSectorPanel';
+import QuickScrollButtons from '@/components/QuickScrollButtons';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -960,6 +961,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [existingHoldings, setExistingHoldings] = useState<ExistingHolding[]>([]);
   const [planSummary,      setPlanSummary]      = useState<PlanSummaryItem[]>([]);
   const [sectorEtfData,    setSectorEtfData]    = useState<Record<string, number[]>>({});
+  const portfolioTopRef = useRef<HTMLDivElement | null>(null);
+  const portfolioBottomRef = useRef<HTMLDivElement | null>(null);
 
   // 종목 계획 변경 시 섹터 ETF 월별 수익률 취득
   useEffect(() => {
@@ -1440,7 +1443,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
   if (activePortfolioDetail) {
     return (
-      <div className="flex flex-col gap-5 rounded-2xl bg-surface-2 p-4 text-fg md:p-6">
+      <div ref={portfolioTopRef} className="flex flex-col gap-5 rounded-2xl bg-surface-2 p-4 text-fg md:p-6">
+        <QuickScrollButtons topRef={portfolioTopRef} bottomRef={portfolioBottomRef} />
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -1844,12 +1848,14 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             </section>
           </>
         )}
+        <div ref={portfolioBottomRef} aria-hidden="true" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 rounded-2xl bg-surface-2 p-4 text-fg md:p-6">
+    <div ref={portfolioTopRef} className="space-y-6 rounded-2xl bg-surface-2 p-4 text-fg md:p-6">
+      <QuickScrollButtons topRef={portfolioTopRef} bottomRef={portfolioBottomRef} />
       <div className="flex flex-col justify-between gap-4 rounded-2xl bg-slate-900 p-5 text-white shadow-sm md:flex-row md:items-center">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-blue-300">
@@ -2966,6 +2972,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </section>
 
       </div>
+      <div ref={portfolioBottomRef} aria-hidden="true" />
     </div>
   );
 }

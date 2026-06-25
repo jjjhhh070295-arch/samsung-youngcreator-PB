@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import readXlsxFile from "read-excel-file/browser";
 import {
   ACCOUNT_SEPARATION_LABEL,
@@ -17,6 +17,7 @@ import { formatKRW, formatKRWShort, parseNumber } from "@/lib/format";
 import { EmptyView } from "./StateViews";
 import TaxReadinessRubricButton from "./TaxReadinessRubricButton";
 import PeriodCashflowAppendix from "./PeriodCashflowAppendix";
+import QuickScrollButtons from "./QuickScrollButtons";
 
 interface Props {
   cashFlows: CashFlow[];
@@ -113,6 +114,8 @@ export default function CashFlowEditor({
   const defaultEntity = DEFAULT_ENTITY[clientType];
   const hasMixedAccountRisk = clientType === "sole_proprietor" && accountSeparation !== "separated";
   const hasLinkedWarning = Boolean(linkedClientName);
+  const cashflowTopRef = useRef<HTMLDivElement | null>(null);
+  const cashflowBottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setRows(cashFlows);
@@ -290,9 +293,24 @@ export default function CashFlowEditor({
       }, {}),
     [defaultEntity, rows],
   );
+  const scrollToCashflowTop = () => cashflowTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scrollToCashflowBottom = () => cashflowBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
 
   return (
     <div>
+      <QuickScrollButtons topRef={cashflowTopRef} bottomRef={cashflowBottomRef} />
+
+      <div ref={cashflowTopRef} className="mb-3 flex justify-center">
+        <button
+          type="button"
+          className="btn-outline text-sm"
+          aria-label="현금흐름표 맨 아래로 이동"
+          onClick={scrollToCashflowBottom}
+        >
+          현금흐름표 맨 아래로 이동 ↓
+        </button>
+      </div>
+
       <div className="mb-4 rounded-xl border border-border bg-surface p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -617,6 +635,17 @@ export default function CashFlowEditor({
           </div>
         </div>
       )}
+
+      <div ref={cashflowBottomRef} className="mt-3 flex justify-center">
+        <button
+          type="button"
+          className="btn-outline text-sm"
+          aria-label="현금흐름표 맨 위로 이동"
+          onClick={scrollToCashflowTop}
+        >
+          현금흐름표 맨 위로 이동 ↑
+        </button>
+      </div>
     </div>
   );
 }

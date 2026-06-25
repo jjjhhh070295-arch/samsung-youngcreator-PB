@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Client } from "@/lib/types";
 import { calculateSimulatedMetrics, type PortfolioOption } from "@/lib/portfolio";
 import { formatKRW } from "@/lib/format";
@@ -14,6 +14,7 @@ import {
   type TaxProfile,
   type TaxProjectionResult,
 } from "@/lib/taxProjection";
+import QuickScrollButtons from "@/components/QuickScrollButtons";
 
 type WeightKey = keyof PortfolioOption["weights"];
 
@@ -461,6 +462,8 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
   const [adjustedWeights, setAdjustedWeights] = useState<PortfolioOption["weights"]>(normalizedBase);
   const [horizonYears, setHorizonYears] = useState(1);
   const [taxProfileOverrides, setTaxProfileOverrides] = useState<Partial<TaxProfile>>({});
+  const taxProjectionTopRef = useRef<HTMLDivElement | null>(null);
+  const taxProjectionBottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setAdjustedWeights(normalizedBase);
@@ -518,7 +521,8 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
   const profilePatch = (patch: Partial<TaxProfile>) => setTaxProfileOverrides((previous) => ({ ...previous, ...patch }));
 
   return (
-    <div className="space-y-5">
+    <div ref={taxProjectionTopRef} className="space-y-5">
+      <QuickScrollButtons topRef={taxProjectionTopRef} bottomRef={taxProjectionBottomRef} />
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -893,6 +897,7 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
           ))}
         </div>
       </section>
+      <div ref={taxProjectionBottomRef} aria-hidden="true" />
     </div>
   );
 }
