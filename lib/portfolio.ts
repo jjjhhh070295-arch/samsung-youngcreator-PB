@@ -169,6 +169,7 @@ export interface PortfolioDetailHolding {
   role: string;
   taxNote: string;
   source: string;
+  sourceType?: "fixed_sleeve" | "representative_product" | "legacy_inactive";
 }
 
 // 4. 상품군 적합도 타입
@@ -1179,9 +1180,10 @@ function detail(
   role: string,
   taxNote: string,
   source: string,
+  sourceType: PortfolioDetailHolding["sourceType"] = "representative_product",
 ): PortfolioDetailHolding | null {
   if (weight <= 0) return null;
-  return { bucket, name, weight, role, taxNote, source };
+  return { bucket, name, weight, role, taxNote, source, sourceType };
 }
 
 export function buildDetailedHoldings(
@@ -1211,6 +1213,8 @@ export function buildDetailedHoldings(
     detail("etf", "KODEX 미국S&P500", fixedEtfSleeve[0], "ETF sleeve 미국 대표지수 60%", "해외 ETF 과세 확인", "삼성자산운용 KODEX"),
     detail("etf", "KODEX 200", fixedEtfSleeve[1], "ETF sleeve 국내 대표지수 40%", "국내 ETF 과세 확인", "삼성자산운용 KODEX"),
   );
+  // Current product direction: ETF sleeve is implemented with the fixed S&P500 60% / KOSPI 40% pair above.
+  // Legacy individual-stock candidate branches below remain inactive so they are not presented as ranked stock picks.
   const useFixedEtfSleeve = true;
 
   if (!useFixedEtfSleeve && taxPriority) {
@@ -1291,7 +1295,11 @@ export function buildDetailedHoldings(
   return details
     .filter((item): item is PortfolioDetailHolding => Boolean(item))
     .filter((item) => item.weight > 0)
-    .map((item) => ({ ...item, weight: Math.round(item.weight * 10) / 10 }));
+    .map((item) => ({
+      ...item,
+      weight: Math.round(item.weight * 10) / 10,
+      sourceType: item.sourceType ?? (item.bucket === "etf" && item.role.includes("ETF sleeve") ? "fixed_sleeve" : "representative_product"),
+    }));
 }
 
 export function preferenceAdjustedMetrics(

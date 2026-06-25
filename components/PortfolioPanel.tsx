@@ -363,6 +363,12 @@ function roundPercent(value: number) {
   return Math.round(value * 10) / 10;
 }
 
+function detailSourceBadge(sourceType?: string) {
+  if (sourceType === 'fixed_sleeve') return { label: '고정 ETF sleeve', className: 'border-blue-100 bg-blue-50 text-blue-700' };
+  if (sourceType === 'legacy_inactive') return { label: '비활성 레거시 후보', className: 'border-slate-200 bg-slate-50 text-slate-500' };
+  return { label: '대표상품 후보', className: 'border-amber-100 bg-amber-50 text-amber-700' };
+}
+
 
 function buildSimplifiedBenchmarkChartData(
   points: BenchmarkApiPoint[],
@@ -1430,7 +1436,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </p>
               <h2 className="mt-1 text-xl font-black text-fg">
                 {activePortfolioDetail === 'assets'
-                  ? '선택안 세부 추천 자산'
+                  ? '선택안 세부 구현 후보'
                   : activePortfolioDetail === 'returns'
                     ? '수익률 구성'
                     : '포트폴리오 산출 근거'}
@@ -1446,7 +1452,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                     : 'border-border bg-surface-2 text-fg-muted hover:border-blue-300 hover:text-blue-700'
                 }`}
               >
-                추천 자산
+                구현 후보
               </button>
               <button
                 type="button"
@@ -1486,7 +1492,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-                <h3 className="text-base font-bold text-fg">선택안 세부 추천 자산</h3>
+                <h3 className="text-base font-bold text-fg">선택안 세부 구현 후보</h3>
               </div>
               <span className="text-[11px] font-medium text-fg-muted">
                 자산군 내부 비중까지 합산 100%
@@ -1494,6 +1500,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             </div>
 
             <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-900">
+              본 화면의 세부 자산은 정량 개별종목 랭킹 결과가 아니라, 고객 맞춤 자산배분을 대표 ETF·채권·현금성 상품으로 구현하기 위한 후보입니다.
+              ETF 내부 지역배분은 S&amp;P500 60%, KOSPI 40% 기준이며, 위험성향은 전체 주식·채권·현금성 비중 조절로 반영됩니다.
+            </p>
+            <p className="hidden">
               이 화면은 제안 포트폴리오의 자산군별 추천 종목과 역할만 따로 보여줍니다. 실제 실행 전에는 PB가 고객 적합성,
               세금, 유동성 조건을 다시 확인해야 합니다.
             </p>
@@ -1521,6 +1531,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                           <span className="shrink-0 text-sm font-black text-blue-700">{holding.weight}%</span>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
+                          <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${detailSourceBadge(holding.sourceType).className}`}>
+                            {detailSourceBadge(holding.sourceType).label}
+                          </span>
                           <span className="rounded border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                             {holding.taxNote}
                           </span>
@@ -1954,7 +1967,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                           : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-blue-300 hover:text-white'
                       }`}
                     >
-                      추천 자산
+                      구현 후보
                     </button>
                     <button
                       type="button"
@@ -2255,7 +2268,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-            <h3 className="text-base font-bold text-fg">선택안 세부 추천 자산</h3>
+            <h3 className="text-base font-bold text-fg">대표 ETF/상품 구현 후보</h3>
           </div>
           <span className="text-[11px] font-medium text-fg-muted">
             자산군 내부 비중까지 합산 100%
@@ -2263,6 +2276,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
 
         <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-900">
+          본 화면의 세부 자산은 정량 개별종목 랭킹 결과가 아니라, 고객 맞춤 자산배분을 대표 ETF·채권·현금성 상품으로 구현하기 위한 후보입니다.
+          ETF 내부 지역배분은 S&amp;P500 60%, KOSPI 40% 기준이며, 위험성향은 전체 주식·채권·현금성 비중 조절로 반영됩니다.
+        </p>
+        <p className="hidden">
           위 자산배분 비중을 실제 제안서에서 설명할 수 있도록 세부 후보로 나눴습니다.
           각 비중은 전체 포트폴리오 기준이며, PB 검토와 고객 적합성 확인 전제의 예시입니다.
         </p>
@@ -2290,6 +2307,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                       <span className="shrink-0 text-sm font-black text-blue-700">{holding.weight}%</span>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${detailSourceBadge(holding.sourceType).className}`}>
+                        {detailSourceBadge(holding.sourceType).label}
+                      </span>
                       <span className="rounded border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
                         {holding.taxNote}
                       </span>
@@ -2512,7 +2532,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   ))}
                 </div>
                 <div className="mt-3 border-t border-border pt-3">
-                  <p className="mb-1.5 text-[10px] font-bold text-fg-muted">세부 비중 미리보기</p>
+                  <p className="mb-1.5 text-[10px] font-bold text-fg-muted">구현 후보 미리보기</p>
                   <div className="space-y-1">
                     {option.detailedHoldings.slice(0, 4).map((holding) => (
                       <div key={`${option.id}-${holding.bucket}-${holding.name}`} className="flex items-center justify-between gap-2 text-[10px]">

@@ -139,7 +139,7 @@ function SectorFlags({ a }: { a: StockAnalysis }) {
       </span>
       {a.isUncovered && (
         <span className="rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0 text-[10px] text-gray-500">
-          시장기준
+          fallback
         </span>
       )}
       {a.reliability.isLow && (
@@ -167,7 +167,7 @@ function HoldingDisplayRow({ row, totalKrw }: { row: HoldingRow; totalKrw: numbe
       <div className="mb-1.5 flex flex-wrap items-center gap-1">
         <span className="font-semibold text-slate-700">{h.name}</span>
         {h.ticker && <span className="text-slate-400">{h.ticker}</span>}
-        <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0 text-[9px] text-slate-400">보유</span>
+        <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0 text-[9px] text-slate-400">기존 보유 분석</span>
         {isLoading && (
           <span className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-1.5 py-0 text-[10px] text-slate-400">
             <span className="inline-block h-2 w-2 animate-spin rounded-full border border-slate-400 border-t-transparent" />
@@ -211,6 +211,7 @@ function PlanStockRow({
       <div className="mb-2 flex flex-wrap items-center gap-1">
         <span className="font-semibold text-fg">{a.stockName}</span>
         <span className="text-fg-muted">{a.stockCode}</span>
+        <span className="rounded-full border border-indigo-100 bg-indigo-50 px-1.5 py-0 text-[10px] text-indigo-600">PB 수동 입력</span>
         <SectorFlags a={a} />
       </div>
       <div className="flex items-center gap-2">
@@ -428,7 +429,7 @@ export default function StockSectorPanel({
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-slate-400" />
-              <span className="text-xs font-bold text-fg">고객 기존 보유주식</span>
+              <span className="text-xs font-bold text-fg">기존 보유종목 섹터 진단</span>
               {holdingsLoading && <span className="text-[10px] text-fg-muted">섹터 분석 중…</span>}
             </div>
             {totalHoldingsKrw > 0 && (
@@ -466,12 +467,12 @@ export default function StockSectorPanel({
         </div>
       )}
 
-      {/* ══ 섹션 2: 신규 종목 계획 (파란색, 편집 가능) ════════════════════ */}
+      {/* ══ 섹션 2: PB 검토용 종목 분석 (파란색, 편집 가능) ════════════════════ */}
       <div>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-indigo-500" />
-            <span className="text-xs font-bold text-fg">신규 종목 계획</span>
+            <span className="text-xs font-bold text-fg">PB 검토용 종목 분석</span>
           </div>
           {hasAlloc ? (
             <div className="flex items-center gap-1.5 text-xs">
@@ -483,11 +484,17 @@ export default function StockSectorPanel({
           )}
         </div>
 
+        <p className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-[11px] leading-relaxed text-indigo-800">
+          입력된 개별종목은 추천 종목이 아니라, 섹터 노출·베타·변동성·R²·섹터 집중도를 점검하기 위한 분석 대상입니다.
+        </p>
         <form onSubmit={handleAdd} className="mb-3 flex gap-2">
-          <input
-            ref={nameRef} value={query}
-            onChange={(e) => { setQuery(e.target.value); setError(null); }}
-            placeholder="종목명 또는 6자리 코드" disabled={loading}
+            <p className="hidden">
+              입력된 개별종목은 추천 종목이 아니라, 섹터 노출·베타·변동성·R²·섹터 집중도를 점검하기 위한 분석 대상입니다.
+            </p>
+            <input
+              ref={nameRef} value={query}
+              onChange={(e) => { setQuery(e.target.value); setError(null); }}
+              placeholder="분석할 종목명 또는 6자리 코드" disabled={loading}
             className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
           />
           <div className="relative flex items-center">
@@ -639,7 +646,7 @@ export default function StockSectorPanel({
 
                     {/* ETF 칩 */}
                     <div className="ml-5.5 flex items-center gap-2 rounded-lg border border-violet-200 bg-white px-2.5 py-1.5">
-                      <span className="text-[10px] text-violet-400">추천 ETF</span>
+                      <span className="text-[10px] text-violet-400">섹터 ETF 대안</span>
                       <span className="font-bold text-violet-800">{etf.name}</span>
                       <span className="text-[10px] text-violet-400">{etf.code}</span>
                     </div>
