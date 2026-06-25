@@ -2348,16 +2348,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       </section>
       )}
 
-      <ObjectiveMetricsTable
-        data={benchmarkChartData}
-        source={benchmarkSource}
-        fallback={benchmarkFallback}
-        updatedAt={benchmarkUpdatedAt}
-        weights={adjustedWeights}
-        planSummary={planSummary}
-        sectorEtfData={sectorEtfData}
-      />
-
       {activePortfolioDetail === 'evidence' && (
       <section className="rounded-2xl border border-rose-100 bg-surface p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2902,6 +2892,16 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         source={benchmarkSource}
         fallback={benchmarkFallback}
         updatedAt={benchmarkUpdatedAt}
+      />
+
+      <ObjectiveMetricsTable
+        data={benchmarkChartData}
+        source={benchmarkSource}
+        fallback={benchmarkFallback}
+        updatedAt={benchmarkUpdatedAt}
+        weights={adjustedWeights}
+        planSummary={planSummary}
+        sectorEtfData={sectorEtfData}
       />
 
       <div className="grid grid-cols-1 gap-5">
