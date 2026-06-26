@@ -15,6 +15,13 @@ export interface PlanSummaryItem {
   isFallback: boolean;
 }
 
+// PB가 입력한 원본 종목 (섹터 ETF 변환 전) — 복원 시 원본 종목 단위 재구성용
+export interface PlanRowOrigin {
+  stockCode:  string;  // PB 입력 원본 6자리 코드 e.g. "016360"
+  stockName:  string;
+  amountKrw:  number;
+}
+
 // ── API 응답 타입 (SectorAnalysisResult 미러) ──────────────────────────────
 interface MultiSectorEntry {
   sector:      string;
@@ -264,10 +271,14 @@ export default function StockSectorPanel({
   etfAllocKrw,
   existingHoldings = [],
   onPlanChange,
+  onPlanRowsChange,
+  initialRows,
 }: {
   etfAllocKrw:       number;
   existingHoldings?: ExistingHolding[];
   onPlanChange?:     (plan: PlanSummaryItem[]) => void;
+  onPlanRowsChange?: (rows: PlanRowOrigin[]) => void;
+  initialRows?:      PlanRowOrigin[]; // localStorage 복원용 원본 종목 (마운트 1회 hydrate)
 }) {
   // ── 기존 보유 분석 state ───────────────────────────────────────────────
   const [holdingRows,     setHoldingRows]     = useState<HoldingRow[]>([]);
@@ -307,6 +318,7 @@ export default function StockSectorPanel({
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [planRows,      setPlanRows]      = useState<PlanRow[]>([]);
+  const [restoring,     setRestoring]     = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -321,6 +333,67 @@ export default function StockSectorPanel({
         })),
     );
   }, [planRows, onPlanChange]);
+
+  // 원본 종목(stockCode·stockName·amountKrw)도 상위로 미러링 — 값만 전달, 저장은 확정 시점에만.
+  useEffect(() => {
+    if (!onPlanRowsChange) return;
+    onPlanRowsChange(
+      planRows
+        .filter((r) => r.amountKrw > 0)
+        .map((r) => ({
+          stockCode: r.analysis.stockCode,
+          stockName: r.analysis.stockName,
+          amountKrw: r.amountKrw,
+        })),
+    );
+  }, [planRows, onPlanRowsChange]);
+
+  // ── 복원(hydrate): localStorage에서 받은 initialRows를 마운트 1회 재구성 ──────
+  // startup(기존 보유 분석) 완료 후에만 시작 + 종목별 재조회는 "순차"(직렬)로 — cascade flicker 방지.
+  // startup 미완료 또는 사용자가 이미 입력을 시작했으면 주입하지 않는다.
+  const startupSettled =
+    existingHoldings.length === 0 ||
+    (!holdingsLoading && holdingRows.length === existingHoldings.length);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;        // SSR 가드 — 클라이언트에서만
+    if (!initialRows || initialRows.length === 0) return;
+    if (!startupSettled) return;                      // 기존 startup API 끝난 뒤에만 시작
+
+    // StrictMode 이중 마운트 안전: cleanup은 이 run의 fetch만 abort.
+    // abort된(가짜 cleanup/언마운트) run은 폐기되고, 살아남는 마운트가 새로 fetch해 완료한다.
+    const controller = new AbortController();
+    setRestoring(true);
+    (async () => {
+      try {
+        const restored: PlanRow[] = [];
+        for (const row of initialRows) {              // 순차(직렬): 동시 호출 금지
+          try {
+            const res = await fetch(
+              `/api/sector-analysis/stock?q=${encodeURIComponent(row.stockCode)}`,
+              { signal: controller.signal },
+            );
+            if (!res.ok) continue;                    // 실패 종목은 스킵
+            const data = (await res.json()) as StockAnalysis;
+            restored.push({ analysis: data, amountKrw: row.amountKrw });
+          } catch (e) {
+            if (controller.signal.aborted) throw e;   // 진짜 중단 → 루프 종료(살아남는 마운트가 완료)
+            /* 개별 종목 실패 → 다음 종목 계속 */
+          }
+        }
+        // 루프 완료 후 1회만 반영 → 복원 도중 planRows 불변 → effect 자기취소 없음.
+        // 사용자가 도중 직접 입력했으면 덮어쓰지 않음(planRows는 PB 수동전용, 보유종목과 별도 배열).
+        setPlanRows((prev) => (prev.length > 0 ? prev : restored));
+      } catch {
+        /* abort: StrictMode 가짜 cleanup 또는 실제 언마운트 — 살아남는 마운트가 다시 완료 */
+      } finally {
+        // 살아있는(abort 안 된) run만 스피너 해제 → 영구 고착 차단.
+        // abort된 run은 직후 새 마운트가 setRestoring(true) 후 완료 시 해제하므로 안전.
+        if (!controller.signal.aborted) setRestoring(false);
+      }
+    })();
+    return () => { controller.abort(); };
+  }, [initialRows, startupSettled]);
 
   // ── 섹터 종합 분석 (memo) ──────────────────────────────────────────────
   const combinedHoldings = useMemo<CombinedHolding[]>(() => {
@@ -473,6 +546,12 @@ export default function StockSectorPanel({
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-indigo-500" />
             <span className="text-xs font-bold text-fg">PB 검토용 종목 분석</span>
+            {restoring && (
+              <span className="flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-1.5 py-0 text-[10px] text-indigo-600">
+                <span className="inline-block h-2 w-2 animate-spin rounded-full border border-indigo-400 border-t-transparent" />
+                복원 중
+              </span>
+            )}
           </div>
           {hasAlloc ? (
             <div className="flex items-center gap-1.5 text-xs">

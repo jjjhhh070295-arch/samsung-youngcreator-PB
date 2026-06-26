@@ -34,7 +34,7 @@ import {
 import { listPbs } from '@/lib/store';
 import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
-import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem } from '@/components/StockSectorPanel';
+import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem, type PlanRowOrigin } from '@/components/StockSectorPanel';
 import QuickScrollButtons from '@/components/QuickScrollButtons';
 
 interface PortfolioPanelProps {
@@ -44,6 +44,9 @@ interface PortfolioPanelProps {
   onSelectionChange?: (portfolio: Portfolio) => void;
   onHeldAssetsChange?: (heldAssets: HeldAssets | undefined) => void;
   onDetailModeChange?: (isDetailMode: boolean) => void;
+  onPlanSummaryChange?: (plan: PlanSummaryItem[]) => void;
+  onPlanRowsChange?: (rows: PlanRowOrigin[]) => void;
+  initialPlanRows?: PlanRowOrigin[];
 }
 
 type WeightKey = keyof PortfolioOption['weights'];
@@ -920,7 +923,7 @@ function ObjectiveMetricsTable({
   );
 }
 
-export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange, onHeldAssetsChange, onDetailModeChange }: PortfolioPanelProps) {
+export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange, onHeldAssetsChange, onDetailModeChange, onPlanSummaryChange, onPlanRowsChange, initialPlanRows }: PortfolioPanelProps) {
   const [researchItems, setResearchItems] = useState<MarketResearchItem[]>(FALLBACK_MARKET_RESEARCH);
   const [researchStatus, setResearchStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
   const [fallbackUsed, setFallbackUsed] = useState(false);
@@ -980,6 +983,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       })
       .catch(() => setSectorEtfData({}));
   }, [planSummary]);
+
+  // 현재 planSummary를 상위로 전달(값만 미러링) — 확정 시 localStorage 저장에 사용. 저장은 여기서 하지 않음.
+  useEffect(() => {
+    onPlanSummaryChange?.(planSummary);
+  }, [planSummary, onPlanSummaryChange]);
 
   // 보유자산 조회 (주식 KIS 현재가 재활용 + 부동산 DB값 + 현금 계산)
   useEffect(() => {
@@ -2967,6 +2975,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               etfAllocKrw={((model.assetLayer?.investableKrw ?? 0) * weights.etf) / 100}
               existingHoldings={existingHoldings}
               onPlanChange={setPlanSummary}
+              onPlanRowsChange={onPlanRowsChange}
+              initialRows={initialPlanRows}
             />
           </div>
         </section>

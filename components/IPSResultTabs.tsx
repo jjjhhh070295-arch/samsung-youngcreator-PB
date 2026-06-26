@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, IPSFactor, CashFlow, Portfolio, StageKey } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
 import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
+import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
 import TaxProjectionPanel from "./TaxProjectionPanel";
 import ScoreRubricButton from "./ScoreRubricButton";
@@ -73,6 +74,32 @@ export default function IPSResultTabs({
 
   // 포트폴리오 패널에서 현재 선택·편집 중인 포트폴리오 (최종 확정 저장용)
   const [chosen, setChosen] = useState<Portfolio | null>(null);
+  // PB 검토용 종목 입력 최신값 — 확정 시점에만 localStorage 저장에 사용
+  const planSummaryRef = useRef<PlanSummaryItem[]>([]); // 섹터 ETF 변환 결과
+  const planRowsRef = useRef<PlanRowOrigin[]>([]);      // PB 입력 원본 종목
+
+  // 마운트 시 localStorage에서 확정 저장값을 읽어 원본 종목 복원 (v2 우선, v1은 원본 없음→생략)
+  const [restoredRows, setRestoredRows] = useState<PlanRowOrigin[]>([]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(`pb-plan-${clientId}`);
+      if (!raw) { setRestoredRows([]); return; }
+      const parsed = JSON.parse(raw);
+      // v2: { version:2, rows:[{stockCode,stockName,amountKrw}], summary:[...] } → rows로 원본 복원
+      if (parsed && parsed.version === 2 && Array.isArray(parsed.rows)) {
+        const rows: PlanRowOrigin[] = parsed.rows
+          .filter((r: any) => r && typeof r.stockCode === "string" && Number(r.amountKrw) > 0)
+          .map((r: any) => ({ stockCode: r.stockCode, stockName: r.stockName ?? r.stockCode, amountKrw: Number(r.amountKrw) }));
+        setRestoredRows(rows);
+        return;
+      }
+      // v1(배열만): summary만 있어 원본 종목코드가 없으므로 종목 단위 복원은 생략
+      setRestoredRows([]);
+    } catch {
+      setRestoredRows([]); // 깨진 값/파싱 실패 → 빈 상태
+    }
+  }, [clientId]);
   const [portfolioDetailMode, setPortfolioDetailMode] = useState(false);
 
   const [finalizing, setFinalizing] = useState(false);
@@ -127,6 +154,22 @@ export default function IPSResultTabs({
       return;
     }
     if (!confirm(`'${chosen.label}'(으)로 최종 확정할까요?`)) return;
+
+    // 확정 시점의 PB 검토용 종목 입력을 고객 단위로 분리 저장 (v2: 원본 종목 rows + 변환 summary).
+    // rows가 비면 no-op(기존 값 보존), localStorage 실패해도 확정은 그대로 진행.
+    const rows = planRowsRef.current;
+    const summary = planSummaryRef.current;
+    if (typeof window !== "undefined" && rows.length > 0) {
+      try {
+        window.localStorage.setItem(
+          `pb-plan-${clientId}`,
+          JSON.stringify({ version: 2, rows, summary }),
+        );
+      } catch {
+        /* localStorage 접근 실패 무시 — 확정 흐름은 계속 */
+      }
+    }
+
     setFinalizing(true);
     try {
       const referencedReports = await pickTopReports(5);
@@ -385,6 +428,9 @@ export default function IPSResultTabs({
             onSelectionChange={setChosen}
             onHeldAssetsChange={setHeldAssets}
             onDetailModeChange={setPortfolioDetailMode}
+            onPlanSummaryChange={(plan) => { planSummaryRef.current = plan; }}
+            onPlanRowsChange={(rows) => { planRowsRef.current = rows; }}
+            initialPlanRows={restoredRows}
           />
 
           {/* 최종 확정 단계 */}
