@@ -11,7 +11,7 @@ import { getCachedAnalyses } from "@/lib/researchSignalsStore";
 
 export const dynamic = "force-dynamic";
 
-const MAX_SAFE_ITEMS = 500; // 폭주 방지 안전 상한 — 정상 크롤에서 도달 불가
+const MAX_ITEMS = 30; // 분석 모수 상한 — Claude 비용 폭증 방지(88d17bb 이전 복원)
 const PER_SOURCE_CAP = 4;   // 한 출처(증권사)당 최대 건수 — 다양성 확보
 // WINDOW_DAYS: portfolioResearch에서 import — 크롤·스냅샷·집계가 같은 값 참조
 
@@ -359,7 +359,7 @@ function uniqueLatest(items: MarketResearchItem[]) {
     if ((sourceCounts.get(group) ?? 0) >= PER_SOURCE_CAP) continue;
     picked.push(item);
     sourceCounts.set(group, (sourceCounts.get(group) ?? 0) + 1);
-    if (picked.length >= MAX_SAFE_ITEMS) break; // 폭주 방지 상한
+    if (picked.length >= MAX_ITEMS) break; // 분석 모수 상한 30건
   }
 
   console.log(
