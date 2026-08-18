@@ -10,6 +10,7 @@ import {
   updatePb,
   deletePb,
   usingLocalFallback,
+  DEMO_PB_CREDENTIALS,
 } from "@/lib/store";
 import { setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
@@ -114,8 +115,10 @@ export default function HomePage() {
     setLoginError("");
     setLoginBusy(true);
     try {
+      const employeeId = loginEmpId.trim().toUpperCase();
+      const normalizedPassword = password.trim();
       const found = pbs.find(
-        (pb) => pb.employeeId === loginEmpId.trim() && pb.password === password
+        (pb) => pb.employeeId.trim().toUpperCase() === employeeId && pb.password === normalizedPassword
       );
       if (!found) {
         setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다.");
@@ -321,7 +324,7 @@ export default function HomePage() {
               </button>
 
               <p className="text-center text-[11px] text-fg-muted">
-                사원번호는 관리자에게 문의하세요
+                시연 계정: {DEMO_PB_CREDENTIALS.employeeId} / {DEMO_PB_CREDENTIALS.password}
               </p>
             </div>
           </div>

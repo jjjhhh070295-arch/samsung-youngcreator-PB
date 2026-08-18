@@ -161,6 +161,10 @@ interface LocalDB {
 const LS_KEY = "pb-app-local-db";
 const SAMPLE_PB_ID = "pb-demo-youngcreator";
 const SAMPLE_CLIENT_ID = "client-hanbit-cashflow-sample";
+export const DEMO_PB_CREDENTIALS = {
+  employeeId: "PB-001",
+  password: "1234",
+} as const;
 
 function factor(
   value: string,
@@ -295,8 +299,8 @@ function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
       id: SAMPLE_PB_ID,
       code: "PB-001",
       name: "데모 PB",
-      employeeId: "PB-001",
-      password: "1234",
+      employeeId: DEMO_PB_CREDENTIALS.employeeId,
+      password: DEMO_PB_CREDENTIALS.password,
       createdAt: nowIso,
     } satisfies PB);
 
@@ -369,6 +373,33 @@ function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
   return { db, changed };
 }
 
+function sampleDb(): LocalDB {
+  return ensureLocalSample({ pbs: [], clients: [], consultations: [] }).db;
+}
+
+function localOrSampleDb(): LocalDB {
+  return typeof window === "undefined" ? sampleDb() : loadLocal();
+}
+
+function mergeById<T extends { id: string }>(primary: T[], fallback: T[]): T[] {
+  const seen = new Set(primary.map((item) => item.id));
+  return [...primary, ...fallback.filter((item) => !seen.has(item.id))];
+}
+
+function isDemoPbId(id: string | null | undefined): boolean {
+  return id === SAMPLE_PB_ID;
+}
+
+function localClientExists(id: string): boolean {
+  if (typeof window === "undefined") return false;
+  return loadLocal().clients.some((client) => client.id === id);
+}
+
+function localConsultationExists(id: string): boolean {
+  if (typeof window === "undefined") return false;
+  return loadLocal().consultations.some((consultation) => consultation.id === id);
+}
+
 function loadLocal(): LocalDB {
   if (typeof window === "undefined") return { pbs: [], clients: [], consultations: [] };
   let db: LocalDB = { pbs: [], clients: [], consultations: [] };
@@ -412,7 +443,8 @@ export async function listPbs(): Promise<PB[]> {
     .select("*")
     .order("code", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map(rowToPb);
+  const remote = (data ?? []).map(rowToPb);
+  return mergeById(remote, localOrSampleDb().pbs).sort((a, b) => a.code.localeCompare(b.code));
 }
 
 export async function createPb(data: { name: string; employeeId: string; password: string }): Promise<PB> {
@@ -442,6 +474,17 @@ export async function createPb(data: { name: string; employeeId: string; passwor
 }
 
 export async function updatePb(id: string, data: { name?: string; employeeId?: string; password?: string }): Promise<void> {
+  if (isDemoPbId(id)) {
+    const db = loadLocal();
+    const pb = db.pbs.find((p) => p.id === id);
+    if (pb) {
+      if (data.name !== undefined) pb.name = data.name;
+      if (data.employeeId !== undefined) pb.employeeId = data.employeeId;
+      if (data.password !== undefined) pb.password = data.password;
+      saveLocal(db);
+    }
+    return;
+  }
   if (usingLocalFallback) {
     const db = loadLocal();
     const pb = db.pbs.find((p) => p.id === id);
@@ -462,6 +505,7 @@ export async function updatePb(id: string, data: { name?: string; employeeId?: s
 }
 
 export async function deletePb(id: string): Promise<void> {
+  if (isDemoPbId(id)) return;
   if (usingLocalFallback) {
     const db = loadLocal();
     db.pbs = db.pbs.filter((p) => p.id !== id);
@@ -499,7 +543,8 @@ export async function listClients(): Promise<Client[]> {
     .select("*, individuals(*), corporates!party_id(*)")
     .order("created_at", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map(rowToClient);
+  const remote = (data ?? []).map(rowToClient);
+  return mergeById(remote, localOrSampleDb().clients);
 }
 
 export async function listClientsByPb(pbId: string): Promise<Client[]> {
@@ -511,6 +556,8 @@ export async function getClient(id: string): Promise<Client | null> {
   if (usingLocalFallback) {
     return loadLocal().clients.find((c) => c.id === id) ?? null;
   }
+  const localClient = loadLocal().clients.find((c) => c.id === id);
+  if (localClient) return localClient;
   const { data, error } = await supabase!
     .from("parties")
     .select("*, individuals(*), corporates!party_id(*)")
@@ -534,7 +581,7 @@ export interface NewClientInput {
 }
 
 export async function createClient(input: NewClientInput): Promise<Client> {
-  if (usingLocalFallback) {
+  if (usingLocalFallback || isDemoPbId(input.assignedPbId)) {
     const db = loadLocal();
     const client: Client = {
       id: uid(),
@@ -617,7 +664,7 @@ export async function createClient(input: NewClientInput): Promise<Client> {
 }
 
 export async function updateClient(id: string, patch: Partial<Client>): Promise<void> {
-  if (usingLocalFallback) {
+  if (usingLocalFallback || localClientExists(id)) {
     const db = loadLocal();
     const idx = db.clients.findIndex((c) => c.id === id);
     if (idx >= 0) db.clients[idx] = { ...db.clients[idx], ...patch };
@@ -650,7 +697,7 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
 }
 
 export async function deleteClient(id: string): Promise<void> {
-  if (usingLocalFallback) {
+  if (usingLocalFallback || localClientExists(id)) {
     const db = loadLocal();
     db.clients = db.clients.filter((c) => c.id !== id);
     db.consultations = db.consultations.filter((cs) => cs.clientId !== id);
@@ -678,7 +725,9 @@ export async function listConsultations(clientId: string): Promise<Consultation[
     .eq("client_id", clientId)
     .order("created_at", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map(rowToConsultation);
+  const remote = (data ?? []).map(rowToConsultation);
+  const local = loadLocal().consultations.filter((c) => c.clientId === clientId);
+  return mergeById(remote, local).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 }
 
 export async function listAllConsultations(): Promise<Consultation[]> {
@@ -687,7 +736,7 @@ export async function listAllConsultations(): Promise<Consultation[]> {
   }
   const { data, error } = await supabase!.from("consultations").select("*");
   if (error) throw error;
-  return (data ?? []).map(rowToConsultation);
+  return mergeById((data ?? []).map(rowToConsultation), localOrSampleDb().consultations);
 }
 
 export interface NewConsultationInput {
@@ -701,7 +750,7 @@ export interface NewConsultationInput {
 }
 
 export async function createConsultation(input: NewConsultationInput): Promise<Consultation> {
-  if (usingLocalFallback) {
+  if (usingLocalFallback || isDemoPbId(input.pbId) || localClientExists(input.clientId)) {
     const db = loadLocal();
     const cs: Consultation = {
       id: uid(),
@@ -733,7 +782,7 @@ export async function updateConsultation(
   id: string,
   patch: { notes?: string; ipsSnapshot?: IPS },
 ): Promise<void> {
-  if (usingLocalFallback) {
+  if (usingLocalFallback || localConsultationExists(id)) {
     const db = loadLocal();
     const cs = db.consultations.find((c) => c.id === id);
     if (cs) {
