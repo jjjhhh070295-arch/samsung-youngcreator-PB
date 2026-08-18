@@ -12,6 +12,8 @@ import TaxProjectionPanel from "./TaxProjectionPanel";
 import ScoreRubricButton from "./ScoreRubricButton";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
+import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
+import { canIssueClientPdf, loadBundle } from "@/lib/advisory/control";
 
 interface Props {
   client: Client;
@@ -35,6 +37,7 @@ export type Tab =
   | "questions"
   | "cashflow"
   | "portfolio"
+  | "recommend"
   | "taxProjection"
   | "stress"
   | "ips";
@@ -503,6 +506,8 @@ export default function IPSResultTabs({
         </div>
       )}
 
+      {tab === "recommend" && <ProductRecommendPanel client={client} />}
+
       {/* 세전·세후 — 포트폴리오 비중별 세금/비용/세후 금액 비교 */}
       {tab === "taxProjection" && (
         <TaxProjectionPanel
@@ -561,6 +566,11 @@ export default function IPSResultTabs({
             {!done.portfolio && (
               <p className="text-xs text-fg-muted">
                 💡 포트폴리오를 최종 확정하면 문서에 포트폴리오 내역도 함께 채워집니다.
+              </p>
+            )}
+            {!canIssueClientPdf(loadBundle(clientId).status) && (
+              <p className="text-xs font-semibold text-red-600">
+                통제 상태가 blocked이면 고객용 PDF를 발행할 수 없습니다. 상품추천 탭에서 Judge·상태를 확인하세요.
               </p>
             )}
             <button

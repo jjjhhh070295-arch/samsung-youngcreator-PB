@@ -15,6 +15,7 @@ const ANALYSIS_TABS = [
   { id: "factors", label: "7요인" },
   { id: "cashflow", label: "현금흐름" },
   { id: "portfolio", label: "포트폴리오" },
+  { id: "recommend", label: "상품추천" },
   { id: "taxProjection", label: "세전·세후" },
   { id: "stress", label: "스트레스" },
   { id: "ips", label: "IPS" },
@@ -117,6 +118,16 @@ export default function AppNav() {
             <Link href="/" className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
               🏠 홈
             </Link>
+            {pbId && (
+              <Link href={`/pb/${pbId}`} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+                📒 다고객 북
+              </Link>
+            )}
+            {pbId && (
+              <Link href={`/pb/${pbId}/ticker`} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+                📈 티커 분석
+              </Link>
+            )}
             <Link href="/research" className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
               📊 리서치
             </Link>
@@ -150,6 +161,8 @@ export default function AppNav() {
       <nav className="flex-1 py-1">
         <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
         {navItem("/", "🏠", "홈")}
+        {pbId && navItem(`/pb/${pbId}`, "📒", "다고객 북")}
+        {pbId && navItem(`/pb/${pbId}/ticker`, "📈", "티커 분석")}
         {navItem("/research", "📊", "리서치")}
 
         <p className="px-4 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">바로가기</p>

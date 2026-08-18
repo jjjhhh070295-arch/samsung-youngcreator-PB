@@ -26,6 +26,7 @@ import type {
   GiftPairSummary,
 } from "./types";
 import { emptyIPS } from "./types";
+import { SAMPLE_BOOK_CLIENTS } from "./advisory/sampleBook";
 
 export const usingLocalFallback = !isSupabaseConfigured;
 
@@ -350,6 +351,19 @@ function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
       createdAt: nowIso,
     });
     changed = true;
+  }
+
+  for (const seed of SAMPLE_BOOK_CLIENTS) {
+    if (!db.clients.some((c) => c.id === seed.client.id)) {
+      db.clients.push({ ...seed.client, assignedPbId: pb.id });
+      changed = true;
+    }
+    for (const cons of seed.consultations) {
+      if (!db.consultations.some((c) => c.id === cons.id)) {
+        db.consultations.push({ ...cons, pbId: pb.id });
+        changed = true;
+      }
+    }
   }
 
   return { db, changed };

@@ -20,6 +20,9 @@ import PBForm from "@/components/PBForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import { LoadingView, ErrorView, EmptyView } from "@/components/StateViews";
 import HouseholdModule from "@/components/HouseholdModule";
+import BookDashboard from "@/components/advisory/BookDashboard";
+import { analyzeBook, buildClientBookRow } from "@/lib/advisory/book";
+import { listBookHoldings } from "@/lib/advisory/holdingsStore";
 
 export default function PBPage() {
   const { pbId } = useParams<{ pbId: string }>();
@@ -35,6 +38,8 @@ export default function PBPage() {
 
   const [pbFormOpen, setPbFormOpen] = useState(false);
   const [pbDeleteOpen, setPbDeleteOpen] = useState(false);
+  const [bookRows, setBookRows] = useState<ReturnType<typeof buildClientBookRow>[]>([]);
+  const [bookAnalysis, setBookAnalysis] = useState<ReturnType<typeof analyzeBook> | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -48,6 +53,12 @@ export default function PBPage() {
       setPb(allPbs.find((p) => p.id === pbId) ?? null);
       setAllClients(clients);
       setConsultations(cons);
+      const mine = clients.filter((c) => c.assignedPbId === pbId);
+      const holdings = await listBookHoldings(mine.map((c) => c.id));
+      const asOf = new Date().toISOString();
+      const rows = mine.map((c) => buildClientBookRow(c, holdings, cons, asOf));
+      setBookRows(rows);
+      setBookAnalysis(analyzeBook(rows, holdings.filter((h) => mine.some((c) => c.id === h.clientId)), asOf, holdings[0]?.source ?? "local-book"));
       setStatus("ready");
     } catch (e) {
       console.error(e);
@@ -116,18 +127,29 @@ export default function PBPage() {
       {/* 대시보드 */}
       <PBDashboard clients={myClients} consultations={myConsultations} />
 
-      {/* 담당 고객 */}
+      {/* 다고객 북 */}
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-fg-muted">담당 고객</h2>
+          <div>
+            <h2 className="text-sm font-semibold text-fg">다고객 관리 북</h2>
+            <p className="text-xs text-fg-muted">
+              총자산·수익률·위험등급·보유상품·최근 상담을 한눈에 보고, 고객을 누르면 상담/포트폴리오로 이동합니다.
+            </p>
+          </div>
           <button className="btn-gold text-sm" onClick={() => setClientFormOpen(true)}>
             + 고객 추가
           </button>
         </div>
+        <BookDashboard pbId={pbId} rows={bookRows} analysis={bookAnalysis} />
+      </div>
+
+      {/* 담당 고객 */}
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-fg-muted">고객 원장</h2>
+        </div>
         <p className="mb-3 text-xs text-fg-muted">
-          이름·식별코드로 검색할 수 있습니다. 고객 행의{" "}
-          <b className="text-gold-600 dark:text-gold-300">[상담 →]</b> 버튼으로
-          <b> 조회</b>하면, 그 안에서 상담 진행과 고객 정보 <b>수정·삭제</b>를 할 수 있습니다.
+          이름·식별코드로 검색할 수 있습니다. 행을 누르면 상담·포트폴리오 화면으로 이동합니다.
         </p>
         {myClients.length === 0 ? (
           <EmptyView

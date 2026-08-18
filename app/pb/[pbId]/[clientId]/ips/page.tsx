@@ -31,6 +31,7 @@ import type { TaxPaymentEvent } from "@/lib/cashflowUpload";
 import TaxReadinessRubricButton from "@/components/TaxReadinessRubricButton";
 import PeriodCashflowLineChart from "@/components/cashflow/PeriodCashflowLineChart";
 import { LoadingView, ErrorView } from "@/components/StateViews";
+import { canIssueClientPdf, loadBundle } from "@/lib/advisory/control";
 
 const CHART_COLORS = ["#0f172a", "#d6a84f", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b"];
 
@@ -189,6 +190,7 @@ export default function IPSDocumentPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
+  const [pdfBlocked, setPdfBlocked] = useState(false);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -208,6 +210,10 @@ export default function IPSDocumentPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const bundle = loadBundle(clientId);
+    setPdfBlocked(!canIssueClientPdf(bundle.status));
+  }, [clientId]);
   if (status === "loading") return <LoadingView />;
   if (status === "error" || !client)
     return <ErrorView message="고객 정보를 불러올 수 없습니다." onRetry={load} />;
@@ -241,8 +247,15 @@ export default function IPSDocumentPage() {
         >
           ← 고객 상세
         </button>
-        <button className="btn-gold text-sm" onClick={() => window.print()}>
-          🖨️ 인쇄 / PDF로 저장
+        <button
+          className="btn-gold text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={pdfBlocked}
+          onClick={() => {
+            if (pdfBlocked) return;
+            window.print();
+          }}
+        >
+          {pdfBlocked ? "blocked — PDF 발행 불가" : "🖨️ 인쇄 / PDF로 저장"}
         </button>
       </div>
 
