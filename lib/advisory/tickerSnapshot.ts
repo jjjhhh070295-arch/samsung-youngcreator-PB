@@ -2,11 +2,14 @@ import {
   annualizedVolPct,
   dailyLogReturns,
   macdLast,
+  macdSeries,
   maxDrawdownPct,
   periodReturnPct,
   round,
   rsi,
+  rsiSeries,
   sma,
+  smaSeries,
   technicalState,
   ytdReturnPct,
 } from "./indicators";
@@ -25,16 +28,29 @@ function m(
   return { value: round(value, digits), unit, asOf, source, currency };
 }
 
+function rounded(value: number | null | undefined, digits = 4): number | null {
+  return value == null || !Number.isFinite(value) ? null : round(value, digits);
+}
+
 export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSnapshot {
   const { closes, dates, asOf, currency } = daily;
-  const source = "yahoo-finance:chart:v8";
+  const historySource = daily.historySource || "yahoo-finance:chart:v8:1d";
+  const priceSource = daily.priceSource || historySource;
+  const source = historySource === priceSource ? historySource : `${historySource} + ${priceSource}`;
   const rets = dailyLogReturns(closes);
   const last = daily.lastPrice;
+  const sma5 = sma(closes, 5);
   const sma20 = sma(closes, 20);
   const sma60 = sma(closes, 60);
   const sma120 = sma(closes, 120);
   const rsi14 = rsi(closes, 14);
   const macd = macdLast(closes);
+  const sma5Values = smaSeries(closes, 5);
+  const sma20Values = smaSeries(closes, 20);
+  const sma60Values = smaSeries(closes, 60);
+  const sma120Values = smaSeries(closes, 120);
+  const rsi14Values = rsiSeries(closes, 14);
+  const macdValues = macdSeries(closes);
   const tech = technicalState({
     last,
     sma20,
@@ -54,7 +70,18 @@ export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSna
   if (rsi14 == null) warnings.push("RSI 산출에 필요한 일봉이 부족합니다.");
   if (macd == null) warnings.push("MACD 산출에 필요한 일봉이 부족합니다.");
 
-  const bars = dates.map((time, i) => ({ time, close: round(closes[i], 4) })).slice(-260);
+  const bars = dates.map((time, i) => ({
+    time,
+    close: round(closes[i], 4),
+    sma5: rounded(sma5Values[i]),
+    sma20: rounded(sma20Values[i]),
+    sma60: rounded(sma60Values[i]),
+    sma120: rounded(sma120Values[i]),
+    rsi14: rounded(rsi14Values[i], 2),
+    macd: rounded(macdValues[i]?.macd),
+    macdSignal: rounded(macdValues[i]?.signal),
+    macdHistogram: rounded(macdValues[i]?.histogram),
+  })).slice(-260);
 
   return {
     symbol: query,
@@ -64,31 +91,32 @@ export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSna
     currency,
     asOf,
     source,
-    lastPrice: m(last, currency, asOf, source, currency, 4)!,
+    lastPrice: m(last, currency, asOf, priceSource, currency, 4)!,
     warnings,
     periodReturns: {
-      d1: m(d1, "%", asOf, source),
-      m1: m(periodReturnPct(closes, 21), "%", asOf, source),
-      m3: m(periodReturnPct(closes, 63), "%", asOf, source),
-      m6: m(periodReturnPct(closes, 126), "%", asOf, source),
-      y1: m(periodReturnPct(closes, 252), "%", asOf, source),
-      ytd: m(ytdReturnPct(closes, dates), "%", asOf, source),
+      d1: m(d1, "%", asOf, priceSource),
+      m1: m(periodReturnPct(closes, 21), "%", asOf, historySource),
+      m3: m(periodReturnPct(closes, 63), "%", asOf, historySource),
+      m6: m(periodReturnPct(closes, 126), "%", asOf, historySource),
+      y1: m(periodReturnPct(closes, 252), "%", asOf, historySource),
+      ytd: m(ytdReturnPct(closes, dates), "%", asOf, historySource),
     },
     volatility: {
-      d20: m(annualizedVolPct(rets, 20), "%", asOf, source),
-      d60: m(annualizedVolPct(rets, 60), "%", asOf, source),
+      d20: m(annualizedVolPct(rets, 20), "%", asOf, historySource),
+      d60: m(annualizedVolPct(rets, 60), "%", asOf, historySource),
     },
-    mdd: m(maxDrawdownPct(closes), "%", asOf, source),
+    mdd: m(maxDrawdownPct(closes), "%", asOf, historySource),
     movingAverages: {
-      sma20: m(sma20, currency, asOf, source, currency, 4),
-      sma60: m(sma60, currency, asOf, source, currency, 4),
-      sma120: m(sma120, currency, asOf, source, currency, 4),
+      sma5: m(sma5, currency, asOf, historySource, currency, 4),
+      sma20: m(sma20, currency, asOf, historySource, currency, 4),
+      sma60: m(sma60, currency, asOf, historySource, currency, 4),
+      sma120: m(sma120, currency, asOf, historySource, currency, 4),
     },
-    rsi14: m(rsi14, "index", asOf, source),
+    rsi14: m(rsi14, "index", asOf, historySource),
     macd: {
-      macd: m(macd?.macd ?? null, "price", asOf, source, currency, 4),
-      signal: m(macd?.signal ?? null, "price", asOf, source, currency, 4),
-      histogram: m(macd?.histogram ?? null, "price", asOf, source, currency, 4),
+      macd: m(macd?.macd ?? null, "price", asOf, historySource, currency, 4),
+      signal: m(macd?.signal ?? null, "price", asOf, historySource, currency, 4),
+      histogram: m(macd?.histogram ?? null, "price", asOf, historySource, currency, 4),
     },
     technicalState: tech,
     bars,

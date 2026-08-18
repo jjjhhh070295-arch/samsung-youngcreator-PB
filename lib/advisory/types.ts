@@ -259,6 +259,14 @@ export interface GoldCase {
 export interface TickerBar {
   time: string;
   close: number;
+  sma5: number | null;
+  sma20: number | null;
+  sma60: number | null;
+  sma120: number | null;
+  rsi14: number | null;
+  macd: number | null;
+  macdSignal: number | null;
+  macdHistogram: number | null;
 }
 
 export interface TickerProfile {
@@ -268,6 +276,21 @@ export interface TickerProfile {
   industry: string | null;
   longBusinessSummary: string | null;
   warning: string | null;
+}
+
+export interface TickerLiveQuote {
+  symbol: string;
+  name: string;
+  exchange: string;
+  currency: string;
+  price: number;
+  previousClose: number | null;
+  changePct: number | null;
+  asOf: string;
+  source: string;
+  /** 제공처가 명시한 지연 시간. 알 수 없으면 null. */
+  delayMinutes: number | null;
+  marketState: string | null;
 }
 
 export interface TickerSnapshot {
@@ -294,6 +317,7 @@ export interface TickerSnapshot {
   };
   mdd: MeasuredNumber | null;
   movingAverages: {
+    sma5: MeasuredNumber | null;
     sma20: MeasuredNumber | null;
     sma60: MeasuredNumber | null;
     sma120: MeasuredNumber | null;

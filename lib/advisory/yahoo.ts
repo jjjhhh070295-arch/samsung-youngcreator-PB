@@ -1,3 +1,5 @@
+import type { TickerLiveQuote } from "./types";
+
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 
@@ -65,6 +67,10 @@ export interface YahooDaily {
   closes: number[];
   lastPrice: number;
   previousClose: number | null;
+  historySource: string;
+  priceSource: string;
+  quoteDelayMinutes: number | null;
+  marketState: string | null;
 }
 
 export interface YahooProfile {
@@ -99,23 +105,80 @@ export async function fetchYahooDaily(symbol: string, range = "2y"): Promise<Yah
   const seriesLast = closes[closes.length - 1];
   const seriesPrev = closes[closes.length - 2];
   const live = Number(meta.regularMarketPrice);
-  const lastPrice =
-    Number.isFinite(live) && live > 0 && Math.abs(live / seriesLast - 1) < 0.25
-      ? live
-      : seriesLast;
+  const usesRegularMarketPrice = Number.isFinite(live) && live > 0 && Math.abs(live / seriesLast - 1) < 0.25;
+  const lastPrice = usesRegularMarketPrice ? live : seriesLast;
   if (!Number.isFinite(lastPrice) || lastPrice <= 0) {
     throw new Error("현재가를 확인하지 못했습니다.");
   }
+  const regularMarketTs = Number(meta.regularMarketTime);
+  const metaPreviousClose = Number(meta.chartPreviousClose ?? meta.previousClose);
+  const previousClose = Number.isFinite(metaPreviousClose) && metaPreviousClose > 0
+    ? metaPreviousClose
+    : (Number.isFinite(seriesPrev) && seriesPrev > 0 ? seriesPrev : null);
+  const delayRaw = meta.exchangeDataDelayedBy;
+  const delay = delayRaw != null && Number.isFinite(Number(delayRaw)) ? Number(delayRaw) : null;
+  const asOfTs = usesRegularMarketPrice && Number.isFinite(regularMarketTs) && regularMarketTs > 0
+    ? regularMarketTs
+    : lastTs;
   return {
     symbol,
     name: meta.shortName || meta.longName || symbol,
     exchange: meta.exchangeName || meta.fullExchangeName || "",
     currency: meta.currency || "USD",
-    asOf: lastTs ? new Date(lastTs * 1000).toISOString() : new Date().toISOString(),
+    asOf: asOfTs ? new Date(asOfTs * 1000).toISOString() : new Date().toISOString(),
     dates,
     closes,
     lastPrice,
-    previousClose: Number.isFinite(seriesPrev) && seriesPrev > 0 ? seriesPrev : null,
+    previousClose,
+    historySource: "yahoo-finance:chart:v8:1d",
+    priceSource: usesRegularMarketPrice
+      ? "yahoo-finance:chart:v8:regularMarketPrice"
+      : "yahoo-finance:chart:v8:lastDailyClose",
+    quoteDelayMinutes: delay,
+    marketState: inferYahooMarketState(meta),
+  };
+}
+
+function inferYahooMarketState(meta: any): string | null {
+  if (typeof meta?.marketState === "string") return meta.marketState;
+  const regular = meta?.currentTradingPeriod?.regular;
+  const start = Number(regular?.start);
+  const end = Number(regular?.end);
+  const now = Date.now() / 1000;
+  if (Number.isFinite(start) && Number.isFinite(end)) {
+    return now >= start && now <= end ? "OPEN" : "CLOSED";
+  }
+  return null;
+}
+
+export async function fetchYahooQuote(symbol: string): Promise<TickerLiveQuote> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`;
+  const res = await fetch(url, { headers: { "user-agent": UA }, cache: "no-store" });
+  if (!res.ok) throw new Error(`현재가 조회 실패 (${res.status})`);
+  const result = (await res.json())?.chart?.result?.[0];
+  if (!result) throw new Error("현재가 데이터가 없습니다.");
+  const meta = result.meta ?? {};
+  const price = Number(meta.regularMarketPrice);
+  const previousClose = Number(meta.chartPreviousClose ?? meta.previousClose);
+  const marketTime = Number(meta.regularMarketTime);
+  if (!Number.isFinite(price) || price <= 0) throw new Error("현재가를 확인하지 못했습니다.");
+  const delayRaw = meta.exchangeDataDelayedBy;
+  const delayMinutes = delayRaw != null && Number.isFinite(Number(delayRaw)) ? Number(delayRaw) : null;
+  const prev = Number.isFinite(previousClose) && previousClose > 0 ? previousClose : null;
+  return {
+    symbol,
+    name: meta.shortName || meta.longName || symbol,
+    exchange: meta.exchangeName || meta.fullExchangeName || "",
+    currency: meta.currency || "USD",
+    price,
+    previousClose: prev,
+    changePct: prev ? (price / prev - 1) * 100 : null,
+    asOf: Number.isFinite(marketTime) && marketTime > 0
+      ? new Date(marketTime * 1000).toISOString()
+      : new Date().toISOString(),
+    source: "yahoo-finance:chart:v8:regularMarketPrice",
+    delayMinutes,
+    marketState: inferYahooMarketState(meta),
   };
 }
 
@@ -128,7 +191,7 @@ export async function fetchYahooProfile(symbol: string): Promise<YahooProfile> {
     sector: null,
     industry: null,
     longBusinessSummary: null,
-    warning: "회사 개요를 조회하지 못했습니다. 임의 설명은 표시하지 않습니다.",
+    warning: "회사 개요 제공처의 응답이 없어 원문 기반 소개를 표시하지 못했습니다.",
   };
   try {
     const urls = [
@@ -151,8 +214,38 @@ export async function fetchYahooProfile(symbol: string): Promise<YahooProfile> {
         warning: summary ? null : "회사 개요 본문이 없어 업종 정보만 표시합니다.",
       };
     }
-    return empty;
+    const nasdaq = await fetchNasdaqProfile(symbol, asOf);
+    return nasdaq ?? empty;
   } catch {
-    return empty;
+    const nasdaq = await fetchNasdaqProfile(symbol, asOf).catch(() => null);
+    return nasdaq ?? empty;
   }
+}
+
+async function fetchNasdaqProfile(symbol: string, asOf: string): Promise<YahooProfile | null> {
+  if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol) || /\.(KS|KQ)$/.test(symbol)) return null;
+  const res = await fetch(`https://api.nasdaq.com/api/company/${encodeURIComponent(symbol)}/company-profile`, {
+    headers: {
+      "user-agent": UA,
+      accept: "application/json, text/plain, */*",
+      origin: "https://www.nasdaq.com",
+      referer: "https://www.nasdaq.com/",
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = (await res.json())?.data ?? {};
+  const value = (key: string) => typeof data?.[key]?.value === "string" ? data[key].value.trim() : "";
+  const summary = value("CompanyDescription");
+  const sector = value("Sector");
+  const industry = value("Industry");
+  if (!summary && !sector && !industry) return null;
+  return {
+    asOf,
+    source: "nasdaq:company-profile",
+    sector: sector || null,
+    industry: industry || null,
+    longBusinessSummary: summary || null,
+    warning: summary ? null : "회사 설명 본문이 없어 업종 정보만 표시합니다.",
+  };
 }

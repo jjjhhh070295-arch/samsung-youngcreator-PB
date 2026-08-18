@@ -71,6 +71,20 @@ export function sma(closes: number[], n: number): number | null {
   return slice.reduce((s, v) => s + v, 0) / n;
 }
 
+/** 각 시점까지의 단순 이동평균. 계산 전 구간은 null로 유지한다. */
+export function smaSeries(values: number[], n: number): Array<number | null> {
+  const out: Array<number | null> = Array(values.length).fill(null);
+  if (n <= 0 || values.length < n) return out;
+
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= n) sum -= values[i - n];
+    if (i >= n - 1) out[i] = sum / n;
+  }
+  return out;
+}
+
 export function emaSeries(values: number[], n: number): number[] {
   if (values.length === 0 || n <= 0) return [];
   const k = 2 / (n + 1);
@@ -83,19 +97,68 @@ export function emaSeries(values: number[], n: number): number[] {
 
 /** Wilder 단순 평균 RSI (최근 n개 변화 기준). */
 export function rsi(closes: number[], n = 14): number | null {
-  if (closes.length < n + 1) return null;
-  let gains = 0;
-  let losses = 0;
-  for (let i = closes.length - n; i < closes.length; i++) {
+  const value = last(rsiSeries(closes, n));
+  return value ?? null;
+}
+
+/** 최근 n개 등락폭을 사용하는 RSI 시계열. rsi()와 동일한 산식이다. */
+export function rsiSeries(closes: number[], n = 14): Array<number | null> {
+  const out: Array<number | null> = Array(closes.length).fill(null);
+  if (n <= 0 || closes.length < n + 1) return out;
+
+  const gains: number[] = Array(closes.length).fill(0);
+  const losses: number[] = Array(closes.length).fill(0);
+  let gainSum = 0;
+  let lossSum = 0;
+
+  for (let i = 1; i < closes.length; i++) {
     const delta = closes[i] - closes[i - 1];
-    if (delta >= 0) gains += delta;
-    else losses -= delta;
+    gains[i] = Math.max(delta, 0);
+    losses[i] = Math.max(-delta, 0);
+    gainSum += gains[i];
+    lossSum += losses[i];
+
+    if (i > n) {
+      gainSum -= gains[i - n];
+      lossSum -= losses[i - n];
+    }
+    if (i >= n) {
+      if (lossSum === 0) out[i] = 100;
+      else {
+        const rs = gainSum / lossSum;
+        out[i] = 100 - 100 / (1 + rs);
+      }
+    }
   }
-  const avgGain = gains / n;
-  const avgLoss = losses / n;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - 100 / (1 + rs);
+  return out;
+}
+
+export interface MacdPoint {
+  macd: number | null;
+  signal: number | null;
+  histogram: number | null;
+}
+
+/** MACD(12, 26, 9) 시계열. 충분한 관측치가 쌓이기 전에는 null을 반환한다. */
+export function macdSeries(closes: number[], fast = 12, slow = 26, signal = 9): MacdPoint[] {
+  const empty = () => ({ macd: null, signal: null, histogram: null });
+  if (closes.length === 0 || fast <= 0 || slow <= 0 || signal <= 0) return closes.map(empty);
+
+  const emaFast = emaSeries(closes, fast);
+  const emaSlow = emaSeries(closes, slow);
+  const macdLine = emaFast.map((value, i) => value - emaSlow[i]);
+  const signalLine = emaSeries(macdLine, signal);
+  const readyAt = slow + signal - 2;
+
+  return macdLine.map((macdValue, i) => {
+    if (i < readyAt) return empty();
+    const signalValue = signalLine[i];
+    return {
+      macd: macdValue,
+      signal: signalValue,
+      histogram: macdValue - signalValue,
+    };
+  });
 }
 
 export function macdLast(closes: number[], fast = 12, slow = 26, signal = 9): {
@@ -104,17 +167,12 @@ export function macdLast(closes: number[], fast = 12, slow = 26, signal = 9): {
   histogram: number;
 } | null {
   if (closes.length < slow + signal) return null;
-  const emaFast = emaSeries(closes, fast);
-  const emaSlow = emaSeries(closes, slow);
-  const macdLine = emaFast.map((v, i) => v - emaSlow[i]);
-  const signalLine = emaSeries(macdLine, signal);
-  const macdVal = last(macdLine);
-  const signalVal = last(signalLine);
-  if (macdVal == null || signalVal == null) return null;
+  const point = last(macdSeries(closes, fast, slow, signal));
+  if (point?.macd == null || point.signal == null || point.histogram == null) return null;
   return {
-    macd: macdVal,
-    signal: signalVal,
-    histogram: macdVal - signalVal,
+    macd: point.macd,
+    signal: point.signal,
+    histogram: point.histogram,
   };
 }
 

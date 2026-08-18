@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildTickerSnapshot } from "@/lib/advisory/tickerSnapshot";
-import { fetchYahooDaily, fetchYahooProfile, resolveYahooSymbol } from "@/lib/advisory/yahoo";
+import { dailyToLiveQuote, fetchTickerDaily, fetchTickerProfile, resolveTickerInput } from "@/lib/advisory/tickerData";
 import { judgeTicker, sha256Hex, stableStringify } from "@/lib/advisory/control";
 
 export const runtime = "nodejs";
@@ -19,16 +19,16 @@ export async function GET(req: Request) {
     }, { status: 400 });
   }
   try {
-    const resolved = await resolveYahooSymbol(q);
+    const resolved = await resolveTickerInput(q);
     const [daily, profile] = await Promise.all([
-      fetchYahooDaily(resolved),
-      fetchYahooProfile(resolved),
+      fetchTickerDaily(resolved),
+      fetchTickerProfile(resolved),
     ]);
     const snapshot = buildTickerSnapshot(daily, q.trim());
     if (profile.warning) snapshot.warnings = [...snapshot.warnings, profile.warning];
     const judge = judgeTicker(snapshot);
     const status = judge.passed ? (snapshot.warnings.length ? "warning" : "ok") : "blocked";
-    const inputHash = await sha256Hex(stableStringify({ q, resolved }));
+    const inputHash = await sha256Hex(stableStringify({ q, resolved: resolved.symbol }));
     const outputHash = await sha256Hex(stableStringify({
       symbol: snapshot.resolvedSymbol,
       asOf: snapshot.asOf,
@@ -39,12 +39,13 @@ export async function GET(req: Request) {
       ok: status !== "blocked",
       status,
       snapshot,
+      quote: dailyToLiveQuote(daily),
       profile,
       judge,
       evidence: {
         inputHash,
         outputHash,
-        engine: "deterministic-indicators+yahoo-chart",
+        engine: "deterministic-indicators+market-data-providers",
       },
     });
   } catch (e: any) {
