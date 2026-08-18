@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { Client, Portfolio } from '@/lib/types';
+import { historicalVarCvar } from '@/lib/advisory/riskEngine';
 import {
   buildDetailedHoldings,
   buildPortfolioViewModel,
@@ -444,9 +445,9 @@ function buildSimplifiedBenchmarkChartData(
 function computeMetrics(
   cumulativePcts: number[],
   riskFreeAnnualPct = 3.0,
-): { returnPct: number; volatilityPct: number; mddPct: number; sharpe: number } {
+): { returnPct: number; volatilityPct: number; mddPct: number; sharpe: number; varPct: number; cvarPct: number } {
   const n = cumulativePcts.length;
-  if (n < 2) return { returnPct: 0, volatilityPct: 0, mddPct: 0, sharpe: 0 };
+  if (n < 2) return { returnPct: 0, volatilityPct: 0, mddPct: 0, sharpe: 0, varPct: 0, cvarPct: 0 };
 
   const periodReturns: number[] = [];
   for (let i = 1; i < n; i++) {
@@ -472,6 +473,7 @@ function computeMetrics(
     if (dd < mddPct) mddPct = dd;
   }
 
+  const { varPct, cvarPct } = historicalVarCvar(periodReturns);
   const sharpe = volatilityPct > 0 ? (returnPct - riskFreeAnnualPct) / volatilityPct : 0;
 
   return {
@@ -479,6 +481,8 @@ function computeMetrics(
     volatilityPct: Math.round(volatilityPct * 10) / 10,
     mddPct: Math.round(mddPct * 10) / 10,
     sharpe: Math.round(sharpe * 100) / 100,
+    varPct: varPct ?? 0,
+    cvarPct: cvarPct ?? 0,
   };
 }
 
@@ -860,6 +864,8 @@ function ObjectiveMetricsTable({
     { label: '변동성 (연율화)', fmt: (v) => `${v.toFixed(1)}%`, base: baseMetrics.volatilityPct, portfolio: portfolioMetrics.volatilityPct, sp500: sp500Metrics.volatilityPct, kospi: kospiMetrics.volatilityPct },
     { label: '최대낙폭 (MDD)', fmt: (v) => `${v.toFixed(1)}%`, base: baseMetrics.mddPct, portfolio: portfolioMetrics.mddPct, sp500: sp500Metrics.mddPct, kospi: kospiMetrics.mddPct },
     { label: '샤프지수', fmt: (v) => v.toFixed(2), base: baseMetrics.sharpe, portfolio: portfolioMetrics.sharpe, sp500: sp500Metrics.sharpe, kospi: kospiMetrics.sharpe },
+    { label: 'VaR 95%', fmt: (v) => `${v.toFixed(1)}%`, base: baseMetrics.varPct, portfolio: portfolioMetrics.varPct, sp500: sp500Metrics.varPct, kospi: kospiMetrics.varPct },
+    { label: 'CVaR 95%', fmt: (v) => `${v.toFixed(1)}%`, base: baseMetrics.cvarPct, portfolio: portfolioMetrics.cvarPct, sp500: sp500Metrics.cvarPct, kospi: kospiMetrics.cvarPct },
   ];
 
   return (
@@ -917,6 +923,7 @@ function ObjectiveMetricsTable({
       )}
       <p className="mt-4 text-[10px] leading-relaxed text-fg-muted">
         과거 1년 실제 시장 데이터. 과거 성과는 미래를 보장하지 않습니다. 샤프지수 무위험수익률 연 3% 기준.
+        VaR/CVaR는 월간 수익률 분포의 역사적 5% 꼬리입니다. as-of는 조회 시각, source는 벤치마크 API입니다.
         {usePlanData && ' · 주식 부분은 PB 종목 선택 섹터 ETF 실제 수익률 가중 반영.'}
       </p>
     </section>

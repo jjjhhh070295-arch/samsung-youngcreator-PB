@@ -174,6 +174,7 @@ export function buildClientBookRow(
     code: client.code,
     name: client.name,
     clientType: client.clientType,
+    birthDate: client.birthDate ?? "",
     totalAssets,
     investedAmount,
     totalReturnPct,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildRecommendResult } from "@/lib/advisory/recommend";
-import { applyJudge, emptyBundle, judgeRecommend, sha256Hex, stableStringify } from "@/lib/advisory/control";
+import { applyJudge, attachCitations, emptyBundle, judgeRecommend, sha256Hex, stableStringify } from "@/lib/advisory/control";
 import type { Client } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -48,6 +48,9 @@ export async function POST(req: Request) {
     ],
   };
   bundle = applyJudge(bundle, judge, "engine");
+  if (result.citations?.length) {
+    bundle = attachCitations(bundle, result.citations);
+  }
 
   return NextResponse.json({
     ok: true,

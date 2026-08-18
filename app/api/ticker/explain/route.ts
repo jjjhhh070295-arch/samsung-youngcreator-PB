@@ -1,59 +1,83 @@
 import { NextResponse } from "next/server";
-import type { TickerSnapshot } from "@/lib/advisory/types";
+import type { TickerProfile, TickerSnapshot } from "@/lib/advisory/types";
 import { sha256Hex, stableStringify } from "@/lib/advisory/control";
 
 export const runtime = "nodejs";
 
 function measuredLine(label: string, m: { value: number; unit: string; asOf: string; source: string; currency?: string } | null) {
-  if (!m) return `${label}: 자료 없음`;
+  if (!m) return `${label}: 자료 없음 (임의값 없음)`;
   const ccy = m.currency ? ` ${m.currency}` : "";
   return `${label}: ${m.value}${m.unit}${ccy} (as-of ${m.asOf}, source ${m.source})`;
 }
 
 export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  let body: { snapshot?: TickerSnapshot };
+  let body: { snapshot?: TickerSnapshot; profile?: TickerProfile | null; mode?: "brief" | "full" };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ ok: false, error: "JSON이 필요합니다." }, { status: 400 });
+    return NextResponse.json({ ok: false, status: "blocked", error: "JSON이 필요합니다." }, { status: 400 });
   }
   const snapshot = body.snapshot;
+  const profile = body.profile ?? null;
+  const mode = body.mode === "brief" ? "brief" : "full";
   if (!snapshot?.resolvedSymbol || !snapshot.lastPrice) {
-    return NextResponse.json({ ok: false, error: "결정론 스냅샷이 필요합니다." }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      status: "blocked",
+      error: "결정론 스냅샷이 필요합니다. 시세 실패 시 설명을 만들지 않습니다.",
+    }, { status: 400 });
   }
 
   const facts = [
     `종목명: ${snapshot.name}`,
     `심볼: ${snapshot.resolvedSymbol} (${snapshot.exchange})`,
     measuredLine("현재가", snapshot.lastPrice),
+    measuredLine("1일 수익률", snapshot.periodReturns.d1),
     measuredLine("1개월 수익률", snapshot.periodReturns.m1),
-    measuredLine("3개월 수익률", snapshot.periodReturns.m3),
+    measuredLine("6개월 수익률", snapshot.periodReturns.m6),
     measuredLine("1년 수익률", snapshot.periodReturns.y1),
-    measuredLine("YTD 수익률", snapshot.periodReturns.ytd),
     measuredLine("20일 연환산 변동성", snapshot.volatility.d20),
-    measuredLine("60일 연환산 변동성", snapshot.volatility.d60),
     measuredLine("MDD", snapshot.mdd),
     measuredLine("SMA20", snapshot.movingAverages.sma20),
     measuredLine("SMA60", snapshot.movingAverages.sma60),
     measuredLine("RSI14", snapshot.rsi14),
-    measuredLine("MACD", snapshot.macd.macd),
-    measuredLine("MACD signal", snapshot.macd.signal),
     measuredLine("MACD histogram", snapshot.macd.histogram),
     `엔진 기술상태: ${snapshot.technicalState.summary}`,
+    `업종: ${profile?.sector ?? "자료 없음"} / ${profile?.industry ?? "자료 없음"}`,
+    `Yahoo 회사개요: ${profile?.longBusinessSummary ? profile.longBusinessSummary.slice(0, 1200) : "없음 — 회사를 추측하지 말 것"}`,
   ].join("\n");
 
-  const fallback = [
-    `${snapshot.name}(${snapshot.resolvedSymbol})은 결정론 엔진 기준 ${snapshot.technicalState.summary}`,
-    `최근 가격은 ${snapshot.lastPrice.value} ${snapshot.currency} (as-of ${snapshot.asOf}, ${snapshot.source}).`,
-    snapshot.periodReturns.y1
-      ? `1년 수익률 ${snapshot.periodReturns.y1.value}% , 변동성(20일) ${snapshot.volatility.d20?.value ?? "n/a"}%, MDD ${snapshot.mdd?.value ?? "n/a"}%.`
-      : "장기 수익률 자료가 짧습니다.",
-    "숫자는 엔진 계산값이며, 이 설명은 해석만 제공합니다. 투자 권유가 아닙니다.",
+  const briefFallback = profile?.longBusinessSummary
+    ? `${snapshot.name}은(는) ${profile.industry || profile.sector || snapshot.exchange} 관련 상장 종목입니다. 아래 개요는 Yahoo 원문을 줄인 참고용입니다.`
+    : `${snapshot.name}(${snapshot.resolvedSymbol})의 회사 개요 원문을 받지 못해 임의 설명을 하지 않습니다.`;
+
+  const fullFallback = [
+    briefFallback,
+    `최근 추세(엔진): ${snapshot.technicalState.trend}.`,
+    `기술지표(엔진): ${snapshot.technicalState.rsiState}. ${snapshot.technicalState.macdState}.`,
+    "숫자는 엔진 계산값이며 투자 권유가 아닙니다.",
   ].join(" ");
 
+  const fallback = mode === "brief" ? briefFallback : fullFallback;
+
+  const system = mode === "brief"
+    ? `당신은 종목 회사 개요만 한국어 2~3문장으로 요약한다.
+규칙:
+- Yahoo 회사개요가 있으면 그 내용만 요약한다.
+- 회사개요가 "없음"이면 업종 한 줄만 말하고, 사업을 추측하거나 숫자(가격·수익률·RSI 등)를 만들지 마라.
+- FACTS의 수익률/가격을 개요에 넣지 마라.
+- 투자 권유 금지.`
+    : `당신은 PB가 고객에게 종목을 쉽게 설명하도록 돕는 보조 도구다.
+규칙:
+- FACTS의 숫자·as-of·출처를 그대로 사용한다. 새로운 수익률, 변동성, MDD, RSI, MACD, 목표가, 비중, 세금, VaR/CVaR를 만들지 마라.
+- 쉬운 말로 (1) 회사 개요 (Yahoo 원문 범위만) (2) 최근 추세 (엔진 기술상태) (3) 기술적 지표 해석을 설명한다.
+- 회사개요가 없으면 회사 설명을 지어내지 말고 "개요 자료 없음"이라고 한다.
+- 투자 권유, 매수/매도 확정 표현 금지. 마지막에 "참고용이며 투자 권유가 아닙니다"를 넣는다.
+- 한국어, 5~8문장.`;
+
   if (!apiKey) {
-    const inputHash = await sha256Hex(stableStringify({ symbol: snapshot.resolvedSymbol, asOf: snapshot.asOf }));
+    const inputHash = await sha256Hex(stableStringify({ symbol: snapshot.resolvedSymbol, asOf: snapshot.asOf, mode }));
     const outputHash = await sha256Hex(fallback);
     return NextResponse.json({
       ok: true,
@@ -62,13 +86,6 @@ export async function POST(req: Request) {
       evidence: { inputHash, outputHash, engine: "explain-fallback" },
     });
   }
-
-  const system = `당신은 PB가 고객에게 종목을 쉽게 설명하도록 돕는 보조 도구다.
-규칙:
-- 아래 FACTS의 숫자·as-of·출처를 그대로 사용한다. 새로운 수익률, 변동성, MDD, RSI, MACD, 목표가, 비중, 세금, VaR/CVaR를 만들지 마라.
-- 쉬운 말로 (1) 무슨 회사/상품인지 (2) 최근 오르거나 내린 맥락을 FACTS 범위에서만 (3) 기술적 지표 상태를 설명한다.
-- 투자 권유, 매수/매도 확정 표현 금지. 마지막에 "참고용이며 투자 권유가 아닙니다"를 넣는다.
-- 3~6문장, 한국어.`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -80,7 +97,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 500,
+        max_tokens: mode === "brief" ? 280 : 700,
         system,
         messages: [{ role: "user", content: `FACTS\n${facts}` }],
       }),

@@ -31,7 +31,10 @@ import type { TaxPaymentEvent } from "@/lib/cashflowUpload";
 import TaxReadinessRubricButton from "@/components/TaxReadinessRubricButton";
 import PeriodCashflowLineChart from "@/components/cashflow/PeriodCashflowLineChart";
 import { LoadingView, ErrorView } from "@/components/StateViews";
-import { canIssueClientPdf, loadBundle } from "@/lib/advisory/control";
+import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
+import { HONESTY_LIMITS, AI_ROLE_COPY } from "@/lib/advisory/constants";
+import { mergeTaxProfile, projectTax } from "@/lib/taxProjection";
+import { DEFAULT_HORIZON_YEARS } from "@/lib/taxProjectionRules";
 
 const CHART_COLORS = ["#0f172a", "#d6a84f", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b"];
 
@@ -191,6 +194,7 @@ export default function IPSDocumentPage() {
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [pdfBlocked, setPdfBlocked] = useState(false);
+  const [pdfReason, setPdfReason] = useState("");
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -213,6 +217,7 @@ export default function IPSDocumentPage() {
   useEffect(() => {
     const bundle = loadBundle(clientId);
     setPdfBlocked(!canIssueClientPdf(bundle.status));
+    setPdfReason(pdfBlockReason(bundle));
   }, [clientId]);
   if (status === "loading") return <LoadingView />;
   if (status === "error" || !client)
@@ -232,6 +237,21 @@ export default function IPSDocumentPage() {
   }));
   const returnContributions = pf ? buildReturnContributionsFromPortfolio(displayAllocations, pf.expectedReturn) : [];
   const periodSeries = buildPeriodCashflowSeries(client.cashFlows);
+  const evidence = loadBundle(clientId);
+  const vmWeights = confirmedWeights ?? {
+    etf: 30, bond: 25, els: 0, mmf: 30, gold: 10, dollar: 5, raw: 0,
+  };
+  const mergedTax = mergeTaxProfile(client);
+  const taxWaterfall = projectTax({
+    principalWon: client.assetSize,
+    horizonYears: DEFAULT_HORIZON_YEARS,
+    weights: vmWeights,
+    expectedReturnPct: pf?.expectedReturn ?? 6,
+    taxProfile: mergedTax.profile,
+    cashFlows: client.cashFlows,
+    cashflowTaxSummary: mergedTax.cashflowSummary,
+    label: pf?.label ?? "기준안",
+  });
 
   // 담당 PB 이름 (ID → 이름)
   const assignedPb = pbs.find((p) => p.id === client.assignedPbId);
@@ -255,9 +275,12 @@ export default function IPSDocumentPage() {
             window.print();
           }}
         >
-          {pdfBlocked ? "blocked — PDF 발행 불가" : "🖨️ 인쇄 / PDF로 저장"}
+          {pdfBlocked ? "최종 PDF 비활성" : "🖨️ 인쇄 / PDF로 저장"}
         </button>
       </div>
+      {pdfBlocked && (
+        <p className="mb-3 text-xs font-semibold text-red-600 print:hidden">{pdfReason}</p>
+      )}
 
       {/* ── 문서 본문 (항상 흰 배경·검은 글씨로 인쇄 친화) ── */}
       <div className="rounded-lg bg-white p-8 text-gray-900 shadow-card print:rounded-none print:p-0 print:shadow-none">
@@ -627,11 +650,47 @@ export default function IPSDocumentPage() {
           </Section>
         )}
 
+        <Section title="세후 결과 워터폴 (결정론 엔진)">
+          <table className="w-full text-sm">
+            <tbody>
+              <tr className="border-b border-gray-100">
+                <td className="py-1.5">세전 기말자산</td>
+                <td className="py-1.5 text-right font-semibold">{formatKRW(taxWaterfall.principalWon + taxWaterfall.grossReturnWon)}</td>
+              </tr>
+              <tr className="border-b border-gray-100">
+                <td className="py-1.5">예상 세금</td>
+                <td className="py-1.5 text-right">−{formatKRW(taxWaterfall.taxes.totalTaxWon)}</td>
+              </tr>
+              <tr className="border-b border-gray-100">
+                <td className="py-1.5">상품/거래 비용</td>
+                <td className="py-1.5 text-right">−{formatKRW(taxWaterfall.feesWon)}</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 font-bold">세후 기말자산</td>
+                <td className="py-1.5 text-right font-bold">{formatKRW(taxWaterfall.netEndingWon)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-1 text-[10px] text-gray-500">
+            as-of {dateStr} · source deterministic-engine · KRW · {taxWaterfall.assumptions[0]}
+          </p>
+        </Section>
+
+        <Section title="재현성 해시 / Evidence">
+          <p className="text-[11px] text-gray-600">{AI_ROLE_COPY}</p>
+          <p className="mt-1 font-mono text-[10px] break-all">inputHash {evidence.inputHash || "—"}</p>
+          <p className="font-mono text-[10px] break-all">settingsHash {evidence.settingsHash || "—"}</p>
+          <p className="font-mono text-[10px] break-all">resultHash {evidence.resultHash || evidence.outputHash || "—"}</p>
+          <p className="mt-1 text-[10px] text-gray-500">상태 {evidence.status} · runId {evidence.runId}</p>
+        </Section>
+
         {/* 디스클레이머 */}
         <div className="mt-6 rounded border border-gray-300 bg-gray-50 p-3 text-[11px] leading-relaxed text-gray-600">
           ※ 본 투자정책서는 PB 상담 내용을 구조화한 <b>참고용 문서</b>이며 투자 권유가 아닙니다.
           포트폴리오·스트레스 결과는 통계적 추정치로 미래 수익을 보장하지 않으며, 실제 투자 결정 및
-          집행은 고객 본인의 판단과 책임 하에 이루어집니다.
+          {HONESTY_LIMITS.map((line) => (
+            <span key={line}> {line}</span>
+          ))}
         </div>
 
         {/* 서명란 */}

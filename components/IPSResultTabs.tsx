@@ -13,7 +13,8 @@ import ScoreRubricButton from "./ScoreRubricButton";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
-import { canIssueClientPdf, loadBundle } from "@/lib/advisory/control";
+import ConsultationHub from "./advisory/ConsultationHub";
+import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
 
 interface Props {
   client: Client;
@@ -242,7 +243,8 @@ export default function IPSResultTabs({
   );
 
   return (
-    <div>
+    <div className="space-y-5">
+      <ConsultationHub client={client} />
 
       {/* 기본정보 */}
       {tab === "basic" && (
@@ -570,14 +572,14 @@ export default function IPSResultTabs({
             )}
             {!canIssueClientPdf(loadBundle(clientId).status) && (
               <p className="text-xs font-semibold text-red-600">
-                통제 상태가 blocked이면 고객용 PDF를 발행할 수 없습니다. 상품추천 탭에서 Judge·상태를 확인하세요.
+                {pdfBlockReason(loadBundle(clientId))}
               </p>
             )}
             <button
               className="btn-gold px-6 py-2.5"
               onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}
             >
-              IPS 문서 생성 / 인쇄 →
+              IPS 문서 보기 →
             </button>
           </div>
         </div>

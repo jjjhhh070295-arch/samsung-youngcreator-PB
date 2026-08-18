@@ -38,7 +38,86 @@ export interface MeasuredNumber {
   currency?: string;
   asOf: string;
   source: string;
+  assumption?: string;
 }
+
+export interface CitationRef {
+  sourceId: string;
+  title: string;
+  asOf: string;
+  chunkId: string;
+  url?: string;
+}
+
+export interface CitationVerdict {
+  passed: boolean;
+  count: number;
+  incompleteIds: string[];
+  message: string;
+}
+
+export interface ConflictAudit {
+  passed: boolean;
+  needsReview: boolean;
+  conflicts: string[];
+  message: string;
+}
+
+export interface StressScenarioResult {
+  id: string;
+  label: string;
+  assumption: string;
+  shockPct: MeasuredNumber;
+  pnlWon: MeasuredNumber;
+}
+
+export interface TaxWaterfall {
+  pretaxEnding: MeasuredNumber;
+  expectedTax: MeasuredNumber;
+  productCost: MeasuredNumber;
+  afterTaxEnding: MeasuredNumber;
+}
+
+export type PipelineStepId =
+  | "consult"
+  | "ips"
+  | "approve"
+  | "portfolio"
+  | "risk"
+  | "tax"
+  | "pdf";
+
+export type PipelineStepState = "complete" | "review" | "blocked" | "pending";
+
+export interface PipelineStep {
+  id: PipelineStepId;
+  label: string;
+  state: PipelineStepState;
+  note: string;
+}
+
+export interface CalcConfig {
+  horizonYears: number;
+  riskFreeRatePct: number;
+  varConfidence: number;
+  currency: "KRW";
+  engine: string;
+}
+
+export interface CalcResults {
+  risk: {
+    expectedReturn: MeasuredNumber;
+    volatility: MeasuredNumber;
+    sharpe: MeasuredNumber;
+    mdd: MeasuredNumber;
+    var95: MeasuredNumber;
+    cvar95: MeasuredNumber;
+  };
+  stress: StressScenarioResult[];
+  waterfall: TaxWaterfall | null;
+}
+
+export type GoldLabel = "pass" | "block";
 
 export interface BookHolding {
   id: string;
@@ -80,6 +159,7 @@ export interface ClientBookRow {
   code: string;
   name: string;
   clientType: string;
+  birthDate: string;
   totalAssets: number;
   investedAmount: number;
   totalReturnPct: number | null;
@@ -164,11 +244,30 @@ export interface RecommendResult {
   plans: RecommendPlan[];
   narrativePromptFacts: string[];
   disclaimers: string[];
+  citations?: CitationRef[];
+}
+
+export interface GoldCase {
+  id: string;
+  title: string;
+  humanLabel: GoldLabel;
+  notes: string;
+  result: RecommendResult;
+  citations: CitationRef[];
 }
 
 export interface TickerBar {
   time: string;
   close: number;
+}
+
+export interface TickerProfile {
+  asOf: string;
+  source: string;
+  sector: string | null;
+  industry: string | null;
+  longBusinessSummary: string | null;
+  warning: string | null;
 }
 
 export interface TickerSnapshot {
@@ -180,7 +279,9 @@ export interface TickerSnapshot {
   asOf: string;
   source: string;
   lastPrice: MeasuredNumber;
+  warnings: string[];
   periodReturns: {
+    d1: MeasuredNumber | null;
     m1: MeasuredNumber | null;
     m3: MeasuredNumber | null;
     m6: MeasuredNumber | null;
@@ -227,7 +328,7 @@ export interface JudgeResult {
 export interface EvidenceRun {
   id: string;
   at: string;
-  kind: "book" | "ticker" | "recommend" | "pdf" | "status" | "explain";
+  kind: "book" | "ticker" | "recommend" | "pdf" | "status" | "explain" | "snapshot" | "judge";
   engine: string;
   inputHash: string;
   outputHash: string;
@@ -245,11 +346,23 @@ export interface ApprovalEvent {
 export interface EvidenceBundle {
   id: string;
   clientId: string;
+  runId: string;
   createdAt: string;
   updatedAt: string;
   status: AdvisoryStatus;
+  consultationInput: string;
+  ipsExtract: unknown;
+  calcConfig: CalcConfig | null;
+  calcResults: CalcResults | null;
+  citations: CitationRef[];
+  citation: CitationVerdict | null;
+  conflict: ConflictAudit | null;
   inputHash: string;
+  settingsHash: string;
+  resultHash: string;
   outputHash: string;
+  judgeAttempts: number;
+  blockReasons: string[];
   runs: EvidenceRun[];
   judge: JudgeResult | null;
   approvals: ApprovalEvent[];

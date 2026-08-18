@@ -538,6 +538,16 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
         </div>
       </section>
 
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <StatCard label="세전 기말자산" value={formatKRW(baseProjection.principalWon + baseProjection.grossReturnWon)} />
+        <StatCard label="예상 세금" value={formatKRW(baseProjection.taxes.totalTaxWon)} tone="text-rose-600" />
+        <StatCard label="상품/거래 비용" value={formatKRW(baseProjection.feesWon)} tone="text-amber-700" />
+        <StatCard label="세후 기말자산" value={formatKRW(baseProjection.netEndingWon)} tone="text-blue-700" />
+      </section>
+      <p className="text-[10px] text-fg-muted">
+        as-of {new Date().toISOString().slice(0, 10)} · source deterministic-engine · KRW · 상담용 추정, 세무 검토 필요. 위 네 줄이 세후 워터폴입니다.
+      </p>
+
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-4">
         <StatCard label="기준안 세후 기말자산" value={formatKRW(baseProjection.netEndingWon)} tone="text-blue-700" />
         <StatCard label="조정안 세후 기말자산" value={formatKRW(adjustedProjection.netEndingWon)} tone="text-blue-700" />

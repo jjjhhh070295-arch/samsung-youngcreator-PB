@@ -43,6 +43,17 @@ export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSna
     macdHist: macd?.histogram ?? null,
   });
 
+  const d1 =
+    daily.previousClose && daily.previousClose > 0
+      ? ((last / daily.previousClose) - 1) * 100
+      : periodReturnPct(closes, 1);
+
+  const warnings: string[] = [];
+  if (closes.length < 30) warnings.push("일봉이 짧아 일부 장기 지표는 비워 둡니다.");
+  if (d1 == null) warnings.push("1일 수익률을 계산할 전일 종가가 없습니다.");
+  if (rsi14 == null) warnings.push("RSI 산출에 필요한 일봉이 부족합니다.");
+  if (macd == null) warnings.push("MACD 산출에 필요한 일봉이 부족합니다.");
+
   const bars = dates.map((time, i) => ({ time, close: round(closes[i], 4) })).slice(-260);
 
   return {
@@ -54,7 +65,9 @@ export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSna
     asOf,
     source,
     lastPrice: m(last, currency, asOf, source, currency, 4)!,
+    warnings,
     periodReturns: {
+      d1: m(d1, "%", asOf, source),
       m1: m(periodReturnPct(closes, 21), "%", asOf, source),
       m3: m(periodReturnPct(closes, 63), "%", asOf, source),
       m6: m(periodReturnPct(closes, 126), "%", asOf, source),

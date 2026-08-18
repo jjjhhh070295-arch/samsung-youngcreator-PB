@@ -14,11 +14,10 @@ import {
   nextClientCode,
 } from "@/lib/store";
 import PBDashboard from "@/components/PBDashboard";
-import ClientTable from "@/components/ClientTable";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import PBForm from "@/components/PBForm";
 import ConfirmModal from "@/components/ConfirmModal";
-import { LoadingView, ErrorView, EmptyView } from "@/components/StateViews";
+import { LoadingView, ErrorView } from "@/components/StateViews";
 import HouseholdModule from "@/components/HouseholdModule";
 import BookDashboard from "@/components/advisory/BookDashboard";
 import { analyzeBook, buildClientBookRow } from "@/lib/advisory/book";
@@ -133,7 +132,7 @@ export default function PBPage() {
           <div>
             <h2 className="text-sm font-semibold text-fg">다고객 관리 북</h2>
             <p className="text-xs text-fg-muted">
-              총자산·수익률·위험등급·보유상품·최근 상담을 한눈에 보고, 고객을 누르면 상담/포트폴리오로 이동합니다.
+              식별코드·이름·구분·자산·수익률·위험·보유상품·상담·태그를 한 테이블에서 보고, 행을 누르면 상담/포트폴리오로 이동합니다.
             </p>
           </div>
           <button className="btn-gold text-sm" onClick={() => setClientFormOpen(true)}>
@@ -141,30 +140,6 @@ export default function PBPage() {
           </button>
         </div>
         <BookDashboard pbId={pbId} rows={bookRows} analysis={bookAnalysis} />
-      </div>
-
-      {/* 담당 고객 */}
-      <div>
-        <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-fg-muted">고객 원장</h2>
-        </div>
-        <p className="mb-3 text-xs text-fg-muted">
-          이름·식별코드로 검색할 수 있습니다. 행을 누르면 상담·포트폴리오 화면으로 이동합니다.
-        </p>
-        {myClients.length === 0 ? (
-          <EmptyView
-            title="아직 담당 고객이 없어요"
-            hint="'고객 추가' 버튼으로 새 고객을 등록하세요."
-          />
-        ) : (
-          <ClientTable
-            clients={myClients}
-            pbs={pbs}
-            showPbColumn={false}
-            searchable
-            rowHref={(c) => `/pb/${pbId}/${c.id}`}
-          />
-        )}
       </div>
 
       {/* 가문 관리 */}

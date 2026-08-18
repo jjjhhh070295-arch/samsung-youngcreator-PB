@@ -363,5 +363,19 @@ export function buildRecommendResult(
       "기대수익률은 시장 proxy 참고치이며 보장되지 않습니다.",
       weightDisclaimer,
     ],
+    citations: [
+      {
+        sourceId: "catalog-deterministic",
+        title: "결정론 상품 카탈로그 + RRTTLLU/현금흐름",
+        asOf: asOf.slice(0, 10),
+        chunkId: "recommend-catalog-v1",
+      },
+      {
+        sourceId: "proxy-returns",
+        title: "자산군 proxy 수익률 (결정론, 미보장)",
+        asOf: asOf.slice(0, 10),
+        chunkId: "proxy-return-v1",
+      },
+    ],
   };
 }

@@ -66,6 +66,18 @@ body {
   .input {
     @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition-shadow placeholder:text-fg-muted/60 focus:ring-2 focus:ring-navy-500/60 disabled:bg-surface-2 disabled:opacity-70;
   }
+  /* OS 다크모드에서 native select가 흰 글자로 뒤집히지 않게, 실제 토큰 색을 강제 */
+  .sort-select,
+  .dark .sort-select {
+    color-scheme: light;
+    background-color: rgb(var(--surface));
+    color: rgb(var(--fg));
+  }
+  .sort-select option,
+  .dark .sort-select option {
+    background-color: rgb(var(--surface));
+    color: rgb(var(--fg));
+  }
   .label {
     @apply mb-1 block text-xs font-medium text-fg-muted;
   }

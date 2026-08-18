@@ -6,6 +6,7 @@ const NAME_MAP: Record<string, string> = {
   삼성전자우: "005935.KS",
   엔비디아: "NVDA",
   nvidia: "NVDA",
+  nvda: "NVDA",
   테슬라: "TSLA",
   tesla: "TSLA",
   애플: "AAPL",
@@ -63,6 +64,16 @@ export interface YahooDaily {
   dates: string[];
   closes: number[];
   lastPrice: number;
+  previousClose: number | null;
+}
+
+export interface YahooProfile {
+  asOf: string;
+  source: string;
+  sector: string | null;
+  industry: string | null;
+  longBusinessSummary: string | null;
+  warning: string | null;
 }
 
 export async function fetchYahooDaily(symbol: string, range = "2y"): Promise<YahooDaily> {
@@ -83,8 +94,18 @@ export async function fetchYahooDaily(symbol: string, range = "2y"): Promise<Yah
     dates.push(new Date(timestamps[i] * 1000).toISOString().slice(0, 10));
     closes.push(c);
   }
-  if (closes.length < 30) throw new Error("분석에 필요한 일봉이 부족합니다.");
+  if (closes.length < 2) throw new Error("분석에 필요한 일봉이 부족합니다.");
   const lastTs = timestamps[timestamps.length - 1];
+  const seriesLast = closes[closes.length - 1];
+  const seriesPrev = closes[closes.length - 2];
+  const live = Number(meta.regularMarketPrice);
+  const lastPrice =
+    Number.isFinite(live) && live > 0 && Math.abs(live / seriesLast - 1) < 0.25
+      ? live
+      : seriesLast;
+  if (!Number.isFinite(lastPrice) || lastPrice <= 0) {
+    throw new Error("현재가를 확인하지 못했습니다.");
+  }
   return {
     symbol,
     name: meta.shortName || meta.longName || symbol,
@@ -93,6 +114,45 @@ export async function fetchYahooDaily(symbol: string, range = "2y"): Promise<Yah
     asOf: lastTs ? new Date(lastTs * 1000).toISOString() : new Date().toISOString(),
     dates,
     closes,
-    lastPrice: Number(meta.regularMarketPrice ?? closes[closes.length - 1]),
+    lastPrice,
+    previousClose: Number.isFinite(seriesPrev) && seriesPrev > 0 ? seriesPrev : null,
   };
+}
+
+export async function fetchYahooProfile(symbol: string): Promise<YahooProfile> {
+  const asOf = new Date().toISOString();
+  const source = "yahoo-finance:quoteSummary:assetProfile";
+  const empty: YahooProfile = {
+    asOf,
+    source,
+    sector: null,
+    industry: null,
+    longBusinessSummary: null,
+    warning: "회사 개요를 조회하지 못했습니다. 임의 설명은 표시하지 않습니다.",
+  };
+  try {
+    const urls = [
+      `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=assetProfile`,
+      `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=assetProfile`,
+    ];
+    for (const url of urls) {
+      const res = await fetch(url, { headers: { "user-agent": UA }, cache: "no-store" });
+      if (!res.ok) continue;
+      const j: any = await res.json();
+      const profile = j?.quoteSummary?.result?.[0]?.assetProfile ?? {};
+      const summary = typeof profile.longBusinessSummary === "string" ? profile.longBusinessSummary.trim() : "";
+      if (!summary && !profile.sector && !profile.industry) continue;
+      return {
+        asOf,
+        source,
+        sector: profile.sector ?? null,
+        industry: profile.industry ?? null,
+        longBusinessSummary: summary || null,
+        warning: summary ? null : "회사 개요 본문이 없어 업종 정보만 표시합니다.",
+      };
+    }
+    return empty;
+  } catch {
+    return empty;
+  }
 }

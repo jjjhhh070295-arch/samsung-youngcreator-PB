@@ -2,17 +2,14 @@
 
 import { useState } from "react";
 import type { Client } from "@/lib/types";
-import type { EvidenceBundle, RecommendResult } from "@/lib/advisory/types";
+import type { RecommendResult } from "@/lib/advisory/types";
 import { PRODUCT_CATEGORY_LABEL } from "@/lib/advisory/types";
-import { appendRun, applyJudge, loadBundle, saveBundle } from "@/lib/advisory/control";
-import ControlStatusBar from "./ControlStatusBar";
-import EvidenceBundlePanel from "./EvidenceBundlePanel";
+import { appendRun, applyJudge, attachCitations, loadBundle, saveBundle } from "@/lib/advisory/control";
 
 export default function ProductRecommendPanel({ client }: { client: Client }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<RecommendResult | null>(null);
-  const [bundle, setBundle] = useState<EvidenceBundle>(() => loadBundle(client.id));
   const [error, setError] = useState("");
 
   const run = async () => {
@@ -36,8 +33,9 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
         notes: data.bundle.runs?.[0]?.notes ?? "상품 추천 산출",
       });
       next = applyJudge(next, data.judge, "engine");
+      if (data.result?.citations) next = attachCitations(next, data.result.citations);
       saveBundle(next);
-      setBundle(next);
+      window.dispatchEvent(new Event("pb-evidence-updated"));
     } catch (e: any) {
       setError(e?.message ?? "추천을 만들지 못했습니다.");
     } finally {
@@ -47,7 +45,6 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
 
   return (
     <div className="space-y-4">
-      <ControlStatusBar bundle={bundle} onChange={(b) => { saveBundle(b); setBundle(b); }} />
       <div className="card p-4">
         <p className="text-sm font-bold text-fg">고객 맞춤 상품 추천</p>
         <p className="mt-1 text-xs text-fg-muted">
@@ -106,10 +103,17 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
             ))}
           </div>
           <p className="text-[11px] text-fg-muted">{result.disclaimers.join(" ")}</p>
+          {result.citations && result.citations.length > 0 && (
+            <ul className="text-[10px] text-fg-muted">
+              {result.citations.map((c) => (
+                <li key={`${c.sourceId}-${c.chunkId}`}>
+                  출처 {c.sourceId} · {c.title} · as-of {c.asOf} · chunk {c.chunkId}
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
-
-      <EvidenceBundlePanel bundle={bundle} />
     </div>
   );
 }
