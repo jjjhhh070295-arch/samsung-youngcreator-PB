@@ -161,6 +161,7 @@ interface LocalDB {
 const LS_KEY = "pb-app-local-db";
 const SAMPLE_PB_ID = "pb-demo-youngcreator";
 const SAMPLE_CLIENT_ID = "client-hanbit-cashflow-sample";
+export const DEMO_PB_ID = SAMPLE_PB_ID;
 export const DEMO_PB_CREDENTIALS = {
   employeeId: "PB-001",
   password: "1234",
@@ -442,7 +443,10 @@ export async function listPbs(): Promise<PB[]> {
     .from("pbs")
     .select("*")
     .order("code", { ascending: true });
-  if (error) throw error;
+  if (error) {
+    console.warn("[store] Supabase PB 조회 실패 — 데모 계정으로 폴백:", error.message);
+    return localOrSampleDb().pbs.slice().sort((a, b) => a.code.localeCompare(b.code));
+  }
   const remote = (data ?? []).map(rowToPb);
   return mergeById(remote, localOrSampleDb().pbs).sort((a, b) => a.code.localeCompare(b.code));
 }
@@ -542,7 +546,10 @@ export async function listClients(): Promise<Client[]> {
     .from("parties")
     .select("*, individuals(*), corporates!party_id(*)")
     .order("created_at", { ascending: true });
-  if (error) throw error;
+  if (error) {
+    console.warn("[store] Supabase 고객 조회 실패 — 데모 고객으로 폴백:", error.message);
+    return localOrSampleDb().clients.slice();
+  }
   const remote = (data ?? []).map(rowToClient);
   return mergeById(remote, localOrSampleDb().clients);
 }
@@ -563,7 +570,10 @@ export async function getClient(id: string): Promise<Client | null> {
     .select("*, individuals(*), corporates!party_id(*)")
     .eq("id", id)
     .maybeSingle();
-  if (error) throw error;
+  if (error) {
+    console.warn("[store] Supabase 고객 단건 조회 실패 — 로컬/데모 고객으로 폴백:", error.message);
+    return localClient ?? null;
+  }
   return data ? rowToClient(data) : null;
 }
 
@@ -724,7 +734,12 @@ export async function listConsultations(clientId: string): Promise<Consultation[
     .select("*")
     .eq("client_id", clientId)
     .order("created_at", { ascending: true });
-  if (error) throw error;
+  if (error) {
+    console.warn("[store] Supabase 상담 조회 실패 — 로컬/데모 상담으로 폴백:", error.message);
+    return loadLocal()
+      .consultations.filter((c) => c.clientId === clientId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  }
   const remote = (data ?? []).map(rowToConsultation);
   const local = loadLocal().consultations.filter((c) => c.clientId === clientId);
   return mergeById(remote, local).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
@@ -735,7 +750,10 @@ export async function listAllConsultations(): Promise<Consultation[]> {
     return loadLocal().consultations.slice();
   }
   const { data, error } = await supabase!.from("consultations").select("*");
-  if (error) throw error;
+  if (error) {
+    console.warn("[store] Supabase 전체 상담 조회 실패 — 로컬/데모 상담으로 폴백:", error.message);
+    return localOrSampleDb().consultations.slice();
+  }
   return mergeById((data ?? []).map(rowToConsultation), localOrSampleDb().consultations);
 }
 

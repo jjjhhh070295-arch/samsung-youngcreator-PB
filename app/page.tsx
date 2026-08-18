@@ -10,6 +10,7 @@ import {
   updatePb,
   deletePb,
   usingLocalFallback,
+  DEMO_PB_ID,
   DEMO_PB_CREDENTIALS,
 } from "@/lib/store";
 import { setLoggedInPbId } from "@/lib/auth";
@@ -117,6 +118,14 @@ export default function HomePage() {
     try {
       const employeeId = loginEmpId.trim().toUpperCase();
       const normalizedPassword = password.trim();
+      if (
+        employeeId === DEMO_PB_CREDENTIALS.employeeId &&
+        normalizedPassword === DEMO_PB_CREDENTIALS.password
+      ) {
+        setLoggedInPbId(DEMO_PB_ID);
+        router.push(`/pb/${DEMO_PB_ID}`);
+        return;
+      }
       const found = pbs.find(
         (pb) => pb.employeeId.trim().toUpperCase() === employeeId && pb.password === normalizedPassword
       );
