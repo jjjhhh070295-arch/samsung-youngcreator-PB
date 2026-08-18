@@ -5,7 +5,7 @@ import { AI_ROLE_COPY, ENGINE_ROLE_COPY, HONESTY_LIMITS } from "@/lib/advisory/c
 
 const TONE: Record<PipelineStep["state"], string> = {
   complete: "bg-[#1428A0] text-white",
-  review: "bg-amber-500 text-white",
+  review: "bg-[#0B5CAB] text-white",
   blocked: "bg-red-600 text-white",
   pending: "bg-surface-2 text-fg-muted",
 };

@@ -43,7 +43,7 @@ export default function ControlStatusBar({
                 ? s === "blocked"
                   ? "bg-red-600 text-white"
                   : s === "review"
-                    ? "bg-amber-500 text-white"
+                    ? "bg-[#0B5CAB] text-white"
                     : "bg-[#1428A0] text-white"
                 : "bg-surface-2 text-fg-muted disabled:opacity-40"
             }`}
