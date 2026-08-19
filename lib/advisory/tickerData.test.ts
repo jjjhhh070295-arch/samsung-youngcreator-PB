@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { fetchNaverProfile, fetchNaverQuote } from "./naver";
+import { domesticCodeFromSymbol, fetchNaverDaily, fetchNaverProfile, fetchNaverQuote } from "./naver";
 import { resolveTickerInput } from "./tickerData";
 import { fetchYahooDaily } from "./yahoo";
 
@@ -30,6 +30,103 @@ describe("ticker market data providers", () => {
         symbol: "328130.KQ",
         domesticCode: "328130",
       });
+    });
+  });
+
+  it("영문 공식 종목명 NAVER를 국내 코스피 종목으로 해석한다", async () => {
+    await withMockFetch(async () => new Response(JSON.stringify({
+      items: [{
+        code: "035420",
+        name: "NAVER",
+        typeCode: "KOSPI",
+        typeName: "코스피",
+        nationCode: "KOR",
+        category: "stock",
+      }],
+    })), async () => {
+      assert.deepEqual(await resolveTickerInput("NAVER"), {
+        symbol: "035420.KS",
+        domesticCode: "035420",
+      });
+    });
+  });
+
+  it("공백이 포함된 LS ELECTRIC 공식 종목명을 국내 종목으로 해석한다", async () => {
+    await withMockFetch(async () => new Response(JSON.stringify({
+      items: [{
+        code: "010120",
+        name: "LS ELECTRIC",
+        typeCode: "KOSPI",
+        typeName: "코스피",
+        nationCode: "KOR",
+        category: "stock",
+      }],
+    })), async () => {
+      assert.deepEqual(await resolveTickerInput("ls electric"), {
+        symbol: "010120.KS",
+        domesticCode: "010120",
+      });
+    });
+  });
+
+  it("신규 상장 종목의 영문 포함 6자리 KRX 코드를 보존한다", async () => {
+    await withMockFetch(async () => new Response(JSON.stringify({
+      items: [{
+        code: "0088M0",
+        name: "메쥬",
+        typeCode: "KOSDAQ",
+        typeName: "코스닥",
+        nationCode: "KOR",
+        category: "stock",
+      }],
+    })), async () => {
+      assert.deepEqual(await resolveTickerInput("메쥬"), {
+        symbol: "0088M0.KQ",
+        domesticCode: "0088M0",
+      });
+      assert.equal(domesticCodeFromSymbol("0088M0.KQ"), "0088M0");
+    });
+  });
+
+  it("상장 첫날 일봉이 하나뿐이어도 현재가 데이터를 반환한다", async () => {
+    await withMockFetch(async (input) => {
+      const url = String(input);
+      if (url.includes("/basic")) {
+        return new Response(JSON.stringify({
+          itemCode: "0088M0",
+          stockName: "메쥬",
+          closePrice: "11,850",
+          compareToPreviousClosePrice: "0",
+          marketStatus: "CLOSE",
+          localTradedAt: "2026-08-19T16:10:00+09:00",
+          stockExchangeType: { code: "KQ", delayTime: 0, nameKor: "코스닥" },
+        }));
+      }
+      return new Response(JSON.stringify([{ localDate: "20260819", closePrice: 11_850 }]));
+    }, async () => {
+      const daily = await fetchNaverDaily("0088M0");
+      assert.equal(daily.name, "메쥬");
+      assert.deepEqual(daily.closes, [11_850]);
+      assert.deepEqual(daily.dates, ["2026-08-19"]);
+    });
+  });
+
+  it("해외 영문 티커는 국내 부분일치 결과가 있어도 Yahoo 티커로 유지한다", async () => {
+    await withMockFetch(async () => new Response(JSON.stringify({
+      items: [{
+        code: "1234A0",
+        name: "META KOREA",
+        typeCode: "KOSDAQ",
+        typeName: "코스닥",
+        nationCode: "KOR",
+        category: "stock",
+      }],
+    })), async () => {
+      assert.deepEqual(await resolveTickerInput("META"), {
+        symbol: "META",
+        domesticCode: null,
+      });
+      assert.equal(domesticCodeFromSymbol("ABCDEF"), null);
     });
   });
 

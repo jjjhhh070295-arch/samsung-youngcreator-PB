@@ -60,11 +60,26 @@ export default function HomePage() {
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/chart", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setChartData(d))
-      .catch(() => {})
-      .finally(() => setChartLoading(false));
+    let cancelled = false;
+    const loadCharts = async () => {
+      try {
+        const response = await fetch("/api/chart", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled) setChartData(data);
+      } catch {
+        // 일시적 갱신 실패 시 마지막 정상 차트를 유지한다.
+      } finally {
+        if (!cancelled) setChartLoading(false);
+      }
+    };
+
+    loadCharts();
+    const id = window.setInterval(loadCharts, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {

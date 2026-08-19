@@ -42,6 +42,11 @@ function normalizeName(value: string) {
   return value.toLowerCase().replace(/[\s._-]+/g, "");
 }
 
+function isDomesticStockCode(value: string) {
+  const normalized = value.trim();
+  return /^[0-9A-Z]{6}$/i.test(normalized) && /\d/.test(normalized);
+}
+
 function yahooSymbol(code: string, marketCode?: string, typeCode?: string) {
   const market = `${marketCode ?? ""} ${typeCode ?? ""}`.toUpperCase();
   if (market.includes("KQ") || market.includes("KOSDAQ")) return `${code}.KQ`;
@@ -50,8 +55,8 @@ function yahooSymbol(code: string, marketCode?: string, typeCode?: string) {
 }
 
 export function domesticCodeFromSymbol(symbol: string): string | null {
-  const match = symbol.toUpperCase().match(/^(\d{6})(?:\.(?:KS|KQ))?$/);
-  return match?.[1] ?? null;
+  const match = symbol.toUpperCase().match(/^([0-9A-Z]{6})(?:\.(?:KS|KQ))?$/);
+  return match && isDomesticStockCode(match[1]) ? match[1] : null;
 }
 
 export function yahooSymbolFromNaverMatch(match: NaverStockMatch) {
@@ -64,11 +69,18 @@ export async function searchNaverStock(query: string): Promise<NaverStockMatch |
   if (!res.ok) throw new Error(`국내 종목명 검색 실패 (${res.status})`);
   const items: NaverStockMatch[] = (await res.json())?.items ?? [];
   const domestic = items.filter((item) =>
-    item?.nationCode === "KOR" && item?.category === "stock" && /^\d{6}$/.test(item.code),
+    item?.nationCode === "KOR" && item?.category === "stock" && isDomesticStockCode(item.code),
   );
   if (!domestic.length) return null;
   const normalizedQuery = normalizeName(query);
-  return domestic.find((item) => normalizeName(item.name) === normalizedQuery || item.code === query) ?? domestic[0];
+  const exact = domestic.find((item) =>
+    normalizeName(item.name) === normalizedQuery || item.code.toUpperCase() === query.trim().toUpperCase(),
+  );
+  if (exact) return exact;
+
+  // 영문 티커(NVDA, META 등)가 국내 부분일치 종목으로 잘못 선택되는 것을 막는다.
+  // 한글 검색어는 네이버 자동완성의 첫 국내 종목을 계속 활용한다.
+  return /[가-힣]/.test(query) ? domestic[0] : null;
 }
 
 async function fetchNaverBasic(code: string): Promise<NaverBasic> {
@@ -141,7 +153,9 @@ export async function fetchNaverDaily(code: string): Promise<YahooDaily> {
     }))
     .filter((point): point is { time: string; close: number } => Boolean(point.time) && point.close != null && point.close > 0)
     .sort((a, b) => a.time.localeCompare(b.time));
-  if (points.length < 2) throw new Error("분석에 필요한 국내 일봉이 부족합니다.");
+  // 신규 상장 첫날에는 일봉이 하나뿐일 수 있다. 화면과 현재가는 제공하고,
+  // 계산할 수 없는 장기 지표는 snapshot 단계에서 null과 경고로 표시한다.
+  if (points.length < 1) throw new Error("분석에 필요한 국내 일봉이 없습니다.");
 
   const tradedDate = dateKey(new Date(quote.asOf));
   const latest = points.at(-1);

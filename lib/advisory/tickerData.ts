@@ -25,11 +25,11 @@ export async function resolveTickerInput(raw: string): Promise<ResolvedTicker> {
   const input = raw.trim();
   if (!input) throw new Error("티커가 비어 있습니다.");
 
-  if (/^\d{6}$/.test(input) || /[가-힣]/.test(input)) {
-    const match = await searchNaverStock(input).catch(() => null);
-    if (match) {
-      return { symbol: yahooSymbolFromNaverMatch(match), domesticCode: match.code };
-    }
+  // NAVER, LS ELECTRIC처럼 영문이 공식 종목명인 국내 기업도 있으므로
+  // 입력 문자 종류와 무관하게 국내 종목 검색을 먼저 시도한다.
+  const match = await searchNaverStock(input).catch(() => null);
+  if (match) {
+    return { symbol: yahooSymbolFromNaverMatch(match), domesticCode: match.code };
   }
 
   const symbol = await resolveYahooSymbol(input);

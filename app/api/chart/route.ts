@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchNaverKospiIntraday, type HomeChartResult } from "@/lib/homeMarketChart";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -6,15 +7,7 @@ export const dynamic = "force-dynamic";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 
-interface ChartResult {
-  points: { time: string; value: number }[];
-  prevClose: number | null;
-  delayMinutes: number;
-  startTime: string | null;
-  endTime: string | null;
-}
-
-async function fetchIntraday(symbol: string): Promise<ChartResult> {
+async function fetchIntraday(symbol: string): Promise<HomeChartResult> {
   const res = await fetch(
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d`,
     { headers: { "user-agent": UA }, cache: "no-store" },
@@ -45,9 +38,17 @@ async function fetchIntraday(symbol: string): Promise<ChartResult> {
   return { points, prevClose, delayMinutes, startTime, endTime };
 }
 
+async function fetchKospiIntraday() {
+  try {
+    return await fetchNaverKospiIntraday();
+  } catch {
+    return fetchIntraday("^KS11");
+  }
+}
+
 export async function GET() {
   const [kospi, spx] = await Promise.allSettled([
-    fetchIntraday("^KS11"),
+    fetchKospiIntraday(),
     fetchIntraday("^GSPC"),
   ]);
 
