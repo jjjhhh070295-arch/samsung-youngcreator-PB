@@ -100,6 +100,9 @@ export default function ConsultationHub({ client }: { client: Client }) {
     <div className="space-y-3">
       <ConsultationPipelineBar
         steps={steps}
+        client={client}
+        bundle={bundle}
+        onBundleChange={persist}
         statusLabel={`bundle.status=${bundle.status} · ${ADVISORY_STATUS_LABEL[bundle.status]}`}
       />
       <ControlStatusBar

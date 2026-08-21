@@ -126,7 +126,7 @@ export default function ControlStatusBar({
         </p>
         <button
           type="button"
-          className="btn-gold mt-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3 rounded-lg bg-[#C5A572] px-5 py-3 text-sm font-bold text-[#1a1408] shadow-md hover:bg-[#b8955f] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={busy || bundle.status === "locked" || bundle.status === "blocked"}
           onClick={() => void approve()}
         >
