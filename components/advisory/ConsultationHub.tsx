@@ -34,6 +34,7 @@ export default function ConsultationHub({ client }: { client: Client }) {
       />
       <ControlStatusBar
         bundle={bundle}
+        client={client}
         onChange={(next) => {
           saveBundle(next);
           setBundle(next);
