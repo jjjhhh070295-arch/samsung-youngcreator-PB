@@ -5,6 +5,7 @@ import type { Client } from "@/lib/types";
 import type { CalcResults, EvidenceBundle } from "@/lib/advisory/types";
 import { loadBundle, saveBundle } from "@/lib/advisory/control";
 import { buildPipeline } from "@/lib/advisory/pipeline";
+import { ADVISORY_STATUS_LABEL } from "@/lib/advisory/types";
 import ConsultationPipelineBar from "./ConsultationPipelineBar";
 import ControlStatusBar from "./ControlStatusBar";
 import EvidenceBundlePanel from "./EvidenceBundlePanel";
@@ -27,7 +28,10 @@ export default function ConsultationHub({ client }: { client: Client }) {
 
   return (
     <div className="space-y-3">
-      <ConsultationPipelineBar steps={steps} />
+      <ConsultationPipelineBar
+        steps={steps}
+        statusLabel={`bundle.status=${bundle.status} · ${ADVISORY_STATUS_LABEL[bundle.status]}`}
+      />
       <ControlStatusBar
         bundle={bundle}
         onChange={(next) => {

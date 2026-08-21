@@ -387,6 +387,8 @@ export interface EvidenceBundle {
   outputHash: string;
   judgeAttempts: number;
   blockReasons: string[];
+  /** locked 전 soft gate — UI에 "무엇을 해야 하는지" 안내. blocked와 구분. */
+  pendingReasons: string[];
   runs: EvidenceRun[];
   judge: JudgeResult | null;
   approvals: ApprovalEvent[];

@@ -84,6 +84,7 @@ export function emptyBundle(clientId: string): EvidenceBundle {
     outputHash: "",
     judgeAttempts: 0,
     blockReasons: [],
+    pendingReasons: [],
     runs: [],
     judge: null,
     approvals: [],
@@ -99,6 +100,7 @@ export function migrateBundle(raw: EvidenceBundle, clientId: string): EvidenceBu
     runId: raw.runId || base.runId,
     citations: raw.citations ?? [],
     blockReasons: raw.blockReasons ?? [],
+    pendingReasons: raw.pendingReasons ?? [],
     judgeAttempts: raw.judgeAttempts ?? 0,
     inputHash: raw.inputHash ?? "",
     settingsHash: raw.settingsHash ?? "",
@@ -117,10 +119,13 @@ export function pdfBlockReason(bundle: EvidenceBundle): string {
   if (bundle.status === "blocked") {
     return bundle.blockReasons[0] || "발행차단 상태입니다. 고객용 최종 PDF를 저장할 수 없습니다.";
   }
-  if (bundle.status === "review") {
-    return "PB 검토 중입니다. locked 확정 후에만 고객용 최종 PDF를 발행할 수 있습니다.";
+  if (bundle.pendingReasons.length) {
+    return `PDF 비활성: ${bundle.pendingReasons[0]}`;
   }
-  return "초안(draft) 상태입니다. PB 승인으로 locked가 되어야 고객용 최종 PDF를 발행할 수 있습니다.";
+  if (bundle.status === "review") {
+    return "PB 검토 중입니다. 「PB 검토 완료/승인」으로 locked가 되어야 고객용 최종 PDF를 발행할 수 있습니다.";
+  }
+  return "초안(draft) 상태입니다. Evidence Bundle 생성 후 PB 승인으로 locked가 되어야 고객용 최종 PDF를 발행할 수 있습니다.";
 }
 
 const ALLOWED: Record<AdvisoryStatus, AdvisoryStatus[]> = {
@@ -151,15 +156,74 @@ export function hardStopReasons(bundle: EvidenceBundle): string[] {
   return reasons;
 }
 
+/** locked 전 soft gate — 아직 준비가 안 된 항목(애매하게 review에만 두지 않고 안내). */
+export function softLockReasons(bundle: EvidenceBundle): string[] {
+  const reasons: string[] = [];
+  if (!bundle.judge) {
+    reasons.push("Judge 결과가 없습니다. Evidence Bundle을 생성하거나 상품추천을 실행하세요.");
+  }
+  if (!bundle.citation) {
+    reasons.push("인용 검증 결과가 없습니다. Evidence Bundle을 생성하세요.");
+  }
+  if (bundle.conflict && !bundle.conflict.passed && bundle.conflict.needsReview) {
+    reasons.push(bundle.conflict.message || "고객 선호·포트폴리오 충돌 — PB가 검토 후 승인해야 합니다.");
+  }
+  if (!bundle.calcResults) {
+    reasons.push("결정론 계산 스냅샷이 없습니다. Evidence Bundle을 생성하세요.");
+  }
+  return reasons;
+}
+
 export function canLock(bundle: EvidenceBundle): boolean {
   if (bundle.status === "blocked") return false;
   if (hardStopReasons(bundle).length > 0) return false;
   if (!bundle.judge?.passed) return false;
   if (!bundle.citation?.passed) return false;
-  if (bundle.conflict && !bundle.conflict.passed && bundle.conflict.needsReview && bundle.status !== "review") {
-    return false;
+  // soft conflict는 review/draft에서 PB가 명시 승인하면 해소(아래 approveByPb에서 review면 허용)
+  if (bundle.conflict && !bundle.conflict.passed && !bundle.conflict.needsReview) return false;
+  if (bundle.conflict && !bundle.conflict.passed && bundle.conflict.needsReview) {
+    // needsReview 충돌은 review 상태에서만 PB 승인으로 locked 가능
+    if (bundle.status !== "review" && bundle.status !== "draft") return false;
   }
   return true;
+}
+
+/** 결정론 스냅샷용 Judge — AI가 숫자를 확정하지 않았는지·메타 존재 여부만 검사. */
+export function judgeCalcResults(results: CalcResults): JudgeResult {
+  const findings: JudgeFinding[] = [];
+  const now = new Date().toISOString();
+  const nums = [
+    results.risk.expectedReturn,
+    results.risk.volatility,
+    results.risk.sharpe,
+    results.risk.mdd,
+    results.risk.var95,
+    results.risk.cvar95,
+    ...(results.waterfall
+      ? [results.waterfall.pretaxEnding, results.waterfall.expectedTax, results.waterfall.productCost, results.waterfall.afterTaxEnding]
+      : []),
+  ];
+  const missingMeta = nums.some((n) => !n.asOf || !n.source);
+  findings.push({
+    code: "MEASURED_META",
+    severity: missingMeta ? "fail" : "pass",
+    message: missingMeta ? "핵심 수치 as-of/source 누락" : "핵심 수치 as-of/source 존재",
+  });
+  findings.push({
+    code: "STRESS_COUNT",
+    severity: results.stress.length >= 2 ? "pass" : "fail",
+    message: results.stress.length >= 2 ? `스트레스 ${results.stress.length}건` : "스트레스 시나리오 부족",
+  });
+  findings.push({
+    code: "ENGINE_ONLY",
+    severity: "pass",
+    message: "스냅샷은 결정론 엔진 산출(세금·VaR 확정 AI 없음)",
+  });
+  return {
+    at: now,
+    passed: findings.every((f) => f.severity !== "fail"),
+    findings,
+  };
 }
 
 export function judgeRecommend(result: RecommendResult): JudgeResult {
@@ -437,23 +501,72 @@ export function transitionStatus(
     updatedAt: at,
     status: to,
     blockReasons: to === "blocked" ? [note, ...bundle.blockReasons] : to === "locked" ? [] : bundle.blockReasons,
+    pendingReasons: to === "locked" || to === "blocked" ? [] : bundle.pendingReasons,
     approvals: [{ at, actor, from: bundle.status, to, note }, ...bundle.approvals],
   };
 }
 
-/** PB HITL: draft → review 또는 locked. 하드스톱이면 blocked. */
+/**
+ * PB HITL 승인.
+ * - hard stop → blocked (명확한 사유)
+ * - Judge·인용 통과 → locked
+ * - 준비 미완 → review + pendingReasons (무엇을 해야 하는지 명시). 이미 review여도 no-op 금지.
+ */
 export function approveByPb(bundle: EvidenceBundle, actor = "PB"): EvidenceBundle {
   const stops = hardStopReasons(bundle);
   if (stops.length) {
-    return transitionStatus({ ...bundle, blockReasons: stops }, "blocked", actor, stops[0]);
+    return transitionStatus({ ...bundle, blockReasons: stops, pendingReasons: [] }, "blocked", actor, stops[0]);
   }
-  if (canLock(bundle) && canTransition(bundle.status, "locked")) {
-    return transitionStatus(bundle, "locked", actor, "PB 승인 — 고객용 PDF 발행 가능");
+
+  // soft conflict는 review에서 PB가 승인하면 해소된 것으로 본다
+  let working: EvidenceBundle = bundle;
+  if (bundle.conflict && !bundle.conflict.passed && bundle.conflict.needsReview) {
+    working = {
+      ...bundle,
+      conflict: {
+        ...bundle.conflict,
+        passed: true,
+        needsReview: false,
+        message: `PB 승인으로 충돌 검토 완료: ${bundle.conflict.conflicts[0] ?? "해소"}`,
+      },
+    };
   }
-  if (canTransition(bundle.status, "review")) {
-    return transitionStatus(bundle, "review", actor, "PB 승인 — 검토 단계. Judge·인용 통과 후 locked 가능");
+
+  if (canLock(working) && canTransition(working.status, "locked")) {
+    return {
+      ...transitionStatus(working, "locked", actor, "PB 승인 — 고객용 PDF 발행 가능"),
+      pendingReasons: [],
+      blockReasons: [],
+    };
   }
-  return bundle;
+
+  const soft = softLockReasons(working);
+  const at = new Date().toISOString();
+  const note =
+    soft.length > 0
+      ? `PB 검토 대기 — ${soft[0]}`
+      : "PB 검토 대기 — locked 조건을 충족하지 못했습니다.";
+
+  // 이미 review여도 pendingReasons를 갱신하고 승인 이력을 남겨 UI가 멈춘 것처럼 보이지 않게 함
+  if (working.status === "review" || canTransition(working.status, "review")) {
+    const to: AdvisoryStatus = working.status === "review" ? "review" : "review";
+    const from = working.status;
+    return {
+      ...working,
+      updatedAt: at,
+      status: to,
+      pendingReasons: soft.length ? soft : [note],
+      blockReasons: [],
+      approvals: [{ at, actor, from, to, note }, ...working.approvals],
+    };
+  }
+
+  return {
+    ...working,
+    updatedAt: at,
+    pendingReasons: soft.length ? soft : [note],
+    approvals: [{ at, actor, from: working.status, to: working.status, note }, ...working.approvals],
+  };
 }
 
 export function applyCalcSnapshot(
@@ -482,8 +595,13 @@ export function applyCalcSnapshot(
     settingsHash: payload.settingsHash,
     resultHash: payload.resultHash,
     outputHash: payload.resultHash,
+    pendingReasons: [],
   };
   next = attachCitations(next, payload.citations);
+  // Evidence 생성 시 결정론 Judge를 반드시 붙여 PB 승인이 review에 고착되지 않게 함
+  if (next.status !== "blocked") {
+    next = applyJudge(next, judgeCalcResults(payload.calcResults), "engine");
+  }
   next = appendRun(next, {
     kind: "snapshot",
     engine: ENGINE_SOURCE,

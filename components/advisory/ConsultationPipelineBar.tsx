@@ -2,6 +2,7 @@
 
 import type { PipelineStep } from "@/lib/advisory/types";
 import { AI_ROLE_COPY, ENGINE_ROLE_COPY, HONESTY_LIMITS } from "@/lib/advisory/constants";
+import { currentPipelineStep } from "@/lib/advisory/pipeline";
 
 const TONE: Record<PipelineStep["state"], string> = {
   complete: "bg-[#1428A0] text-white",
@@ -20,11 +21,14 @@ const LABEL: Record<PipelineStep["state"], string> = {
 export default function ConsultationPipelineBar({
   steps,
   currentLabel,
+  statusLabel,
 }: {
   steps: PipelineStep[];
   currentLabel?: string;
+  /** bundle.status 표시 — 카드와 어긋나지 않게 */
+  statusLabel?: string;
 }) {
-  const current = steps.find((s) => s.state === "review" || s.state === "blocked") ?? steps.find((s) => s.state === "pending") ?? steps[steps.length - 1];
+  const current = currentPipelineStep(steps);
   return (
     <div className="card space-y-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -32,6 +36,7 @@ export default function ConsultationPipelineBar({
           <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted">상담 파이프라인</p>
           <p className="text-sm font-bold text-fg">
             현재 단계: {currentLabel ?? current?.label} · {current ? LABEL[current.state] : ""}
+            {statusLabel ? <span className="ml-2 text-xs font-semibold text-[#1428A0]">({statusLabel})</span> : null}
           </p>
         </div>
         <p className="max-w-xl text-[11px] leading-relaxed text-fg-muted">
@@ -41,7 +46,11 @@ export default function ConsultationPipelineBar({
       <ol className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-stretch">
         {steps.map((s, i) => (
           <li key={s.id} className="flex min-w-0 flex-1 items-stretch gap-2">
-            <div className={`rounded-lg px-3 py-2 ${TONE[s.state]}`}>
+            <div
+              className={`rounded-lg px-3 py-2 ${TONE[s.state]} ${
+                current?.id === s.id ? "ring-2 ring-offset-1 ring-[#1428A0]" : ""
+              }`}
+            >
               <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
                 {i + 1}. {LABEL[s.state]}
               </p>
