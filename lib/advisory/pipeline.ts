@@ -26,22 +26,30 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
   const ipsReview = Object.values(client.ips).some((f) => f.status === "inferred" && !f.reviewed);
   const locked = bundle.status === "locked";
   const inReview = bundle.status === "review";
-  const portfolio = !!client.stages?.portfolio && client.portfolios.length > 0;
-  const risk = !!client.stages?.stress || !!bundle.calcResults?.stress?.length;
-  const tax = !!bundle.calcResults?.waterfall || portfolio;
+  const portfolioDone = !!client.stages?.portfolio && client.portfolios.length > 0;
+  const riskDone = !!client.stages?.stress || !!bundle.calcResults?.stress?.length;
+  const taxDone = !!bundle.calcResults?.waterfall || portfolioDone;
   const soft = softLockReasons(bundle);
   const lockReady = canLock(bundle) && !blocked;
+
+  // PB 승인(locked) 전에는 하위 단계를 "완료"로 보이지 않게 — 3단계 고착 착시 방지
+  const downstreamComplete = locked;
 
   const approveNote = (): string => {
     if (blocked) return bundle.blockReasons[0] || "발행차단";
     if (locked) return "locked · PB 승인 완료";
-    if (lockReady) return "조건 충족 — 「PB 검토 완료/승인」을 누르면 locked";
+    if (lockReady) return "조건 충족 — 금색 승인 버튼 → locked";
     if (inReview || soft.length) {
-      return (bundle.pendingReasons[0] || soft[0] || "검토필요") + " · 아래 CTA 확인";
+      return bundle.pendingReasons[0] || soft[0] || "금색 「PB 검토 완료/승인」 버튼을 누르세요";
     }
-    if (bundle.status === "draft") return "draft — Evidence 생성 후 PB 승인";
+    if (bundle.status === "draft") return "draft — 금색 승인 버튼으로 Evidence+locked";
     return bundle.status;
   };
+
+  const approveReview =
+    !locked &&
+    !blocked &&
+    (inReview || (!lockReady && soft.length > 0) || (lockReady && bundle.status !== "locked"));
 
   return [
     {
@@ -59,52 +67,58 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
     {
       id: "approve",
       label: "PB 승인",
-      state: stateOf(locked, !lockReady && (inReview || soft.length > 0) && !locked && !blocked, blocked),
+      state: stateOf(locked, approveReview && !locked, blocked),
       note: approveNote(),
     },
     {
       id: "portfolio",
       label: "포트폴리오 비교",
-      state: stateOf(portfolio, false, blocked && !portfolio),
-      note: portfolio ? client.portfolios[0]?.label || "확정됨" : "A/B/C 비교 후 확정 필요",
+      state: stateOf(downstreamComplete && portfolioDone, portfolioDone && !locked, blocked && !portfolioDone),
+      note: !portfolioDone
+        ? "A/B/C 비교 후 확정 필요"
+        : locked
+          ? client.portfolios[0]?.label || "확정됨"
+          : `${client.portfolios[0]?.label || "산출됨"} · PB locked 대기`,
     },
     {
       id: "risk",
       label: "리스크/스트레스",
-      state: stateOf(risk, portfolio && !risk, blocked),
-      note: risk ? "VaR/CVaR·시나리오 산출" : "포트폴리오 확정 후 산출",
+      state: stateOf(downstreamComplete && riskDone, riskDone && !locked, blocked),
+      note: !riskDone
+        ? "포트폴리오 확정 후 산출"
+        : locked
+          ? "VaR/CVaR·시나리오 산출"
+          : "산출됨 · PB locked 대기",
     },
     {
       id: "tax",
       label: "세전·세금·비용·세후",
-      state: stateOf(tax, false, blocked),
-      note: tax ? "워터폴 산출" : "세후 워터폴 대기",
+      state: stateOf(downstreamComplete && taxDone, taxDone && !locked, blocked),
+      note: !taxDone ? "세후 워터폴 대기" : locked ? "워터폴 산출" : "산출됨 · PB locked 대기",
     },
     {
       id: "pdf",
       label: "PDF",
-      state: stateOf(locked, inReview, blocked || bundle.status === "draft"),
+      state: stateOf(locked, inReview || (!locked && !blocked), blocked),
       note: locked
         ? "고객용 최종본 가능"
         : blocked
           ? "발행차단"
-          : inReview
-            ? "locked 전 비활성 — PB 승인 필요"
-            : "locked 전 비활성",
+          : "locked 전 비활성 — 3단계 승인 필요",
     },
   ];
 }
 
-/** 파이프라인 '현재 단계' — review에만 고정되지 않고, 다음 pending을 우선 표시. */
+/** 파이프라인 '현재 단계' — 승인(review)을 최우선으로 표시. */
 export function currentPipelineStep(steps: PipelineStep[]): PipelineStep {
   const blocked = steps.find((s) => s.state === "blocked");
   if (blocked) return blocked;
-  const pending = steps.find((s) => s.state === "pending");
+  const approve = steps.find((s) => s.id === "approve");
+  if (approve && approve.state !== "complete") return approve;
   const review = steps.find((s) => s.state === "review");
-  // 승인 단계가 review이고 그 외는 완료면 승인 카드가 현재
-  if (review?.id === "approve") return review;
-  if (pending) return pending;
   if (review) return review;
+  const pending = steps.find((s) => s.state === "pending");
+  if (pending) return pending;
   return steps[steps.length - 1];
 }
 

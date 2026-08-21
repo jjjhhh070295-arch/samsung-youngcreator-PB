@@ -609,5 +609,24 @@ export function applyCalcSnapshot(
     outputHash: payload.resultHash,
     notes: `Evidence Bundle 생성 · settings ${payload.settingsHash.slice(0, 8)} · result ${payload.resultHash.slice(0, 8)}`,
   });
+  // 이미 PB가 review까지 올린 상태면 Evidence 준비 직후 locked로 확정 (3단계 고착 방지)
+  if (next.status === "review" && canLock(next)) {
+    next = approveByPb(next, "PB");
+  }
   return next;
+}
+
+/**
+ * review 고착 복구: soft gate면 Evidence 스냅샷을 붙인 뒤, 가능하면 locked.
+ * UI/허브에서 비동기로 snap을 가져온 뒤 호출.
+ */
+export function completeApprovalIfReady(bundle: EvidenceBundle, actor = "PB"): EvidenceBundle {
+  if (bundle.status === "locked" || bundle.status === "blocked") return bundle;
+  if (hardStopReasons(bundle).length) {
+    return approveByPb(bundle, actor);
+  }
+  if (canLock(bundle)) {
+    return approveByPb(bundle, actor);
+  }
+  return bundle;
 }

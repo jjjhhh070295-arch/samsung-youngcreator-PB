@@ -185,6 +185,55 @@ describe("PB approve gate", () => {
     assert.equal(b.status, "locked");
   });
 
+  it("review 상태에서 Evidence 재생성하면 자동 locked", () => {
+    let b = emptyBundle("c1");
+    b = transitionStatus(b, "review", "PB", "검토만");
+    assert.equal(b.status, "review");
+    // readyBundle의 applyCalcSnapshot 경로를 재현
+    const asOf = "2026-08-01T00:00:00.000Z";
+    const risk = buildRiskMetrics({ expectedReturnPct: 8, volatilityPct: 12, mddPct: -15, asOf });
+    const calcResults: CalcResults = {
+      risk,
+      stress: [
+        {
+          id: "a",
+          label: "금리 +100bp",
+          assumption: "test",
+          shockPct: { value: -1, unit: "%", asOf, source: "engine" },
+          pnlWon: { value: -1000, unit: "KRW", asOf, source: "engine", currency: "KRW" },
+        },
+        {
+          id: "b",
+          label: "주식 -20%",
+          assumption: "test",
+          shockPct: { value: -8, unit: "%", asOf, source: "engine" },
+          pnlWon: { value: -8000, unit: "KRW", asOf, source: "engine", currency: "KRW" },
+        },
+      ],
+      waterfall: {
+        pretaxEnding: { value: 1e9, unit: "KRW", asOf, source: "engine", currency: "KRW" },
+        expectedTax: { value: 1e7, unit: "KRW", asOf, source: "engine", currency: "KRW" },
+        productCost: { value: 1e6, unit: "KRW", asOf, source: "engine", currency: "KRW" },
+        afterTaxEnding: { value: 9.89e8, unit: "KRW", asOf, source: "engine", currency: "KRW" },
+      },
+    };
+    b = applyCalcSnapshot(b, {
+      consultationInput: "해외주식만",
+      ipsExtract: {},
+      calcConfig: defaultCalcConfig(),
+      calcResults,
+      inputHash: "aa",
+      settingsHash: "bb",
+      resultHash: "cc",
+      citations: [
+        { sourceId: "eng-risk-parametric", title: "VaR", asOf: "2026-08-01", chunkId: "risk-engine-v1" },
+        { sourceId: "eng-tax-waterfall", title: "tax", asOf: "2026-08-01", chunkId: "tax-projection-v1" },
+        { sourceId: "eng-stress-scenarios", title: "stress", asOf: "2026-08-01", chunkId: "stress-scenarios-v1" },
+      ],
+    });
+    assert.equal(b.status, "locked");
+  });
+
   it("Judge/인용 실패 시 locked 불가", () => {
     let b = emptyBundle("c1");
     b = applyJudge(b, failJudge, "engine");
@@ -237,20 +286,27 @@ describe("pipeline steps", () => {
       consultationNotes: "해외주식만",
       ips: emptyIPS(),
       cashFlows: [],
-      portfolios: [],
-      stages: {},
+      portfolios: [{ id: "p1", label: "성장형", weights: { etf: 40, bond: 20, els: 0, mmf: 20, gold: 10, dollar: 10, raw: 0 }, expectedReturn: 8, expectedRisk: 12 }],
+      stages: { portfolio: true, stress: true },
       createdAt: "2026-01-01T00:00:00.000Z",
     };
     client.ips.return = { ...client.ips.return, value: "10%", status: "explicit", reviewed: true };
 
+    // locked 전에는 하위 단계가 완료로 보이지 않음
     let b = readyBundle();
+    b = transitionStatus(b, "review", "PB", "검토");
+    let steps = buildPipeline(client, b);
+    assert.equal(steps.find((s) => s.id === "approve")?.state, "review");
+    assert.notEqual(steps.find((s) => s.id === "portfolio")?.state, "complete");
+
     b = approveByPb(b);
     assert.equal(b.status, "locked");
-    const steps = buildPipeline(client, b);
+    steps = buildPipeline(client, b);
     const approve = steps.find((s) => s.id === "approve");
     assert.equal(approve?.state, "complete");
     assert.equal(pipelineMatchesStatus(steps, "locked"), true);
-    assert.notEqual(currentPipelineStep(steps).state, "review");
+    assert.equal(steps.find((s) => s.id === "portfolio")?.state, "complete");
+    assert.notEqual(currentPipelineStep(steps).id, "approve");
   });
 
   it("judgeCalcResults는 메타 있으면 통과", () => {
