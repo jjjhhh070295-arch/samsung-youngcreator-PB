@@ -33,3 +33,4 @@ yarn-error.log*
 # local generated / client working files
 /outputs
 /.pnpm-store
+.env*

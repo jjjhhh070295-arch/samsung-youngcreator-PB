@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -37,6 +37,8 @@ import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
 import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem, type PlanRowOrigin } from '@/components/StockSectorPanel';
 import QuickScrollButtons from '@/components/QuickScrollButtons';
+import KoreanStockTrendFilter from '@/components/advisory/KoreanStockTrendFilter';
+import { applyPbSelectedKoreanStocks, type PbSelectedKoreanStock } from '@/lib/advisory/krTrendPortfolio';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -961,6 +963,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [isSuitabilityOpen, setIsSuitabilityOpen] = useState(false);
   const [activePortfolioDetail, setActivePortfolioDetail] = useState<'assets' | 'evidence' | 'returns' | null>(null);
   const [hasManualEdit, setHasManualEdit] = useState(false);
+  const [krSelectedStocks, setKrSelectedStocks] = useState<PbSelectedKoreanStock[]>([]);
+  const [krEquityPending, setKrEquityPending] = useState(true);
+  const handleKrTrendSelection = useCallback((selected: PbSelectedKoreanStock[], equityPending: boolean) => {
+    setKrSelectedStocks(selected);
+    setKrEquityPending(equityPending);
+  }, []);
   const [benchmarkPoints, setBenchmarkPoints] = useState<BenchmarkApiPoint[]>(FALLBACK_BENCHMARK_POINTS);
   const [proxyReturns, setProxyReturns] = useState<ProxyReturnEstimate[]>([]);
   const [stressRange, setStressRange] = useState<HistoricalStressRangeResponse | null>(null);
@@ -1299,10 +1307,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     ),
     [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedBase, selectedRiskTilt, planSummary, sectorEtfData],
   );
-  const selectedDetailedHoldings = useMemo(
-    () => buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase),
-    [adjustedWeights, model.preferenceProfile, selectedBase],
-  );
+  const selectedDetailedHoldings = useMemo(() => {
+    const base = buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase);
+    return applyPbSelectedKoreanStocks(base, krSelectedStocks, adjustedWeights.etf).holdings;
+  }, [adjustedWeights, model.preferenceProfile, selectedBase, krSelectedStocks]);
   const proxyReturnSummary = useMemo(
     () => proxyReturns.length > 0
       ? calculatePortfolioProxyReturn(
@@ -1408,7 +1416,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         model.rationale.cashflow,
         model.rationale.preference,
         model.rationale.unique,
-      ].join(' '),
+        krSelectedStocks.length
+          ? `주식형은 PB 선택 국내 주식(${krSelectedStocks.map((s) => s.name).join(', ')})으로 구성.`
+          : krEquityPending
+            ? '주식형은 국장 추세 필터에서 PB 체크 전까지 확정 대기.'
+            : '',
+      ].filter(Boolean).join(' '),
       editedByPb: true,
     });
   }, [
@@ -1421,6 +1434,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     selectedBase,
     selectedMarketRationale,
     selectedOption.name,
+    krSelectedStocks,
+    krEquityPending,
   ]);
 
   const handleBaseChange = (type: PortfolioOption['id']) => {
@@ -2498,10 +2513,25 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       </section>
       )}
 
+      <KoreanStockTrendFilter
+        clientId={clientId}
+        equityWeightPct={adjustedWeights.etf}
+        onSelectionChange={handleKrTrendSelection}
+      />
+
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2 border-b border-border pb-3">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
           <h3 className="text-base font-bold text-fg">분석 기반 추천안 3개 비교</h3>
+          {krEquityPending ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+              주식 확정 대기
+            </span>
+          ) : (
+            <span className="rounded-full bg-[#1428A0]/10 px-2 py-0.5 text-[10px] font-semibold text-[#1428A0]">
+              주식형 = PB 선택 국내 주식
+            </span>
+          )}
         </div>
 
         {/* 부동산 과다 경고 — 배분 차단 없이 정보 제공 */}
