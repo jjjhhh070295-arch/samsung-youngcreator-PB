@@ -2,8 +2,11 @@ import type { OhlcBar } from "./krTrendFilter";
 
 const NAVER_HEADERS = {
   "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36",
-  referer: "https://finance.naver.com/",
+  referer: "https://m.stock.naver.com/",
 };
+
+/** 시가총액 하한: 5,000억 원 */
+export const MIN_KR_MARKET_CAP_WON = 500_000_000_000;
 
 export interface KrGainerRow {
   rank: number;
@@ -13,88 +16,193 @@ export interface KrGainerRow {
   changePct: number;
   volume: number;
   tradingValueWon: number | null;
+  marketCapWon: number | null;
+  marketCapLabel: string;
+  marketCapAsOf: string;
+  marketCapSource: string;
+  marketCapStatus: "ok" | "below_floor" | "unverifiable";
   market: "KOSPI" | "KOSDAQ";
   asOf: string;
   source: string;
   currency: "KRW";
 }
 
-function parseNumeric(value: string): number | null {
-  const n = Number(value.replace(/[,%+\s원]/g, ""));
+function parseNumeric(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const s = value.replace(/[,%+\s원]/g, "").trim();
+  if (!s || s === "-" || s.toUpperCase() === "N/A") return null;
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
 
-function isExcludedInstrument(name: string, ticker: string): boolean {
+function isExcludedInstrument(name: string, stockEndType?: string): boolean {
+  if (stockEndType && stockEndType !== "stock") return true;
   const n = name.toUpperCase();
-  if (/ETF|ETN|인버스|레버리지|선물|스팩|SPAC/.test(n)) return true;
-  // 상장지수증권·ETN 코드 대역 휴리스틱
-  if (/^[57]\d{5}$/.test(ticker) && /ETN|인버스|레버리지|2X|3X/.test(n)) return true;
-  return false;
+  return /ETF|ETN|인버스|레버리지|선물|스팩|SPAC/.test(n);
 }
 
-function decodeHtml(raw: Buffer): string {
-  try {
-    return new TextDecoder("euc-kr").decode(raw);
-  } catch {
-    return raw.toString("utf-8");
+export function passesMarketCapFloor(
+  marketCapWon: number | null | undefined,
+  floor = MIN_KR_MARKET_CAP_WON,
+): { passed: boolean; reason: "ok" | "below_floor" | "unverifiable" } {
+  if (marketCapWon == null || !Number.isFinite(marketCapWon) || marketCapWon <= 0) {
+    return { passed: false, reason: "unverifiable" };
   }
+  if (marketCapWon < floor) return { passed: false, reason: "below_floor" };
+  return { passed: true, reason: "ok" };
 }
 
-async function scrapeRisePage(sosok: 0 | 1): Promise<KrGainerRow[]> {
-  const market: "KOSPI" | "KOSDAQ" = sosok === 0 ? "KOSPI" : "KOSDAQ";
-  const url = `https://finance.naver.com/sise/sise_rise.naver?sosok=${sosok}`;
+export function formatMarketCapWon(won: number): string {
+  const eok = won / 100_000_000;
+  if (eok >= 10_000) return `${(eok / 10_000).toFixed(2)}조원`;
+  return `${Math.round(eok).toLocaleString("ko-KR")}억원`;
+}
+
+interface NaverMarketValueStock {
+  itemCode?: string;
+  stockName?: string;
+  stockEndType?: string;
+  closePrice?: string;
+  closePriceRaw?: string | number;
+  fluctuationsRatio?: string;
+  accumulatedTradingVolume?: string | number;
+  accumulatedTradingValueRaw?: string | number;
+  marketValue?: string;
+  marketValueRaw?: string | number;
+  marketValueHangeul?: string;
+  localTradedAt?: string;
+}
+
+async function fetchMarketValuePage(market: "KOSPI" | "KOSDAQ", page: number, pageSize = 50): Promise<NaverMarketValueStock[]> {
+  const url = `https://m.stock.naver.com/api/stocks/marketValue/${market}?page=${page}&pageSize=${pageSize}`;
   const res = await fetch(url, { headers: NAVER_HEADERS, cache: "no-store" });
-  if (!res.ok) throw new Error(`상승률 페이지 조회 실패 (${res.status})`);
-  const html = decodeHtml(Buffer.from(await res.arrayBuffer()));
-  const asOf = new Date().toISOString();
-  const source = `naver-finance:sise_rise:${market}`;
-  const rows: KrGainerRow[] = [];
-  const trs = html.match(/<tr>([\s\S]*?)<\/tr>/g) ?? [];
-
-  for (const tr of trs) {
-    const codeMatch = tr.match(/code=(\d{6})/);
-    if (!codeMatch) continue;
-    const ticker = codeMatch[1];
-    const nameMatch = tr.match(/code=\d{6}[^>]*>([^<]+)<\/a>/);
-    const name = nameMatch?.[1]?.replace(/\s+/g, " ").trim() ?? ticker;
-    if (isExcludedInstrument(name, ticker)) continue;
-
-    const tds = Array.from(tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)).map((m) =>
-      m[1].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
-    );
-    if (tds.length < 5) continue;
-    const rank = parseNumeric(tds[0]) ?? rows.length + 1;
-    const price = parseNumeric(tds[2]);
-    const changePct = parseNumeric(tds[4]?.replace("%", "") ?? "");
-    const volume = parseNumeric(tds[5]) ?? 0;
-    if (price == null || changePct == null) continue;
-
-    rows.push({
-      rank,
-      ticker,
-      name,
-      price,
-      changePct,
-      volume,
-      tradingValueWon: null,
-      market,
-      asOf,
-      source,
-      currency: "KRW",
-    });
-  }
-  return rows;
+  if (!res.ok) throw new Error(`시가총액 목록 조회 실패 (${market} p${page}, ${res.status})`);
+  const data = await res.json();
+  return (data?.stocks as NaverMarketValueStock[]) ?? [];
 }
 
-/** 국내 주식(ETF/ETN 제외) 당일 상승률 상위 N개. KOSPI+KOSDAQ 합산 후 정렬. */
-export async function fetchKoreanTopGainers(limit = 70): Promise<KrGainerRow[]> {
-  const [kospi, kosdaq] = await Promise.all([scrapeRisePage(0), scrapeRisePage(1)]);
-  const merged = [...kospi, ...kosdaq]
-    .filter((r) => r.changePct > 0)
+function resolveMarketCapWon(stock: NaverMarketValueStock): {
+  won: number | null;
+  label: string;
+  status: "ok" | "below_floor" | "unverifiable";
+} {
+  const raw = parseNumeric(stock.marketValueRaw);
+  if (raw != null && raw > 0) {
+    const gate = passesMarketCapFloor(raw);
+    return {
+      won: raw,
+      label: stock.marketValueHangeul || formatMarketCapWon(raw),
+      status: gate.reason,
+    };
+  }
+  // marketValue 필드는 백만원 단위로 제공되는 경우가 있음
+  const million = parseNumeric(stock.marketValue);
+  if (million != null && million > 0) {
+    const won = million * 1_000_000;
+    const gate = passesMarketCapFloor(won);
+    return {
+      won,
+      label: stock.marketValueHangeul || formatMarketCapWon(won),
+      status: gate.reason,
+    };
+  }
+  return { won: null, label: "시총 검증 불가", status: "unverifiable" };
+}
+
+/**
+ * 시가총액 내림차순 목록에서 5,000억 이상 국내 주식만 수집.
+ * 시총 확인 불가 종목은 unverifiable로 따로 반환(자동 후보 제외).
+ */
+export async function fetchKoreanLargeCapUniverse(floor = MIN_KR_MARKET_CAP_WON): Promise<{
+  eligible: KrGainerRow[];
+  unverifiable: KrGainerRow[];
+  source: string;
+}> {
+  const source = "naver-finance:mobile-stock:marketValue";
+  const eligible: KrGainerRow[] = [];
+  const unverifiable: KrGainerRow[] = [];
+
+  for (const market of ["KOSPI", "KOSDAQ"] as const) {
+    for (let page = 1; page <= 40; page++) {
+      const stocks = await fetchMarketValuePage(market, page);
+      if (!stocks.length) break;
+
+      let hitBelowFloor = false;
+      for (const stock of stocks) {
+        const ticker = stock.itemCode?.trim();
+        const name = stock.stockName?.trim() || ticker || "";
+        if (!ticker) continue;
+        if (isExcludedInstrument(name, stock.stockEndType)) continue;
+
+        const asOf = stock.localTradedAt
+          ? new Date(stock.localTradedAt).toISOString()
+          : new Date().toISOString();
+        const cap = resolveMarketCapWon(stock);
+        const price = parseNumeric(stock.closePriceRaw) ?? parseNumeric(stock.closePrice) ?? 0;
+        const changePct = parseNumeric(stock.fluctuationsRatio) ?? 0;
+        const volume = parseNumeric(stock.accumulatedTradingVolume) ?? 0;
+        const tradingValueWon = parseNumeric(stock.accumulatedTradingValueRaw);
+
+        const row: KrGainerRow = {
+          rank: 0,
+          ticker,
+          name,
+          price,
+          changePct,
+          volume,
+          tradingValueWon,
+          marketCapWon: cap.won,
+          marketCapLabel: cap.label,
+          marketCapAsOf: asOf,
+          marketCapSource: source,
+          marketCapStatus: cap.status,
+          market,
+          asOf,
+          source,
+          currency: "KRW",
+        };
+
+        if (cap.status === "unverifiable") {
+          unverifiable.push(row);
+          continue;
+        }
+        if (cap.status === "below_floor" || (cap.won != null && cap.won < floor)) {
+          hitBelowFloor = true;
+          break;
+        }
+        eligible.push(row);
+      }
+      if (hitBelowFloor) break;
+    }
+  }
+
+  return { eligible, unverifiable, source };
+}
+
+/**
+ * 시총 5,000억 이상 국내 주식 중 당일 상승률 상위 N개.
+ * 시총 검증 불가 종목은 상위 70에 넣지 않고 unverifiable로 함께 반환.
+ */
+export async function fetchKoreanTopGainers(limit = 70): Promise<{
+  gainers: KrGainerRow[];
+  unverifiable: KrGainerRow[];
+  universeSize: number;
+  floorWon: number;
+}> {
+  const { eligible, unverifiable } = await fetchKoreanLargeCapUniverse();
+  const gainers = eligible
+    .filter((r) => r.changePct > 0 && r.price > 0)
     .sort((a, b) => b.changePct - a.changePct)
     .slice(0, limit)
     .map((r, i) => ({ ...r, rank: i + 1 }));
-  return merged;
+
+  return {
+    gainers,
+    unverifiable: unverifiable.slice(0, 30),
+    universeSize: eligible.length,
+    floorWon: MIN_KR_MARKET_CAP_WON,
+  };
 }
 
 function dateKey(date: Date) {

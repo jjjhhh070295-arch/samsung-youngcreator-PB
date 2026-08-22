@@ -9,6 +9,7 @@ import {
   type OhlcBar,
 } from "./krTrendFilter";
 import { applyPbSelectedKoreanStocks } from "./krTrendPortfolio";
+import { formatMarketCapWon, MIN_KR_MARKET_CAP_WON, passesMarketCapFloor } from "./krGainers";
 import type { PortfolioDetailHolding } from "@/lib/portfolio";
 
 function bar(date: string, open: number, close: number, volume = 1000): OhlcBar {
@@ -160,5 +161,16 @@ describe("krTrendPortfolio selection", () => {
     assert.equal(equity.length, 1);
     assert.equal(equity[0].name, "주식 확정 대기");
     assert.equal(equity[0].weight, 60);
+  });
+});
+
+describe("market cap floor", () => {
+  it("시가총액 5,000억 미만은 탈락, 없거나 0은 검증 불가", () => {
+    assert.deepEqual(passesMarketCapFloor(500_000_000_000), { passed: true, reason: "ok" });
+    assert.deepEqual(passesMarketCapFloor(499_999_999_999), { passed: false, reason: "below_floor" });
+    assert.deepEqual(passesMarketCapFloor(null), { passed: false, reason: "unverifiable" });
+    assert.deepEqual(passesMarketCapFloor(0), { passed: false, reason: "unverifiable" });
+    assert.equal(MIN_KR_MARKET_CAP_WON, 500_000_000_000);
+    assert.match(formatMarketCapWon(500_000_000_000), /5,000억원|5000억원/);
   });
 });

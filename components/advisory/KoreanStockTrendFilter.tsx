@@ -26,6 +26,11 @@ export type KrTrendCandidateView = {
   price: number;
   changePct: number;
   volume: number;
+  marketCapWon: number | null;
+  marketCapLabel: string;
+  marketCapAsOf: string;
+  marketCapSource: string;
+  marketCapStatus: "ok" | "below_floor" | "unverifiable";
   market: "KOSPI" | "KOSDAQ";
   rank: number;
   asOf: string;
@@ -62,8 +67,15 @@ export default function KoreanStockTrendFilter({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [meta, setMeta] = useState<{ asOf: string; source: string; finalCount: number } | null>(null);
+  const [meta, setMeta] = useState<{
+    asOf: string;
+    source: string;
+    finalCount: number;
+    universeSize?: number;
+    marketCapFloorWon?: number;
+  } | null>(null);
   const [candidates, setCandidates] = useState<KrTrendCandidateView[]>([]);
+  const [unverifiable, setUnverifiable] = useState<KrTrendCandidateView[]>([]);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [rr, setRr] = useState<Record<string, RrDraft>>({});
   const [onlyFinal, setOnlyFinal] = useState(true);
@@ -107,10 +119,13 @@ export default function KoreanStockTrendFilter({
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "조회 실패");
       setCandidates(data.candidates ?? []);
+      setUnverifiable(data.unverifiable ?? []);
       setMeta({
         asOf: data.asOf,
         source: data.source,
         finalCount: data.finalCount ?? 0,
+        universeSize: data.universeSize,
+        marketCapFloorWon: data.marketCapFloorWon,
       });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "조회 실패");
@@ -136,9 +151,9 @@ export default function KoreanStockTrendFilter({
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8B6914]">국내 주식 추세 필터</p>
           <h3 className="text-base font-bold text-fg">국장 추세 후보 (PB 체크 → 주식형 확정)</h3>
           <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-fg-muted">
-            당일 상승률 상위 70개(국내 주식만) → 20일선·양봉·적삼봉 기술 필터 → 테마 출처 검증.
-            채권·대체·현금은 기존 SET 로직을 유지하고, 주식 {equityWeightPct.toFixed(0)}% 구간만 PB 선택 종목으로 채웁니다.
-            숫자(가격·이동평균·양봉·손익비)는 결정론 엔진, LLM은 테마 설명만 담당합니다.
+            시가총액 5,000억 원 이상 국내 주식만 universe에 포함 → 당일 상승률 상위 70개 → 20일선·양봉·적삼봉 → 테마 출처 검증.
+            시총 확인 불가 종목은 자동 후보에서 제외합니다. 채권·대체·현금은 기존 SET 로직을 유지하고, 주식{" "}
+            {equityWeightPct.toFixed(0)}% 구간만 PB 선택 종목으로 채웁니다.
           </p>
         </div>
         <button
@@ -153,10 +168,25 @@ export default function KoreanStockTrendFilter({
 
       {meta && (
         <p className="mt-2 text-[10px] text-fg-muted">
-          as-of {meta.asOf.slice(0, 19)} · source {meta.source} · KRW · 최종 후보 {meta.finalCount}종
+          as-of {meta.asOf.slice(0, 19)} · source {meta.source} · KRW · 시총하한{" "}
+          {meta.marketCapFloorWon ? `${(meta.marketCapFloorWon / 1e8).toLocaleString("ko-KR")}억원` : "5,000억원"} ·
+          시총충족 universe {meta.universeSize ?? "—"}종 · 최종 후보 {meta.finalCount}종
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+
+      {unverifiable.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <p className="font-semibold">시총 검증 불가 (자동 추천 후보 제외) · {unverifiable.length}건</p>
+          <p className="mt-1 text-amber-800">
+            {unverifiable
+              .slice(0, 8)
+              .map((u) => `${u.name}(${u.ticker})`)
+              .join(" · ")}
+            {unverifiable.length > 8 ? " …" : ""}
+          </p>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
         <label className="flex items-center gap-1.5">
@@ -233,8 +263,19 @@ export default function KoreanStockTrendFilter({
                   등락률: <strong className={c.changePct >= 0 ? "text-red-600" : "text-blue-600"}>{c.changePct.toFixed(2)}%</strong>
                 </div>
                 <div>거래량: {c.volume.toLocaleString("ko-KR")}</div>
-                <div className="md:col-span-1 truncate" title={c.source}>
-                  as-of {c.asOf.slice(0, 10)} · {c.source}
+                <div>
+                  시가총액:{" "}
+                  <strong>
+                    {c.marketCapStatus === "unverifiable"
+                      ? "시총 검증 불가"
+                      : c.marketCapLabel || (c.marketCapWon != null ? fmtWon(c.marketCapWon) : "—")}
+                  </strong>
+                </div>
+                <div className="md:col-span-2 truncate" title={c.marketCapSource}>
+                  시총 as-of {c.marketCapAsOf?.slice(0, 19) || "—"} · {c.marketCapSource || "—"}
+                </div>
+                <div className="md:col-span-2 truncate" title={c.source}>
+                  시세 as-of {c.asOf.slice(0, 10)} · {c.source}
                 </div>
               </dl>
 
