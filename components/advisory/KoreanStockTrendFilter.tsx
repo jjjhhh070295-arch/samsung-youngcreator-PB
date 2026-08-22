@@ -52,8 +52,11 @@ function fmtWon(n: number) {
   return `${Math.round(n).toLocaleString("ko-KR")}원`;
 }
 
-function storageKey(clientId: string) {
-  return `pb-kr-trend-selected-${clientId}`;
+function checkedKey(clientId: string) {
+  return `pb-kr-trend-checked-${clientId}`;
+}
+function confirmedKey(clientId: string) {
+  return `pb-kr-trend-confirmed-${clientId}`;
 }
 
 export default function KoreanStockTrendFilter({
@@ -63,10 +66,12 @@ export default function KoreanStockTrendFilter({
 }: {
   clientId: string;
   equityWeightPct: number;
+  /** 확정된 종목만 전달. 미확정이면 selected=[] equityPending=true */
   onSelectionChange: (selected: PbSelectedKoreanStock[], equityPending: boolean) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [confirmError, setConfirmError] = useState("");
   const [meta, setMeta] = useState<{
     asOf: string;
     source: string;
@@ -77,39 +82,58 @@ export default function KoreanStockTrendFilter({
   const [candidates, setCandidates] = useState<KrTrendCandidateView[]>([]);
   const [unverifiable, setUnverifiable] = useState<KrTrendCandidateView[]>([]);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [confirmed, setConfirmed] = useState<PbSelectedKoreanStock[]>([]);
   const [rr, setRr] = useState<Record<string, RrDraft>>({});
   const [onlyFinal, setOnlyFinal] = useState(true);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(storageKey(clientId));
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { tickers?: string[] };
-      if (parsed.tickers?.length) {
-        const next: Record<string, boolean> = {};
-        for (const t of parsed.tickers) next[t] = true;
-        setChecked(next);
+      const rawChecked = localStorage.getItem(checkedKey(clientId));
+      if (rawChecked) {
+        const parsed = JSON.parse(rawChecked) as { tickers?: string[] };
+        if (parsed.tickers?.length) {
+          const next: Record<string, boolean> = {};
+          for (const t of parsed.tickers) next[t] = true;
+          setChecked(next);
+        }
+      }
+      const rawConfirmed = localStorage.getItem(confirmedKey(clientId));
+      if (rawConfirmed) {
+        const parsed = JSON.parse(rawConfirmed) as { stocks?: PbSelectedKoreanStock[] };
+        if (parsed.stocks?.length) setConfirmed(parsed.stocks);
       }
     } catch {
       /* ignore */
     }
+    setHydrated(true);
   }, [clientId]);
 
-  const selectedList = useMemo(() => {
+  const checkedList = useMemo(() => {
     return candidates
       .filter((c) => checked[c.ticker] && c.isFinalCandidate)
       .map((c) => ({ ticker: c.ticker, name: c.name }));
   }, [candidates, checked]);
 
+  // 확정분만 상위로 전달 (체크만으로는 포트폴리오 미반영)
   useEffect(() => {
-    const pending = equityWeightPct > 0 && selectedList.length === 0;
-    onSelectionChange(selectedList, pending);
+    if (!hydrated) return;
+    const pending = equityWeightPct > 0 && confirmed.length === 0;
+    onSelectionChange(confirmed, pending);
+  }, [confirmed, equityWeightPct, hydrated, onSelectionChange]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     try {
-      localStorage.setItem(storageKey(clientId), JSON.stringify({ tickers: selectedList.map((s) => s.ticker) }));
+      localStorage.setItem(
+        checkedKey(clientId),
+        JSON.stringify({ tickers: Object.keys(checked).filter((t) => checked[t]) }),
+      );
+      localStorage.setItem(confirmedKey(clientId), JSON.stringify({ stocks: confirmed }));
     } catch {
       /* ignore */
     }
-  }, [selectedList, equityWeightPct, clientId, onSelectionChange]);
+  }, [checked, confirmed, clientId, hydrated]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,18 +166,35 @@ export default function KoreanStockTrendFilter({
   const toggle = (ticker: string, allowed: boolean) => {
     if (!allowed) return;
     setChecked((prev) => ({ ...prev, [ticker]: !prev[ticker] }));
+    setConfirmError("");
   };
+
+  const handleConfirm = () => {
+    if (checkedList.length === 0) {
+      setConfirmError("주식형 자산을 확정할 수 없습니다. 최종 후보를 체크한 뒤 「후보 확정」을 눌러 주세요.");
+      setConfirmed([]);
+      return;
+    }
+    setConfirmError("");
+    setConfirmed(checkedList);
+  };
+
+  const handleClearConfirm = () => {
+    setConfirmed([]);
+    setConfirmError("");
+  };
+
+  const confirmedTickers = useMemo(() => new Set(confirmed.map((s) => s.ticker)), [confirmed]);
 
   return (
     <section className="rounded-2xl border-2 border-[#C5A572]/60 bg-surface p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8B6914]">국내 주식 추세 필터</p>
-          <h3 className="text-base font-bold text-fg">국장 추세 후보 (PB 체크 → 주식형 확정)</h3>
+          <h3 className="text-base font-bold text-fg">국장 추세 후보 (체크 → 후보 확정 → 주식형 반영)</h3>
           <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-fg-muted">
-            시가총액 5,000억 원 이상 국내 주식만 universe에 포함 → 당일 상승률 상위 70개 → 20일선·양봉·적삼봉 → 테마 출처 검증.
-            시총 확인 불가 종목은 자동 후보에서 제외합니다. 채권·대체·현금은 기존 SET 로직을 유지하고, 주식{" "}
-            {equityWeightPct.toFixed(0)}% 구간만 PB 선택 종목으로 채웁니다.
+            시가총액 1조 원 이상 국내 주식만 universe에 포함 → 당일 상승률 상위 70개 → 20일선·양봉·적삼봉 → 테마 출처 검증.
+            체크만으로는 반영되지 않으며, 「후보 확정」한 종목만 주식형 {equityWeightPct.toFixed(0)}%에 배분됩니다.
           </p>
         </div>
         <button
@@ -169,8 +210,10 @@ export default function KoreanStockTrendFilter({
       {meta && (
         <p className="mt-2 text-[10px] text-fg-muted">
           as-of {meta.asOf.slice(0, 19)} · source {meta.source} · KRW · 시총하한{" "}
-          {meta.marketCapFloorWon ? `${(meta.marketCapFloorWon / 1e8).toLocaleString("ko-KR")}억원` : "5,000억원"} ·
-          시총충족 universe {meta.universeSize ?? "—"}종 · 최종 후보 {meta.finalCount}종
+          {meta.marketCapFloorWon
+            ? `${(meta.marketCapFloorWon / 1e12).toFixed(0)}조원`
+            : "1조원"}{" "}
+          · 시총충족 universe {meta.universeSize ?? "—"}종 · 최종 후보 {meta.finalCount}종
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
@@ -193,14 +236,28 @@ export default function KoreanStockTrendFilter({
           <input type="checkbox" checked={onlyFinal} onChange={(e) => setOnlyFinal(e.target.checked)} />
           최종 후보만 보기
         </label>
-        <span className={`font-semibold ${selectedList.length ? "text-[#1428A0]" : "text-amber-700"}`}>
-          {selectedList.length
-            ? `PB 선택 ${selectedList.length}종 · 주식형 반영`
+        <span className="text-fg-muted">체크 {checkedList.length}종</span>
+        <span className={`font-semibold ${confirmed.length ? "text-[#1428A0]" : "text-amber-700"}`}>
+          {confirmed.length
+            ? `확정 ${confirmed.length}종 · ${confirmed.map((s) => s.name).join(", ")}`
             : equityWeightPct > 0
-              ? "주식 확정 대기 — 체크된 종목이 없습니다"
+              ? "PB 확정 대기 — 「후보 확정」 전 주식형 미반영"
               : "주식 비중 0%"}
         </span>
+        <button
+          type="button"
+          className="rounded-lg bg-[#1428A0] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#0f1f7a] disabled:opacity-50"
+          onClick={handleConfirm}
+        >
+          후보 확정
+        </button>
+        {confirmed.length > 0 && (
+          <button type="button" className="text-[11px] text-fg-muted underline" onClick={handleClearConfirm}>
+            확정 해제
+          </button>
+        )}
       </div>
+      {confirmError && <p className="mt-2 text-xs font-semibold text-red-600">{confirmError}</p>}
 
       <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
         {visible.length === 0 && !loading && (
@@ -223,11 +280,18 @@ export default function KoreanStockTrendFilter({
                 })
               : null;
           const canCheck = c.isFinalCandidate;
+          const isConfirmed = confirmedTickers.has(c.ticker);
 
           return (
             <article
               key={c.ticker}
-              className={`rounded-xl border p-3 ${canCheck ? "border-[#1428A0]/30 bg-[#1428A0]/[0.03]" : "border-border bg-surface-2"}`}
+              className={`rounded-xl border p-3 ${
+                isConfirmed
+                  ? "border-[#1428A0] bg-[#1428A0]/[0.06]"
+                  : canCheck
+                    ? "border-[#1428A0]/30 bg-[#1428A0]/[0.03]"
+                    : "border-border bg-surface-2"
+              }`}
             >
               <div className="flex flex-wrap items-start gap-3">
                 <label className="mt-0.5 flex items-center gap-2 text-sm font-semibold">
@@ -248,9 +312,14 @@ export default function KoreanStockTrendFilter({
                     후보 미통과 / 체크 불가
                   </span>
                 )}
-                {canCheck && (
+                {canCheck && !isConfirmed && (
                   <span className="rounded-full bg-[#1428A0] px-2 py-0.5 text-[10px] font-semibold text-white">
                     최종 후보
+                  </span>
+                )}
+                {isConfirmed && (
+                  <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                    확정됨
                   </span>
                 )}
               </div>
@@ -260,7 +329,10 @@ export default function KoreanStockTrendFilter({
                   현재가: <strong>{fmtWon(c.price)}</strong> ({c.currency})
                 </div>
                 <div>
-                  등락률: <strong className={c.changePct >= 0 ? "text-red-600" : "text-blue-600"}>{c.changePct.toFixed(2)}%</strong>
+                  등락률:{" "}
+                  <strong className={c.changePct >= 0 ? "text-red-600" : "text-blue-600"}>
+                    {c.changePct.toFixed(2)}%
+                  </strong>
                 </div>
                 <div>거래량: {c.volume.toLocaleString("ko-KR")}</div>
                 <div>
@@ -313,14 +385,16 @@ export default function KoreanStockTrendFilter({
 
               {canCheck && (
                 <div className="mt-3 rounded-lg border border-[#C5A572]/40 bg-[#FFF8EB]/60 p-2">
-                  <p className="text-[11px] font-semibold text-[#8B6914]">손익비 계산 (결정론)</p>
+                  <p className="text-[11px] font-semibold text-[#8B6914]">손절·익절·매수예정 · 손익비 (결정론)</p>
                   <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <label className="text-[10px]">
                       매수 예정 금액(원)
                       <input
                         className="input mt-0.5 text-xs"
                         value={draft.seedWon}
-                        onChange={(e) => setRr((p) => ({ ...p, [c.ticker]: { ...draft, seedWon: e.target.value } }))}
+                        onChange={(e) =>
+                          setRr((p) => ({ ...p, [c.ticker]: { ...draft, seedWon: e.target.value } }))
+                        }
                       />
                     </label>
                     <label className="text-[10px]">
@@ -329,7 +403,9 @@ export default function KoreanStockTrendFilter({
                         className="input mt-0.5 text-xs"
                         placeholder={String(Math.round(c.price * 0.95))}
                         value={draft.stopLoss}
-                        onChange={(e) => setRr((p) => ({ ...p, [c.ticker]: { ...draft, stopLoss: e.target.value } }))}
+                        onChange={(e) =>
+                          setRr((p) => ({ ...p, [c.ticker]: { ...draft, stopLoss: e.target.value } }))
+                        }
                       />
                     </label>
                     <label className="text-[10px]">
@@ -338,7 +414,9 @@ export default function KoreanStockTrendFilter({
                         className="input mt-0.5 text-xs"
                         placeholder={String(Math.round(c.price * 1.1))}
                         value={draft.takeProfit}
-                        onChange={(e) => setRr((p) => ({ ...p, [c.ticker]: { ...draft, takeProfit: e.target.value } }))}
+                        onChange={(e) =>
+                          setRr((p) => ({ ...p, [c.ticker]: { ...draft, takeProfit: e.target.value } }))
+                        }
                       />
                     </label>
                   </div>
@@ -352,8 +430,7 @@ export default function KoreanStockTrendFilter({
                       <li>예상손실: {fmtWon(calc.expectedLossWon)}</li>
                       <li>예상이익: {fmtWon(calc.expectedProfitWon)}</li>
                       <li>
-                        손익비:{" "}
-                        {calc.riskRewardRatio == null ? "—" : calc.riskRewardRatio.toFixed(2)}
+                        손익비: {calc.riskRewardRatio == null ? "—" : calc.riskRewardRatio.toFixed(2)}
                       </li>
                     </ul>
                   )}

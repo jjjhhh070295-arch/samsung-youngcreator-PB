@@ -15,7 +15,7 @@ import { historicalVarCvar } from '@/lib/advisory/riskEngine';
 import {
   buildDetailedHoldings,
   buildPortfolioViewModel,
-  buildSetAllocationsFromWeights,
+  calculateTaxDragProxy,
   evaluatePreferenceFeasibility,
   getVolatilityRanges,
   preferenceAdjustedMetrics,
@@ -38,7 +38,15 @@ import WmExpertPanel from '@/components/WmExpertPanel';
 import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem, type PlanRowOrigin } from '@/components/StockSectorPanel';
 import QuickScrollButtons from '@/components/QuickScrollButtons';
 import KoreanStockTrendFilter from '@/components/advisory/KoreanStockTrendFilter';
-import { applyPbSelectedKoreanStocks, type PbSelectedKoreanStock } from '@/lib/advisory/krTrendPortfolio';
+import {
+  applyPbSelectedKoreanStocks,
+  holdingsToIpsAllocations,
+  type PbSelectedKoreanStock,
+} from '@/lib/advisory/krTrendPortfolio';
+import {
+  buildConfirmedPortfolioMetrics,
+  type ConfirmedMetricsResult,
+} from '@/lib/advisory/confirmedEquityMetrics';
 
 interface PortfolioPanelProps {
   client: Client;
@@ -384,12 +392,15 @@ function buildSimplifiedBenchmarkChartData(
   riskTilt: -1 | 0 | 1 = 0,
   planSummary: Array<{ etfCode: string; amountKrw: number; isFallback: boolean }> = [],
   sectorEtfData: Record<string, number[]> = {},
+  /** PB 확정 국내주식 동일가중 누적% — 있으면 주식형 구간을 이 시계열로 대체 */
+  confirmedEquityCumulativePct?: number[] | null,
 ): BenchmarkChartPoint[] {
   const sourcePoints = points.length >= 2 ? points : FALLBACK_BENCHMARK_POINTS;
   const totalWeight = Object.values(weights).reduce((sum, weight) => sum + weight, 0) || 100;
   const overseasPattern = /S&P|NVIDIA|Microsoft|Apple|Broadcom|Eli Lilly|Nasdaq|Nifty|미국|해외|나스닥|인도/i;
   void overseasPattern;
   void detailedHoldings;
+  void riskTilt;
   const overseasEquityWeight = weights.etf * DEFAULT_EQUITY_REGION_SPLIT.us;
   const domesticEquityWeight = weights.etf * DEFAULT_EQUITY_REGION_SPLIT.kr;
 
@@ -406,6 +417,9 @@ function buildSimplifiedBenchmarkChartData(
     ? Array.from(etfKrw.entries()).map(([code, krw]) => ({ krw, series: sectorEtfData[code] as number[] }))
     : [];
 
+  const useConfirmedEquity =
+    Boolean(confirmedEquityCumulativePct && confirmedEquityCumulativePct.length >= 2 && weights.etf > 0);
+
   return sourcePoints.map((point, index) => {
     const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
     const mmf = finiteNumber(point.mmf, fixedIncomeProxy(index, sourcePoints.length, 3.0));
@@ -421,17 +435,23 @@ function buildSimplifiedBenchmarkChartData(
       (weights.dollar / totalWeight) * dollar +
       (weights.raw / totalWeight) * commodity;
 
-    // 선B: 주식 부분을 PB 편입 섹터 ETF 가중 수익률로 대체 (데이터 없으면 선A 폴백)
-    const hasSectorData = etfEntries.length > 0 && etfEntries.every((e) => index < e.series.length);
     const nonEquityReturn =
       (weights.bond / totalWeight) * usTreasury10y +
       (weights.mmf / totalWeight) * mmf +
       (weights.gold / totalWeight) * gold +
       (weights.dollar / totalWeight) * dollar +
       (weights.raw / totalWeight) * commodity;
-    const portfolioReturn = hasSectorData
-      ? (weights.etf / totalWeight) * etfEntries.reduce((sum, e) => sum + (e.krw / totalEtfKrw) * (e.series[index] ?? 0), 0) + nonEquityReturn
-      : blendedBenchmark;
+
+    let portfolioReturn: number;
+    if (useConfirmedEquity) {
+      const eqCum = confirmedEquityCumulativePct![Math.min(index, confirmedEquityCumulativePct!.length - 1)] ?? 0;
+      portfolioReturn = (weights.etf / totalWeight) * eqCum + nonEquityReturn;
+    } else {
+      const hasSectorData = etfEntries.length > 0 && etfEntries.every((e) => index < e.series.length);
+      portfolioReturn = hasSectorData
+        ? (weights.etf / totalWeight) * etfEntries.reduce((sum, e) => sum + (e.krw / totalEtfKrw) * (e.series[index] ?? 0), 0) + nonEquityReturn
+        : blendedBenchmark;
+    }
 
     return {
       ...point,
@@ -965,9 +985,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   const [hasManualEdit, setHasManualEdit] = useState(false);
   const [krSelectedStocks, setKrSelectedStocks] = useState<PbSelectedKoreanStock[]>([]);
   const [krEquityPending, setKrEquityPending] = useState(true);
+  const [confirmedMetrics, setConfirmedMetrics] = useState<ConfirmedMetricsResult | null>(null);
+  const [confirmedMetricsLoading, setConfirmedMetricsLoading] = useState(false);
   const handleKrTrendSelection = useCallback((selected: PbSelectedKoreanStock[], equityPending: boolean) => {
     setKrSelectedStocks(selected);
     setKrEquityPending(equityPending);
+    if (selected.length === 0) setConfirmedMetrics(null);
   }, []);
   const [benchmarkPoints, setBenchmarkPoints] = useState<BenchmarkApiPoint[]>(FALLBACK_BENCHMARK_POINTS);
   const [proxyReturns, setProxyReturns] = useState<ProxyReturnEstimate[]>([]);
@@ -1295,7 +1318,20 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       ),
     [adjustedWeights, benchmarkTargetReturn, client, model.cashflowSummary, model.preferenceProfile, selectedFeasibility, selectedRiskTilt, proxyReturns],
   );
-  const volatilityRanges = useMemo(() => getVolatilityRanges(metrics.volatility), [metrics.volatility]);
+  const volatilityRanges = useMemo(
+    () => getVolatilityRanges(confirmedMetrics?.status === 'ok' ? confirmedMetrics.volatilityPct : metrics.volatility),
+    [metrics.volatility, confirmedMetrics],
+  );
+  const nonEquityWeightPct = useMemo(
+    () =>
+      adjustedWeights.bond +
+      adjustedWeights.mmf +
+      adjustedWeights.gold +
+      adjustedWeights.dollar +
+      adjustedWeights.raw +
+      adjustedWeights.els,
+    [adjustedWeights],
+  );
   const benchmarkChartData = useMemo(
     () => buildSimplifiedBenchmarkChartData(
       benchmarkPoints,
@@ -1304,13 +1340,81 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       selectedRiskTilt,
       planSummary,
       sectorEtfData,
+      confirmedMetrics?.status === 'ok' ? confirmedMetrics.equityCumulativePct : null,
     ),
-    [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedBase, selectedRiskTilt, planSummary, sectorEtfData],
+    [adjustedWeights, benchmarkPoints, model.preferenceProfile, selectedBase, selectedRiskTilt, planSummary, sectorEtfData, confirmedMetrics],
   );
   const selectedDetailedHoldings = useMemo(() => {
     const base = buildDetailedHoldings(adjustedWeights, model.preferenceProfile, selectedBase);
     return applyPbSelectedKoreanStocks(base, krSelectedStocks, adjustedWeights.etf).holdings;
   }, [adjustedWeights, model.preferenceProfile, selectedBase, krSelectedStocks]);
+
+  // PB 후보 확정 시 선택 종목 OHLC로 성과지표·백테스트 재계산
+  useEffect(() => {
+    if (krSelectedStocks.length === 0 || adjustedWeights.etf <= 0) {
+      setConfirmedMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    setConfirmedMetricsLoading(true);
+    const tickers = krSelectedStocks.map((s) => s.ticker).join(',');
+    const sourcePoints = benchmarkPoints.length >= 2 ? benchmarkPoints : FALLBACK_BENCHMARK_POINTS;
+    const nonEquityCum = sourcePoints.map((point, index) => {
+      const usTreasury10y = finiteNumber(point.usTreasury10y, fixedIncomeProxy(index, sourcePoints.length, 3.2));
+      const mmf = finiteNumber(point.mmf, fixedIncomeProxy(index, sourcePoints.length, 3.0));
+      const gold = finiteNumber(point.gold, fixedIncomeProxy(index, sourcePoints.length, 4.0));
+      const dollar = finiteNumber(point.dollar, fixedIncomeProxy(index, sourcePoints.length, 2.3));
+      const commodity = finiteNumber(point.commodity, fixedIncomeProxy(index, sourcePoints.length, 3.6));
+      const w = nonEquityWeightPct || 1;
+      return (
+        (adjustedWeights.bond / w) * usTreasury10y +
+        (adjustedWeights.mmf / w) * mmf +
+        (adjustedWeights.gold / w) * gold +
+        (adjustedWeights.dollar / w) * dollar +
+        (adjustedWeights.raw / w) * commodity
+      );
+    });
+
+    fetch(`/api/advisory/kr-trend/bars?tickers=${encodeURIComponent(tickers)}&days=260`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data: {
+        ok?: boolean;
+        series?: Array<{ ticker: string; closes: Array<{ date: string; close: number }> }>;
+        asOf?: string;
+        source?: string;
+        status?: string;
+      }) => {
+        if (cancelled) return;
+        if (!data.ok || !data.series?.length) {
+          setConfirmedMetrics(null);
+          return;
+        }
+        const seriesByTicker: Record<string, Array<{ date: string; close: number }>> = {};
+        for (const s of data.series) {
+          if (s.closes?.length >= 2) seriesByTicker[s.ticker] = s.closes;
+        }
+        const result = buildConfirmedPortfolioMetrics({
+          seriesByTicker,
+          equityWeightPct: adjustedWeights.etf,
+          nonEquityWeightPct,
+          nonEquityCumulativePct: nonEquityCum,
+          asOf: data.asOf,
+          source: data.source,
+        });
+        setConfirmedMetrics(result);
+      })
+      .catch(() => {
+        if (!cancelled) setConfirmedMetrics(null);
+      })
+      .finally(() => {
+        if (!cancelled) setConfirmedMetricsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [krSelectedStocks, adjustedWeights, benchmarkPoints, nonEquityWeightPct]);
+
   const proxyReturnSummary = useMemo(
     () => proxyReturns.length > 0
       ? calculatePortfolioProxyReturn(
@@ -1340,10 +1444,31 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     const losses = stressRange.scenarios.map((scenario) => scenario.actualMdd * coverage * 100);
     return { low: Math.min(...losses), high: Math.max(...losses), count: losses.length };
   }, [stressParams.equityBondPct, stressRange]);
-  const displayedExpectedReturn = proxyReturnSummary?.annualizedReturnPct ?? metrics.expectedReturn;
-  const returnEstimateLabel = !proxyReturnSummary || proxyReturnSummary.fallbackUsed
-    ? '일부 자산군은 시장 데이터 미연결로 fallback 추정치를 사용했습니다.'
-    : RETURN_ESTIMATE_LABEL;
+  const displayedExpectedReturn =
+    confirmedMetrics?.status === 'ok'
+      ? confirmedMetrics.expectedReturnPct
+      : (proxyReturnSummary?.annualizedReturnPct ?? metrics.expectedReturn);
+  const displayVolatility =
+    confirmedMetrics?.status === 'ok' ? confirmedMetrics.volatilityPct : metrics.volatility;
+  const displayMdd = confirmedMetrics?.status === 'ok' ? confirmedMetrics.mddPct : metrics.mdd;
+  const displayTax = useMemo(() => {
+    const tax = calculateTaxDragProxy({
+      preTaxReturn: displayedExpectedReturn,
+      weights: adjustedWeights,
+      client,
+      cashflow: model.cashflowSummary,
+      preference: model.preferenceProfile,
+    });
+    return tax;
+  }, [displayedExpectedReturn, adjustedWeights, client, model.cashflowSummary, model.preferenceProfile]);
+  const returnEstimateLabel =
+    confirmedMetrics?.status === 'ok'
+      ? `PB 확정 국내주식 기준 재계산 · as-of ${confirmedMetrics.asOf.slice(0, 19)} · ${confirmedMetrics.source}`
+      : confirmedMetricsLoading
+        ? '확정 종목 기준 성과지표 재계산 중…'
+        : !proxyReturnSummary || proxyReturnSummary.fallbackUsed
+          ? '일부 자산군은 시장 데이터 미연결로 fallback 추정치를 사용했습니다.'
+          : RETURN_ESTIMATE_LABEL;
   const detailBuckets = useMemo(
     () =>
       (Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
@@ -1401,14 +1526,14 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
 
   useEffect(() => {
     if (!onSelectionChange) return;
-    const allocations = buildSetAllocationsFromWeights(adjustedWeights);
+    const allocations = holdingsToIpsAllocations(selectedDetailedHoldings);
 
     onSelectionChange({
       id: selectedBase,
       label: selectedOption.name,
       allocations,
       expectedReturn: displayedExpectedReturn,
-      expectedRisk: metrics.volatility,
+      expectedRisk: displayVolatility,
       taxNote: model.rationale.tax,
       rationale: [
         selectedMarketRationale,
@@ -1417,10 +1542,13 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         model.rationale.preference,
         model.rationale.unique,
         krSelectedStocks.length
-          ? `주식형은 PB 선택 국내 주식(${krSelectedStocks.map((s) => s.name).join(', ')})으로 구성.`
+          ? `주식형: ${krSelectedStocks.map((s) => s.name).join(', ')} (PB 후보 확정).`
           : krEquityPending
-            ? '주식형은 국장 추세 필터에서 PB 체크 전까지 확정 대기.'
+            ? '주식형: PB 확정 대기 (후보 확정 전 자동 추천 금지).'
             : '',
+        confirmedMetrics?.status === 'ok'
+          ? `성과지표는 확정 종목 기준으로 재계산됨 (Sharpe ${confirmedMetrics.sharpe}, VaR95 ${confirmedMetrics.varPct}%, CVaR95 ${confirmedMetrics.cvarPct}%).`
+          : '',
       ].filter(Boolean).join(' '),
       editedByPb: true,
     });
@@ -1429,6 +1557,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     selectedDetailedHoldings,
     metrics,
     displayedExpectedReturn,
+    displayVolatility,
     model.rationale,
     onSelectionChange,
     selectedBase,
@@ -1436,6 +1565,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     selectedOption.name,
     krSelectedStocks,
     krEquityPending,
+    confirmedMetrics,
   ]);
 
   const handleBaseChange = (type: PortfolioOption['id']) => {
@@ -2176,22 +2306,27 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   title="세후수익률은 세전 기대수익률에서 고객 세금 분석 결과에 따른 tax drag를 차감한 참고값입니다."
                 >
                   <span className="block text-[10px] font-medium leading-none text-fg-muted">세후 가상수익률</span>
-                  <span className="mt-0.5 block text-xl font-black leading-none text-blue-400">{metrics.taxReturn}%</span>
+                  <span className="mt-0.5 block text-xl font-black leading-none text-blue-400">{displayTax.afterTaxReturn}%</span>
                   <span className="mt-1 block text-[9px] leading-tight text-slate-400">
-                    세전 {metrics.expectedReturn}% - 세금 조정 {metrics.taxDrag ?? 0}%p
+                    세전 {displayedExpectedReturn}% - 세금 조정 {displayTax.taxDrag ?? 0}%p
                   </span>
                   <span className="block text-[9px] leading-tight text-slate-500">
-                    tax drag proxy: {metrics.taxDragReasons?.[0] ?? "고객 세금 분석 결과 반영"}
+                    tax drag proxy: {displayTax.reasons?.[0] ?? "고객 세금 분석 결과 반영"}
                   </span>
                 </div>
                 <div
                   className="flex min-h-0 flex-col items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-1.5 text-center"
-                  title={`일반 시장 변동성 범위 ${volatilityRanges.normalLow}~${volatilityRanges.normalHigh}%${stressLossRange ? ` · 스트레스 MDD ${stressLossRange.low.toFixed(1)}~${stressLossRange.high.toFixed(1)}%` : ''}`}
+                  title={`일반 시장 변동성 범위 ${volatilityRanges.normalLow}~${volatilityRanges.normalHigh}%${stressLossRange ? ` · 스트레스 MDD ${stressLossRange.low.toFixed(1)}~${stressLossRange.high.toFixed(1)}%` : ''}${confirmedMetrics?.status === 'ok' ? ` · Sharpe ${confirmedMetrics.sharpe} · VaR95 ${confirmedMetrics.varPct}% · CVaR95 ${confirmedMetrics.cvarPct}%` : ''}`}
                 >
                   <span className="block text-[10px] font-medium leading-none text-fg-muted">포트폴리오 변동성</span>
-                  <span className="mt-0.5 block text-xl font-black leading-none text-slate-200">{metrics.volatility}%</span>
+                  <span className="mt-0.5 block text-xl font-black leading-none text-slate-200">{displayVolatility}%</span>
                   <span className="mt-1 block text-[9px] leading-tight text-slate-400">일반 시장 변동성 범위 {volatilityRanges.normalLow}~{volatilityRanges.normalHigh}%</span>
                   <span className="block text-[9px] leading-tight text-amber-200/80">{stressLossRange ? `스트레스 MDD 범위 ${stressLossRange.low.toFixed(1)}~${stressLossRange.high.toFixed(1)}%` : '스트레스 MDD 범위 불러오는 중'}</span>
+                  {confirmedMetrics?.status === 'ok' && (
+                    <span className="mt-1 block text-[9px] leading-tight text-emerald-300/90">
+                      Sharpe {confirmedMetrics.sharpe} · VaR95 {confirmedMetrics.varPct}% · CVaR95 {confirmedMetrics.cvarPct}%
+                    </span>
+                  )}
                   <span className="mt-1 block text-[9px] leading-tight text-slate-500">일반 범위는 연율 변동성, 스트레스 범위는 과거 위기 시나리오 최대낙폭(MDD) 기준입니다.</span>
                 </div>
                 <div
@@ -2199,8 +2334,10 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   title="일반 시장 가정 기준"
                 >
                   <span className="block text-[10px] font-medium leading-none text-fg-muted">시뮬레이션 MDD</span>
-                  <span className="mt-0.5 block text-xl font-black leading-none text-rose-400">{metrics.mdd}%</span>
-                  <span className="mt-1 block text-[9px] leading-tight text-slate-500">일반 시장 가정의 확률 시뮬레이션 기준</span>
+                  <span className="mt-0.5 block text-xl font-black leading-none text-rose-400">{displayMdd}%</span>
+                  <span className="mt-1 block text-[9px] leading-tight text-slate-500">
+                    {confirmedMetrics?.status === 'ok' ? 'PB 확정 종목 백테스트 누적 기준' : '일반 시장 가정의 확률 시뮬레이션 기준'}
+                  </span>
                 </div>
               </div>
               </div>
@@ -2525,11 +2662,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <h3 className="text-base font-bold text-fg">분석 기반 추천안 3개 비교</h3>
           {krEquityPending ? (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-              주식 확정 대기
+              PB 확정 대기
             </span>
           ) : (
             <span className="rounded-full bg-[#1428A0]/10 px-2 py-0.5 text-[10px] font-semibold text-[#1428A0]">
-              주식형 = PB 선택 국내 주식
+              주식형 = PB 확정 국내 주식 ({krSelectedStocks.length}종)
             </span>
           )}
         </div>

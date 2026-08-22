@@ -5,8 +5,8 @@ const NAVER_HEADERS = {
   referer: "https://m.stock.naver.com/",
 };
 
-/** 시가총액 하한: 5,000억 원 */
-export const MIN_KR_MARKET_CAP_WON = 500_000_000_000;
+/** 시가총액 하한: 1조 원 */
+export const MIN_KR_MARKET_CAP_WON = 1_000_000_000_000;
 
 export interface KrGainerRow {
   rank: number;

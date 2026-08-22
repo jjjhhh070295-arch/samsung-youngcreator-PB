@@ -13,6 +13,7 @@ import { scoreTaxPainPoints, type TaxPainId } from "./taxPainScoring";
 import { FALLBACK_PROXY_RETURN_ESTIMATES as PROXY_FALLBACKS, type ProxyReturnEstimate } from "./proxyReturns";
 import { isTaxFlow } from "./cashflowTaxRules";
 import { DEFAULT_EQUITY_REGION_SPLIT } from "./assetMapping";
+import { formatDirectBondDisplay, selectVerifiedDirectBonds } from "./advisory/directBonds";
 
 export { FALLBACK_PROXY_RETURN_ESTIMATES, RETURN_ESTIMATE_LABEL } from "./proxyReturns";
 
@@ -1378,21 +1379,25 @@ export function buildDetailedHoldings(
     );
   }
 
-  const bond = splitWeight(weights.bond, taxPriority ? [35, 25, 20, 20] : [35, 30, 20, 15]);
-  if (taxPriority) {
-    details.push(
-      detail("bond", "브라질 국채 만기분산(헤알화)", bond[0], "조세조약상 이자 비과세 검토 후보", "환율·국가위험·조세조약 요건 세무 확인", "브라질 국채 절세 검토"),
-      detail("bond", "국고채 3년 직접투자", bond[1], "세금 납부 재원 안정화", "채권 매매차익 과세 여부·이자소득 과세 확인", "채권 직접투자"),
-      detail("bond", "AA- 이상 우량 회사채 직접투자", bond[2], "만기매칭 인컴 래더", "이자소득·법인 회계 처리 확인", "우량 회사채"),
-      detail("bond", "KODEX 단기채권", bond[3], "단기 유동성 대기", "ETF 분배금 과세 확인", "삼성자산운용 KODEX"),
+  // 채권형: ETF 금지 — 검증된 직접투자 채권만 (만기·쿠폰·통화·신용·as-of·출처 포함)
+  {
+    const bonds = selectVerifiedDirectBonds({ taxPriority, maxCount: 4 });
+    const bondWeights = splitWeight(
+      weights.bond,
+      taxPriority ? [35, 25, 20, 20] : [35, 30, 20, 15],
     );
-  } else {
-    details.push(
-      detail("bond", "KODEX 종합채권(AA-이상)액티브", bond[0], "우량채권 코어", "분배금 과세 확인", "삼성자산운용 KODEX"),
-      detail("bond", "KODEX 단기채권", bond[1], "단기 변동성 완충", "분배금 과세 확인", "삼성자산운용 KODEX"),
-      detail("bond", "국고채 3년 직접투자", bond[2], "만기매칭 안정자산", "이자소득 과세 확인", "채권 직접투자"),
-      detail("bond", "AA- 이상 우량 회사채", bond[3], "인컴 보강", "신용위험·이자소득 과세 확인", "우량 회사채"),
-    );
+    bonds.forEach((bond, index) => {
+      details.push(
+        detail(
+          "bond",
+          bond.name,
+          bondWeights[index] ?? 0,
+          formatDirectBondDisplay(bond),
+          bond.taxNote,
+          bond.source,
+        ),
+      );
+    });
   }
 
   const mmf = splitWeight(weights.mmf, taxPriority ? [45, 35, 20] : [50, 30, 20]);
