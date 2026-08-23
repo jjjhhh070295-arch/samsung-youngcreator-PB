@@ -280,13 +280,13 @@ export default function TickerAnalysisPanel({
           placeholder="티커 또는 종목명 (예: NVDA, 005930, 삼성전자)"
         />
         <button className="btn-primary" disabled={busy || !symbol.trim()} type="submit">
-          {busy ? "분석 중…" : "결정론 분석"}
+          {busy ? "분석 중…" : "시세 분석"}
         </button>
       </form>
 
       {status === "blocked" && (
         <div className="rounded-xl border border-red-300 bg-red-50 p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-red-700">blocked</p>
+          <p className="text-xs font-bold tracking-wide text-red-700">조회 차단</p>
           <p className="mt-1 text-sm font-semibold text-red-800">시세 조회 실패 — 임의 숫자는 표시하지 않습니다.</p>
           <p className="mt-1 text-xs text-red-700">{error}</p>
         </div>
@@ -337,13 +337,13 @@ export default function TickerAnalysisPanel({
                 onClick={() => explain(snapshot, profile, "full")}
                 disabled={explainBusy}
               >
-                {explainBusy ? "설명 작성 중…" : "쉬운 말로 설명 (AI)"}
+                {explainBusy ? "설명 작성 중…" : "쉬운 말로 설명"}
               </button>
             </div>
             {brief && (
               <div className="mt-4 rounded-lg bg-surface-2 p-3">
                 <p className="text-[10px] font-semibold text-[#1428A0]">
-                  회사 간단 소개 ({briefModel.startsWith("fallback") ? "원문 기반" : "AI · 원문 요약만"})
+                  회사 간단 소개 ({briefModel.startsWith("fallback") ? "원문 기반" : "원문 요약"})
                 </p>
                 <p className="mt-1 text-sm leading-relaxed text-fg">{brief}</p>
                 {profile?.warning && <p className="mt-1 text-[10px] text-amber-700">{profile.warning}</p>}
@@ -532,12 +532,12 @@ export default function TickerAnalysisPanel({
             <p className="text-xs font-semibold text-[#1428A0]">기술적 지표 해석 (결정론 엔진)</p>
             <p className="mt-1 text-sm text-fg">{snapshot.technicalState.summary}</p>
             <p className="mt-2 text-[10px] text-fg-muted">
-              as-of {formatAsOf(snapshot.asOf)} · {snapshot.source} · {snapshot.currency} — AI가 수치를 바꾸지 않습니다.
+              as-of {formatAsOf(snapshot.asOf)} · {snapshot.source} · {snapshot.currency}
             </p>
           </div>
           {explanation && (
             <div className="card p-4">
-              <p className="text-xs font-semibold text-fg-muted">기술적 지표 해석 (AI · 엔진 숫자만 사용)</p>
+              <p className="text-xs font-semibold text-fg-muted">기술적 지표 쉬운 해석</p>
               <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg">{explanation}</p>
             </div>
           )}

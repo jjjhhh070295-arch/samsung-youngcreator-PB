@@ -2,10 +2,33 @@
 
 import { useState } from "react";
 import type { Client } from "@/lib/types";
-import type { EvidenceBundle } from "@/lib/advisory/types";
+import { ADVISORY_STATUS_LABEL, type EvidenceBundle, type EvidenceRun } from "@/lib/advisory/types";
 import type { AdvisoryInputContext } from "@/lib/advisory/integrity";
 import { applyCalcSnapshot, loadBundle, saveBundle } from "@/lib/advisory/control";
 import { sampleBlockedBundle, sampleSuccessBundle } from "@/lib/advisory/sampleRuns";
+
+function runKindLabel(kind: EvidenceRun["kind"]) {
+  switch (kind) {
+    case "book":
+      return "고객북";
+    case "ticker":
+      return "티커 분석";
+    case "recommend":
+      return "상품 추천";
+    case "pdf":
+      return "PDF 확인";
+    case "status":
+      return "상태 변경";
+    case "explain":
+      return "설명 생성";
+    case "snapshot":
+      return "계산 결과";
+    case "judge":
+      return "검토";
+    default:
+      return "기록";
+  }
+}
 
 export default function EvidenceBundlePanel({
   bundle,
@@ -28,7 +51,7 @@ export default function EvidenceBundlePanel({
 
   const generate = async () => {
     if (!client) {
-      setError("고객 데이터가 없어 Evidence Bundle을 만들 수 없습니다.");
+      setError("고객 데이터가 없어 계산·검토 기록을 만들 수 없습니다.");
       return;
     }
     if (!inputContext?.assignedPbDisplay) {
@@ -36,7 +59,7 @@ export default function EvidenceBundlePanel({
       return;
     }
     if (finalEvidence) {
-      setError("확정·차단 Evidence는 변경할 수 없습니다. 새 검토본 생성 절차가 필요합니다.");
+      setError("확정·차단 기록은 변경할 수 없습니다. 새 검토본 생성 절차가 필요합니다.");
       return;
     }
     setBusy(true);
@@ -73,7 +96,7 @@ export default function EvidenceBundlePanel({
   return (
     <div className="card p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-bold text-fg">Evidence Bundle</h3>
+        <h3 className="text-sm font-bold text-fg">계산·검토 기록</h3>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -82,7 +105,7 @@ export default function EvidenceBundlePanel({
             disabled={busy || !client || finalEvidence}
             title={finalEvidence ? "확정·차단본은 불변입니다. 새 검토본 생성 절차가 필요합니다." : undefined}
           >
-            {busy ? "생성 중…" : finalEvidence ? "확정·차단본 변경 불가" : "Evidence Bundle 생성"}
+            {busy ? "생성 중…" : finalEvidence ? "확정·차단본 변경 불가" : "계산·검토 기록 생성"}
           </button>
           <button type="button" className="btn-outline text-xs" onClick={download}>
             JSON 저장
@@ -90,11 +113,11 @@ export default function EvidenceBundlePanel({
         </div>
       </div>
       <p className="text-[11px] text-fg-muted">
-        스크린샷이 아니라 한 번의 실행 기록입니다. runId, 상담 원문, IPS, 설정, 계산 결과, 해시, Judge, 인용, PB 상담 검토 승인, blocked 기록을 남깁니다.
+        스크린샷이 아니라 한 번의 실행 기록입니다. 상담 원문, IPS, 설정, 계산 결과, 출처, PB 상담 검토 승인, 차단 기록을 남깁니다.
       </p>
       {finalEvidence && (
         <p className="mt-2 rounded-lg border border-[#DCE4F5] bg-[#F0F3FA] p-2 text-[11px] font-semibold text-[#1428A0]">
-          확정·차단 Evidence는 불변입니다. 입력이나 근거가 바뀌면 새 검토본으로 시작해 다시 PB 상담 검토 승인을 받아야 합니다.
+          확정·차단 기록은 불변입니다. 입력이나 근거가 바뀌면 새 검토본으로 시작해 다시 PB 상담 검토 승인을 받아야 합니다.
         </p>
       )}
       <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
@@ -105,19 +128,19 @@ export default function EvidenceBundlePanel({
             onClick={() => setSample(k)}
             className={`rounded-full px-3 py-1 font-semibold ${sample === k ? "bg-[#1428A0] text-white" : "bg-surface-2 text-fg-muted"}`}
           >
-            {k === "live" ? "현재 실행" : k === "success" ? "성공 샘플" : "blocked 샘플"}
+            {k === "live" ? "현재 기록" : k === "success" ? "성공 샘플" : "차단 샘플"}
           </button>
         ))}
       </div>
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       <dl className="mt-3 grid grid-cols-1 gap-2 text-[11px] md:grid-cols-2">
-        <div>runId: <span className="font-mono break-all">{shown.runId}</span></div>
+        <div>검토 기록 ID: <span className="font-mono break-all">{shown.runId}</span></div>
         <div>실행 시간: {shown.updatedAt.slice(0, 19)}</div>
-        <div>상태: {shown.status}</div>
-        <div>Judge 시도: {shown.judgeAttempts}</div>
-        <div className="md:col-span-2">inputHash: <span className="font-mono break-all">{shown.inputHash || "—"}</span></div>
-        <div className="md:col-span-2">settingsHash: <span className="font-mono break-all">{shown.settingsHash || "—"}</span></div>
-        <div className="md:col-span-2">resultHash: <span className="font-mono break-all">{shown.resultHash || shown.outputHash || "—"}</span></div>
+        <div>상태: {ADVISORY_STATUS_LABEL[shown.status]}</div>
+        <div>검토 시도: {shown.judgeAttempts}</div>
+        <div className="md:col-span-2">입력 확인값: <span className="font-mono break-all">{shown.inputHash || "—"}</span></div>
+        <div className="md:col-span-2">설정 확인값: <span className="font-mono break-all">{shown.settingsHash || "—"}</span></div>
+        <div className="md:col-span-2">계산 확인값: <span className="font-mono break-all">{shown.resultHash || shown.outputHash || "—"}</span></div>
       </dl>
       <div className="mt-3 rounded-lg bg-surface-2 p-2 text-[11px] text-fg">
         <p className="font-semibold">상담 입력 원문</p>
@@ -136,7 +159,7 @@ export default function EvidenceBundlePanel({
       {shown.judge && (
         <div className="mt-3">
           <p className="text-xs font-semibold text-fg">
-            Judge {shown.judge.passed ? "통과" : "실패"} · {shown.judge.at.slice(0, 19)}
+            검토 {shown.judge.passed ? "통과" : "실패"} · {shown.judge.at.slice(0, 19)}
           </p>
           <ul className="mt-1 space-y-1">
             {shown.judge.findings.map((f) => (
@@ -152,11 +175,11 @@ export default function EvidenceBundlePanel({
       )}
       {shown.citations.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs font-semibold text-fg">출처 청크 메타데이터</p>
+          <p className="text-xs font-semibold text-fg">출처 정보</p>
           <ul className="mt-1 space-y-1 text-[11px] text-fg-muted">
             {shown.citations.map((c) => (
               <li key={`${c.sourceId}-${c.chunkId}`}>
-                {c.sourceId} · {c.title} · as-of {c.asOf} · chunk {c.chunkId}
+                {c.sourceId} · {c.title} · as-of {c.asOf}
               </li>
             ))}
           </ul>
@@ -178,8 +201,8 @@ export default function EvidenceBundlePanel({
           {shown.runs.length === 0 && <li className="text-[11px] text-fg-muted">아직 실행 기록이 없습니다.</li>}
           {shown.runs.map((r) => (
             <li key={r.id} className="text-[11px] text-fg-muted">
-              {r.at.slice(0, 19)} · {r.kind} · {r.engine} · {r.notes}
-              {r.judge ? ` · Judge ${r.judge.passed ? "통과" : "차단"}` : ""}
+              {r.at.slice(0, 19)} · {runKindLabel(r.kind)} · {r.notes}
+              {r.judge ? ` · 검토 ${r.judge.passed ? "통과" : "차단"}` : ""}
               {r.citations?.length ? ` · 출처 ${r.citations.length}건` : ""}
             </li>
           ))}
@@ -198,7 +221,7 @@ export default function EvidenceBundlePanel({
       </div>
       {shown.blockReasons.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs font-semibold text-red-600">blocked 기록</p>
+          <p className="text-xs font-semibold text-red-600">차단 기록</p>
           <ul className="mt-1 text-[11px] text-red-600">
             {shown.blockReasons.map((r) => (
               <li key={r}>· {r}</li>

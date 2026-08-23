@@ -5,7 +5,7 @@ import { TAX_PAIN_RUBRICS } from "@/lib/taxPainRubric";
 
 export default function TaxPainRubricButton({
   id,
-  label = "AI 세금 고충 기준표",
+  label = "세금 고충 기준표",
 }: {
   id?: string;
   label?: string;
@@ -35,7 +35,7 @@ export default function TaxPainRubricButton({
           >
             <div className="mb-4 flex justify-between gap-4">
               <div>
-                <h2 className="text-base font-black text-fg">AI 세금 고충 상/중/하 판단 기준표</h2>
+                <h2 className="text-base font-black text-fg">세금 고충 상/중/하 판단 기준표</h2>
                 <p className="mt-1 text-xs text-fg-muted">
                   현금흐름 금액, 총자산 대비 비율, 명시 키워드를 점수화한 상담 보조 기준입니다.
                 </p>

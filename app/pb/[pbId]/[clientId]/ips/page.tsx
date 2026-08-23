@@ -36,7 +36,7 @@ import type { EvidenceBundle } from "@/lib/advisory/types";
 import { advisoryInputHash } from "@/lib/advisory/integrity";
 import { isSamePrintAttempt } from "@/lib/advisory/printPermitBinding";
 import { stableJsonStringify } from "@/lib/advisory/stableJson";
-import { HONESTY_LIMITS, AI_ROLE_COPY } from "@/lib/advisory/constants";
+import { HONESTY_LIMITS } from "@/lib/advisory/constants";
 import { mergeTaxProfile, projectTax } from "@/lib/taxProjection";
 import { DEFAULT_HORIZON_YEARS } from "@/lib/taxProjectionRules";
 
@@ -217,6 +217,21 @@ function printPermitKey(permit: VerifiedPrintPermit): string {
   ].join("\u0000");
 }
 
+function humanizePdfReason(reason: string) {
+  return reason
+    .replaceAll("Evidence Bundle", "계산·검토 기록")
+    .replaceAll("Evidence", "상담 현재본")
+    .replaceAll("Judge", "검토")
+    .replaceAll("judge", "검토")
+    .replaceAll("locked", "확정")
+    .replaceAll("blocked", "차단")
+    .replaceAll("draft", "초안")
+    .replaceAll("inputHash", "입력 확인값")
+    .replaceAll("settingsHash", "설정 확인값")
+    .replaceAll("resultHash", "계산 확인값")
+    .replaceAll("runId", "검토 기록 ID");
+}
+
 export default function IPSDocumentPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
@@ -224,7 +239,7 @@ export default function IPSDocumentPage() {
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [pdfBlocked, setPdfBlocked] = useState(true);
-  const [pdfReason, setPdfReason] = useState("Evidence와 최신 고객 데이터를 검증 중입니다.");
+  const [pdfReason, setPdfReason] = useState("최신 상담 내용과 문서 발행 조건을 확인하고 있습니다.");
   const [printPermit, setPrintPermit] = useState<VerifiedPrintPermit | null>(null);
   const [printBusy, setPrintBusy] = useState(false);
   const [evidenceRevision, setEvidenceRevision] = useState(0);
@@ -330,11 +345,11 @@ export default function IPSDocumentPage() {
     replacePrintPermit(null);
     setPrintBusy(false);
     setPdfBlocked(true);
-    setPdfReason(reason);
+    setPdfReason(humanizePdfReason(reason));
   }, [replacePrintPermit]);
 
   useEffect(() => {
-    blockPdfNow("고객·담당 PB·Evidence 현재본을 다시 확인하고 있습니다.");
+    blockPdfNow("고객·담당 PB·최신 상담본을 다시 확인하고 있습니다.");
     return () => {
       loadEpochRef.current += 1;
       flowEpochRef.current += 1;
@@ -398,7 +413,7 @@ export default function IPSDocumentPage() {
     replacePrintPermit(null);
     setPrintBusy(false);
     setPdfBlocked(true);
-    setPdfReason("Evidence와 최신 고객 데이터를 검증 중입니다.");
+    setPdfReason("최신 상담 내용과 문서 발행 조건을 확인하고 있습니다.");
     const verify = async () => {
       try {
         const ids = { clientId, pbId, evidenceId: bundle.id };
@@ -415,7 +430,7 @@ export default function IPSDocumentPage() {
         if (!isCurrentRequest()) return;
         if (!registerRes.ok || !registration.ok || !registration.registered) {
           failVerification(
-            `최종 PDF 비활성: ${registration.reasons?.[0] || registration.error || "서버 Evidence 원본 보존 실패"}`,
+            `최종 PDF 비활성: ${registration.reasons?.[0] || registration.error || "서버 원본 보존 실패"}`,
           );
           return;
         }
@@ -454,7 +469,7 @@ export default function IPSDocumentPage() {
           evidenceSnapshot.id !== bundle.id ||
           evidenceSnapshot.clientId !== clientId
         ) {
-          failVerification(`최종 PDF 비활성: ${data.reasons?.[0] || data.error || "Evidence 무결성 검증 실패"}`);
+          failVerification(`최종 PDF 비활성: ${data.reasons?.[0] || data.error || "문서 발행 조건 확인 실패"}`);
           return;
         }
 
@@ -489,7 +504,7 @@ export default function IPSDocumentPage() {
         };
         replacePrintPermit(nextPermit);
         if (!isCurrentRequest() || !verifiedEvidenceIsCurrent(nextPermit)) {
-          failVerification("최종 PDF 비활성: 검증 직후 고객·Evidence 현재본이 변경되었습니다.");
+          failVerification("최종 PDF 비활성: 검증 직후 고객·상담 현재본이 변경되었습니다.");
           return;
         }
         setPdfBlocked(false);
@@ -499,7 +514,7 @@ export default function IPSDocumentPage() {
         failVerification(
           error instanceof Error && error.name === "AbortError"
             ? "최종 PDF 비활성: 검증 요청이 취소되었습니다."
-            : "최종 PDF 비활성: Evidence 무결성 검증 서비스에 연결할 수 없습니다.",
+            : "최종 PDF 비활성: 문서 발행 조건 확인 서비스에 연결할 수 없습니다.",
         );
       }
     };
@@ -523,7 +538,7 @@ export default function IPSDocumentPage() {
   useEffect(() => {
     const currentEvidenceStorageKey = `pb-advisory-evidence-current-v2:${encodeURIComponent(clientId)}`;
     const invalidateEvidence = () => {
-      blockPdfNow("Evidence 현재본이 변경되어 고객 문서를 즉시 차단하고 다시 검증합니다.");
+      blockPdfNow("상담 현재본이 변경되어 고객 문서를 즉시 차단하고 다시 확인합니다.");
       setEvidenceRevision((revision) => revision + 1);
     };
     const handleStorage = (event: StorageEvent) => {
@@ -564,7 +579,7 @@ export default function IPSDocumentPage() {
 
   useEffect(() => {
     const blockStalePrint = () => {
-      blockPdfNow("Evidence 현재본 검증이 유효하지 않아 고객 문서 인쇄를 차단했습니다.");
+      blockPdfNow("상담 현재본 확인이 유효하지 않아 고객 문서 인쇄를 차단했습니다.");
     };
     const preventPrintShortcut = (event: globalThis.KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "p") return;
@@ -626,7 +641,7 @@ export default function IPSDocumentPage() {
       latest.id !== permit.evidenceId ||
       !verifiedEvidenceIsCurrent(permit)
     ) {
-      blockPdfNow("출력 허가 토큰이 만료되었거나 Evidence 현재본과 일치하지 않습니다.");
+      blockPdfNow("출력 허가 토큰이 만료되었거나 상담 현재본과 일치하지 않습니다.");
       setEvidenceRevision((revision) => revision + 1);
       return;
     }
@@ -683,7 +698,7 @@ export default function IPSDocumentPage() {
         return;
       }
       if (!isCurrentAttempt() || !verifiedEvidenceIsCurrent(permit)) {
-        blockPdfNow("출력 차단: 토큰 소비 중 고객·담당 PB·Evidence 현재본이 변경되었습니다.");
+        blockPdfNow("출력 차단: 토큰 소비 중 고객·담당 PB·상담 현재본이 변경되었습니다.");
         setEvidenceRevision((revision) => revision + 1);
         return;
       }
@@ -695,7 +710,7 @@ export default function IPSDocumentPage() {
       try {
         if (!isCurrentAttempt() || !verifiedEvidenceIsCurrent(permit)) {
           printArmedRef.current = null;
-          blockPdfNow("출력 차단: 인쇄 직전 고객·담당 PB·Evidence 현재본이 변경되었습니다.");
+          blockPdfNow("출력 차단: 인쇄 직전 고객·담당 PB·상담 현재본이 변경되었습니다.");
           setEvidenceRevision((revision) => revision + 1);
           return;
         }
@@ -784,7 +799,6 @@ export default function IPSDocumentPage() {
   }));
   const returnContributions = pf ? buildReturnContributionsFromPortfolio(displayAllocations, pf.expectedReturn) : [];
   const periodSeries = buildPeriodCashflowSeries(documentClient.cashFlows);
-  const evidence = printPermit.evidenceSnapshot;
   const vmWeights = confirmedWeights ?? {
     etf: 30, bond: 25, els: 0, mmf: 30, gold: 10, dollar: 5, raw: 0,
   };
@@ -1196,7 +1210,7 @@ export default function IPSDocumentPage() {
           </Section>
         )}
 
-        <Section title="세후 결과 워터폴 (결정론 엔진)">
+        <Section title="세전·세금·비용·세후 결과">
           <table className="w-full text-sm">
             <tbody>
               <tr className="border-b border-gray-100">
@@ -1218,16 +1232,8 @@ export default function IPSDocumentPage() {
             </tbody>
           </table>
           <p className="mt-1 text-[10px] text-gray-500">
-            as-of {dateStr} · source deterministic-engine · KRW · {taxWaterfall.assumptions[0]}
+            기준일 {dateStr} · 통화 KRW · {taxWaterfall.assumptions[0]}
           </p>
-        </Section>
-
-        <Section title="재현성 해시 / Evidence">
-          <p className="text-[11px] text-gray-600">{AI_ROLE_COPY}</p>
-          <p className="mt-1 font-mono text-[10px] break-all">inputHash {evidence.inputHash || "—"}</p>
-          <p className="font-mono text-[10px] break-all">settingsHash {evidence.settingsHash || "—"}</p>
-          <p className="font-mono text-[10px] break-all">resultHash {evidence.resultHash || evidence.outputHash || "—"}</p>
-          <p className="mt-1 text-[10px] text-gray-500">상태 {evidence.status} · runId {evidence.runId}</p>
         </Section>
 
         {/* 디스클레이머 */}

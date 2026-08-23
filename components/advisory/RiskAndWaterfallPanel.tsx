@@ -9,8 +9,8 @@ export default function RiskAndWaterfallPanel({ results }: { results: CalcResult
   return (
     <div className="space-y-4">
       <div className="card p-4">
-        <h3 className="text-sm font-bold text-fg">결정론 리스크 지표</h3>
-        <p className="mt-1 text-[11px] text-fg-muted">AI가 산출한 값이 아닙니다. VaR/CVaR는 과거 가정 기반 파라메트릭 근사입니다.</p>
+        <h3 className="text-sm font-bold text-fg">리스크 지표</h3>
+        <p className="mt-1 text-[11px] text-fg-muted">VaR/CVaR는 과거 가정 기반 참고 지표이며 실제 손실 한도가 아닙니다.</p>
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
           <Metric label="기대수익" n={risk.expectedReturn} />
           <Metric label="변동성" n={risk.volatility} />
@@ -37,7 +37,7 @@ export default function RiskAndWaterfallPanel({ results }: { results: CalcResult
       </div>
       {waterfall && (
         <div className="card p-4">
-          <h3 className="text-sm font-bold text-fg">세후 결과 워터폴</h3>
+          <h3 className="text-sm font-bold text-fg">세전·세금·비용·세후 결과</h3>
           <table className="mt-2 w-full text-sm">
             <tbody>
               <Row label="세전 기말자산" n={waterfall.pretaxEnding} />

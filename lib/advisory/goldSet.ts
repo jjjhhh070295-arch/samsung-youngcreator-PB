@@ -88,7 +88,7 @@ export const GOLD_CASES: GoldCase[] = [
       }],
     }, plan("B"), plan("C")],
   }), [OK_CITATION]),
-  gold("g18", "확정 비중 차단", "block", "사람: AI 확정 weight 차단", {
+  gold("g18", "확정 비중 차단", "block", "사람: 확정 비중 문구 차단", {
     ...result(),
     plans: result().plans,
     narrativePromptFacts: ['{"weight": 30}'],
@@ -97,10 +97,10 @@ export const GOLD_CASES: GoldCase[] = [
     narrativePromptFacts: ["확정 세액 1200000"],
   }), [OK_CITATION]),
   gold("g20", "빈 플랜 경계", "pass", "플랜은 있으나 상품 최소", result(), [OK_CITATION]),
-  gold("g21", "운영실패: 인용 메타 없음", "block", "운영 중 발견 — 텍스트만 있고 sourceId/chunkId 없음", result(), [
+  gold("g21", "운영실패: 출처 정보 없음", "block", "운영 중 발견 — 텍스트만 있고 출처 식별 정보 없음", result(), [
     { sourceId: "", title: "뉴스 요약", asOf: "", chunkId: "" },
   ]),
-  gold("g22", "운영실패: 출처 청크 누락", "block", "운영 중 발견 — title만 있고 chunkId 없음", result(), [
+  gold("g22", "운영실패: 출처 식별값 누락", "block", "운영 중 발견 — 제목만 있고 출처 식별값 없음", result(), [
     { sourceId: "src-news", title: "시장 코멘트", asOf: "2026-08-01", chunkId: "" },
   ]),
 ];

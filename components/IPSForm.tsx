@@ -63,7 +63,7 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <div className="flex justify-end lg:col-span-2">
-        <ScoreRubricButton label="AI점수 기준표 확인" />
+        <ScoreRubricButton label="요인 점수 기준표 확인" />
       </div>
 
       {FACTOR_META.map((m) => {
@@ -92,7 +92,7 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className={f.source === "ai" ? "badge-navy" : "badge-muted"}>
-                  {f.source === "ai" ? "AI" : "수동"}
+                  {f.source === "ai" ? "자동" : "수동"}
                 </span>
                 <StatusBadge status={f.status} />
               </div>

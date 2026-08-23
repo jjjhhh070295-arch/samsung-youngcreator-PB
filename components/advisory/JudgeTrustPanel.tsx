@@ -7,26 +7,26 @@ export default function JudgeTrustPanel() {
   return (
     <div className="card space-y-3 p-4">
       <div>
-        <h3 className="text-sm font-bold text-fg">Judge 신뢰도 (사람 라벨 gold set)</h3>
+        <h3 className="text-sm font-bold text-fg">검토 기준 점검</h3>
         <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-          아래 라벨은 사람이 미리 붙인 정답입니다. Judge가 스스로 정답을 만들지 않습니다.
+          아래 라벨은 사람이 미리 붙인 정답입니다. 검토 기준이 스스로 정답을 만들지 않습니다.
           일치율 {ev.agreementPct}%이며 100%가 아닙니다. 불일치와 한계를 그대로 표시합니다.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2 text-center text-xs md:grid-cols-4">
-        <Stat label="사람 pass · Judge pass" value={ev.tp} />
-        <Stat label="사람 block · Judge block" value={ev.tn} />
-        <Stat label="오탐 (사람 block, Judge pass)" value={ev.fp} tone="text-red-600" />
-        <Stat label="미탐 (사람 pass, Judge block)" value={ev.fn} tone="text-amber-700" />
+        <Stat label="사람 통과 · 검토 통과" value={ev.tp} />
+        <Stat label="사람 차단 · 검토 차단" value={ev.tn} />
+        <Stat label="오탐 (사람 차단, 검토 통과)" value={ev.fp} tone="text-red-600" />
+        <Stat label="미탐 (사람 통과, 검토 차단)" value={ev.fn} tone="text-amber-700" />
       </div>
-      <p className="text-xs text-fg-muted">샘플 {GOLD_CASES.length}건 (운영 실패 유형 2건 포함: 인용 메타 없음, chunkId 누락)</p>
+      <p className="text-xs text-fg-muted">샘플 {GOLD_CASES.length}건 (운영 실패 유형 2건 포함: 인용 정보 없음, 출처 식별값 누락)</p>
       {ev.disagreements.length > 0 ? (
         <div>
           <p className="text-xs font-semibold text-fg">불일치 사례</p>
           <ul className="mt-1 space-y-1 text-[11px] text-fg-muted">
             {ev.disagreements.map((d) => (
               <li key={d.id}>
-                {d.id} {d.title} · 사람 {d.human} / Judge {d.judge} · {d.notes}
+                {d.id} {d.title} · 사람 {d.human} / 검토 {d.judge} · {d.notes}
               </li>
             ))}
           </ul>

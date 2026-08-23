@@ -91,7 +91,7 @@ export default function ConsultationInput({
           text: data.dummy
             ? (data.note ?? "샘플(더미) 결과가 채워졌습니다.") +
               " 7요인 폼에서 값을 확인·수정한 뒤 검토 확정하세요."
-            : "AI 분석 완료. 아래 7요인 폼에 draft로 채워졌습니다. 검토 후 [검토 확정] → [저장 확정] 하세요.",
+            : "요인 분석 완료. 아래 7요인 폼에 초안으로 채워졌습니다. 검토 후 [검토 확정] → [저장 확정] 하세요.",
         });
       } else {
         // 키 없음 / 크레딧 소진 / 키 오류 / 파싱 실패 → 수동 입력 유도
@@ -133,8 +133,8 @@ export default function ConsultationInput({
           type: "ok",
           text: data.dummy
             ? (data.note ?? "샘플(더미) 변환 결과입니다.") +
-              " ① 전문 텍스트 탭에 채워졌습니다. ⚠️ 숫자·화자(PB/고객) 오인식을 검토·수정한 뒤 [AI 분석]."
-            : "변환 완료 → ① 전문 텍스트 탭. ⚠️ STT는 오타가 있을 수 있어요. 숫자·화자(PB/고객)를 검토·수정한 뒤 [AI 분석]을 누르세요.",
+              " ① 전문 텍스트 탭에 채워졌습니다. 숫자·화자(PB/고객) 오인식을 검토·수정한 뒤 [요인 분석]을 누르세요."
+            : "변환 완료 → ① 전문 텍스트 탭. STT는 오타가 있을 수 있어요. 숫자·화자(PB/고객)를 검토·수정한 뒤 [요인 분석]을 누르세요.",
         });
       } else {
         setMsg({ type: "error", text: data.error ?? "음성 변환에 실패했습니다." });
@@ -182,10 +182,10 @@ export default function ConsultationInput({
             />
             <div className="mt-2 flex items-center gap-2">
               <button className="btn-primary text-sm" onClick={analyze} disabled={analyzing || disabled}>
-                {analyzing ? "분석 중…" : "AI 분석"}
+                {analyzing ? "분석 중…" : "요인 분석"}
               </button>
               <span className="text-xs text-fg-muted">
-                7요인을 자동 추출해 아래 폼에 draft로 채웁니다 (보수적 채점·근거 인용).
+                7요인을 자동 추출해 아래 폼에 초안으로 채웁니다 (보수적 채점·근거 확인).
               </span>
             </div>
           </div>
@@ -196,7 +196,7 @@ export default function ConsultationInput({
             <p className="font-medium text-fg">7요인을 직접 입력합니다.</p>
             <p className="mt-1">
               아래 <b>RRTTLLU 결과 폼</b>에서 각 요인의 상태(직접 근거/추론/미언급)·값·점수·메모를
-              직접 입력하세요. AI 없이 PB가 모든 값을 통제합니다.
+              직접 입력하세요. 자동 판단 없이 PB가 모든 값을 통제합니다.
             </p>
             <button className="btn-gold mt-3 text-sm" onClick={onRequestManualEdit} disabled={disabled}>
               아래 폼 편집 시작
@@ -262,7 +262,7 @@ export default function ConsultationInput({
               />
             </label>
             <p className="mt-2 text-xs text-fg-muted">
-              변환된 텍스트는 ① 전문 텍스트 탭에 채워지고, [AI 분석]으로 7요인을 추출합니다.
+              변환된 텍스트는 ① 전문 텍스트 탭에 채워지고, [요인 분석]으로 7요인을 추출합니다.
             </p>
           </div>
         )}

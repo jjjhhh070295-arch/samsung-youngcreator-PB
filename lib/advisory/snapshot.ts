@@ -13,13 +13,13 @@ import type { CalcResults, CitationRef, TaxWaterfall } from "./types";
 const ENGINE_CITATIONS: CitationRef[] = [
   {
     sourceId: "eng-risk-parametric",
-    title: "파라메트릭 VaR/CVaR · Sharpe (결정론 엔진)",
+    title: "파라메트릭 VaR/CVaR · Sharpe 계산 기준",
     asOf: "engine",
     chunkId: "risk-engine-v1",
   },
   {
     sourceId: "eng-tax-waterfall",
-    title: "세전·세금·비용·세후 워터폴 (결정론 엔진)",
+    title: "세전·세금·비용·세후 계산 기준",
     asOf: "engine",
     chunkId: "tax-projection-v1",
   },

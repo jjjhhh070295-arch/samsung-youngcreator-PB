@@ -16,9 +16,23 @@ import {
   softLockReasons,
   startNewReviewVersion,
 } from "@/lib/advisory/control";
-import { JUDGE_MAX_RETRIES } from "@/lib/advisory/constants";
 
 const ORDER: EvidenceBundle["status"][] = ["draft", "review", "locked", "blocked"];
+
+function humanizeReviewText(text: string) {
+  return text
+    .replaceAll("Evidence Bundle", "계산·검토 기록")
+    .replaceAll("Evidence", "계산·검토 기록")
+    .replaceAll("Judge", "검토")
+    .replaceAll("judge", "검토")
+    .replaceAll("locked", "확정")
+    .replaceAll("blocked", "차단")
+    .replaceAll("draft", "초안")
+    .replaceAll("runId", "검토 기록 ID")
+    .replaceAll("inputHash", "입력 확인값")
+    .replaceAll("settingsHash", "설정 확인값")
+    .replaceAll("resultHash", "계산 확인값");
+}
 
 export default function ControlStatusBar({
   bundle,
@@ -36,7 +50,7 @@ export default function ControlStatusBar({
   const [actionMessage, setActionMessage] = useState("");
   const actionInFlight = useRef(false);
   const pdfOk = canIssueClientPdf(bundle);
-  const reason = pdfBlockReason(bundle);
+  const reason = humanizeReviewText(pdfBlockReason(bundle));
   const lockable = canLock(bundle);
   const soft = softLockReasons(bundle);
   const pending = bundle.pendingReasons.length ? bundle.pendingReasons : soft;
@@ -47,7 +61,7 @@ export default function ControlStatusBar({
     onChange(next);
   };
 
-  /** 첫 행동은 Evidence 생성까지만, 두 번째 명시 행동에서만 PB 승인을 수행한다. */
+  /** 첫 행동은 계산 기록 준비까지만, 두 번째 명시 행동에서만 PB 승인을 수행한다. */
   const handlePrimaryAction = async () => {
     if (actionInFlight.current) return;
     actionInFlight.current = true;
@@ -70,7 +84,7 @@ export default function ControlStatusBar({
           body: JSON.stringify({ client, inputContext }),
         });
         const data = await res.json();
-        if (!data.ok) throw new Error(data.error || "Evidence Bundle 생성 실패");
+        if (!data.ok) throw new Error(humanizeReviewText(data.error || "계산·검토 기록 생성 실패"));
         const latest = loadBundle(client.id);
         if (latest.status === "locked" || latest.status === "blocked") {
           onChange(latest);
@@ -84,9 +98,9 @@ export default function ControlStatusBar({
         working = applyCalcSnapshot(latest, data.snap);
         persist(working);
         if (working.status === "blocked") {
-          setActionError(working.blockReasons[0] || "고객 제안 차단: Evidence 검증에 실패했습니다.");
+          setActionError(humanizeReviewText(working.blockReasons[0] || "고객 제안 차단: 계산·검토 기록 확인에 실패했습니다."));
         } else {
-          setActionMessage("Evidence가 생성되었습니다. 아래 근거를 검토한 뒤 PB 상담 검토 승인 버튼을 다시 누르세요.");
+          setActionMessage("계산·검토 기록이 준비되었습니다. 아래 내용을 확인한 뒤 PB 상담 검토 승인 버튼을 다시 누르세요.");
         }
         return;
       }
@@ -94,9 +108,11 @@ export default function ControlStatusBar({
       persist(next);
       if (next.status !== "locked" && next.status !== "blocked") {
         setActionError(
-          next.pendingReasons[0] ||
-            softLockReasons(next)[0] ||
-            "아직 locked 조건을 충족하지 못했습니다. 아래 안내를 확인하세요.",
+          humanizeReviewText(
+            next.pendingReasons[0] ||
+              softLockReasons(next)[0] ||
+              "아직 확정 조건을 충족하지 못했습니다. 아래 안내를 확인하세요.",
+          ),
         );
       }
     } catch (e: unknown) {
@@ -117,7 +133,7 @@ export default function ControlStatusBar({
     }
     onChange(result.bundle);
     setActionMessage(
-      `새 draft v${result.bundle.version}를 시작했습니다. 이전 ${bundle.status} 원본 ${result.archivedBundleId}은 보존되었습니다.`,
+      `새 검토본 v${result.bundle.version}를 시작했습니다. 이전 ${ADVISORY_STATUS_LABEL[bundle.status]} 원본은 보존되었습니다.`,
     );
   };
 
@@ -126,14 +142,14 @@ export default function ControlStatusBar({
     if (bundle.status === "locked") return "PB 상담 검토 승인 완료";
     if (bundle.status === "blocked") return "고객 제안 차단 — 사유 확인";
     if (lockable) return "PB 상담 검토 승인";
-    if (needsEvidence) return "Evidence Bundle 생성";
+    if (needsEvidence) return "계산·검토 기록 준비";
     return "PB 상담 검토 승인";
   })();
 
   return (
     <div className="card space-y-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-fg-muted">리포트 상태 (표시용)</span>
+        <span className="text-xs font-semibold text-fg-muted">리포트 상태</span>
         {ORDER.map((s) => (
           <span
             key={s}
@@ -152,21 +168,21 @@ export default function ControlStatusBar({
                 : ADVISORY_STATUS_LABEL[s]
             }
           >
-            {s} · {ADVISORY_STATUS_LABEL[s]}
+            {ADVISORY_STATUS_LABEL[s]}
           </span>
         ))}
       </div>
 
       <div className="rounded-lg border-2 border-[#1428A0] bg-[#1428A0]/5 p-3">
-        <p className="text-xs font-bold text-[#1428A0]">Evidence 생성 → PB 검토 → 명시 승인</p>
+        <p className="text-xs font-bold text-[#1428A0]">계산 기록 준비 → PB 검토 → 명시 승인</p>
         <p className="mt-1 text-[11px] text-fg-muted">
           {bundle.status === "locked"
             ? "상담 검토 승인이 완료되었습니다. 고객용 최종 PDF 발행 조건을 충족했습니다."
             : lockable
-              ? "Judge·인용 조건이 충족되었습니다. 아래 승인 버튼을 누르면 내부 상태가 locked로 확정됩니다."
+              ? "문서 발행 조건이 충족되었습니다. 아래 승인 버튼을 누르면 고객 제안이 확정됩니다."
               : needsEvidence
-                ? "아직 Evidence Bundle(Judge·인용)이 없습니다. 먼저 생성한 뒤 내용을 검토해야 하며, 생성과 승인은 한 번의 클릭으로 처리되지 않습니다."
-                : "조건이 부족하면 locked로 가지 않고, 필요한 조치를 아래에 표시합니다."}
+                ? "아직 계산·검토 기록이 준비되지 않았습니다. 먼저 기록을 준비한 뒤 내용을 검토해야 하며, 준비와 승인은 한 번의 클릭으로 처리되지 않습니다."
+                : "조건이 부족하면 확정으로 가지 않고, 필요한 조치를 아래에 표시합니다."}
         </p>
         <p className="mt-1 text-[10px] font-semibold text-[#0F1E7A]">
           ※ 위 상태 칩은 진행상태 표시입니다. 버튼 이름이 현재 가능한 행동을 정확히 나타냅니다.
@@ -183,10 +199,10 @@ export default function ControlStatusBar({
         {(bundle.status === "locked" || bundle.status === "blocked") && (
           <div className="mt-3 rounded-lg border border-[#DCE4F5] bg-white p-3">
             <p className="text-xs font-semibold text-fg">
-              현재 {bundle.status} 원본은 수정하지 않습니다.
+              현재 {ADVISORY_STATUS_LABEL[bundle.status]} 원본은 수정하지 않습니다.
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-              아래 행동은 현재 원본의 ID·해시·승인·차단 기록을 별도 보존하고, 새 ID의 빈 draft 검토본을 만듭니다.
+              아래 행동은 현재 원본의 승인·차단 기록을 별도 보존하고, 새 검토본을 만듭니다.
             </p>
             <button
               type="button"
@@ -203,12 +219,8 @@ export default function ControlStatusBar({
 
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <span className={`font-semibold ${pdfOk ? "text-[#1428A0]" : "text-red-600"}`}>
-          {pdfOk ? "locked — 로컬 게이트 통과 · PDF 화면에서 운영 원본/로컬 자기일치 모드를 구분해 재검증" : reason}
+          {pdfOk ? "고객용 최종 PDF 발행 가능" : reason}
         </span>
-        <span className="text-fg-muted">
-          Judge 재시도 {bundle.judgeAttempts}/{JUDGE_MAX_RETRIES}
-        </span>
-        <span className="font-mono text-[10px] text-fg-muted">status={bundle.status}</span>
       </div>
 
       {bundle.status !== "locked" && pending.length > 0 && (
@@ -216,7 +228,7 @@ export default function ControlStatusBar({
           <p className="text-xs font-semibold text-[#0B5CAB]">검토/준비 필요 (무엇을 해야 하는지)</p>
           <ul className="mt-1 space-y-1 text-[11px] text-fg">
             {pending.map((r) => (
-              <li key={r}>· {r}</li>
+              <li key={r}>· {humanizeReviewText(r)}</li>
             ))}
           </ul>
         </div>
@@ -227,7 +239,7 @@ export default function ControlStatusBar({
           <p className="text-xs font-bold">고객 제안 차단 사유</p>
           <ul className="mt-1 text-[11px]">
           {bundle.blockReasons.slice(0, 4).map((r) => (
-            <li key={r}>· {r}</li>
+            <li key={r}>· {humanizeReviewText(r)}</li>
           ))}
           </ul>
         </div>

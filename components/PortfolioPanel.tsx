@@ -343,7 +343,7 @@ const optionProfiles: Record<
     clientMessage: '시장 참여 기회는 확보하되 세금·현금흐름 일정 때문에 한쪽으로 과하게 치우치지 않게 설계했습니다.',
   },
   growth: {
-    emphasis: 'AI·반도체·글로벌 주식 신호를 더 적극적으로 반영하는 수익추구형 안입니다.',
+    emphasis: '인공지능·반도체·글로벌 주식 신호를 더 적극적으로 반영하는 수익추구형 안입니다.',
     signals: ['equity', 'risk', 'dollar', 'gold'],
     allocationLogic: 'ETF 성장자산 비중을 높이고, 변동성 확대 리포트를 감안해 달러·금 헤지를 최소 완충 장치로 남겼습니다.',
     clientMessage: '고객이 더 높은 변동성을 감내할 수 있을 때 성장 테마 참여도를 높이되, 현금화 재원은 별도 분리합니다.',
@@ -2930,7 +2930,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
               <h3 className="text-base font-bold text-fg">고액자산가 주요 세금 고충 참고</h3>
             </div>
-            <TaxPainRubricButton label="AI 세금 고충 기준표 확인" />
+            <TaxPainRubricButton label="세금 고충 기준표 확인" />
           </div>
 
           <p className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-900">

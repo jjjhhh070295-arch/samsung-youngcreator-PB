@@ -37,12 +37,12 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
 
   const approveNote = (): string => {
     if (blocked) return bundle.blockReasons[0] || "고객 제안 차단";
-    if (locked) return "locked · PB 상담 검토 승인 완료";
+    if (locked) return "PB 상담 검토 승인 완료";
     if (lockReady) return "조건 충족 — PB 상담 검토 승인 버튼으로 확정";
     if (inReview || soft.length) {
       return bundle.pendingReasons[0] || soft[0] || "PB 상담 검토 승인 버튼으로 검토를 완료하세요";
     }
-    if (bundle.status === "draft") return "draft — Evidence 생성 후 PB 상담 검토 승인 필요";
+    if (bundle.status === "draft") return "검토 기록 생성 후 PB 상담 검토 승인 필요";
     return bundle.status;
   };
 
@@ -78,7 +78,7 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
         ? "A/B/C 비교 후 확정 필요"
         : locked
           ? client.portfolios[0]?.label || "확정됨"
-          : `${client.portfolios[0]?.label || "산출됨"} · PB locked 대기`,
+          : `${client.portfolios[0]?.label || "산출됨"} · PB 승인 대기`,
     },
     {
       id: "risk",
@@ -88,13 +88,13 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
         ? "포트폴리오 확정 후 산출"
         : locked
           ? "VaR/CVaR·시나리오 산출"
-          : "산출됨 · PB locked 대기",
+          : "산출됨 · PB 승인 대기",
     },
     {
       id: "tax",
       label: "세전·세금·비용·세후",
       state: stateOf(downstreamComplete && taxDone, taxDone && !locked, blocked),
-      note: !taxDone ? "세후 워터폴 대기" : locked ? "워터폴 산출" : "산출됨 · PB locked 대기",
+      note: !taxDone ? "세후 결과 대기" : locked ? "세후 결과 산출" : "산출됨 · PB 승인 대기",
     },
     {
       id: "pdf",
@@ -104,7 +104,7 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
         ? "고객용 최종본 가능"
         : blocked
           ? "고객 제안 차단"
-          : "locked 전 비활성 — 3단계 승인 필요",
+          : "확정 전 비활성 — 3단계 승인 필요",
     },
   ];
 }

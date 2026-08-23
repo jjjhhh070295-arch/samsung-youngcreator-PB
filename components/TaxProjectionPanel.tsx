@@ -549,7 +549,7 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
         </div>
       </section>
       <p className="text-[10px] text-fg-muted">
-        as-of {new Date().toISOString().slice(0, 10)} · source deterministic-engine · KRW · 상담용 추정, 세무 검토 필요. 위 네 줄이 세후 워터폴입니다.
+        기준일 {new Date().toISOString().slice(0, 10)} · 통화 KRW · 상담용 추정, 세무 검토 필요. 위 요약은 세전·세금·비용·세후 흐름입니다.
       </p>
 
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-4">

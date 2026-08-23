@@ -272,11 +272,11 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
               <p className="text-xs leading-relaxed text-fg-muted">{result.disclaimers.join(" ")}</p>
               {result.citations && result.citations.length > 0 && (
                 <details className="card p-4 text-xs text-fg-muted">
-                  <summary className={`cursor-pointer font-bold text-fg ${FOCUS_RING}`}>추천 산출 출처 메타데이터</summary>
+                  <summary className={`cursor-pointer font-bold text-fg ${FOCUS_RING}`}>추천 산출 출처</summary>
                   <ul className="mt-3 space-y-2">
                     {result.citations.map((citation) => (
                       <li key={`${citation.sourceId}-${citation.chunkId}`} className="break-words leading-relaxed">
-                        <strong className="text-fg">{citation.title}</strong> · as-of {citation.asOf} · {citation.sourceId} · chunk {citation.chunkId}
+                        <strong className="text-fg">{citation.title}</strong> · 기준일 {citation.asOf} · {citation.sourceId}
                       </li>
                     ))}
                   </ul>

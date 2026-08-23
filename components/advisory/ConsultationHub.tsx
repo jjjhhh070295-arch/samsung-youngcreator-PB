@@ -13,11 +13,8 @@ import {
   softLockReasons,
 } from "@/lib/advisory/control";
 import { buildPipeline } from "@/lib/advisory/pipeline";
-import { ADVISORY_STATUS_LABEL } from "@/lib/advisory/types";
 import ConsultationPipelineBar from "./ConsultationPipelineBar";
 import ControlStatusBar from "./ControlStatusBar";
-import EvidenceBundlePanel from "./EvidenceBundlePanel";
-import JudgeTrustPanel from "./JudgeTrustPanel";
 import RiskAndWaterfallPanel from "./RiskAndWaterfallPanel";
 
 export default function ConsultationHub({ client }: { client: Client }) {
@@ -60,7 +57,7 @@ export default function ConsultationHub({ client }: { client: Client }) {
     };
   }, [client.assignedPbId]);
 
-  /** Evidence가 부족한 번들을 자동 보강하되, 사람의 PB 상담 검토 승인은 자동화하지 않는다. */
+  /** 계산 기록이 부족한 검토본을 자동 보강하되, 사람의 PB 상담 검토 승인은 자동화하지 않는다. */
   useEffect(() => {
     if (recovering.current) return;
     let cancelled = false;
@@ -114,8 +111,8 @@ export default function ConsultationHub({ client }: { client: Client }) {
 
   const steps = useMemo(() => buildPipeline(client, bundle), [client, bundle]);
   const results: CalcResults | null = bundle.calcResults;
-  const judgePassed = bundle.judge?.passed === true;
-  const evidenceReady = Boolean(bundle.runId && bundle.settingsHash && (bundle.resultHash || bundle.outputHash));
+  const reviewReady = bundle.status === "locked" || canLock(bundle);
+  const recordReady = Boolean(bundle.runId && bundle.settingsHash && (bundle.resultHash || bundle.outputHash));
 
   return (
     <div className="space-y-3">
@@ -123,31 +120,36 @@ export default function ConsultationHub({ client }: { client: Client }) {
         steps={steps}
         clientName={client.name}
         bundle={bundle}
-        statusLabel={`bundle.status=${bundle.status} · ${ADVISORY_STATUS_LABEL[bundle.status]}`}
       />
       <section className="decision-card border-[#1428A0]/20 p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="decision-kicker">AI · System · PB</p>
-            <h3 className="decision-title mt-1">{judgePassed ? "AI 검증 완료" : "AI 검증 진행 중"}</h3>
-            <p className="decision-copy mt-1">신뢰도: {judgePassed && evidenceReady ? "높음" : "검토 필요"} · 원문과 검증 로그는 언제든 확인할 수 있습니다.</p>
+            <p className="decision-kicker">상담 검토</p>
+            <h3 className="decision-title mt-1">
+              {bundle.status === "locked" ? "고객 제안 확정 완료" : reviewReady ? "확정 준비 완료" : "PB 검토 진행 중"}
+            </h3>
+            <p className="decision-copy mt-1">
+              상담 원문, 입력값, 계산 결과를 기준으로 문서 발행 가능 여부를 확인합니다.
+            </p>
           </div>
-          <span className={judgePassed ? "badge-success" : "badge-warning"}>{bundle.judge ? `Judge ${judgePassed ? "통과" : "실패"}` : "Judge 대기"}</span>
+          <span className={reviewReady && recordReady ? "badge-success" : "badge-warning"}>
+            {bundle.status === "locked" ? "확정 완료" : reviewReady && recordReady ? "승인 가능" : "검토 필요"}
+          </span>
         </div>
         <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <span className={bundle.citation?.passed ? "badge-success" : "badge-muted"}>고객 적합성 검증 {bundle.citation?.passed ? "완료" : "대기"}</span>
           <span className={bundle.updatedAt ? "badge-success" : "badge-muted"}>데이터 최신성 확인</span>
           <span className={results ? "badge-success" : "badge-muted"}>리스크 검증 {results ? "완료" : "대기"}</span>
-          <span className={evidenceReady ? "badge-success" : "badge-muted"}>계산 재현성 {evidenceReady ? "확인" : "대기"}</span>
+          <span className={recordReady ? "badge-success" : "badge-muted"}>계산 기록 {recordReady ? "확인" : "대기"}</span>
         </div>
         <button
           type="button"
           className="btn-outline mt-4 text-xs"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          aria-controls="advisory-evidence-panels"
+          aria-controls="advisory-calculation-panels"
         >
-          {open ? "상세 검증 로그 접기" : "추천 근거 · 상세 검증 로그 보기"}
+          {open ? "리스크·세후 계산 접기" : "리스크·세후 계산 보기"}
         </button>
       </section>
       <ControlStatusBar
@@ -157,15 +159,8 @@ export default function ConsultationHub({ client }: { client: Client }) {
         onChange={persist}
       />
       {open && (
-        <div id="advisory-evidence-panels" className="space-y-3">
+        <div id="advisory-calculation-panels" className="space-y-3">
           {results && <RiskAndWaterfallPanel results={results} />}
-          <EvidenceBundlePanel
-            bundle={bundle}
-            client={client}
-            inputContext={inputContext}
-            onChange={persist}
-          />
-          <JudgeTrustPanel />
         </div>
       )}
     </div>

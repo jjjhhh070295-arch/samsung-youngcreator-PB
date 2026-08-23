@@ -238,7 +238,7 @@ export async function POST(req: Request) {
         {
           ok: false,
           code: "RATE_LIMIT",
-          error: "⚠️ AI 요청 한도 초과입니다. 잠시 후 다시 시도하거나 직접 입력하세요.",
+          error: "요인 분석 요청 한도 초과입니다. 잠시 후 다시 시도하거나 직접 입력하세요.",
         },
         { status: 200 },
       );

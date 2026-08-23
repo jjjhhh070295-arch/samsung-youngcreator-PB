@@ -159,7 +159,7 @@ async function loadServerCurrent(
 ): Promise<ServerCurrentRecord | VerificationFailure> {
   if (externalBackendConfigured()) {
     return failure(
-      "서버 인증 세션과 영속 Evidence 원본 저장소가 연결되지 않아 운영 검증을 중단했습니다.",
+      "서버 인증 세션과 원본 저장소가 연결되지 않아 운영 검증을 중단했습니다.",
       503,
       "authoritative",
     );
@@ -204,25 +204,25 @@ function validateAgainstServerCurrent(
   current: ServerCurrentRecord,
 ): VerificationFailure | null {
   if (bundle.id !== ids.evidenceId || bundle.clientId !== ids.clientId) {
-    return failure("요청 식별자와 Evidence 원본 식별자가 일치하지 않습니다.", 409);
+    return failure("요청 식별자와 검토 원본 식별자가 일치하지 않습니다.", 409);
   }
   if (current.client.assignedPbId !== ids.pbId || current.pb.id !== ids.pbId) {
     return failure("현재 담당 PB에게 이 고객을 검증할 권한이 없습니다.", 403);
   }
   if (!canIssueClientPdf(bundle)) {
-    return failure(pdfBlockReason(bundle) || "locked Evidence 발행 조건을 충족하지 못했습니다.", 409);
+    return failure(pdfBlockReason(bundle) || "확정 문서 발행 조건을 충족하지 못했습니다.", 409);
   }
   const approved = bundle.approvals.some(
     (approval) => approval.to === "locked" && Boolean(approval.actor?.trim()),
   );
   if (!approved) {
-    return failure("PB의 locked 승인 기록이 없어 고객 문서를 발행할 수 없습니다.", 409);
+    return failure("PB의 확정 승인 기록이 없어 고객 문서를 발행할 수 없습니다.", 409);
   }
   const integrity = verifyEvidenceAgainstClient(bundle, current.client, {
     assignedPbDisplay: current.pb.name,
   });
   if (!integrity.verified) {
-    return failure(integrity.reasons[0] || "서버 기준 고객·Evidence 무결성 검증에 실패했습니다.", 409);
+    return failure(integrity.reasons[0] || "서버 기준 고객·검토 기록 확인에 실패했습니다.", 409);
   }
   return null;
 }
@@ -254,7 +254,7 @@ export async function registerEvidenceReceipt(
   now = Date.now(),
 ): Promise<ReceiptSuccess | VerificationFailure> {
   if (!validateBundleShape(candidate)) {
-    return failure("유효한 Evidence Bundle 형식이 필요합니다.", 400);
+    return failure("유효한 계산·검토 기록 형식이 필요합니다.", 400);
   }
   const current = await loadServerCurrent(ids.clientId, ids.pbId);
   if ("verified" in current) return current;
@@ -263,7 +263,7 @@ export async function registerEvidenceReceipt(
   try {
     validation = validateAgainstServerCurrent(ids, candidate, current);
   } catch {
-    return failure("Evidence 구조를 안전하게 검증할 수 없어 요청을 차단했습니다.", 400);
+    return failure("검토 기록 구조를 안전하게 확인할 수 없어 요청을 차단했습니다.", 400);
   }
   if (validation) return validation;
 
@@ -271,7 +271,7 @@ export async function registerEvidenceReceipt(
   const existing = state().receipts.get(key);
   if (existing) {
     if (!validateReceiptSignature(existing)) {
-      return failure("서버 Evidence receipt 서명이 손상되어 검증을 차단했습니다.", 409);
+      return failure("서버 원본 기록 서명이 손상되어 검증을 차단했습니다.", 409);
     }
     const existingContent = stableStringify({
       ids: { clientId: existing.clientId, pbId: existing.pbId, evidenceId: existing.evidenceId },
@@ -280,7 +280,7 @@ export async function registerEvidenceReceipt(
     });
     const candidateContent = stableStringify({ ids, bundle: candidate, mode: current.mode });
     if (existingContent !== candidateContent) {
-      return failure("같은 Evidence ID의 다른 내용을 덮어쓸 수 없습니다.", 409);
+      return failure("같은 검토 기록 ID의 다른 내용을 덮어쓸 수 없습니다.", 409);
     }
     return {
       ok: true,
@@ -317,9 +317,9 @@ export async function verifyAndIssuePrintToken(
 ): Promise<VerificationSuccess | VerificationFailure> {
   pruneState(now);
   const receipt = state().receipts.get(receiptKey(ids));
-  if (!receipt) return failure("서버에 보존된 locked Evidence 원본이 없습니다.", 404);
+  if (!receipt) return failure("서버에 보존된 확정 검토 원본이 없습니다.", 404);
   if (!validateReceiptSignature(receipt)) {
-    return failure("서버 Evidence receipt 서명이 손상되어 검증을 차단했습니다.", 409);
+    return failure("서버 원본 기록 서명이 손상되어 검증을 차단했습니다.", 409);
   }
 
   const current = await loadServerCurrent(ids.clientId, ids.pbId);
@@ -331,7 +331,7 @@ export async function verifyAndIssuePrintToken(
     assignedPbDisplay: current.pb.name,
   });
   if (verifiedInputHash !== receipt.bundle.inputHash) {
-    return failure("서버 고객 원본과 Evidence 입력 해시가 일치하지 않습니다.", 409);
+    return failure("서버 고객 원본과 입력 확인값이 일치하지 않습니다.", 409);
   }
 
   const printToken = randomBytes(32).toString("base64url");
@@ -377,7 +377,7 @@ export async function consumePrintToken(
     permit.pbId !== ids.pbId ||
     permit.evidenceId !== ids.evidenceId
   ) {
-    return failure("출력 허가 토큰의 고객·PB·Evidence 식별자가 다릅니다.", 403);
+    return failure("출력 허가 토큰의 고객·PB·검토 기록 식별자가 다릅니다.", 403);
   }
 
   const receipt = state().receipts.get(receiptKey(ids));
@@ -386,7 +386,7 @@ export async function consumePrintToken(
     !validateReceiptSignature(receipt) ||
     !signaturesEqual(receipt.signature, permit.receiptSignature)
   ) {
-    return failure("서버 Evidence receipt가 변경되었거나 유효하지 않습니다.", 409);
+    return failure("서버 원본 기록이 변경되었거나 유효하지 않습니다.", 409);
   }
   const current = await loadServerCurrent(ids.clientId, ids.pbId);
   if ("verified" in current) return current;
@@ -401,7 +401,7 @@ export async function consumePrintToken(
     verifiedInputHash !== permit.verifiedInputHash ||
     evidenceDigest !== permit.evidenceDigest
   ) {
-    return failure("출력 직전 서버 고객 원본 또는 Evidence 스냅샷이 허가 토큰과 일치하지 않습니다.", 409);
+    return failure("출력 직전 서버 고객 원본 또는 검토 기록이 허가 토큰과 일치하지 않습니다.", 409);
   }
   return {
     ok: true,
