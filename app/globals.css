@@ -53,6 +53,10 @@ body {
   .decision-title { @apply text-lg font-bold tracking-tight text-fg; }
   .decision-copy { @apply text-xs leading-relaxed text-fg-muted; }
   .metric-value { @apply text-2xl font-black tracking-tight text-fg; }
+  .console-panel { @apply rounded-xl border border-border bg-white shadow-sm; }
+  .console-panel-header { @apply flex items-center justify-between border-b border-border px-4 py-3; }
+  .console-metric { @apply rounded-xl border border-border bg-white px-4 py-3; }
+  .console-label { @apply text-[10px] font-bold uppercase tracking-wide text-fg-muted; }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }

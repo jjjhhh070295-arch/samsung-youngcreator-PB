@@ -7,6 +7,7 @@ import type { BookAnalysis, ClientBookRow, ClientFlagKind } from "@/lib/advisory
 import { CLIENT_FLAG_LABEL, PRODUCT_CATEGORY_LABEL } from "@/lib/advisory/types";
 import { CLIENT_TYPE_LABEL, type ClientType } from "@/lib/types";
 import { formatKRW, formatKRWShort, formatDate } from "@/lib/format";
+import ClientAvatar from "@/components/ClientAvatar";
 
 interface Props {
   pbId: string;
@@ -207,10 +208,7 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
           <div className="mt-3 divide-y divide-border">
             {priorityRows.map((row) => (
               <article key={row.clientId} className="flex flex-wrap items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <div className="min-w-[150px]">
-                    <p className="font-bold text-fg">{row.name}</p>
-                    <p className="mt-0.5 text-[11px] text-fg-muted">{CLIENT_TYPE_LABEL[row.clientType as ClientType]} · {formatKRWShort(row.totalAssets)}</p>
-                  </div>
+                  <div className="flex min-w-[180px] items-center gap-2.5"><ClientAvatar name={row.name} type={row.clientType} size="sm" /><div><p className="font-bold text-fg">{row.name}</p><p className="mt-0.5 text-[11px] text-fg-muted">{CLIENT_TYPE_LABEL[row.clientType as ClientType]} · {formatKRWShort(row.totalAssets)}</p></div></div>
                 <div className="flex-1"><FlagChips kinds={row.flags.map((item) => item.kind)} /></div>
                 <button type="button" className="btn-outline px-3 py-1.5 text-[11px]" onClick={() => goClient(row.clientId)}>
                   {row.flags.some((item) => item.kind === "high_risk" || item.kind === "low_return") ? "포트폴리오 점검" : "상담 준비"}
@@ -430,7 +428,7 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
                   className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-2"
                 >
                   <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-[#1428A0]">{r.code}</td>
-                  <td className="px-3 py-2 font-bold text-fg">{r.name}</td>
+                  <td className="px-3 py-2"><div className="flex items-center gap-2"><ClientAvatar name={r.name} type={r.clientType} size="sm" /><span className="font-bold text-fg">{r.name}</span></div></td>
                   <td className="px-3 py-2">
                     <span className="badge-navy">{CLIENT_TYPE_LABEL[r.clientType as ClientType] ?? r.clientType}</span>
                   </td>

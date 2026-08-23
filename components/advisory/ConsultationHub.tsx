@@ -107,12 +107,7 @@ export default function ConsultationHub({ client }: { client: Client }) {
         onBundleChange={persist}
         statusLabel={`bundle.status=${bundle.status} · ${ADVISORY_STATUS_LABEL[bundle.status]}`}
       />
-      <ControlStatusBar
-        bundle={bundle}
-        client={client}
-        onChange={persist}
-      />
-      <section className="decision-card border-[#1428A0]/20">
+      <section className="decision-card border-[#1428A0]/20 p-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="decision-kicker">AI · System · PB</p>
@@ -121,12 +116,11 @@ export default function ConsultationHub({ client }: { client: Client }) {
           </div>
           <span className={judgePassed ? "badge-success" : "badge-warning"}>{bundle.judge ? `Judge ${judgePassed ? "통과" : "실패"}` : "Judge 대기"}</span>
         </div>
-        <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <span className={bundle.citation?.passed ? "badge-success" : "badge-muted"}>고객 적합성 검증 {bundle.citation?.passed ? "완료" : "대기"}</span>
           <span className={bundle.updatedAt ? "badge-success" : "badge-muted"}>데이터 최신성 확인</span>
           <span className={results ? "badge-success" : "badge-muted"}>리스크 검증 {results ? "완료" : "대기"}</span>
           <span className={evidenceReady ? "badge-success" : "badge-muted"}>계산 재현성 {evidenceReady ? "확인" : "대기"}</span>
-          <span className={judgePassed ? "badge-success" : "badge-muted"}>Judge 검증 {judgePassed ? "완료" : "대기"}</span>
         </div>
         <button type="button" className="btn-outline mt-4 text-xs" onClick={() => setOpen((v) => !v)}>
           {open ? "상세 검증 로그 접기" : "추천 근거 · 상세 검증 로그 보기"}
@@ -134,6 +128,7 @@ export default function ConsultationHub({ client }: { client: Client }) {
       </section>
       {open && (
         <div className="space-y-3">
+          <ControlStatusBar bundle={bundle} client={client} onChange={persist} />
           {results && <RiskAndWaterfallPanel results={results} />}
           <EvidenceBundlePanel
             bundle={bundle}

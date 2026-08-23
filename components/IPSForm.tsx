@@ -61,8 +61,8 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex justify-end">
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="flex justify-end lg:col-span-2">
         <ScoreRubricButton label="AI점수 기준표 확인" />
       </div>
 
@@ -79,7 +79,7 @@ export default function IPSForm({ ips, readOnly, onChange }: Props) {
         };
         const valuePlaceholder = PLACEHOLDERS[m.key] ?? "자유롭게 입력";
         return (
-          <div key={m.key} className="card p-4">
+          <div key={m.key} className="card p-3.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded bg-navy-800 text-xs font-bold text-gold-300 dark:bg-navy-600">

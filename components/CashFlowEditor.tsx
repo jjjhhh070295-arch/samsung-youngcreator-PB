@@ -284,6 +284,9 @@ export default function CashFlowEditor({
   };
 
   const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+  const totalInflow = rows.reduce((sum, row) => sum + Math.max(0, row.amount || 0), 0);
+  const totalOutflow = rows.reduce((sum, row) => sum + Math.abs(Math.min(0, row.amount || 0)), 0);
+  const recurringNet = rows.filter((row) => row.recurring).reduce((sum, row) => sum + (row.amount || 0), 0);
   const entityTotals = useMemo(
     () =>
       rows.reduce<Record<string, number>>((acc, row) => {
@@ -310,6 +313,13 @@ export default function CashFlowEditor({
           현금흐름표 맨 아래로 이동 ↓
         </button>
       </div>
+
+      <section className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="console-metric"><p className="console-label">전체 유입</p><p className="mt-1 text-xl font-black text-emerald-700">{formatKRWShort(totalInflow)}</p></div>
+        <div className="console-metric"><p className="console-label">전체 유출</p><p className="mt-1 text-xl font-black text-red-600">-{formatKRWShort(totalOutflow)}</p></div>
+        <div className="console-metric"><p className="console-label">순현금흐름</p><p className={`mt-1 text-xl font-black ${total < 0 ? "text-red-600" : "text-[#1428A0]"}`}>{formatKRWShort(total)}</p></div>
+        <div className="console-metric"><p className="console-label">반복 현금흐름</p><p className={`mt-1 text-xl font-black ${recurringNet < 0 ? "text-amber-700" : "text-fg"}`}>{formatKRWShort(recurringNet)}</p></div>
+      </section>
 
       <div className="mb-4 rounded-xl border border-border bg-surface p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">

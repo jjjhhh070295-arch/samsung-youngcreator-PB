@@ -44,7 +44,7 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="card p-4">
         <p className="text-sm font-bold text-fg">고객 맞춤 상품 추천</p>
         <p className="mt-1 text-xs text-fg-muted">
@@ -71,9 +71,9 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
               <span className="ml-2 text-[#1428A0] font-semibold">조건: {result.constraints.tags.join(" · ")}</span>
             )}
           </div>
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div className="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-3">
             {result.plans.map((plan) => (
-              <div key={plan.id} className="card p-4">
+              <div key={plan.id} className="card flex h-full flex-col p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="font-bold text-fg">{plan.label}</p>
                   <span className="rounded-full bg-[#1428A0] px-2 py-0.5 text-[10px] text-white">{plan.posture}</span>
@@ -84,7 +84,7 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
                   <span className="badge-muted">{plan.posture}</span>
                   {result.constraints.tags.slice(0, 3).map((tag) => <span key={tag} className="badge-warning">{tag}</span>)}
                 </div>
-                <details className="mt-4 border-t border-border pt-3">
+                <details className="mt-auto border-t border-border pt-3">
                   <summary className="cursor-pointer text-xs font-bold text-[#1428A0]">상세 종목 및 근거 보기</summary>
                 <ul className="mt-3 space-y-3">
                   {plan.products.map((p) => (

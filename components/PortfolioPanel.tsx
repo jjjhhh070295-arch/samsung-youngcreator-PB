@@ -2014,9 +2014,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   }
 
   return (
-    <div ref={portfolioTopRef} className="space-y-6 rounded-2xl bg-surface-2 p-4 text-fg md:p-6">
+    <div ref={portfolioTopRef} className="space-y-4 rounded-xl bg-[#F5F7FC] p-3 text-fg md:p-4">
       <QuickScrollButtons topRef={portfolioTopRef} bottomRef={portfolioBottomRef} />
-      <div className="flex flex-col justify-between gap-4 rounded-2xl bg-slate-900 p-5 text-white shadow-sm md:flex-row md:items-center">
+      <div className="flex flex-col justify-between gap-4 rounded-xl bg-gradient-to-r from-[#071B4A] to-[#102B6B] p-4 text-white shadow-sm md:flex-row md:items-center">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-blue-300">Portfolio Decision Summary</span>
           <h1 className="mt-1 text-xl font-bold tracking-tight">현재 선택: {currentPortfolioName}</h1>
@@ -2034,7 +2034,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
       </div>
 
-      <section className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
+      <section className="rounded-xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="decision-kicker">Compare & decide</p>

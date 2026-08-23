@@ -140,10 +140,10 @@ export default function StressTestPanel({portfolios,portfolioWeights,investableK
     {key:"excluded",label:"분석 제외",pct:1-coverage,color:"#cbd5e1"},
   ].filter(item=>item.pct>.0001);
 
-  return <div className="space-y-4">
-    {analysis&&<section className="decision-card border-[#1428A0]/20">
+  return <div className="space-y-3">
+    {analysis&&<section className="decision-card border-[#1428A0]/20 bg-gradient-to-r from-white to-[#F2F5FF]">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><p className="decision-kicker">Portfolio resilience</p><h3 className="decision-title mt-1">포트폴리오 방어력 요약</h3><p className="decision-copy mt-1">새 점수 없이 현재 스트레스 엔진의 손실 수치만 요약합니다.</p></div>
+        <div><p className="decision-kicker">Portfolio stress test</p><h3 className="decision-title mt-1">가장 큰 손실과 취약 시나리오</h3><p className="decision-copy mt-1">현재 스트레스 엔진의 실제 손실 수치만 요약합니다.</p></div>
         <span className="badge-navy">시나리오 {PRESET_SCENARIOS.length}개 제공</span>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">

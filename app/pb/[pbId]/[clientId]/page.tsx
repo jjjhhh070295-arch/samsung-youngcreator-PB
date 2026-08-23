@@ -26,6 +26,7 @@ import RealEstateModule from "@/components/RealEstateModule";
 import AssetAllocationBar from "@/components/AssetAllocationBar";
 import PartyRelationshipModule from "@/components/PartyRelationshipModule";
 import TransferEventModule from "@/components/TransferEventModule";
+import ClientAvatar from "@/components/ClientAvatar";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
@@ -150,19 +151,13 @@ export default function ClientDetailPage() {
   const riskProfile = client.ips?.risk?.value?.trim();
 
   return (
-    <div className="px-8 py-6 space-y-10">
-      <div className="sticky top-0 z-20 -mx-2 rounded-xl border border-border bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-          <strong className="text-base text-fg">{client.name}</strong>
-          <span className="text-border">|</span>
-          <span>{CLIENT_TYPE_LABEL[client.clientType]}</span>
-          <span className="text-border">|</span>
-          <span>AUM <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b></span>
-          {riskProfile && <><span className="text-border">|</span><span>{riskProfile}</span></>}
-          {totalStages > 0 && <><span className="text-border">|</span><span>업무 단계 <b>{completedStages}/{totalStages}</b></span></>}
-          {lastConsultedAt && <><span className="text-border">|</span><span className="text-fg-muted">마지막 상담 {formatDate(lastConsultedAt)}</span></>}
+    <div className="mx-auto max-w-[1680px] space-y-5 px-4 py-4 lg:px-6">
+      <section className="console-panel overflow-hidden bg-gradient-to-r from-white via-white to-[#F2F5FF]">
+        <div className="flex flex-wrap items-center justify-between gap-4 p-5">
+          <div className="flex items-center gap-4"><ClientAvatar name={client.name} type={client.clientType} size="lg" /><div><div className="flex flex-wrap gap-1.5"><span className="badge-navy font-mono">{client.code}</span><span className="badge-muted">{CLIENT_TYPE_LABEL[client.clientType]}</span>{client.isMajorityShareholder && <span className="badge-warning">최대주주</span>}</div><h1 className="mt-2 text-2xl font-black tracking-tight text-fg">{client.name}</h1><p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>{riskProfile ? ` · ${riskProfile}` : ""}</p></div></div>
+          <div className="grid min-w-[420px] grid-cols-3 gap-2"><div className="console-metric"><p className="console-label">상담 진행률</p><p className="mt-1 text-xl font-black text-[#1428A0]">{completedStages}/{totalStages || "—"}</p></div><div className="console-metric"><p className="console-label">마지막 상담</p><p className="mt-1 text-sm font-bold text-fg">{lastConsultedAt ? formatDate(lastConsultedAt) : "기록 없음"}</p></div><div className="console-metric"><p className="console-label">현재 상태</p><p className="mt-1 text-sm font-bold text-fg">{client.stages?.portfolio ? "포트폴리오 확정" : "분석 진행 중"}</p></div></div>
         </div>
-      </div>
+      </section>
 
       {/* 기본 정보 */}
       {activeView === "home" && <>
@@ -170,7 +165,7 @@ export default function ClientDetailPage() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
             <span>👤</span> 기본 정보
           </h2>
-          <div className="card p-5">
+          <div className="console-panel p-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -180,7 +175,7 @@ export default function ClientDetailPage() {
                   </span>
                   {client.isMajorityShareholder && <span className="badge-gold">최대주주</span>}
                 </div>
-                <h1 className="text-2xl font-bold text-fg">{client.name}</h1>
+                <h1 className="text-lg font-bold text-fg">고객 기본 프로필</h1>
                 <p className="mt-1 text-sm text-fg-muted">
                   {client.clientType === "corporate" ? "설립일" : "생년월일"}{" "}
                   {formatDate(client.birthDate)} · 자산규모{" "}

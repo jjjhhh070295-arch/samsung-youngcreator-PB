@@ -521,7 +521,7 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
   const profilePatch = (patch: Partial<TaxProfile>) => setTaxProfileOverrides((previous) => ({ ...previous, ...patch }));
 
   return (
-    <div ref={taxProjectionTopRef} className="space-y-5">
+    <div ref={taxProjectionTopRef} className="space-y-4">
       <QuickScrollButtons topRef={taxProjectionTopRef} bottomRef={taxProjectionBottomRef} />
       <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -538,9 +538,9 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
         </div>
       </section>
 
-      <section className="decision-card border-[#1428A0]/20">
+      <section className="decision-card border-[#1428A0]/20 bg-gradient-to-r from-white to-[#FFF9F0]">
         <div className="mb-4"><p className="decision-kicker">Pre-tax vs after-tax</p><h3 className="decision-title mt-1">세전·세후 의사결정 요약</h3></div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <StatCard label="세전 기말자산" value={formatKRW(baseProjection.principalWon + baseProjection.grossReturnWon)} />
         <StatCard label="예상 세금" value={formatKRW(baseProjection.taxes.totalTaxWon)} tone="text-rose-600" />
         <StatCard label="상품/거래 비용" value={formatKRW(baseProjection.feesWon)} tone="text-amber-700" />
