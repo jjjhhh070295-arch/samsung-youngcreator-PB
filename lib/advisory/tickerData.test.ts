@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { domesticCodeFromSymbol, fetchNaverDaily, fetchNaverProfile, fetchNaverQuote } from "./naver";
-import { resolveTickerInput } from "./tickerData";
+import { fetchTickerDaily, resolveTickerInput } from "./tickerData";
 import { fetchYahooDaily } from "./yahoo";
 
 async function withMockFetch<T>(mock: typeof fetch, run: () => Promise<T>) {
@@ -15,6 +15,25 @@ async function withMockFetch<T>(mock: typeof fetch, run: () => Promise<T>) {
 }
 
 describe("ticker market data providers", () => {
+  it("명시적 교육용 모멘텀 심볼은 네트워크 없이 고정 fixture만 연다", async () => {
+    let fetchCount = 0;
+    await withMockFetch(async () => {
+      fetchCount += 1;
+      throw new Error("교육용 fixture에서 네트워크를 호출하면 안 됩니다.");
+    }, async () => {
+      const resolved = await resolveTickerInput("DEMO-HIGH");
+      assert.deepEqual(resolved, {
+        symbol: "DEMO-HIGH",
+        domesticCode: null,
+        momentumDemoSymbol: "DEMO-HIGH",
+      });
+      const daily = await fetchTickerDaily(resolved);
+      assert.equal(daily.momentumDataset?.label, "교육용 데모 데이터");
+      assert.equal(daily.momentumDataset?.dataMode, "demo");
+      assert.equal(fetchCount, 0);
+    });
+  });
+
   it("국내 중소형주 이름을 네이버 검색 결과의 코스닥 심볼로 해석한다", async () => {
     await withMockFetch(async () => new Response(JSON.stringify({
       items: [{

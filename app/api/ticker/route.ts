@@ -27,14 +27,15 @@ export async function GET(req: Request) {
     const snapshot = buildTickerSnapshot(daily, q.trim());
     if (profile.warning) snapshot.warnings = [...snapshot.warnings, profile.warning];
     const judge = judgeTicker(snapshot);
-    const status = judge.passed ? (snapshot.warnings.length ? "warning" : "ok") : "blocked";
-    const inputHash = await sha256Hex(stableStringify({ q, resolved: resolved.symbol }));
-    const outputHash = await sha256Hex(stableStringify({
-      symbol: snapshot.resolvedSymbol,
-      asOf: snapshot.asOf,
-      last: snapshot.lastPrice.value,
-      rsi: snapshot.rsi14?.value ?? null,
+    const status = judge.passed
+      ? (snapshot.warnings.length || snapshot.momentum.status !== "ok" ? "warning" : "ok")
+      : "blocked";
+    const inputHash = await sha256Hex(stableStringify({
+      q: q.trim(),
+      resolved: resolved.symbol,
+      daily,
     }));
+    const outputHash = await sha256Hex(stableStringify({ snapshot, profile, judge }));
     return NextResponse.json({
       ok: status !== "blocked",
       status,
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
       evidence: {
         inputHash,
         outputHash,
-        engine: "deterministic-indicators+market-data-providers",
+        engine: "deterministic-indicators+versioned-momentum-evidence",
       },
     });
   } catch (e: any) {

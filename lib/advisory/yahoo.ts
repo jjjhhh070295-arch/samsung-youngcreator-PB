@@ -1,4 +1,4 @@
-import type { TickerLiveQuote } from "./types";
+import type { TickerLiveQuote, TickerMomentumDataset } from "./types";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
@@ -71,6 +71,8 @@ export interface YahooDaily {
   priceSource: string;
   quoteDelayMinutes: number | null;
   marketState: string | null;
+  /** 승인된 제공처 또는 명시적 교육용 fixture에만 채운다. */
+  momentumDataset?: TickerMomentumDataset;
 }
 
 export interface YahooProfile {
