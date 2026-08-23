@@ -15,10 +15,10 @@ import {
 import { currentPipelineStep } from "@/lib/advisory/pipeline";
 
 const TONE: Record<PipelineStep["state"], string> = {
-  complete: "bg-[#1428A0] text-white",
-  review: "bg-[#0B5CAB] text-white",
-  blocked: "bg-red-600 text-white",
-  pending: "bg-surface-2 text-fg-muted",
+  complete: "border-[#1428A0] bg-[#1428A0] text-white",
+  review: "border-[#C5A572] bg-white text-fg ring-2 ring-[#C5A572]/30",
+  blocked: "border-red-200 bg-red-50 text-red-800",
+  pending: "border-border bg-surface-2 text-fg-muted",
 };
 
 const LABEL: Record<PipelineStep["state"], string> = {
@@ -44,6 +44,7 @@ export default function ConsultationPipelineBar({
   statusLabel?: string;
 }) {
   const current = currentPipelineStep(steps);
+  const completeCount = steps.filter((step) => step.state === "complete").length;
   const approveStep = steps.find((s) => s.id === "approve");
   const needsApprove = approveStep?.state !== "complete" && bundle.status !== "blocked";
   const [busy, setBusy] = useState(false);
@@ -88,11 +89,12 @@ export default function ConsultationPipelineBar({
           : "여기를 눌러 Evidence 생성 + 3단계 완료";
 
   return (
-    <div className="card space-y-3 p-4">
+    <div className="card space-y-4 p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted">상담 파이프라인</p>
-          <p className="text-sm font-bold text-fg">
+          <p className="decision-kicker">Human-in-the-loop</p>
+          <p className="decision-title mt-1">{client.name} 고객 상담 · {completeCount} / {steps.length} 단계 완료</p>
+          <p className="mt-1 text-sm font-semibold text-fg">
             현재 단계: {currentLabel ?? current?.label} · {current ? LABEL[current.state] : ""}
             {statusLabel ? <span className="ml-2 text-xs font-semibold text-[#1428A0]">({statusLabel})</span> : null}
           </p>
@@ -124,12 +126,12 @@ export default function ConsultationPipelineBar({
         {steps.map((s, i) => (
           <li key={s.id} className="flex min-w-0 flex-1 items-stretch gap-2">
             <div
-              className={`w-full rounded-lg px-3 py-2 ${TONE[s.state]} ${
+              className={`w-full rounded-xl border px-3 py-3 ${TONE[s.state]} ${
                 current?.id === s.id ? "ring-2 ring-offset-1 ring-[#C5A572]" : ""
               }`}
             >
               <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
-                {i + 1}. {LABEL[s.state]}
+                {i + 1}. {s.state === "blocked" ? "🔒 " : ""}{LABEL[s.state]}
               </p>
               <p className="text-xs font-bold">{s.label}</p>
               <p className="mt-0.5 text-[10px] leading-snug opacity-90">{s.note}</p>

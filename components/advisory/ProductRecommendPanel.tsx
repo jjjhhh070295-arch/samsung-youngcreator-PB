@@ -78,8 +78,15 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
                   <p className="font-bold text-fg">{plan.label}</p>
                   <span className="rounded-full bg-[#1428A0] px-2 py-0.5 text-[10px] text-white">{plan.posture}</span>
                 </div>
-                <p className="mb-3 text-[11px] text-fg-muted">{plan.constraintNote}</p>
-                <ul className="space-y-3">
+                <p className="text-sm font-semibold text-fg">{plan.constraintNote}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <span className="badge-navy">{plan.products.length}개 상품</span>
+                  <span className="badge-muted">{plan.posture}</span>
+                  {result.constraints.tags.slice(0, 3).map((tag) => <span key={tag} className="badge-warning">{tag}</span>)}
+                </div>
+                <details className="mt-4 border-t border-border pt-3">
+                  <summary className="cursor-pointer text-xs font-bold text-[#1428A0]">상세 종목 및 근거 보기</summary>
+                <ul className="mt-3 space-y-3">
                   {plan.products.map((p) => (
                     <li key={`${plan.id}-${p.name}`} className="border-t border-border pt-2 first:border-0 first:pt-0">
                       <div className="flex items-center justify-between gap-2">
@@ -99,6 +106,7 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
                   ))}
                 </ul>
                 <p className="mt-3 text-[10px] leading-relaxed text-fg-muted">{plan.weightDisclaimer}</p>
+                </details>
               </div>
             ))}
           </div>

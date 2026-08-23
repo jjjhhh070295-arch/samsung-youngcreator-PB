@@ -145,9 +145,24 @@ export default function ClientDetailPage() {
       ? consultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))[0].createdAt
       : "";
   const linkedClient = allClients.find((item) => item.id === client?.linkedClientId) ?? null;
+  const completedStages = Object.values(client.stages ?? {}).filter(Boolean).length;
+  const totalStages = Object.keys(client.stages ?? {}).length;
+  const riskProfile = client.ips?.risk?.value?.trim();
 
   return (
     <div className="px-8 py-6 space-y-10">
+      <div className="sticky top-0 z-20 -mx-2 rounded-xl border border-border bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <strong className="text-base text-fg">{client.name}</strong>
+          <span className="text-border">|</span>
+          <span>{CLIENT_TYPE_LABEL[client.clientType]}</span>
+          <span className="text-border">|</span>
+          <span>AUM <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b></span>
+          {riskProfile && <><span className="text-border">|</span><span>{riskProfile}</span></>}
+          {totalStages > 0 && <><span className="text-border">|</span><span>업무 단계 <b>{completedStages}/{totalStages}</b></span></>}
+          {lastConsultedAt && <><span className="text-border">|</span><span className="text-fg-muted">마지막 상담 {formatDate(lastConsultedAt)}</span></>}
+        </div>
+      </div>
 
       {/* 기본 정보 */}
       {activeView === "home" && <>

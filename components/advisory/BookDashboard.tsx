@@ -119,6 +119,12 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
   const [flag, setFlag] = useState<FlagFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name-asc");
   const sortLabel = SORT_OPTIONS.find((o) => o.id === sortKey)?.label ?? "고객명 ㄱㄴㄷ 순";
+  const priorityRows = useMemo(
+    () => rows.filter((row) => row.flags.length > 0).slice().sort((a, b) => b.flags.length - a.flags.length).slice(0, 3),
+    [rows],
+  );
+  const immediateCount = rows.filter((row) => row.flags.length > 0).length;
+  const reviewCount = rows.filter((row) => row.flags.some((item) => item.kind === "high_risk" || item.kind === "low_return")).length;
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -184,6 +190,42 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
 
   return (
     <div className="space-y-5">
+      <section className="decision-card overflow-hidden border-[#1428A0]/20 bg-gradient-to-br from-white via-white to-[#F2F5FF]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="decision-kicker">Today&apos;s priorities</p>
+            <h2 className="decision-title mt-1">오늘의 PB 브리핑</h2>
+            <p className="decision-copy mt-1">현재 고객 상태와 플래그에서 바로 확인할 업무를 모았습니다.</p>
+          </div>
+          <div className="flex gap-2">
+            <span className="badge-danger">즉시 확인 {immediateCount}건</span>
+            <span className="badge-warning">포트폴리오 검토 {reviewCount}건</span>
+          </div>
+        </div>
+        {priorityRows.length > 0 ? (
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {priorityRows.map((row) => (
+              <article key={row.clientId} className="rounded-xl border border-border bg-white p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-bold text-fg">{row.name}</p>
+                    <p className="mt-0.5 text-[11px] text-fg-muted">{CLIENT_TYPE_LABEL[row.clientType as ClientType]} · {formatKRWShort(row.totalAssets)}</p>
+                  </div>
+                  <span className="badge-muted">우선 확인</span>
+                </div>
+                <div className="mt-3"><FlagChips kinds={row.flags.map((item) => item.kind)} /></div>
+                <button type="button" className="btn-outline mt-4 w-full text-xs" onClick={() => goClient(row.clientId)}>
+                  {row.flags.some((item) => item.kind === "high_risk" || item.kind === "low_return") ? "포트폴리오 점검" : "상담 준비"}
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-border bg-white/70 px-4 py-5 text-sm text-fg-muted">
+            현재 플래그 기준으로 즉시 확인할 고객이 없습니다.
+          </div>
+        )}
+      </section>
       {analysis && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="card p-4">

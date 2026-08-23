@@ -11,6 +11,8 @@
   --fg: 15 23 42;             /* 본문 텍스트 (거의 검정) */
   --fg-muted: 100 116 139;
   --font-sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic";
+  --primary: 20 40 160;
+  --primary-strong: 12 32 122;
 }
 
 .dark {
@@ -43,8 +45,14 @@ body {
 /* 공용 컴포넌트 클래스 */
 @layer components {
   .card {
-    @apply rounded-xl border bg-surface shadow-card;
+    @apply rounded-xl border border-border bg-surface shadow-sm;
   }
+  .decision-section { @apply space-y-4; }
+  .decision-card { @apply rounded-xl border border-border bg-surface p-5 shadow-sm; }
+  .decision-kicker { @apply text-[11px] font-bold uppercase tracking-[0.12em] text-[#1428A0]; }
+  .decision-title { @apply text-lg font-bold tracking-tight text-fg; }
+  .decision-copy { @apply text-xs leading-relaxed text-fg-muted; }
+  .metric-value { @apply text-2xl font-black tracking-tight text-fg; }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
@@ -93,6 +101,9 @@ body {
   .badge-muted {
     @apply badge bg-surface-2 text-fg-muted;
   }
+  .badge-success { @apply badge bg-emerald-50 text-emerald-700; }
+  .badge-warning { @apply badge bg-amber-50 text-amber-700; }
+  .badge-danger { @apply badge bg-red-50 text-red-700; }
 }
 
 /* 스크롤바 (다크 모드 대응) */

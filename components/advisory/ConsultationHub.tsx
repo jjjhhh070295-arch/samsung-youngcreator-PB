@@ -95,6 +95,8 @@ export default function ConsultationHub({ client }: { client: Client }) {
 
   const steps = useMemo(() => buildPipeline(client, bundle), [client, bundle]);
   const results: CalcResults | null = bundle.calcResults;
+  const judgePassed = bundle.judge?.passed === true;
+  const evidenceReady = Boolean(bundle.runId && bundle.settingsHash && (bundle.resultHash || bundle.outputHash));
 
   return (
     <div className="space-y-3">
@@ -110,15 +112,28 @@ export default function ConsultationHub({ client }: { client: Client }) {
         client={client}
         onChange={persist}
       />
-      <button
-        type="button"
-        className="text-xs font-semibold text-[#1428A0] hover:underline"
-        onClick={() => setOpen((v) => !v)}
-      >
-        {open ? "Evidence · Judge · 리스크 패널 접기" : "Evidence Bundle · Judge 신뢰도 · 리스크/워터폴 열기"}
-      </button>
+      <section className="decision-card border-[#1428A0]/20">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="decision-kicker">AI · System · PB</p>
+            <h3 className="decision-title mt-1">{judgePassed ? "AI 검증 완료" : "AI 검증 진행 중"}</h3>
+            <p className="decision-copy mt-1">신뢰도: {judgePassed && evidenceReady ? "높음" : "검토 필요"} · 원문과 검증 로그는 언제든 확인할 수 있습니다.</p>
+          </div>
+          <span className={judgePassed ? "badge-success" : "badge-warning"}>{bundle.judge ? `Judge ${judgePassed ? "통과" : "실패"}` : "Judge 대기"}</span>
+        </div>
+        <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-5">
+          <span className={bundle.citation?.passed ? "badge-success" : "badge-muted"}>고객 적합성 검증 {bundle.citation?.passed ? "완료" : "대기"}</span>
+          <span className={bundle.updatedAt ? "badge-success" : "badge-muted"}>데이터 최신성 확인</span>
+          <span className={results ? "badge-success" : "badge-muted"}>리스크 검증 {results ? "완료" : "대기"}</span>
+          <span className={evidenceReady ? "badge-success" : "badge-muted"}>계산 재현성 {evidenceReady ? "확인" : "대기"}</span>
+          <span className={judgePassed ? "badge-success" : "badge-muted"}>Judge 검증 {judgePassed ? "완료" : "대기"}</span>
+        </div>
+        <button type="button" className="btn-outline mt-4 text-xs" onClick={() => setOpen((v) => !v)}>
+          {open ? "상세 검증 로그 접기" : "추천 근거 · 상세 검증 로그 보기"}
+        </button>
+      </section>
       {open && (
-        <>
+        <div className="space-y-3">
           {results && <RiskAndWaterfallPanel results={results} />}
           <EvidenceBundlePanel
             bundle={bundle}
@@ -126,7 +141,7 @@ export default function ConsultationHub({ client }: { client: Client }) {
             onChange={persist}
           />
           <JudgeTrustPanel />
-        </>
+        </div>
       )}
     </div>
   );

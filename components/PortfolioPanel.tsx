@@ -2018,10 +2018,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
       <QuickScrollButtons topRef={portfolioTopRef} bottomRef={portfolioBottomRef} />
       <div className="flex flex-col justify-between gap-4 rounded-2xl bg-slate-900 p-5 text-white shadow-sm md:flex-row md:items-center">
         <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-blue-300">
-            Samsung Securities Young Creator PB Center
-          </span>
-          <h1 className="mt-1 text-xl font-bold tracking-tight">VIP 맞춤형 자산배분 제안 시스템</h1>
+          <span className="text-xs font-bold uppercase tracking-wider text-blue-300">Portfolio Decision Summary</span>
+          <h1 className="mt-1 text-xl font-bold tracking-tight">현재 선택: {currentPortfolioName}</h1>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-300">
             7요인 분석 → 현금흐름 분석 → 리포트 및 리서치 분석 → 포트폴리오 산출 순서로 추천합니다.
           </p>
@@ -2035,6 +2033,34 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </span>
         </div>
       </div>
+
+      <section className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="decision-kicker">Compare & decide</p>
+            <h2 className="text-base font-bold text-fg">추천안 비교 선택</h2>
+          </div>
+          <span className="badge-navy">선택됨 · {currentPortfolioName}</span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {displayPortfolioOptions.map((option) => {
+            const selected = option.id === selectedBase;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setSelectedBase(option.id)}
+                aria-pressed={selected}
+                className={`rounded-xl border p-3 text-left transition ${selected ? "border-[#1428A0] bg-[#F2F5FF] ring-2 ring-[#1428A0]/10" : "border-border bg-white hover:border-[#1428A0]/40"}`}
+              >
+                <span className="text-[10px] font-bold uppercase text-fg-muted">{option.id}</span>
+                <span className="mt-1 block text-sm font-bold text-fg">{option.name}</span>
+                <span className="mt-1 block text-[11px] text-fg-muted">{selected ? `예상수익 ${displayedExpectedReturn}% · 변동성 ${metrics.volatility}% · MDD ${metrics.mdd}%` : "선택하여 계산 결과 비교"}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {/* 자산 3층 구조 요약 카드 */}
       {model.assetLayer ? (

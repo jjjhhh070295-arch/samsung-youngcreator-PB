@@ -141,6 +141,18 @@ export default function StressTestPanel({portfolios,portfolioWeights,investableK
   ].filter(item=>item.pct>.0001);
 
   return <div className="space-y-4">
+    {analysis&&<section className="decision-card border-[#1428A0]/20">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="decision-kicker">Portfolio resilience</p><h3 className="decision-title mt-1">포트폴리오 방어력 요약</h3><p className="decision-copy mt-1">새 점수 없이 현재 스트레스 엔진의 손실 수치만 요약합니다.</p></div>
+        <span className="badge-navy">시나리오 {PRESET_SCENARIOS.length}개 제공</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div><p className="text-[11px] text-fg-muted">선택 시나리오</p><p className="mt-1 text-sm font-bold text-fg">{analysis.scenario.label}</p></div>
+        <div><p className="text-[11px] text-fg-muted">시나리오 예상 손익률</p><p className="mt-1 text-xl font-black text-red-600">{(scenarioWholeReturn*100).toFixed(1)}%</p></div>
+        <div><p className="text-[11px] text-fg-muted">최악 경로 예상 손실률</p><p className="mt-1 text-xl font-black text-red-600">{(analysis.scenario.metrics.worstReturn*coverage*100).toFixed(1)}%</p></div>
+        <div><p className="text-[11px] text-fg-muted">최악 경로 예상 손실액</p><p className="mt-1 text-xl font-black text-red-600">{formatKrw(worstLoss)}</p></div>
+      </div>
+    </section>}
     <div className="card p-4">
       <h3 className="text-sm font-semibold text-fg">{"\uB9E4\uD06C\uB85C \uC2A4\uD2B8\uB808\uC2A4 \uD14C\uC2A4\uD2B8 \uB300\uC0C1"}</h3>
       <p className="mt-1 text-xs leading-relaxed text-fg-muted">

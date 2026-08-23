@@ -231,6 +231,9 @@ export default function IPSResultTabs({
   }, [client.portfolios, stressPortfolioModel]);
   const stressInvestableKrw = stressPortfolioModel.assetLayer?.investableKrw ?? client.assetSize;
   const stressAssetBaseEstimated = stressPortfolioModel.assetLayer == null;
+  const advisoryBundle = loadBundle(clientId);
+  const pdfReady = canIssueClientPdf(advisoryBundle.status);
+  const consultationComplete = Boolean(done.factors && done.portfolio && done.stress && pdfReady);
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -557,30 +560,36 @@ export default function IPSResultTabs({
             <StageToggle k="ips" />
           </div>
           <div className="card flex flex-col items-center gap-4 p-8 text-center">
-            <span className="text-3xl">📄</span>
+            <span className="text-3xl">{consultationComplete ? "✓" : "📄"}</span>
             <div>
-              <p className="text-base font-bold text-fg">투자정책서 (IPS) 문서</p>
+              <p className="decision-kicker">Final decision</p>
+              <p className="mt-1 text-xl font-bold text-fg">{consultationComplete ? "상담 완료" : "투자정책서 (IPS) 문서"}</p>
               <p className="mt-1 max-w-md text-sm text-fg-muted">
-                고객 기본정보 · RRTTLLU 7요인 · 현금흐름 · 확정 포트폴리오를 모아 정식 투자정책서로
-                생성합니다. 문서 화면에서 <b>인쇄 / PDF 저장</b>이 가능합니다.
+                {consultationComplete
+                  ? `${client.name} 고객의 최종 투자전략이 확정되었습니다.`
+                  : "고객 기본정보 · RRTTLLU 7요인 · 현금흐름 · 확정 포트폴리오를 모아 정식 투자정책서로 생성합니다."}
               </p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2 text-xs">
+              <span className={done.factors ? "badge-success" : "badge-muted"}>고객 분석 {done.factors ? "완료" : "대기"}</span>
+              <span className={pdfReady ? "badge-success" : "badge-muted"}>PB 승인 {pdfReady ? "완료" : "대기"}</span>
+              <span className={done.portfolio ? "badge-success" : "badge-muted"}>포트폴리오 {done.portfolio ? "확정" : "대기"}</span>
+              <span className={done.stress ? "badge-success" : "badge-muted"}>스트레스 테스트 {done.stress ? "완료" : "대기"}</span>
             </div>
             {!done.portfolio && (
               <p className="text-xs text-fg-muted">
                 💡 포트폴리오를 최종 확정하면 문서에 포트폴리오 내역도 함께 채워집니다.
               </p>
             )}
-            {!canIssueClientPdf(loadBundle(clientId).status) && (
+            {!pdfReady && (
               <p className="text-xs font-semibold text-red-600">
-                {pdfBlockReason(loadBundle(clientId))}
+                {pdfBlockReason(advisoryBundle)}
               </p>
             )}
-            <button
-              className="btn-gold px-6 py-2.5"
-              onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}
-            >
-              IPS 문서 보기 →
-            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button className="btn-outline px-6 py-2.5" onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}>IPS 미리보기</button>
+              <button className="btn-primary px-6 py-2.5" disabled={!pdfReady} onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}>PDF 발행</button>
+            </div>
           </div>
         </div>
       )}
