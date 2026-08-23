@@ -1,8 +1,8 @@
 import type { AdvisoryConstraint, ProductCategory } from "./types";
 
 const CATEGORY_PATTERNS: Array<{ key: ProductCategory | "wrap"; re: RegExp }> = [
-  { key: "trust", re: /신탁만|신탁만\s*고려|신탁\/랩|랩만|일임만|일임형만|wrap only|trust only/i },
-  { key: "wrap", re: /랩\s*만|일임형|discretionary|wrap/i },
+  { key: "wrap", re: /랩\s*만|일임만|일임형만|discretionary|wrap only/i },
+  { key: "trust", re: /신탁만|신탁만\s*고려|trust only/i },
   { key: "etf", re: /etf만|etf only/i },
   { key: "els", re: /els만|elb만|els\/elb만/i },
   { key: "stock", re: /개별주식만|개별주만|주식만\s*고려/i },
@@ -34,7 +34,8 @@ export function parseAdvisoryConstraints(...texts: Array<string | null | undefin
   if (returnMatch) minExpectedReturn = Number(returnMatch[1]);
 
   const tags: string[] = [];
-  if (categoryOnly === "trust" || categoryOnly === "wrap") tags.push("신탁/랩/일임만");
+  if (categoryOnly === "trust") tags.push("신탁만");
+  else if (categoryOnly === "wrap") tags.push("랩/일임만");
   else if (categoryOnly) tags.push(`${categoryOnly}만`);
   if (overseasOnly) tags.push("해외주식만");
   if (preferIndividualStocks) tags.push("개별주식 선호");
@@ -55,11 +56,12 @@ export function constraintAppliesToCategory(
   category: ProductCategory,
   overseas: boolean,
 ): boolean {
+  // 여러 제약은 OR가 아니라 AND다. "신탁만 + 해외주식만"처럼 모순이면 빈 결과를 유지한다.
+  if (constraints.overseasOnly && (!overseas || (category !== "stock" && category !== "etf"))) return false;
   if (constraints.categoryOnly === "trust" || constraints.categoryOnly === "wrap") {
     return category === "trust";
   }
   if (constraints.categoryOnly && constraints.categoryOnly !== category) return false;
-  if (constraints.overseasOnly && !overseas && category !== "trust") return false;
   if (constraints.preferIndividualStocks && constraints.categoryOnly == null) {
     // 선호이지 배제가 아님. 필터에서는 통과시키고 랭킹에서 가중.
     return true;

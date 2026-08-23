@@ -47,9 +47,25 @@ export async function POST(req: Request) {
       },
     ],
   };
-  bundle = applyJudge(bundle, judge, "engine");
   if (result.citations?.length) {
     bundle = attachCitations(bundle, result.citations);
+  }
+  if (bundle.status !== "blocked") {
+    bundle = applyJudge(bundle, judge, "engine");
+  }
+
+  const failedFindings = judge.findings.filter((finding) => finding.severity === "fail");
+  if (!judge.passed || bundle.citation?.passed === false) {
+    const reason = failedFindings[0]?.message || bundle.citation?.message || "추천 근거 검증 실패";
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `고객 제안 차단: ${reason}`,
+        judge,
+        bundle,
+      },
+      { status: 422 },
+    );
   }
 
   return NextResponse.json({

@@ -397,6 +397,20 @@ function sampleDb(): LocalDB {
   return ensureLocalSample({ pbs: [], clients: [], consultations: [] }).db;
 }
 
+/**
+ * 서버 검증용 읽기 전용 데모 원본. 브라우저 localStorage를 절대 읽지 않으며,
+ * 고정 seed를 매번 새 객체로 만들어 요청에서 받은 고객 객체와 신뢰 경계를 분리한다.
+ */
+export function getServerDemoClient(id: string): Client | null {
+  const client = sampleDb().clients.find((item) => item.id === id);
+  return client ? structuredClone(client) : null;
+}
+
+export function getServerDemoPb(id: string): Pick<PB, "id" | "name"> | null {
+  const pb = sampleDb().pbs.find((item) => item.id === id);
+  return pb ? { id: pb.id, name: pb.name } : null;
+}
+
 function localOrSampleDb(): LocalDB {
   return typeof window === "undefined" ? sampleDb() : loadLocal();
 }

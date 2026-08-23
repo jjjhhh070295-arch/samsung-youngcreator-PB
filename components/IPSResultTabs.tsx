@@ -233,7 +233,7 @@ export default function IPSResultTabs({
   const stressInvestableKrw = stressPortfolioModel.assetLayer?.investableKrw ?? client.assetSize;
   const stressAssetBaseEstimated = stressPortfolioModel.assetLayer == null;
   const advisoryBundle = loadBundle(clientId);
-  const pdfReady = canIssueClientPdf(advisoryBundle.status);
+  const pdfReady = canIssueClientPdf(advisoryBundle);
   const consultationComplete = Boolean(done.factors && done.portfolio && done.stress && pdfReady);
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
@@ -248,7 +248,7 @@ export default function IPSResultTabs({
 
   return (
     <div className="space-y-5">
-      <ConsultationHub client={client} />
+      <ConsultationHub key={`consultation-${client.id}`} client={client} />
 
       {/* 기본정보 */}
       {tab === "basic" && (
@@ -507,7 +507,9 @@ export default function IPSResultTabs({
         </div>
       )}
 
-      {tab === "recommend" && <ProductRecommendPanel client={client} />}
+      {tab === "recommend" && (
+        <ProductRecommendPanel key={`recommend-${client.id}`} client={client} />
+      )}
 
       {/* 세전·세후 — 포트폴리오 비중별 세금/비용/세후 금액 비교 */}
       {tab === "taxProjection" && (

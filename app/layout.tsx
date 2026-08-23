@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 function AppNavFallback() {
-  return <aside className="w-44 shrink-0 border-r border-border bg-white" aria-hidden />;
+  return <aside className="hidden w-44 shrink-0 border-r border-border bg-white md:block" aria-hidden />;
 }
 
 export default function RootLayout({
@@ -27,7 +27,7 @@ export default function RootLayout({
         <ThemeProvider>
           <SplashScreen />
           <Header />
-          <div className="flex">
+          <div className="flex flex-col md:flex-row">
             <Suspense fallback={<AppNavFallback />}>
               <AppNav />
             </Suspense>

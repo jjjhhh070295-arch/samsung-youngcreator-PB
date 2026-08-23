@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Client } from "@/lib/types";
+import { listPbs } from "@/lib/store";
 import type { CalcResults, EvidenceBundle } from "@/lib/advisory/types";
+import type { AdvisoryInputContext } from "@/lib/advisory/integrity";
 import {
   applyCalcSnapshot,
-  approveByPb,
   canLock,
-  completeApprovalIfReady,
   loadBundle,
   saveBundle,
   softLockReasons,
@@ -22,6 +22,12 @@ import RiskAndWaterfallPanel from "./RiskAndWaterfallPanel";
 
 export default function ConsultationHub({ client }: { client: Client }) {
   const [bundle, setBundle] = useState<EvidenceBundle>(() => loadBundle(client.id));
+  const [inputContextState, setInputContextState] = useState<{
+    sourcePbId: string;
+    value: AdvisoryInputContext;
+  } | null>(null);
+  const inputContext =
+    inputContextState?.sourcePbId === client.assignedPbId ? inputContextState.value : null;
   const recovering = useRef(false);
 
   const persist = (next: EvidenceBundle) => {
@@ -37,12 +43,30 @@ export default function ConsultationHub({ client }: { client: Client }) {
     return () => window.removeEventListener("pb-evidence-updated", reload);
   }, [client.id]);
 
-  /** review에 고착된 번들: Evidence 보강 후 locked까지 자동 진행 */
+  useEffect(() => {
+    let cancelled = false;
+    const loadInputContext = async () => {
+      const pbs = await listPbs();
+      if (cancelled) return;
+      const assignedPbDisplay = pbs.find((pb) => pb.id === client.assignedPbId)?.name ?? "미지정";
+      setInputContextState({
+        sourcePbId: client.assignedPbId,
+        value: { assignedPbDisplay },
+      });
+    };
+    void loadInputContext();
+    return () => {
+      cancelled = true;
+    };
+  }, [client.assignedPbId]);
+
+  /** Evidence가 부족한 번들을 자동 보강하되, 사람의 PB 상담 검토 승인은 자동화하지 않는다. */
   useEffect(() => {
     if (recovering.current) return;
     let cancelled = false;
 
     const run = async () => {
+      if (!inputContext) return;
       let current = loadBundle(client.id);
       if (current.status === "locked" || current.status === "blocked") return;
       // draft에서 포트폴리오까지 끝났거나, 이미 review면 복구 대상
@@ -57,20 +81,15 @@ export default function ConsultationHub({ client }: { client: Client }) {
           const res = await fetch("/api/advisory/evidence", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ client }),
+            body: JSON.stringify({ client, inputContext }),
           });
           const data = await res.json();
           if (!cancelled && data.ok && data.snap) {
-            current = applyCalcSnapshot(current, data.snap);
-            // applyCalcSnapshot이 review+canLock이면 이미 locked
-          }
-        }
-        if (!cancelled && current.status !== "locked" && current.status !== "blocked") {
-          if (current.status === "review" && canLock(current)) {
-            current = approveByPb(current, "PB");
-          } else if (canLock(current) && current.status === "draft" && client.stages?.portfolio) {
-            // 하위 단계만 끝난 draft: 한 번 승인으로 locked
-            current = completeApprovalIfReady(current, "PB");
+            // 요청 중 PB가 승인했을 수 있으므로 응답 시점의 최신본을 다시 읽는다.
+            // stale draft/review로 locked 승인을 덮어쓰지 않는다.
+            const latest = loadBundle(client.id);
+            if (latest.status === "locked" || latest.status === "blocked") return;
+            current = applyCalcSnapshot(latest, data.snap);
           }
         }
         if (!cancelled) persist(current);
@@ -85,7 +104,7 @@ export default function ConsultationHub({ client }: { client: Client }) {
     return () => {
       cancelled = true;
     };
-  }, [client.id, client.stages?.portfolio]);
+  }, [client, inputContext]);
 
   const stuck = bundle.status === "review" || (!canLock(bundle) && softLockReasons(bundle).length > 0);
   const [open, setOpen] = useState(stuck);
@@ -102,9 +121,8 @@ export default function ConsultationHub({ client }: { client: Client }) {
     <div className="space-y-3">
       <ConsultationPipelineBar
         steps={steps}
-        client={client}
+        clientName={client.name}
         bundle={bundle}
-        onBundleChange={persist}
         statusLabel={`bundle.status=${bundle.status} · ${ADVISORY_STATUS_LABEL[bundle.status]}`}
       />
       <section className="decision-card border-[#1428A0]/20 p-4">
@@ -122,17 +140,29 @@ export default function ConsultationHub({ client }: { client: Client }) {
           <span className={results ? "badge-success" : "badge-muted"}>리스크 검증 {results ? "완료" : "대기"}</span>
           <span className={evidenceReady ? "badge-success" : "badge-muted"}>계산 재현성 {evidenceReady ? "확인" : "대기"}</span>
         </div>
-        <button type="button" className="btn-outline mt-4 text-xs" onClick={() => setOpen((v) => !v)}>
+        <button
+          type="button"
+          className="btn-outline mt-4 text-xs"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls="advisory-evidence-panels"
+        >
           {open ? "상세 검증 로그 접기" : "추천 근거 · 상세 검증 로그 보기"}
         </button>
       </section>
+      <ControlStatusBar
+        bundle={bundle}
+        client={client}
+        inputContext={inputContext}
+        onChange={persist}
+      />
       {open && (
-        <div className="space-y-3">
-          <ControlStatusBar bundle={bundle} client={client} onChange={persist} />
+        <div id="advisory-evidence-panels" className="space-y-3">
           {results && <RiskAndWaterfallPanel results={results} />}
           <EvidenceBundlePanel
             bundle={bundle}
             client={client}
+            inputContext={inputContext}
             onChange={persist}
           />
           <JudgeTrustPanel />

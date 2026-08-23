@@ -2,7 +2,7 @@
 
 // 투자정책서(IPS) 문서 — 인쇄/PDF 저장용. 고객 데이터로 자동 생성.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Bar,
@@ -32,11 +32,15 @@ import TaxReadinessRubricButton from "@/components/TaxReadinessRubricButton";
 import PeriodCashflowLineChart from "@/components/cashflow/PeriodCashflowLineChart";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
+import type { EvidenceBundle } from "@/lib/advisory/types";
+import { advisoryInputHash } from "@/lib/advisory/integrity";
+import { isSamePrintAttempt } from "@/lib/advisory/printPermitBinding";
+import { stableJsonStringify } from "@/lib/advisory/stableJson";
 import { HONESTY_LIMITS, AI_ROLE_COPY } from "@/lib/advisory/constants";
 import { mergeTaxProfile, projectTax } from "@/lib/taxProjection";
 import { DEFAULT_HORIZON_YEARS } from "@/lib/taxProjectionRules";
 
-const CHART_COLORS = ["#0f172a", "#d6a84f", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b"];
+const CHART_COLORS = ["#0F172A", "#1428A0", "#2C3EE8", "#10b981", "#ef4444", "#8b5cf6", "#64748B"];
 
 const taxText = (flow: Client["cashFlows"][number]) =>
   `${flow.label} ${flow.category ?? ""} ${flow.taxAccountingNote ?? ""} ${flow.accountType ?? ""}`;
@@ -187,48 +191,591 @@ function portfolioTypeOnlyLabel(portfolio: Client["portfolios"][number]): string
     .trim() || label;
 }
 
+type VerifiedPrintPermit = {
+  token: string;
+  clientId: string;
+  pbId: string;
+  evidenceId: string;
+  verifiedInputHash: string;
+  evidenceDigest: string;
+  expiresAt: string;
+  mode: "authoritative" | "local-self-consistency";
+  clientSnapshot: Client;
+  pbSnapshot: Pick<PB, "id" | "name">;
+  evidenceSnapshot: EvidenceBundle;
+};
+
+function printPermitKey(permit: VerifiedPrintPermit): string {
+  return [
+    permit.clientId,
+    permit.pbId,
+    permit.evidenceId,
+    permit.token,
+    permit.verifiedInputHash,
+    permit.evidenceDigest,
+    permit.expiresAt,
+  ].join("\u0000");
+}
+
 export default function IPSDocumentPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
   const [client, setClient] = useState<Client | null>(null);
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
-  const [pdfBlocked, setPdfBlocked] = useState(false);
-  const [pdfReason, setPdfReason] = useState("");
+  const [pdfBlocked, setPdfBlocked] = useState(true);
+  const [pdfReason, setPdfReason] = useState("Evidence와 최신 고객 데이터를 검증 중입니다.");
+  const [printPermit, setPrintPermit] = useState<VerifiedPrintPermit | null>(null);
+  const [printBusy, setPrintBusy] = useState(false);
+  const [evidenceRevision, setEvidenceRevision] = useState(0);
+  const routeKey = `${pbId}\u0000${clientId}`;
+  const routeKeyRef = useRef(routeKey);
+  routeKeyRef.current = routeKey;
+  const clientRef = useRef<Client | null>(client);
+  clientRef.current = client;
+  const pbDisplayRef = useRef("");
+  const printPermitRef = useRef<VerifiedPrintPermit | null>(printPermit);
+  printPermitRef.current = printPermit;
+  const flowEpochRef = useRef(0);
+  const loadEpochRef = useRef(0);
+  const verifyAbortRef = useRef<AbortController | null>(null);
+  const printAbortRef = useRef<AbortController | null>(null);
+  const printArmedRef = useRef<{ routeKey: string; permitKey: string } | null>(null);
 
   const load = useCallback(async () => {
+    const requestedRouteKey = routeKey;
+    const requestedLoadEpoch = ++loadEpochRef.current;
     setStatus("loading");
     try {
       const [c, allPbs] = await Promise.all([getClient(clientId), listPbs()]);
-      if (!c) return setStatus("error");
+      if (
+        loadEpochRef.current !== requestedLoadEpoch ||
+        routeKeyRef.current !== requestedRouteKey
+      ) return;
+      if (!c) {
+        setStatus("error");
+        return;
+      }
       setClient(c);
       setPbs(allPbs);
       setStatus("ready");
     } catch (e) {
+      if (
+        loadEpochRef.current !== requestedLoadEpoch ||
+        routeKeyRef.current !== requestedRouteKey
+      ) return;
       console.error(e);
       setStatus("error");
     }
-  }, [clientId]);
+  }, [clientId, routeKey]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const assignedPb = client ? pbs.find((pb) => pb.id === client.assignedPbId) : undefined;
+  const pbDisplay = client ? assignedPb?.name ?? "미지정" : "";
+  pbDisplayRef.current = pbDisplay;
+
+  const replacePrintPermit = useCallback((next: VerifiedPrintPermit | null) => {
+    printPermitRef.current = next;
+    setPrintPermit(next);
+  }, []);
+
+  const verifiedEvidenceIsCurrent = useCallback((candidate?: VerifiedPrintPermit | null) => {
+    const permit = candidate ?? printPermitRef.current;
+    const currentClient = clientRef.current;
+    const currentPbDisplay = pbDisplayRef.current;
+    const expiresAtMs = permit ? Date.parse(permit.expiresAt) : Number.NaN;
+    if (
+      !permit ||
+      !currentClient ||
+      permit.evidenceId === "" ||
+      routeKeyRef.current !== `${permit.pbId}\u0000${permit.clientId}` ||
+      currentClient.id !== permit.clientId ||
+      currentClient.assignedPbId !== permit.pbId ||
+      permit.clientSnapshot.id !== permit.clientId ||
+      permit.clientSnapshot.assignedPbId !== permit.pbId ||
+      permit.pbSnapshot.id !== permit.pbId ||
+      !currentPbDisplay ||
+      currentPbDisplay !== permit.pbSnapshot.name ||
+      !Number.isFinite(expiresAtMs) ||
+      expiresAtMs <= Date.now()
+    ) return false;
+    const latest = loadBundle(permit.clientId);
+    try {
+      return (
+        latest.id === permit.evidenceId &&
+        canIssueClientPdf(latest) &&
+        latest.inputHash === permit.verifiedInputHash &&
+        stableJsonStringify(latest) === stableJsonStringify(permit.evidenceSnapshot) &&
+        advisoryInputHash(currentClient, { assignedPbDisplay: currentPbDisplay }) === permit.verifiedInputHash &&
+        advisoryInputHash(permit.clientSnapshot, {
+          assignedPbDisplay: permit.pbSnapshot.name,
+        }) === permit.verifiedInputHash
+      );
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const blockPdfNow = useCallback((reason: string) => {
+    document.body.classList.add("pb-pdf-print-blocked");
+    flowEpochRef.current += 1;
+    verifyAbortRef.current?.abort();
+    verifyAbortRef.current = null;
+    printAbortRef.current?.abort();
+    printAbortRef.current = null;
+    printArmedRef.current = null;
+    replacePrintPermit(null);
+    setPrintBusy(false);
+    setPdfBlocked(true);
+    setPdfReason(reason);
+  }, [replacePrintPermit]);
+
   useEffect(() => {
+    blockPdfNow("고객·담당 PB·Evidence 현재본을 다시 확인하고 있습니다.");
+    return () => {
+      loadEpochRef.current += 1;
+      flowEpochRef.current += 1;
+      verifyAbortRef.current?.abort();
+      verifyAbortRef.current = null;
+      printAbortRef.current?.abort();
+      printAbortRef.current = null;
+      printArmedRef.current = null;
+      printPermitRef.current = null;
+    };
+  }, [blockPdfNow, routeKey]);
+
+  useEffect(() => {
+    if (!printPermit) return;
+    const expiresAtMs = Date.parse(printPermit.expiresAt);
+    const delay = expiresAtMs - Date.now();
+    if (!Number.isFinite(expiresAtMs) || delay <= 0) {
+      blockPdfNow("출력 허가 토큰이 만료되어 고객 문서 본문을 다시 차단했습니다.");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      blockPdfNow("출력 허가 토큰이 만료되어 고객 문서 본문을 다시 차단했습니다.");
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [blockPdfNow, printPermit]);
+
+  useEffect(() => {
+    if (!client) return;
+    const requestedRouteKey = routeKey;
+    const requestedEpoch = ++flowEpochRef.current;
+    verifyAbortRef.current?.abort();
+    const controller = new AbortController();
+    verifyAbortRef.current = controller;
+    const isCurrentRequest = () =>
+      !controller.signal.aborted &&
+      flowEpochRef.current === requestedEpoch &&
+      routeKeyRef.current === requestedRouteKey &&
+      clientRef.current?.id === clientId;
+    const failVerification = (reason: string) => {
+      if (!isCurrentRequest()) return;
+      document.body.classList.add("pb-pdf-print-blocked");
+      printArmedRef.current = null;
+      replacePrintPermit(null);
+      setPrintBusy(false);
+      setPdfBlocked(true);
+      setPdfReason(reason);
+    };
+
+    if (client.id !== clientId || client.assignedPbId !== pbId || assignedPb?.id !== pbId) {
+      failVerification("최종 PDF 비활성: 현재 고객과 담당 PB 경로가 일치하지 않습니다.");
+      return () => controller.abort();
+    }
     const bundle = loadBundle(clientId);
-    setPdfBlocked(!canIssueClientPdf(bundle.status));
-    setPdfReason(pdfBlockReason(bundle));
-  }, [clientId]);
+    if (!canIssueClientPdf(bundle)) {
+      failVerification(pdfBlockReason(bundle));
+      return () => controller.abort();
+    }
+
+    document.body.classList.add("pb-pdf-print-blocked");
+    printArmedRef.current = null;
+    replacePrintPermit(null);
+    setPrintBusy(false);
+    setPdfBlocked(true);
+    setPdfReason("Evidence와 최신 고객 데이터를 검증 중입니다.");
+    const verify = async () => {
+      try {
+        const ids = { clientId, pbId, evidenceId: bundle.id };
+        const registerRes = await fetch("/api/advisory/local-self-consistency", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...ids,
+            bundle,
+          }),
+          signal: controller.signal,
+        });
+        const registration = await registerRes.json();
+        if (!isCurrentRequest()) return;
+        if (!registerRes.ok || !registration.ok || !registration.registered) {
+          failVerification(
+            `최종 PDF 비활성: ${registration.reasons?.[0] || registration.error || "서버 Evidence 원본 보존 실패"}`,
+          );
+          return;
+        }
+
+        const res = await fetch("/api/advisory/verify", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(ids),
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!isCurrentRequest()) return;
+        const snapshotClient = data.clientSnapshot as Client | undefined;
+        const snapshotPb = data.pbSnapshot as Pick<PB, "id" | "name"> | undefined;
+        const evidenceSnapshot = data.evidenceSnapshot as EvidenceBundle | undefined;
+        const verifiedInputHash = typeof data.verifiedInputHash === "string" ? data.verifiedInputHash : "";
+        const evidenceDigest = typeof data.evidenceDigest === "string" ? data.evidenceDigest : "";
+        if (
+          !res.ok ||
+          !data.ok ||
+          !data.verified ||
+          !data.printToken ||
+          !data.expiresAt ||
+          !verifiedInputHash ||
+          !/^[a-f0-9]{64}$/i.test(evidenceDigest) ||
+          data.clientId !== clientId ||
+          data.pbId !== pbId ||
+          data.evidenceId !== bundle.id ||
+          !snapshotClient ||
+          snapshotClient.id !== clientId ||
+          snapshotClient.assignedPbId !== pbId ||
+          !snapshotPb ||
+          snapshotPb.id !== pbId ||
+          !snapshotPb.name ||
+          !evidenceSnapshot ||
+          evidenceSnapshot.id !== bundle.id ||
+          evidenceSnapshot.clientId !== clientId
+        ) {
+          failVerification(`최종 PDF 비활성: ${data.reasons?.[0] || data.error || "Evidence 무결성 검증 실패"}`);
+          return;
+        }
+
+        const localInputHash = advisoryInputHash(client, { assignedPbDisplay: pbDisplay });
+        const snapshotInputHash = advisoryInputHash(snapshotClient, {
+          assignedPbDisplay: snapshotPb.name,
+        });
+        if (
+          bundle.inputHash !== verifiedInputHash ||
+          evidenceSnapshot.inputHash !== verifiedInputHash ||
+          stableJsonStringify(bundle) !== stableJsonStringify(evidenceSnapshot) ||
+          localInputHash !== verifiedInputHash ||
+          snapshotInputHash !== verifiedInputHash ||
+          pbDisplay !== snapshotPb.name
+        ) {
+          failVerification("최종 PDF 비활성: 화면 고객·담당 PB와 서버 검증 스냅샷이 일치하지 않습니다.");
+          return;
+        }
+
+        const nextPermit: VerifiedPrintPermit = {
+          token: data.printToken,
+          clientId,
+          pbId,
+          evidenceId: bundle.id,
+          verifiedInputHash,
+          evidenceDigest,
+          expiresAt: data.expiresAt,
+          mode: data.mode === "authoritative" ? "authoritative" : "local-self-consistency",
+          clientSnapshot: snapshotClient,
+          pbSnapshot: snapshotPb,
+          evidenceSnapshot,
+        };
+        replacePrintPermit(nextPermit);
+        if (!isCurrentRequest() || !verifiedEvidenceIsCurrent(nextPermit)) {
+          failVerification("최종 PDF 비활성: 검증 직후 고객·Evidence 현재본이 변경되었습니다.");
+          return;
+        }
+        setPdfBlocked(false);
+        setPdfReason("");
+      } catch (error) {
+        if (controller.signal.aborted || !isCurrentRequest()) return;
+        failVerification(
+          error instanceof Error && error.name === "AbortError"
+            ? "최종 PDF 비활성: 검증 요청이 취소되었습니다."
+            : "최종 PDF 비활성: Evidence 무결성 검증 서비스에 연결할 수 없습니다.",
+        );
+      }
+    };
+    void verify();
+    return () => {
+      controller.abort();
+      if (verifyAbortRef.current === controller) verifyAbortRef.current = null;
+    };
+  }, [
+    assignedPb?.id,
+    client,
+    clientId,
+    evidenceRevision,
+    pbDisplay,
+    pbId,
+    replacePrintPermit,
+    routeKey,
+    verifiedEvidenceIsCurrent,
+  ]);
+
+  useEffect(() => {
+    const currentEvidenceStorageKey = `pb-advisory-evidence-current-v2:${encodeURIComponent(clientId)}`;
+    const invalidateEvidence = () => {
+      blockPdfNow("Evidence 현재본이 변경되어 고객 문서를 즉시 차단하고 다시 검증합니다.");
+      setEvidenceRevision((revision) => revision + 1);
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === null) {
+        blockPdfNow("로컬 원본 저장소가 변경되어 고객 문서를 즉시 차단하고 다시 검증합니다.");
+        void load().finally(() => setEvidenceRevision((revision) => revision + 1));
+        return;
+      }
+      if (
+        event.key === "pb-advisory-evidence-v1" ||
+        event.key === currentEvidenceStorageKey
+      ) {
+        invalidateEvidence();
+        return;
+      }
+      if (event.key === "pb-app-local-db") {
+        blockPdfNow("고객 또는 담당 PB 원본이 변경되어 고객 문서를 즉시 차단하고 다시 검증합니다.");
+        void load().finally(() => setEvidenceRevision((revision) => revision + 1));
+      }
+    };
+
+    window.addEventListener("pb-evidence-updated", invalidateEvidence);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("pb-evidence-updated", invalidateEvidence);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [blockPdfNow, clientId, load]);
+
+  useEffect(() => {
+    const className = "pb-pdf-print-blocked";
+    if (pdfBlocked) document.body.classList.add(className);
+    else document.body.classList.remove(className);
+    return () => {
+      document.body.classList.remove(className);
+    };
+  }, [pdfBlocked]);
+
+  useEffect(() => {
+    const blockStalePrint = () => {
+      blockPdfNow("Evidence 현재본 검증이 유효하지 않아 고객 문서 인쇄를 차단했습니다.");
+    };
+    const preventPrintShortcut = (event: globalThis.KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "p") return;
+      const armed = printArmedRef.current;
+      const permit = printPermitRef.current;
+      if (
+        armed &&
+        permit &&
+        armed.routeKey === routeKeyRef.current &&
+        armed.permitKey === printPermitKey(permit) &&
+        verifiedEvidenceIsCurrent(permit)
+      ) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      blockPdfNow("출력 허가 토큰은 ‘인쇄 / PDF로 저장’ 버튼에서만 1회 사용할 수 있습니다.");
+    };
+    const guardBrowserPrint = () => {
+      const armed = printArmedRef.current;
+      const permit = printPermitRef.current;
+      if (
+        !armed ||
+        !permit ||
+        armed.routeKey !== routeKeyRef.current ||
+        armed.permitKey !== printPermitKey(permit) ||
+        !verifiedEvidenceIsCurrent(permit)
+      ) blockStalePrint();
+    };
+    const finishPrint = () => {
+      const armed = printArmedRef.current;
+      if (!armed) return;
+      if (armed.routeKey !== routeKeyRef.current) {
+        printArmedRef.current = null;
+        return;
+      }
+      blockPdfNow("1회용 출력 허가 토큰을 사용했습니다. 다시 검증한 뒤 출력할 수 있습니다.");
+      setEvidenceRevision((revision) => revision + 1);
+    };
+
+    window.addEventListener("keydown", preventPrintShortcut, true);
+    window.addEventListener("beforeprint", guardBrowserPrint);
+    window.addEventListener("afterprint", finishPrint);
+    return () => {
+      window.removeEventListener("keydown", preventPrintShortcut, true);
+      window.removeEventListener("beforeprint", guardBrowserPrint);
+      window.removeEventListener("afterprint", finishPrint);
+    };
+  }, [blockPdfNow, verifiedEvidenceIsCurrent]);
+
+  const printWithOneUsePermit = useCallback(async () => {
+    if (printAbortRef.current) return;
+    const permit = printPermitRef.current;
+    const requestedRouteKey = routeKeyRef.current;
+    const requestedEpoch = flowEpochRef.current;
+    const requestedPermitKey = permit ? printPermitKey(permit) : "";
+    const latest = permit ? loadBundle(permit.clientId) : null;
+    if (
+      !permit ||
+      !latest ||
+      latest.id !== permit.evidenceId ||
+      !verifiedEvidenceIsCurrent(permit)
+    ) {
+      blockPdfNow("출력 허가 토큰이 만료되었거나 Evidence 현재본과 일치하지 않습니다.");
+      setEvidenceRevision((revision) => revision + 1);
+      return;
+    }
+
+    const controller = new AbortController();
+    printAbortRef.current = controller;
+    setPrintBusy(true);
+    const isCurrentAttempt = () => {
+      const currentPermit = printPermitRef.current;
+      return (
+        !controller.signal.aborted &&
+        isSamePrintAttempt(
+          {
+            epoch: requestedEpoch,
+            routeKey: requestedRouteKey,
+            permitKey: requestedPermitKey,
+          },
+          {
+            epoch: flowEpochRef.current,
+            routeKey: routeKeyRef.current,
+            permitKey: currentPermit ? printPermitKey(currentPermit) : "",
+          },
+        )
+      );
+    };
+    try {
+      const res = await fetch("/api/advisory/verify", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientId: permit.clientId,
+          pbId: permit.pbId,
+          evidenceId: permit.evidenceId,
+          printToken: permit.token,
+        }),
+        signal: controller.signal,
+      });
+      const data = await res.json();
+      if (!isCurrentAttempt()) return;
+      if (
+        !res.ok ||
+        !data.ok ||
+        !data.permitted ||
+        data.clientId !== permit.clientId ||
+        data.pbId !== permit.pbId ||
+        data.evidenceId !== permit.evidenceId ||
+        data.verifiedInputHash !== permit.verifiedInputHash ||
+        data.evidenceDigest !== permit.evidenceDigest
+      ) {
+        blockPdfNow(
+          `출력 차단: ${data.reasons?.[0] || data.error || "1회용 출력 허가 토큰 검증에 실패했습니다."}`,
+        );
+        setEvidenceRevision((revision) => revision + 1);
+        return;
+      }
+      if (!isCurrentAttempt() || !verifiedEvidenceIsCurrent(permit)) {
+        blockPdfNow("출력 차단: 토큰 소비 중 고객·담당 PB·Evidence 현재본이 변경되었습니다.");
+        setEvidenceRevision((revision) => revision + 1);
+        return;
+      }
+
+      printArmedRef.current = {
+        routeKey: requestedRouteKey,
+        permitKey: requestedPermitKey,
+      };
+      try {
+        if (!isCurrentAttempt() || !verifiedEvidenceIsCurrent(permit)) {
+          printArmedRef.current = null;
+          blockPdfNow("출력 차단: 인쇄 직전 고객·담당 PB·Evidence 현재본이 변경되었습니다.");
+          setEvidenceRevision((revision) => revision + 1);
+          return;
+        }
+        window.print();
+      } finally {
+        const armed = printArmedRef.current;
+        if (
+          armed &&
+          armed.routeKey === requestedRouteKey &&
+          armed.permitKey === requestedPermitKey &&
+          routeKeyRef.current === requestedRouteKey
+        ) {
+          blockPdfNow("1회용 출력 허가 토큰을 사용했습니다. 다시 검증한 뒤 출력할 수 있습니다.");
+          setEvidenceRevision((revision) => revision + 1);
+        } else if (armed?.permitKey === requestedPermitKey) {
+          printArmedRef.current = null;
+        }
+      }
+    } catch (error) {
+      if (controller.signal.aborted || !isCurrentAttempt()) return;
+      blockPdfNow("출력 차단: 1회용 출력 허가 토큰 서비스에 연결할 수 없습니다.");
+      setEvidenceRevision((revision) => revision + 1);
+    } finally {
+      const ownsController = printAbortRef.current === controller;
+      if (ownsController) printAbortRef.current = null;
+      if (ownsController && routeKeyRef.current === requestedRouteKey) setPrintBusy(false);
+    }
+  }, [blockPdfNow, verifiedEvidenceIsCurrent]);
+
   if (status === "loading") return <LoadingView />;
   if (status === "error" || !client)
     return <ErrorView message="고객 정보를 불러올 수 없습니다." onRetry={load} />;
 
+  if (pdfBlocked || !printPermit || client.id !== clientId || !verifiedEvidenceIsCurrent(printPermit)) {
+    return (
+      <div className="pdf-output-gate mx-auto max-w-3xl">
+        <div className="mb-4 print:hidden">
+          <button
+            type="button"
+            className="btn-outline text-sm"
+            onClick={() => router.push(`/pb/${pbId}/${clientId}`)}
+          >
+            ← 고객 상세
+          </button>
+        </div>
+        <section
+          className="rounded-xl border-2 border-red-300 bg-white p-5 shadow-card sm:p-8"
+          role="alert"
+          aria-labelledby="pdf-output-gate-title"
+        >
+          <span className="inline-flex rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white">
+            고객 문서 출력 차단
+          </span>
+          <h1 id="pdf-output-gate-title" className="mt-4 text-xl font-bold text-fg">
+            검증 전에는 PDF 본문을 표시하지 않습니다
+          </h1>
+          <p className="mt-2 text-sm leading-relaxed text-fg-muted">{pdfReason}</p>
+          <p className="mt-3 rounded-lg bg-[#F0F3FA] p-3 text-xs leading-relaxed text-fg">
+            Ctrl/Cmd+P는 차단됩니다. 브라우저 인쇄 메뉴를 열어도 고객 정보나 투자정책서 본문은 출력되지 않고 이 차단 안내만 표시됩니다.
+          </p>
+          <button
+            type="button"
+            className="mt-4 min-h-11 rounded-lg bg-[#2C3EE8] px-5 py-3 text-sm font-bold text-white opacity-60"
+            disabled
+          >
+            인쇄·PDF 저장 차단
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  const documentClient = printPermit.clientSnapshot;
+  const documentPbDisplay = printPermit.pbSnapshot.name;
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
-  const pf = client.portfolios[0];
-  const cashflowSummary = buildCashflowSummary(client.cashFlows);
+  const pf = documentClient.portfolios[0];
+  const cashflowSummary = buildCashflowSummary(documentClient.cashFlows);
   const confirmedWeights = pf
-    ? buildPortfolioViewModel(client).portfolioOptions.find((option) => option.id === pf.id)?.weights
+    ? buildPortfolioViewModel(documentClient).portfolioOptions.find((option) => option.id === pf.id)?.weights
     : undefined;
   const displayAllocations = pf ? resolvePortfolioDisplayAllocations(pf, confirmedWeights) : [];
   const allocationChartData = displayAllocations.map((allocation) => ({
@@ -236,26 +783,22 @@ export default function IPSDocumentPage() {
     value: allocation.weight,
   }));
   const returnContributions = pf ? buildReturnContributionsFromPortfolio(displayAllocations, pf.expectedReturn) : [];
-  const periodSeries = buildPeriodCashflowSeries(client.cashFlows);
-  const evidence = loadBundle(clientId);
+  const periodSeries = buildPeriodCashflowSeries(documentClient.cashFlows);
+  const evidence = printPermit.evidenceSnapshot;
   const vmWeights = confirmedWeights ?? {
     etf: 30, bond: 25, els: 0, mmf: 30, gold: 10, dollar: 5, raw: 0,
   };
-  const mergedTax = mergeTaxProfile(client);
+  const mergedTax = mergeTaxProfile(documentClient);
   const taxWaterfall = projectTax({
-    principalWon: client.assetSize,
+    principalWon: documentClient.assetSize,
     horizonYears: DEFAULT_HORIZON_YEARS,
     weights: vmWeights,
     expectedReturnPct: pf?.expectedReturn ?? 6,
     taxProfile: mergedTax.profile,
-    cashFlows: client.cashFlows,
+    cashFlows: documentClient.cashFlows,
     cashflowTaxSummary: mergedTax.cashflowSummary,
     label: pf?.label ?? "기준안",
   });
-
-  // 담당 PB 이름 (ID → 이름)
-  const assignedPb = pbs.find((p) => p.id === client.assignedPbId);
-  const pbDisplay = assignedPb ? assignedPb.name : "미지정";
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -268,16 +811,19 @@ export default function IPSDocumentPage() {
           ← 고객 상세
         </button>
         <button
-          className="btn-gold text-sm disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={pdfBlocked}
-          onClick={() => {
-            if (pdfBlocked) return;
-            window.print();
-          }}
+          className="btn-primary text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={pdfBlocked || printBusy}
+          onClick={() => void printWithOneUsePermit()}
+          aria-busy={printBusy}
         >
-          {pdfBlocked ? "최종 PDF 비활성" : "🖨️ 인쇄 / PDF로 저장"}
+          {pdfBlocked ? "최종 PDF 비활성" : printBusy ? "출력 허가 확인 중…" : "🖨️ 인쇄 / PDF로 저장"}
         </button>
       </div>
+      {printPermit?.mode === "local-self-consistency" && (
+        <p className="mb-3 rounded-lg border border-[#DCE4F5] bg-[#F0F3FA] px-3 py-2 text-xs font-semibold text-[#1428A0]">
+          로컬 자기일치 데모 · 운영 서버 검증이 아닙니다. 출력할 때 30초짜리 1회용 허가를 다시 확인합니다.
+        </p>
+      )}
       {pdfBlocked && (
         <p className="mb-3 text-xs font-semibold text-red-600 print:hidden">{pdfReason}</p>
       )}
@@ -299,7 +845,7 @@ export default function IPSDocumentPage() {
               <td className="w-24 py-1 text-gray-500">작성일</td>
               <td className="py-1 font-medium">{dateStr}</td>
               <td className="w-24 py-1 text-gray-500">문서번호</td>
-              <td className="py-1 font-medium">IPS-{client.code}</td>
+              <td className="py-1 font-medium">IPS-{documentClient.code}</td>
             </tr>
           </tbody>
         </table>
@@ -308,22 +854,22 @@ export default function IPSDocumentPage() {
         <Section title="1. 고객 기본정보">
           <InfoGrid
             rows={[
-              ["고객명", client.name],
-              ["구분", CLIENT_TYPE_LABEL[client.clientType]],
-              ["식별코드", client.code],
+              ["고객명", documentClient.name],
+              ["구분", CLIENT_TYPE_LABEL[documentClient.clientType]],
+              ["식별코드", documentClient.code],
               [
-                client.clientType === "corporate" ? "설립일" : "생년월일",
-                formatDate(client.birthDate),
+                documentClient.clientType === "corporate" ? "설립일" : "생년월일",
+                formatDate(documentClient.birthDate),
               ],
-              ["자산규모", formatKRW(client.assetSize)],
-              ["담당 PB", pbDisplay],
-              ["연동 고객 ID", client.linkedClientId ?? "없음"],
+              ["자산규모", formatKRW(documentClient.assetSize)],
+              ["담당 PB", documentPbDisplay],
+              ["연동 고객 ID", documentClient.linkedClientId ?? "없음"],
               [
                 "지분/통장 상태",
-                client.accountSeparation
-                  ? ACCOUNT_SEPARATION_LABEL[client.accountSeparation]
-                  : client.ownershipPct != null
-                    ? `${client.ownershipPct}%${client.isMajorityShareholder ? " · 최대주주" : ""}`
+                documentClient.accountSeparation
+                  ? ACCOUNT_SEPARATION_LABEL[documentClient.accountSeparation]
+                  : documentClient.ownershipPct != null
+                    ? `${documentClient.ownershipPct}%${documentClient.isMajorityShareholder ? " · 최대주주" : ""}`
                     : "미입력",
               ],
             ]}
@@ -335,7 +881,7 @@ export default function IPSDocumentPage() {
           {/* PB 종합 분석 의견 */}
           <div className="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
             <p className="mb-1 font-semibold text-gray-800">PB 종합 분석</p>
-            {buildSummary(client)}
+            {buildSummary(documentClient)}
           </div>
 
           <table className="w-full border-collapse text-xs">
@@ -347,7 +893,7 @@ export default function IPSDocumentPage() {
             </thead>
             <tbody>
               {FACTOR_META.map((m) => {
-                const f = client.ips[m.key];
+                const f = documentClient.ips[m.key];
                 return (
                   <tr key={m.key} className="border-b border-gray-100 align-top">
                     <td className="py-1.5 pr-2 font-semibold">{m.label}</td>
@@ -367,7 +913,7 @@ export default function IPSDocumentPage() {
 
         {/* 3. 현금흐름 요약 및 세금 납부 일정 */}
         <Section title="3. 현금흐름 요약 및 세금 납부 일정">
-          {client.cashFlows.length === 0 ? (
+          {documentClient.cashFlows.length === 0 ? (
             <p className="text-xs text-gray-400">등록된 현금흐름이 없습니다.</p>
           ) : (
             <div className="space-y-4 text-xs">
@@ -704,7 +1250,7 @@ export default function IPSDocumentPage() {
           <div>
             <p className="mb-8 text-gray-500">고객</p>
             <div className="border-t border-gray-400 pt-1 text-center text-xs text-gray-500">
-              {client.name} (서명)
+              {documentClient.name} (서명)
             </div>
           </div>
         </div>

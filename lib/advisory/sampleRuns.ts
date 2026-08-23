@@ -33,7 +33,7 @@ export function sampleSuccessBundle(): EvidenceBundle {
         actor: "PB",
         from: "review",
         to: "locked",
-        note: "PB 승인 — 고객용 PDF 발행 가능",
+        note: "PB 상담 검토 승인 — 고객용 PDF 발행 가능",
       },
     ],
     runs: [
@@ -84,7 +84,7 @@ export function sampleBlockedBundle(): EvidenceBundle {
       findings: [{ code: "TRUST_FILTER", severity: "fail", message: "신탁만 고려 조건에 다른 카테고리가 포함됨" }],
     },
     blockReasons: [
-      "Judge 실패로 발행차단",
+      "Judge 실패로 고객 제안 차단",
       "TRUST_FILTER: 신탁만 고려 조건에 다른 카테고리가 포함됨",
       "인용 검증 실패 — 고객 확정본 PDF 발행 불가.",
     ],
@@ -94,7 +94,7 @@ export function sampleBlockedBundle(): EvidenceBundle {
         actor: "engine",
         from: "draft",
         to: "blocked",
-        note: "Judge 실패로 발행차단",
+        note: "Judge 실패로 고객 제안 차단",
       },
     ],
     runs: [

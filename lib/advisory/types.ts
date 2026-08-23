@@ -7,7 +7,7 @@ export const ADVISORY_STATUS_LABEL: Record<AdvisoryStatus, string> = {
   draft: "초안",
   review: "검토",
   locked: "확정",
-  blocked: "발행차단",
+  blocked: "고객 제안 차단",
 };
 
 export type ProductCategory = "etf" | "els" | "stock" | "bond" | "pension" | "trust";
@@ -214,6 +214,9 @@ export interface AdvisoryConstraint {
 
 export interface ProductIdea {
   category: ProductCategory;
+  /** 엄격 제약 검증용 카탈로그 메타. 표시 문구를 추론 근거로 쓰지 않는다. */
+  isOverseas?: boolean;
+  productStructure?: "wrap" | "trust" | "other";
   name: string;
   ticker?: string;
   role: string;
@@ -357,6 +360,9 @@ export interface EvidenceRun {
   inputHash: string;
   outputHash: string;
   notes: string;
+  /** 추천 실행의 Judge·출처는 계산 PDF 게이트와 분리해 실행 단위로 보존한다. */
+  judge?: JudgeResult;
+  citations?: CitationRef[];
 }
 
 export interface ApprovalEvent {
@@ -370,6 +376,10 @@ export interface ApprovalEvent {
 export interface EvidenceBundle {
   id: string;
   clientId: string;
+  /** 고객별 검토본 순번. 과거 데이터는 migration에서 1로 보정한다. */
+  version: number;
+  /** 새 검토본이 보존·대체하지 않고 참조하는 직전 locked/blocked 원본 ID. */
+  previousBundleId: string | null;
   runId: string;
   createdAt: string;
   updatedAt: string;

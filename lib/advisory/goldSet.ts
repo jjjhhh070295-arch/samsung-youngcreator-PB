@@ -21,6 +21,8 @@ function plan(id: "A" | "B" | "C", category: RecommendPlan["products"][0]["categ
     products: [
       {
         category,
+        isOverseas: category !== "trust",
+        productStructure: category === "trust" ? "trust" : "other",
         name: category === "trust" ? "일임형 신탁" : "KODEX 미국S&P500",
         ticker: category === "trust" ? undefined : "379800",
         role: "핵심",

@@ -3,16 +3,19 @@
 import { useState } from "react";
 import type { Client } from "@/lib/types";
 import type { EvidenceBundle } from "@/lib/advisory/types";
+import type { AdvisoryInputContext } from "@/lib/advisory/integrity";
 import { applyCalcSnapshot, loadBundle, saveBundle } from "@/lib/advisory/control";
 import { sampleBlockedBundle, sampleSuccessBundle } from "@/lib/advisory/sampleRuns";
 
 export default function EvidenceBundlePanel({
   bundle,
   client,
+  inputContext,
   onChange,
 }: {
   bundle: EvidenceBundle;
   client?: Client;
+  inputContext?: AdvisoryInputContext | null;
   onChange?: (next: EvidenceBundle) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -21,10 +24,19 @@ export default function EvidenceBundlePanel({
 
   const shown =
     sample === "success" ? sampleSuccessBundle() : sample === "blocked" ? sampleBlockedBundle() : bundle;
+  const finalEvidence = bundle.status === "locked" || bundle.status === "blocked";
 
   const generate = async () => {
     if (!client) {
       setError("고객 데이터가 없어 Evidence Bundle을 만들 수 없습니다.");
+      return;
+    }
+    if (!inputContext?.assignedPbDisplay) {
+      setError("담당 PB 표시 정보를 확인 중입니다. 잠시 후 다시 시도하세요.");
+      return;
+    }
+    if (finalEvidence) {
+      setError("확정·차단 Evidence는 변경할 수 없습니다. 새 검토본 생성 절차가 필요합니다.");
       return;
     }
     setBusy(true);
@@ -33,7 +45,7 @@ export default function EvidenceBundlePanel({
       const res = await fetch("/api/advisory/evidence", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ client }),
+        body: JSON.stringify({ client, inputContext }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "생성 실패");
@@ -63,8 +75,14 @@ export default function EvidenceBundlePanel({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-fg">Evidence Bundle</h3>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-primary text-xs" onClick={generate} disabled={busy || !client}>
-            {busy ? "생성 중…" : "Evidence Bundle 생성"}
+          <button
+            type="button"
+            className="btn-primary text-xs"
+            onClick={generate}
+            disabled={busy || !client || finalEvidence}
+            title={finalEvidence ? "확정·차단본은 불변입니다. 새 검토본 생성 절차가 필요합니다." : undefined}
+          >
+            {busy ? "생성 중…" : finalEvidence ? "확정·차단본 변경 불가" : "Evidence Bundle 생성"}
           </button>
           <button type="button" className="btn-outline text-xs" onClick={download}>
             JSON 저장
@@ -72,8 +90,13 @@ export default function EvidenceBundlePanel({
         </div>
       </div>
       <p className="text-[11px] text-fg-muted">
-        스크린샷이 아니라 한 번의 실행 기록입니다. runId, 상담 원문, IPS, 설정, 계산 결과, 해시, Judge, 인용, PB 승인, blocked 기록을 남깁니다.
+        스크린샷이 아니라 한 번의 실행 기록입니다. runId, 상담 원문, IPS, 설정, 계산 결과, 해시, Judge, 인용, PB 상담 검토 승인, blocked 기록을 남깁니다.
       </p>
+      {finalEvidence && (
+        <p className="mt-2 rounded-lg border border-[#DCE4F5] bg-[#F0F3FA] p-2 text-[11px] font-semibold text-[#1428A0]">
+          확정·차단 Evidence는 불변입니다. 입력이나 근거가 바뀌면 새 검토본으로 시작해 다시 PB 상담 검토 승인을 받아야 합니다.
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
         {(["live", "success", "blocked"] as const).map((k) => (
           <button
@@ -156,12 +179,14 @@ export default function EvidenceBundlePanel({
           {shown.runs.map((r) => (
             <li key={r.id} className="text-[11px] text-fg-muted">
               {r.at.slice(0, 19)} · {r.kind} · {r.engine} · {r.notes}
+              {r.judge ? ` · Judge ${r.judge.passed ? "통과" : "차단"}` : ""}
+              {r.citations?.length ? ` · 출처 ${r.citations.length}건` : ""}
             </li>
           ))}
         </ul>
       </div>
       <div className="mt-3">
-        <p className="text-xs font-semibold text-fg">PB 승인 이력</p>
+        <p className="text-xs font-semibold text-fg">PB 상담 검토 승인 이력</p>
         <ul className="mt-1 space-y-1">
           {shown.approvals.length === 0 && <li className="text-[11px] text-fg-muted">승인 이력 없음</li>}
           {shown.approvals.map((a, i) => (

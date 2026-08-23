@@ -5,7 +5,7 @@ import { canLock, softLockReasons } from "./control";
 export const PIPELINE_STEPS: { id: PipelineStep["id"]; label: string }[] = [
   { id: "consult", label: "상담입력" },
   { id: "ips", label: "IPS 추출" },
-  { id: "approve", label: "PB 승인" },
+  { id: "approve", label: "PB 상담 검토 승인" },
   { id: "portfolio", label: "포트폴리오 비교" },
   { id: "risk", label: "리스크/스트레스" },
   { id: "tax", label: "세전·세금·비용·세후" },
@@ -32,17 +32,17 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
   const soft = softLockReasons(bundle);
   const lockReady = canLock(bundle) && !blocked;
 
-  // PB 승인(locked) 전에는 하위 단계를 "완료"로 보이지 않게 — 3단계 고착 착시 방지
+  // PB 상담 검토 승인(locked) 전에는 하위 단계를 "완료"로 보이지 않게 한다.
   const downstreamComplete = locked;
 
   const approveNote = (): string => {
-    if (blocked) return bundle.blockReasons[0] || "발행차단";
-    if (locked) return "locked · PB 승인 완료";
-    if (lockReady) return "조건 충족 — 금색 승인 버튼 → locked";
+    if (blocked) return bundle.blockReasons[0] || "고객 제안 차단";
+    if (locked) return "locked · PB 상담 검토 승인 완료";
+    if (lockReady) return "조건 충족 — PB 상담 검토 승인 버튼으로 확정";
     if (inReview || soft.length) {
-      return bundle.pendingReasons[0] || soft[0] || "금색 「PB 검토 완료/승인」 버튼을 누르세요";
+      return bundle.pendingReasons[0] || soft[0] || "PB 상담 검토 승인 버튼으로 검토를 완료하세요";
     }
-    if (bundle.status === "draft") return "draft — 금색 승인 버튼으로 Evidence+locked";
+    if (bundle.status === "draft") return "draft — Evidence 생성 후 PB 상담 검토 승인 필요";
     return bundle.status;
   };
 
@@ -66,7 +66,7 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
     },
     {
       id: "approve",
-      label: "PB 승인",
+      label: "PB 상담 검토 승인",
       state: stateOf(locked, approveReview && !locked, blocked),
       note: approveNote(),
     },
@@ -103,7 +103,7 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
       note: locked
         ? "고객용 최종본 가능"
         : blocked
-          ? "발행차단"
+          ? "고객 제안 차단"
           : "locked 전 비활성 — 3단계 승인 필요",
     },
   ];

@@ -34,6 +34,10 @@ body {
   margin: 0;
 }
 
+html {
+  color-scheme: light;
+}
+
 body {
   background-color: rgb(var(--bg));
   color: rgb(var(--fg));
@@ -118,4 +122,22 @@ body {
 ::-webkit-scrollbar-thumb {
   background: rgb(var(--border));
   border-radius: 5px;
+}
+
+@media print {
+  body.pb-pdf-print-blocked > * {
+    display: none !important;
+  }
+
+  body.pb-pdf-print-blocked::before {
+    display: block;
+    margin: 24mm;
+    border: 2px solid #dc2626;
+    padding: 16mm;
+    color: #991b1b;
+    background: #ffffff;
+    font-size: 16pt;
+    font-weight: 700;
+    content: "고객 문서 출력 차단 — Evidence 검증과 PB 상담 검토 승인이 완료되지 않아 고객 정보 및 투자정책서 본문을 출력하지 않습니다.";
+  }
 }

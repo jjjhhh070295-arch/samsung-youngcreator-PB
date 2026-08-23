@@ -5,6 +5,7 @@ import { DEFAULT_HORIZON_YEARS } from "../taxProjectionRules";
 import { ENGINE_ASSUMPTION, ENGINE_CURRENCY, ENGINE_SOURCE } from "./constants";
 import { defaultCalcConfig } from "./control";
 import { sha256HexSync, stableStringify } from "./hash";
+import { advisoryInputHash, type AdvisoryInputContext } from "./integrity";
 import { buildRiskMetrics, measured } from "./riskEngine";
 import { runStressScenarios } from "./stressScenarios";
 import type { CalcResults, CitationRef, TaxWaterfall } from "./types";
@@ -34,7 +35,11 @@ function asOfNow() {
   return new Date().toISOString();
 }
 
-export function buildEngineSnapshot(client: Client, asOf = asOfNow()) {
+export function buildEngineSnapshot(
+  client: Client,
+  inputContext: AdvisoryInputContext = {},
+  asOf = asOfNow(),
+) {
   const vm = buildPortfolioViewModel(client);
   const confirmedId = client.portfolios[0]?.id;
   const option =
@@ -95,16 +100,7 @@ export function buildEngineSnapshot(client: Client, asOf = asOfNow()) {
 
   const citations: CitationRef[] = ENGINE_CITATIONS.map((c) => ({ ...c, asOf: asOf.slice(0, 10) }));
 
-  const inputPayload = {
-    clientId: client.id,
-    notes: client.consultationNotes,
-    ips: client.ips,
-    cashFlows: client.cashFlows,
-    portfolios: client.portfolios,
-    assetSize: client.assetSize,
-    clientType: client.clientType,
-  };
-  const inputHash = sha256HexSync(stableStringify(inputPayload));
+  const inputHash = advisoryInputHash(client, inputContext);
   const settingsHash = sha256HexSync(stableStringify(calcConfig));
   const resultHash = sha256HexSync(stableStringify(calcResults));
 

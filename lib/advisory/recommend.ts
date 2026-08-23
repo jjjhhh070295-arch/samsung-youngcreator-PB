@@ -191,14 +191,36 @@ const CATALOG: CatalogItem[] = [
   },
   {
     category: "trust",
-    name: "삼성증권 맞춤 신탁 성장",
-    overseas: true,
-    role: "다고객 일임형 성장",
-    proxyKey: "sp500",
-    riskNote: "공격 운용 시 낙폭 확대",
-    taxNote: "세액 미확정",
-    liquidityNote: "중도해지 제약 가능",
-    wrapLike: true,
+    name: "맞춤형 자산관리 신탁",
+    overseas: false,
+    role: "개별 목적·지급조건을 반영하는 신탁 구조",
+    proxyKey: null,
+    riskNote: "계약 목적·편입재산·수탁 범위에 따라 손실과 법률 위험이 달라짐",
+    taxNote: "신탁 계약·수익자 구조별 세무 검토 필요",
+    liquidityNote: "계약상 인출·중도해지 조건 확인",
+    wrapLike: false,
+  },
+  {
+    category: "trust",
+    name: "일반형 자산관리 신탁",
+    overseas: false,
+    role: "표준 계약 조건을 가정한 자산관리 신탁 구조",
+    proxyKey: null,
+    riskNote: "신탁이라는 명칭이 원금보장을 뜻하지 않음",
+    taxNote: "편입재산과 수익자에 따른 세무 검토 필요",
+    liquidityNote: "계약상 인출·중도해지 조건 확인",
+    wrapLike: false,
+  },
+  {
+    category: "trust",
+    name: "유언대용 자산승계 신탁",
+    overseas: false,
+    role: "생전 관리와 사후 지급 조건을 설계하는 신탁 구조",
+    proxyKey: null,
+    riskNote: "가족 이해관계·의사능력·계약 변경 가능성에 대한 법률 검토 필요",
+    taxNote: "상속·증여·소득 과세를 세무 전문가와 확인",
+    liquidityNote: "위탁자 생전 인출 및 사후 지급 조건 확인",
+    wrapLike: false,
   },
 ];
 
@@ -216,7 +238,8 @@ function scoreItem(item: CatalogItem, c: AdvisoryConstraint, client: Client): nu
   let score = 1;
   if (c.overseasOnly && item.overseas) score += 3;
   if (c.preferIndividualStocks && item.individualStock) score += 3;
-  if ((c.categoryOnly === "trust" || c.categoryOnly === "wrap") && item.wrapLike) score += 4;
+  if (c.categoryOnly === "wrap" && item.wrapLike) score += 4;
+  if (c.categoryOnly === "trust" && item.category === "trust" && !item.wrapLike) score += 4;
   if (c.minExpectedReturn && item.proxyKey) {
     const r = FALLBACK_PROXY_RETURN_ESTIMATES[item.proxyKey];
     if (r >= c.minExpectedReturn) score += 3;
@@ -237,6 +260,8 @@ function toIdea(item: CatalogItem, client: Client, asOf: string, range: string):
     .map((f) => `${f.label}(${f.date})`);
   return {
     category: item.category,
+    isOverseas: item.overseas,
+    productStructure: item.category === "trust" ? (item.wrapLike ? "wrap" : "trust") : "other",
     name: item.name,
     ticker: item.ticker,
     role: item.role,
@@ -279,10 +304,18 @@ export function buildRecommendResult(
   const eligible = CATALOG.filter((item) =>
     constraintAppliesToCategory(constraints, item.category, item.overseas || isOverseasProduct(item.name, item.ticker)),
   ).filter((item) => {
+    if (constraints.categoryOnly === "wrap") return item.wrapLike === true;
+    if (constraints.categoryOnly === "trust") return item.category === "trust" && item.wrapLike !== true;
+    return true;
+  }).filter((item) => {
     if (constraints.preferIndividualStocks && constraints.categoryOnly == null && constraints.overseasOnly) {
       return item.individualStock || item.category === "stock" || item.category === "etf";
     }
     return true;
+  }).filter((item) => {
+    if (constraints.minExpectedReturn == null) return true;
+    if (!item.proxyKey) return false;
+    return FALLBACK_PROXY_RETURN_ESTIMATES[item.proxyKey] >= constraints.minExpectedReturn;
   });
 
   const ranked = eligible
@@ -290,12 +323,22 @@ export function buildRecommendResult(
     .sort((a, b) => b.score - a.score)
     .map((x) => x.item);
 
-  const pool = ranked.length > 0 ? ranked : CATALOG.filter((i) => i.wrapLike || i.category === "trust");
+  const hasStrictConstraint =
+    constraints.categoryOnly != null ||
+    constraints.overseasOnly ||
+    constraints.minExpectedReturn != null;
+  const pool = ranked.length > 0
+    ? ranked
+    : hasStrictConstraint
+      ? []
+      : CATALOG.filter((item) => item.wrapLike || item.category === "trust");
 
   const constraintNote =
-    constraints.tags.length > 0
-      ? `A/B/C안 모두 조건 반영: ${constraints.tags.join(", ")}`
-      : "추가 제약 없음. RRTTLLU·현금흐름·상담메모 기준으로 후보를 구성";
+    constraints.tags.length > 0 && pool.length === 0
+      ? `입력 조건을 충족한다고 확인된 교육용 후보 없음: ${constraints.tags.join(", ")}`
+      : constraints.tags.length > 0
+        ? `조건 참고 정렬(충족 여부 재확인): ${constraints.tags.join(", ")}`
+        : "추가 제약 없음. RRTTLLU·현금흐름·상담메모 기준으로 후보를 구성";
 
   const weightDisclaimer =
     "비중·세금·VaR/CVaR는 AI가 확정하지 않습니다. 표시 구간은 결정론 엔진 초안이며 PB 검토 전 미확정입니다.";
@@ -326,7 +369,11 @@ export function buildRecommendResult(
   ];
 
   if (constraints.categoryOnly === "trust" || constraints.categoryOnly === "wrap") {
-    const onlyTrust = pool.filter((i) => i.category === "trust");
+    const onlyTrust = pool.filter((item) =>
+      constraints.categoryOnly === "wrap"
+        ? item.wrapLike === true
+        : item.category === "trust" && item.wrapLike !== true,
+    );
     plans.forEach((plan, idx) => {
       const slice = onlyTrust.length ? [onlyTrust[idx % onlyTrust.length], ...onlyTrust.filter((_, i) => i !== idx % onlyTrust.length)] : onlyTrust;
       plan.products = slice.map((item, i) => toIdea(item, client, asOf, ["핵심", "보완", "위성"][i] ?? "PB 확정"));
