@@ -8,7 +8,8 @@ export interface ClosePoint {
 }
 
 export interface ConfirmedMetricsResult {
-  expectedReturnPct: number;
+  /** OHLC 백테스트 연율화 — 고객용 예상수익률 KPI로 쓰지 말 것 */
+  backtestAnnualizedReturnPct: number;
   volatilityPct: number;
   mddPct: number;
   sharpe: number;
@@ -98,7 +99,7 @@ export function metricsFromCumulativePct(
 ): Omit<ConfirmedMetricsResult, "equityAnnualizedReturnPct" | "equityCumulativePct" | "portfolioCumulativePct" | "asOf" | "source" | "currency" | "assumptions" | "status"> {
   const n = cumulativePcts.length;
   if (n < 2) {
-    return { expectedReturnPct: 0, volatilityPct: 0, mddPct: 0, sharpe: 0, varPct: 0, cvarPct: 0 };
+    return { backtestAnnualizedReturnPct: 0, volatilityPct: 0, mddPct: 0, sharpe: 0, varPct: 0, cvarPct: 0 };
   }
 
   const periodReturns: number[] = [];
@@ -132,7 +133,7 @@ export function metricsFromCumulativePct(
   const sharpe = volatilityPct > 0 ? (annReturn - riskFreeAnnualPct) / volatilityPct : 0;
 
   return {
-    expectedReturnPct: round1(annReturn),
+    backtestAnnualizedReturnPct: round1(annReturn),
     volatilityPct: round1(volatilityPct),
     mddPct: round1(mddPct),
     sharpe: round2(sharpe),
@@ -194,7 +195,7 @@ export function buildConfirmedPortfolioMetrics(input: {
 
   if (equity.status !== "ok" || equity.cumulativePct.length < 2) {
     return {
-      expectedReturnPct: 0,
+      backtestAnnualizedReturnPct: 0,
       volatilityPct: 0,
       mddPct: 0,
       sharpe: 0,
@@ -233,13 +234,13 @@ export function buildConfirmedPortfolioMetrics(input: {
   const equityOnly = metricsFromCumulativePct(alignedEquity);
 
   return {
-    expectedReturnPct: m.expectedReturnPct,
+    backtestAnnualizedReturnPct: m.backtestAnnualizedReturnPct,
     volatilityPct: m.volatilityPct,
     mddPct: m.mddPct,
     sharpe: m.sharpe,
     varPct: m.varPct,
     cvarPct: m.cvarPct,
-    equityAnnualizedReturnPct: round1(equityAnn || equityOnly.expectedReturnPct),
+    equityAnnualizedReturnPct: round1(equityAnn || equityOnly.backtestAnnualizedReturnPct),
     equityCumulativePct: alignedEquity,
     portfolioCumulativePct: portfolioCum,
     asOf: input.asOf ?? new Date().toISOString(),

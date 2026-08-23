@@ -1444,13 +1444,14 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     const losses = stressRange.scenarios.map((scenario) => scenario.actualMdd * coverage * 100);
     return { low: Math.min(...losses), high: Math.max(...losses), count: losses.length };
   }, [stressParams.equityBondPct, stressRange]);
-  const displayedExpectedReturn =
-    confirmedMetrics?.status === 'ok'
-      ? confirmedMetrics.expectedReturnPct
-      : (proxyReturnSummary?.annualizedReturnPct ?? metrics.expectedReturn);
+  // 고객용 예상수익률·세후 가상수익률 = 자산배분 엔진 통제값 (확정 종목 백테스트로 대체 금지)
+  const displayedExpectedReturn = proxyReturnSummary?.annualizedReturnPct ?? metrics.expectedReturn;
   const displayVolatility =
     confirmedMetrics?.status === 'ok' ? confirmedMetrics.volatilityPct : metrics.volatility;
   const displayMdd = confirmedMetrics?.status === 'ok' ? confirmedMetrics.mddPct : metrics.mdd;
+  /** PB 확정 종목 OHLC 백테스트 연율화 — KPI가 아닌 참고 지표 */
+  const backtestReferenceReturnPct =
+    confirmedMetrics?.status === 'ok' ? confirmedMetrics.backtestAnnualizedReturnPct : null;
   const displayTax = useMemo(() => {
     const tax = calculateTaxDragProxy({
       preTaxReturn: displayedExpectedReturn,
@@ -1462,13 +1463,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     return tax;
   }, [displayedExpectedReturn, adjustedWeights, client, model.cashflowSummary, model.preferenceProfile]);
   const returnEstimateLabel =
-    confirmedMetrics?.status === 'ok'
-      ? `PB 확정 국내주식 기준 재계산 · as-of ${confirmedMetrics.asOf.slice(0, 19)} · ${confirmedMetrics.source}`
-      : confirmedMetricsLoading
-        ? '확정 종목 기준 성과지표 재계산 중…'
-        : !proxyReturnSummary || proxyReturnSummary.fallbackUsed
-          ? '일부 자산군은 시장 데이터 미연결로 fallback 추정치를 사용했습니다.'
-          : RETURN_ESTIMATE_LABEL;
+    !proxyReturnSummary || proxyReturnSummary.fallbackUsed
+      ? '일부 자산군은 시장 데이터 미연결로 fallback 추정치를 사용했습니다.'
+      : RETURN_ESTIMATE_LABEL;
   const detailBuckets = useMemo(
     () =>
       (Object.entries(adjustedWeights) as Array<[WeightKey, number]>)
@@ -1547,7 +1544,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             ? '주식형: PB 확정 대기 (후보 확정 전 자동 추천 금지).'
             : '',
         confirmedMetrics?.status === 'ok'
-          ? `성과지표는 확정 종목 기준으로 재계산됨 (Sharpe ${confirmedMetrics.sharpe}, VaR95 ${confirmedMetrics.varPct}%, CVaR95 ${confirmedMetrics.cvarPct}%).`
+          ? `변동성·MDD·백테스트는 확정 종목 기준(참고 백테스트 연율 ${confirmedMetrics.backtestAnnualizedReturnPct}%, Sharpe ${confirmedMetrics.sharpe}, VaR95 ${confirmedMetrics.varPct}%, CVaR95 ${confirmedMetrics.cvarPct}%). 고객용 예상수익률은 자산배분 엔진 통제값을 유지.`
           : '',
       ].filter(Boolean).join(' '),
       editedByPb: true,
@@ -2366,6 +2363,26 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
                   </span>
                 </div>
               </div>
+              {(backtestReferenceReturnPct != null || confirmedMetricsLoading) && (
+                <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-[11px] leading-relaxed text-amber-100">
+                  <p className="font-semibold text-amber-200">백테스트 수익률 (참고 · 고객용 예상수익률 KPI 아님)</p>
+                  {confirmedMetricsLoading && backtestReferenceReturnPct == null ? (
+                    <p className="mt-0.5 text-amber-200/80">확정 종목 OHLC로 백테스트 재계산 중…</p>
+                  ) : (
+                    <p className="mt-0.5">
+                      확정 종목 동일가중 백테스트 연율화{' '}
+                      <span className="font-black text-amber-50">{backtestReferenceReturnPct}%</span>
+                      {confirmedMetrics?.status === 'ok' && (
+                        <span className="text-amber-200/70">
+                          {' '}
+                          · as-of {confirmedMetrics.asOf.slice(0, 19)} · {confirmedMetrics.source}
+                        </span>
+                      )}
+                      . 단기 급등 구간이 포함되면 수치가 비정상적으로 커질 수 있으며, 위 예상·세후 수익률 카드에는 반영하지 않습니다.
+                    </p>
+                  )}
+                </div>
+              )}
               </div>
 	            {!selectedFeasibility.feasible && (
 	              <div className="rounded-lg border border-rose-400/70 bg-rose-950/60 p-3 text-xs leading-relaxed text-rose-50">

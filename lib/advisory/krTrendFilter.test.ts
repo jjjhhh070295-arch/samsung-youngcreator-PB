@@ -220,7 +220,7 @@ describe("market cap floor 1조", () => {
 });
 
 describe("confirmed metrics recalc", () => {
-  it("후보 확정 후 예상수익률/변동성/MDD가 선택 종목 기준으로 재계산", () => {
+  it("확정 종목 기준 변동성/MDD/백테스트 재계산 (백테스트≠고객용 예상수익률 KPI)", () => {
     const seriesByTicker = {
       "005930": [
         { date: "2025-01-02", close: 100 },
@@ -251,7 +251,7 @@ describe("confirmed metrics recalc", () => {
       source: "test",
     });
     assert.equal(confirmed.status, "ok");
-    assert.ok(Number.isFinite(confirmed.expectedReturnPct));
+    assert.ok(Number.isFinite(confirmed.backtestAnnualizedReturnPct));
     assert.ok(Number.isFinite(confirmed.volatilityPct));
     assert.ok(Number.isFinite(confirmed.mddPct));
     assert.ok(confirmed.portfolioCumulativePct.length >= 2);
@@ -262,11 +262,11 @@ describe("confirmed metrics recalc", () => {
       nonEquityWeightPct: 40,
       nonEquityCumulativePct: nonEquity,
     });
-    // 선택 종목 집합이 바뀌면 지표도 달라져야 함 (임시 후보 ≠ 확정)
-    assert.notEqual(confirmed.expectedReturnPct, onlyA.expectedReturnPct);
+    // 선택 종목 집합이 바뀌면 백테스트 참고 지표도 달라져야 함
+    assert.notEqual(confirmed.backtestAnnualizedReturnPct, onlyA.backtestAnnualizedReturnPct);
 
     const m = metricsFromCumulativePct(confirmed.portfolioCumulativePct);
-    assert.equal(m.expectedReturnPct, confirmed.expectedReturnPct);
+    assert.equal(m.backtestAnnualizedReturnPct, confirmed.backtestAnnualizedReturnPct);
     assert.equal(m.volatilityPct, confirmed.volatilityPct);
     assert.equal(m.mddPct, confirmed.mddPct);
   });
