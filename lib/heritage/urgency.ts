@@ -1,6 +1,10 @@
 // 헤리티지 상담 긴급도 계산 — 핵심 논리는 사전증여 10년 합산과세다.
 // 증여 후 10년이 지나야 상속재산에서 제외되므로, 나이가 많을수록 활용할 수 있는 시간이 없다.
 // 수요(assessHeritageDemand)가 없으면 긴급도 자체가 무의미하므로 "해당없음"으로 둔다.
+//
+// 문장 구조: 사실 → 그래서 무엇이 문제인지, 를 요인별로 하나씩 말하고, 마지막에 "그래서
+// 언제까지"를 한 문장으로만 덧붙인다. "긴급도를 한 단계 올렸습니다" 같은 시스템 내부 표현은
+// 쓰지 않는다 — PB가 고객에게 그대로 읽을 수 있는 문장이어야 한다.
 
 import { HERITAGE_URGENCY } from "./constants";
 import { eok } from "./format";
@@ -14,6 +18,13 @@ import type {
 
 const LEVEL_ORDER: HeritageUrgencyLevel[] = ["1년 내", "6개월 내", "3개월 내", "즉시"];
 
+const RECOMMENDATION_TEXT: Record<Exclude<HeritageUrgencyLevel, "해당없음">, string> = {
+  "즉시": "따라서 지금 즉시 상담을 진행하시길 권합니다.",
+  "3개월 내": "따라서 상담을 3개월 안에 진행하시길 권합니다.",
+  "6개월 내": "따라서 상담을 6개월 안에 진행하시길 권합니다.",
+  "1년 내": "따라서 상담을 1년 안에 진행하시길 권합니다.",
+};
+
 function calcAge(birthDate: string, asOf: Date): number | null {
   const d = new Date(birthDate);
   if (isNaN(d.getTime())) return null;
@@ -24,19 +35,22 @@ function calcAge(birthDate: string, asOf: Date): number | null {
   return age;
 }
 
-function baseLevelForAge(age: number): { level: HeritageUrgencyLevel; reason: HeritageReason } {
-  const band = HERITAGE_URGENCY.ageBands.find((b) => age >= b.minAge) ?? HERITAGE_URGENCY.ageBands[HERITAGE_URGENCY.ageBands.length - 1];
+function ageFactText(age: number, level: HeritageUrgencyLevel): string {
+  if (level === "즉시") {
+    return `만 ${age}세로 75세 이상입니다 — 사전증여 후 상속재산에서 제외되려면 10년이 지나야 하는데, 남은 시간이 부족합니다.`;
+  }
+  if (level === "3개월 내") {
+    return `만 ${age}세로 65~74세 구간입니다 — 10년 룰을 활용할 수 있는 사실상 마지막 적기입니다.`;
+  }
+  if (level === "6개월 내") {
+    return `만 ${age}세로 55~64세 구간입니다 — 사전증여 계획을 세우기 좋은 시기입니다.`;
+  }
+  return `만 ${age}세로 아직 시간 여유가 있는 구간입니다.`;
+}
 
-  const text =
-    band.level === "즉시"
-      ? `만 ${age}세로 75세 이상입니다 — 사전증여 후 상속재산에서 제외되려면 10년이 지나야 하는데, 남은 시간이 부족합니다. 즉시 상담이 필요합니다.`
-      : band.level === "3개월 내"
-        ? `만 ${age}세로 65~74세 구간입니다 — 10년 룰을 활용할 수 있는 사실상 마지막 적기입니다.`
-        : band.level === "6개월 내"
-          ? `만 ${age}세로 55~64세 구간입니다 — 사전증여 계획을 세우기 좋은 시기입니다.`
-          : `만 ${age}세로 아직 시간 여유가 있는 구간입니다.`;
-
-  return { level: band.level, reason: { code: "age_band", text } };
+function baseLevelForAge(age: number): HeritageUrgencyLevel {
+  const band = HERITAGE_URGENCY.ageBands.find((b) => age >= b.minAge);
+  return band?.level ?? "1년 내";
 }
 
 function escalate(level: HeritageUrgencyLevel): HeritageUrgencyLevel {
@@ -63,21 +77,12 @@ export function assessHeritageUrgency(
     };
   }
 
-  const reasons: HeritageReason[] = [];
-  const { level: baseLevel, reason: ageReason } = baseLevelForAge(age);
-  reasons.push(ageReason);
-  let level = baseLevel;
+  // 1) 먼저 최종 등급을 전부 계산한다(문장은 나중에 최종 등급 기준으로 만든다).
+  let level = baseLevelForAge(age);
 
-  // ── 상향 요인 1: 부동산 비중 70% 이상 (납부재원 부족·매각 소요기간) ──
-  if (input.realEstateWeightPct != null && input.realEstateWeightPct >= 70) {
-    level = escalate(level);
-    reasons.push({
-      code: "real_estate_heavy",
-      text: `부동산 비중이 ${input.realEstateWeightPct}%로 높아 상속세 납부재원(현금) 확보가 어렵고 매각에도 시간이 걸립니다 — 긴급도를 한 단계 올렸습니다.`,
-    });
-  }
+  const realEstateHeavy = input.realEstateWeightPct != null && input.realEstateWeightPct >= 70;
+  if (realEstateHeavy) level = escalate(level);
 
-  // ── 상향 요인 2: 최근 10년 내 증여 이력 (합산 대상, 재설계 필요) ──
   const recentGifts = input.givenGiftEvents.filter((e) => {
     if (e.eventType !== "gift") return false;
     const d = new Date(e.eventDate);
@@ -86,36 +91,40 @@ export function assessHeritageUrgency(
     cutoff.setFullYear(cutoff.getFullYear() - 10);
     return d >= cutoff;
   });
-  if (recentGifts.length > 0) {
-    level = escalate(level);
+  const hasRecentGifts = recentGifts.length > 0;
+  if (hasRecentGifts) level = escalate(level);
+
+  const largeEstateYoung = age < 55 && demand.taxableExcessWon >= HERITAGE_URGENCY.largeExcessUpgradeWon;
+  if (largeEstateYoung) level = escalate(level);
+
+  // 2) 이제 최종 등급을 반영해 문장을 만든다 — 요인별로 사실만 말하고, 마지막에
+  //    "그래서 언제까지"를 한 번만 덧붙인다.
+  const reasons: HeritageReason[] = [];
+
+  reasons.push({ code: "age_band", text: ageFactText(age, level) });
+
+  if (realEstateHeavy) {
+    reasons.push({
+      code: "real_estate_heavy",
+      text: `부동산 비중이 ${input.realEstateWeightPct}%로 높아 상속세 납부재원(현금) 확보가 어렵고 매각에도 시간이 걸립니다.`,
+    });
+  }
+
+  if (hasRecentGifts) {
     reasons.push({
       code: "recent_gift_history",
-      text: "최근 10년 내 증여 이력이 있어 합산과세 대상입니다 — 기존 증여 계획을 다시 짜야 할 시점이라 긴급도를 한 단계 올렸습니다.",
+      text: "최근 10년 내 증여 이력이 있어 상속재산에 합산되는 합산과세 대상입니다 — 기존 증여 계획을 다시 점검해야 합니다.",
     });
   }
 
-  // ── 상향 요인 3: 미성년 자녀 존재 (성년 도달 시점이 증여 적기) ──
-  const minorChildren = input.children.filter((c) => {
-    if (!c.birthDate) return false;
-    const a = calcAge(c.birthDate, asOf);
-    return a != null && a < HERITAGE_URGENCY.minorAgeUnder;
-  });
-  if (minorChildren.length > 0) {
-    level = escalate(level);
-    reasons.push({
-      code: "minor_children",
-      text: `미성년 자녀가 ${minorChildren.length}명 있습니다 — 자녀가 성년이 되는 시점 전후가 증여 공제를 활용하기 좋은 시기라 긴급도를 한 단계 올렸습니다.`,
-    });
-  }
-
-  // ── 상향 요인 4: 55세 미만이라도 자산 규모가 매우 크면 상향 ──
-  if (age < 55 && demand.taxableExcessWon >= HERITAGE_URGENCY.largeExcessUpgradeWon) {
-    level = escalate(level);
+  if (largeEstateYoung) {
     reasons.push({
       code: "large_estate_young",
-      text: `아직 젊지만(만 ${age}세) 과세 예상 초과액이 ${eok(HERITAGE_URGENCY.largeExcessUpgradeWon)} 이상으로 매우 커서, 사전증여 계획을 서둘러 시작하는 것이 유리합니다 — 긴급도를 한 단계 올렸습니다.`,
+      text: `만 ${age}세로 아직 젊지만 과세 예상 초과액이 ${eok(HERITAGE_URGENCY.largeExcessUpgradeWon)} 이상으로 매우 큽니다 — 사전증여는 10년 단위로 계획해야 하므로 지금 시작하는 편이 유리합니다.`,
     });
   }
+
+  reasons.push({ code: "recommendation", text: RECOMMENDATION_TEXT[level] });
 
   return { level, reasons, ageAtAssessment: age };
 }
