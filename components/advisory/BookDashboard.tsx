@@ -189,76 +189,42 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
   };
 
   return (
-    <div className="space-y-5">
-      <section className="decision-card overflow-hidden border-[#1428A0]/20 bg-gradient-to-br from-white via-white to-[#F2F5FF]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="decision-kicker">Today&apos;s priorities</p>
-            <h2 className="decision-title mt-1">오늘의 PB 브리핑</h2>
-            <p className="decision-copy mt-1">현재 고객 상태와 플래그에서 바로 확인할 업무를 모았습니다.</p>
-          </div>
-          <div className="flex gap-2">
-            <span className="badge-danger">즉시 확인 {immediateCount}건</span>
-            <span className="badge-warning">포트폴리오 검토 {reviewCount}건</span>
+    <div className="space-y-4">
+      <section className="grid overflow-hidden rounded-xl border border-[#1428A0]/20 bg-white lg:grid-cols-12">
+        <div className="border-b border-border bg-gradient-to-br from-[#F8FAFF] to-white p-4 lg:col-span-4 lg:border-b-0 lg:border-r">
+          <p className="decision-kicker">오늘의 PB 브리핑</p>
+          <h2 className="mt-1 text-base font-black text-fg">지금 확인할 업무</h2>
+          <p className="mt-1 text-[11px] text-fg-muted">현재 고객 플래그를 기준으로 집계했습니다.</p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-red-100 bg-red-50 p-3"><p className="text-[10px] font-semibold text-red-700">즉시 확인</p><p className="mt-1 text-2xl font-black text-red-600">{immediateCount}<span className="ml-1 text-xs">건</span></p></div>
+            <div className="rounded-lg border border-amber-100 bg-amber-50 p-3"><p className="text-[10px] font-semibold text-amber-700">포트폴리오 검토</p><p className="mt-1 text-2xl font-black text-amber-600">{reviewCount}<span className="ml-1 text-xs">건</span></p></div>
+            {analysis && <><div className="rounded-lg border border-border bg-white p-3"><p className="text-[10px] text-fg-muted">평균 수익률</p><p className="mt-1 text-lg font-black"><ReturnText value={analysis.avgReturnPct?.value ?? null} /></p></div><div className="rounded-lg border border-border bg-white p-3"><p className="text-[10px] text-fg-muted">주시 플래그</p><p className="mt-1 text-lg font-black text-fg">{analysis.flagged.highRisk.length + analysis.flagged.lowReturn.length + analysis.flagged.lowLiquidity.length}<span className="ml-1 text-xs">건</span></p></div></>}
           </div>
         </div>
+        <div className="p-4 lg:col-span-8">
+          <div className="flex items-center justify-between"><div><p className="decision-kicker">Priority clients</p><h2 className="mt-1 text-base font-black text-fg">우선 확인 고객</h2></div><span className="text-[11px] text-fg-muted">최대 3명</span></div>
         {priorityRows.length > 0 ? (
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          <div className="mt-3 divide-y divide-border">
             {priorityRows.map((row) => (
-              <article key={row.clientId} className="rounded-xl border border-border bg-white p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
+              <article key={row.clientId} className="flex flex-wrap items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <div className="min-w-[150px]">
                     <p className="font-bold text-fg">{row.name}</p>
                     <p className="mt-0.5 text-[11px] text-fg-muted">{CLIENT_TYPE_LABEL[row.clientType as ClientType]} · {formatKRWShort(row.totalAssets)}</p>
                   </div>
-                  <span className="badge-muted">우선 확인</span>
-                </div>
-                <div className="mt-3"><FlagChips kinds={row.flags.map((item) => item.kind)} /></div>
-                <button type="button" className="btn-outline mt-4 w-full text-xs" onClick={() => goClient(row.clientId)}>
+                <div className="flex-1"><FlagChips kinds={row.flags.map((item) => item.kind)} /></div>
+                <button type="button" className="btn-outline px-3 py-1.5 text-[11px]" onClick={() => goClient(row.clientId)}>
                   {row.flags.some((item) => item.kind === "high_risk" || item.kind === "low_return") ? "포트폴리오 점검" : "상담 준비"}
                 </button>
               </article>
             ))}
           </div>
         ) : (
-          <div className="mt-4 rounded-xl border border-dashed border-border bg-white/70 px-4 py-5 text-sm text-fg-muted">
+          <div className="mt-4 rounded-xl border border-dashed border-border px-4 py-5 text-sm text-fg-muted">
             현재 플래그 기준으로 즉시 확인할 고객이 없습니다.
           </div>
         )}
-      </section>
-      {analysis && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="card p-4">
-            <p className="text-xs text-fg-muted">북 평가금액</p>
-            <p className="mt-1 text-2xl font-bold text-[#1428A0]">{formatKRW(analysis.totalEvalAmount.value)}</p>
-            <MeasuredHint asOf={analysis.asOf} source={analysis.source} currency={analysis.currency} />
-          </div>
-          <div className="card p-4">
-            <p className="text-xs text-fg-muted">평균 수익률</p>
-            <p className="mt-1 text-2xl font-bold text-fg">
-              <ReturnText value={analysis.avgReturnPct?.value ?? null} />
-            </p>
-            {analysis.avgReturnPct && (
-              <MeasuredHint asOf={analysis.avgReturnPct.asOf} source={analysis.avgReturnPct.source} />
-            )}
-          </div>
-          <div className="card p-4">
-            <p className="text-xs text-fg-muted">주시 고객</p>
-            <p className="mt-1 text-2xl font-bold text-fg">
-              {analysis.flagged.highRisk.length + analysis.flagged.lowReturn.length + analysis.flagged.lowLiquidity.length}
-              <span className="ml-1 text-sm font-medium text-fg-muted">건</span>
-            </p>
-            <p className="text-[10px] text-fg-muted">
-              위험 {analysis.flagged.highRisk.length} · 저수익 {analysis.flagged.lowReturn.length} · 유동성 {analysis.flagged.lowLiquidity.length}
-            </p>
-          </div>
-          <div className="card p-4">
-            <p className="text-xs text-fg-muted">담당 고객</p>
-            <p className="mt-1 text-2xl font-bold text-fg">{analysis.clientCount}명</p>
-            <p className="text-[10px] text-fg-muted">통합 고객 테이블</p>
-          </div>
         </div>
-      )}
+      </section>
 
       {analysis && analysis.productMix.length > 0 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -286,7 +252,7 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
           <div className="card p-4">
             <h3 className="mb-3 text-sm font-bold text-fg">고객 편입 상품 랭킹</h3>
             <ol className="space-y-2">
-              {analysis.productRanking.slice(0, 8).map((p, i) => (
+              {analysis.productRanking.slice(0, 5).map((p, i) => (
                 <li key={`${p.category}-${p.ticker ?? p.name}`} className="flex items-center justify-between gap-2 text-sm">
                   <div className="min-w-0">
                     <span className="mr-2 font-mono text-[11px] text-fg-muted">{i + 1}</span>
@@ -314,13 +280,13 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
             ["low_return", analysis.flagged.lowReturn],
             ["low_liquidity", analysis.flagged.lowLiquidity],
           ] as const).map(([kind, list]) => (
-            <div key={kind} className="card p-4">
+            <div key={kind} className="card p-3.5">
               <p className="text-xs font-semibold text-[#1428A0]">{CLIENT_FLAG_LABEL[kind]}</p>
               {list.length === 0 ? (
                 <p className="mt-2 text-xs text-fg-muted">해당 없음</p>
               ) : (
                 <ul className="mt-2 space-y-1">
-                  {list.slice(0, 5).map((c) => (
+                  {list.slice(0, 3).map((c) => (
                     <li key={c.clientId}>
                       <Link href={`/pb/${pbId}/${c.clientId}`} className="text-sm font-medium text-fg hover:text-[#1428A0]">
                         {c.name}
@@ -335,11 +301,12 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
         </div>
       )}
 
-      <div>
-        <div className="relative mb-3">
+      <section className="card p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-black text-fg">고객 리스트</h2><p className="text-[10px] text-fg-muted">검색·필터·정렬 후 고객을 선택하세요.</p></div><span className="badge-navy">{filtered.length}명</span></div>
+        <div className="relative mb-2">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted">🔍</span>
           <input
-            className="input pl-9"
+            className="input py-1.5 pl-9"
             placeholder="이름 또는 식별코드로 검색"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -400,7 +367,7 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
           현재 정렬: {sortLabel}
           <span className="ml-2 font-normal text-fg-muted">· 검색·구분·태그 필터 후 정렬됩니다</span>
         </p>
-      </div>
+      </section>
 
       {filtered.length === 0 ? (
         <div className="card px-3 py-10 text-center text-sm text-fg-muted">
@@ -462,9 +429,9 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
                   onClick={() => goClient(r.clientId)}
                   className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-2"
                 >
-                  <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-[#1428A0]">{r.code}</td>
-                  <td className="px-3 py-2.5 font-semibold text-fg">{r.name}</td>
-                  <td className="px-3 py-2.5">
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-[#1428A0]">{r.code}</td>
+                  <td className="px-3 py-2 font-bold text-fg">{r.name}</td>
+                  <td className="px-3 py-2">
                     <span className="badge-navy">{CLIENT_TYPE_LABEL[r.clientType as ClientType] ?? r.clientType}</span>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-fg-muted">{formatDate(r.birthDate)}</td>

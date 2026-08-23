@@ -96,20 +96,16 @@ export default function PBPage() {
     );
 
   return (
-    <div className="space-y-6 px-6 py-6">
+    <div className="mx-auto max-w-[1800px] space-y-4 px-4 py-4 lg:px-6">
       {/* 헤더 */}
-      <div>
-        <Link href="/" className="text-xs text-fg-muted hover:text-fg">
-          ← 대시보드
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gold-400/15 text-sm font-bold text-gold-400">
-              {pb.name?.[0] ?? "?"}
-            </span>
-            <h1 className="text-xl font-bold text-fg">{pb.name}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+          <div>
+            <Link href="/" className="text-[11px] font-semibold text-[#1428A0] hover:underline">PB Home</Link>
+            <h1 className="mt-1 text-xl font-black tracking-tight text-fg">다고객 Book Dashboard</h1>
+            <p className="mt-0.5 text-xs text-fg-muted">{pb.name} PB · 고객 현황과 우선 업무를 한 화면에서 확인합니다.</p>
           </div>
           <div className="flex gap-2">
+            <button className="btn-primary text-sm" onClick={() => setClientFormOpen(true)}>+ 고객 추가</button>
             <button className="btn-outline text-sm" onClick={() => setPbFormOpen(true)}>
               PB 정보 수정
             </button>
@@ -120,26 +116,20 @@ export default function PBPage() {
               PB 삭제
             </button>
           </div>
-        </div>
       </div>
 
-      {/* 대시보드 */}
-      <PBDashboard clients={myClients} consultations={myConsultations} />
-
-      {/* 다고객 북 */}
-      <div>
-        <div className="mb-1 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-fg">다고객 관리 북</h2>
-            <p className="text-xs text-fg-muted">
-              식별코드·이름·구분·자산·수익률·위험·보유상품·상담·태그를 한 테이블에서 보고, 행을 누르면 상담/포트폴리오로 이동합니다.
-            </p>
-          </div>
-          <button className="btn-gold text-sm" onClick={() => setClientFormOpen(true)}>
-            + 고객 추가
-          </button>
-        </div>
-        <BookDashboard pbId={pbId} rows={bookRows} analysis={bookAnalysis} />
+      <div className="grid items-start gap-4 xl:grid-cols-12">
+        <div className="min-w-0 xl:col-span-9"><BookDashboard pbId={pbId} rows={bookRows} analysis={bookAnalysis} /></div>
+        <aside className="space-y-4 xl:col-span-3 xl:sticky xl:top-[4.5rem]">
+          <section className="card p-3">
+            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-fg">핵심 KPI</h2><span className="badge-muted">실시간 현황</span></div>
+            <PBDashboard clients={myClients} consultations={myConsultations} />
+          </section>
+          <section className="card p-4">
+            <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-fg">최근 상담 고객</h2><span className="text-[11px] text-fg-muted">최근 {Math.min(5, myConsultations.length)}건</span></div>
+            {myConsultations.length > 0 ? <ul className="mt-3 space-y-2">{myConsultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1)).slice(0, 5).map((consultation) => { const target = myClients.find((client) => client.id === consultation.clientId); return target ? <li key={consultation.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"><button className="min-w-0 text-left" onClick={() => router.push(`/pb/${pbId}/${target.id}?view=consultation`)}><span className="block truncate text-xs font-bold text-fg">{target.name}</span><span className="text-[10px] text-fg-muted">{new Date(consultation.createdAt).toLocaleDateString("ko-KR")}</span></button><span className="badge-muted">상담 보기</span></li> : null; })}</ul> : <p className="mt-3 text-xs text-fg-muted">기록된 상담이 없습니다.</p>}
+          </section>
+        </aside>
       </div>
 
       {/* 가문 관리 */}

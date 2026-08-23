@@ -55,18 +55,18 @@ export default function AppNav() {
   // ── 고객 상세 페이지용 사이드바 ──
   if (isClientPage) {
     return (
-      <aside className="w-44 shrink-0 border-r border-border bg-[#f0f4fa] sticky top-14 self-start h-[calc(100vh-3.5rem)] flex flex-col overflow-y-auto">
+      <aside className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-56 shrink-0 self-start flex-col overflow-y-auto border-r border-white/10 bg-gradient-to-b from-[#071B4A] to-[#06153B] text-white">
         <button
-          className="flex items-center gap-2 px-4 py-3 text-xs text-fg-muted hover:bg-surface-2 border-b border-border shrink-0"
+          className="flex shrink-0 items-center gap-2 border-b border-white/10 px-4 py-3 text-xs text-white/60 hover:bg-white/10 hover:text-white"
           onClick={() => router.push(`/pb/${pbId}`)}
         >
           ← PB 페이지
         </button>
 
         {client && (
-          <div className="px-4 py-3 border-b border-border shrink-0">
-            <p className="text-[10px] text-fg-muted">{client.code}</p>
-            <p className="text-sm font-bold text-fg truncate">{client.name}</p>
+          <div className="shrink-0 border-b border-white/10 px-4 py-3">
+            <p className="text-[10px] text-white/50">{client.code}</p>
+            <p className="truncate text-sm font-bold text-white">{client.name}</p>
           </div>
         )}
 
@@ -79,20 +79,20 @@ export default function AppNav() {
                 key={s.id}
                 onClick={() => goTo(s.id === "consultation" ? "consultation" : "home")}
                 className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                  isActive ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-white"
+                  isActive ? "bg-[#1455D9] text-white font-semibold" : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
               >
                 <span className="flex items-center gap-2">
                   <span>{s.icon}</span>
                   <span>{s.label}</span>
                 </span>
-                <span className={isActive ? "text-white/60" : "text-fg-muted"}>›</span>
+                <span className="text-white/40">›</span>
               </button>
             );
           })}
 
           {/* 분석 탭 */}
-          <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+          <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-white/40">
             분석
           </p>
           {ANALYSIS_TABS.map((t) => {
@@ -102,33 +102,31 @@ export default function AppNav() {
                 key={t.id}
                 onClick={() => goTo("analysis", t.id)}
                 className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                  isActive
-                    ? "bg-[#1428A0] text-white font-semibold"
-                    : "text-fg hover:bg-white"
+                  isActive ? "bg-[#1455D9] text-white font-semibold" : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
               >
                 <span>{t.label}</span>
-                <span className={isActive ? "text-white/60" : "text-fg-muted"}>›</span>
+                <span className="text-white/40">›</span>
               </button>
             );
           })}
 
-          <div className="border-t border-border mt-2 pt-2">
-            <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
-            <Link href="/" className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+          <div className="mt-2 border-t border-white/10 pt-2">
+            <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wide text-white/40">메뉴</p>
+            <Link href="/" className="flex items-center gap-2 px-4 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white">
               🏠 홈
             </Link>
             {pbId && (
-              <Link href={`/pb/${pbId}`} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+              <Link href={`/pb/${pbId}`} className="flex items-center gap-2 px-4 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white">
                 📒 다고객 북
               </Link>
             )}
             {pbId && (
-              <Link href={`/pb/${pbId}/ticker`} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+              <Link href={`/pb/${pbId}/ticker`} className="flex items-center gap-2 px-4 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white">
                 📈 티커 분석
               </Link>
             )}
-            <Link href="/research" className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+            <Link href="/research" className="flex items-center gap-2 px-4 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white">
               📊 리서치
             </Link>
           </div>
@@ -143,36 +141,41 @@ export default function AppNav() {
     return (
       <Link
         href={href}
-        className={`flex items-center justify-between px-4 py-3 text-sm transition-colors ${
-          active ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-white"
+        className={`mx-2 flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors ${
+          active ? "bg-[#1455D9] text-white font-semibold" : "text-white/70 hover:bg-white/10 hover:text-white"
         }`}
       >
         <span className="flex items-center gap-2">
           <span>{icon}</span>
           <span>{label}</span>
         </span>
-        <span className={active ? "text-white/60" : "text-fg-muted"}>›</span>
+        <span className="text-white/40">›</span>
       </Link>
     );
   };
 
   return (
-    <aside className="w-44 shrink-0 border-r border-border bg-[#f0f4fa] sticky top-14 self-start h-[calc(100vh-3.5rem)] flex flex-col overflow-y-auto">
+    <aside className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-56 shrink-0 self-start flex-col overflow-y-auto border-r border-white/10 bg-gradient-to-b from-[#071B4A] to-[#06153B] text-white">
+      <div className="border-b border-white/10 px-4 py-4">
+        <p className="text-[10px] font-semibold text-white/55">삼성증권 PB센터</p>
+        <p className="mt-1 text-base font-black tracking-tight">PB Decision Console</p>
+        <p className="mt-1 text-[10px] text-white/45">AI 기반 의사결정 콘솔</p>
+      </div>
       <nav className="flex-1 py-1">
-        <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
+        <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-white/40">Main</p>
         {navItem("/", "🏠", "홈")}
         {pbId && navItem(`/pb/${pbId}`, "📒", "다고객 북")}
         {pbId && navItem(`/pb/${pbId}/ticker`, "📈", "티커 분석")}
         {navItem("/research", "📊", "리서치")}
 
-        <p className="px-4 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">바로가기</p>
+        <p className="px-4 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wide text-white/40">바로가기</p>
         {EXTERNAL_LINKS.map((l) => (
           <a
             key={l.href}
             href={l.href}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between px-4 py-3 text-sm text-fg hover:bg-surface-2 transition-colors"
+            className="mx-2 flex items-center justify-between rounded-lg px-3 py-2.5 text-sm text-white/65 transition-colors hover:bg-white/10 hover:text-white"
           >
             <span className="flex items-center gap-2">
               <span>↗</span>
@@ -181,7 +184,7 @@ export default function AppNav() {
           </a>
         ))}
       </nav>
-      <p className="px-4 py-3 text-center text-[10px] text-fg-muted border-t border-border">
+      <p className="border-t border-white/10 px-4 py-3 text-center text-[10px] text-white/35">
         참고용 · 투자권유 아님
       </p>
     </aside>

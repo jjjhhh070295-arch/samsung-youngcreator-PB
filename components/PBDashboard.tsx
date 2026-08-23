@@ -20,11 +20,11 @@ function Stat({
   accent?: boolean;
 }) {
   return (
-    <div className="card p-4">
+    <div className="rounded-xl border border-border bg-white p-3.5">
       <p className="text-xs text-fg-muted">{label}</p>
       <p
-        className={`mt-1 text-2xl font-bold ${
-          accent ? "text-gold-500 dark:text-gold-300" : "text-fg"
+        className={`mt-1 text-xl font-black tracking-tight ${
+          accent ? "text-[#1428A0]" : "text-fg"
         }`}
       >
         {value}
@@ -53,7 +53,7 @@ export default function PBDashboard({ clients, consultations }: Props) {
   const ratio = (n: number) => (count ? Math.round((n / count) * 100) : 0);
 
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 xl:grid-cols-1 2xl:grid-cols-2">
       <Stat label="담당 고객" value={`${count}명`} />
       <Stat label="총 운용자산 (AUM)" value={formatKRW(aum)} accent />
       <Stat

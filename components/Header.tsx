@@ -26,15 +26,15 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[#0f1e7a] bg-[#1428A0] text-white shadow-card">
-      <div className="flex h-14 items-center justify-between px-4">
+    <header className="sticky top-0 z-40 border-b border-border bg-white/95 text-fg backdrop-blur">
+      <div className="flex h-14 items-center justify-between px-5">
         <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-white text-sm font-black text-[#1428A0]">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#1428A0] text-sm font-black text-white">
             S
           </span>
           <span className="flex flex-col leading-none">
             <span className="text-base font-bold tracking-tight">삼성증권 PB센터</span>
-            <span className="hidden text-[10px] text-white/50 sm:inline">
+            <span className="hidden text-[10px] text-fg-muted sm:inline">
               Samsung Securities · Private Banking Console
             </span>
           </span>
@@ -43,11 +43,11 @@ export default function Header() {
         <div className="flex items-center gap-3">
           {pbName && (
             <>
-              <span className="hidden text-sm text-white/80 sm:inline">
+              <span className="hidden text-sm text-fg-muted sm:inline">
                 {pbName} PB
               </span>
               <button
-                className="rounded-md border border-white/30 px-3 py-1.5 text-xs text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                className="btn-outline px-3 py-1.5 text-xs"
                 onClick={handleLogout}
               >
                 로그아웃
