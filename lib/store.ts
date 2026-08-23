@@ -294,21 +294,40 @@ function sampleIps(): IPS {
 function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
   let changed = false;
   const nowIso = "2026-06-10T00:00:00.000Z";
-  const pb =
-    db.pbs[0] ??
-    ({
-      id: SAMPLE_PB_ID,
-      code: "PB-001",
-      name: "데모 PB",
-      employeeId: DEMO_PB_CREDENTIALS.employeeId,
-      password: DEMO_PB_CREDENTIALS.password,
-      createdAt: nowIso,
-    } satisfies PB);
+  const demoPb: PB = {
+    id: SAMPLE_PB_ID,
+    code: "PB-001",
+    name: "데모 PB",
+    employeeId: DEMO_PB_CREDENTIALS.employeeId,
+    password: DEMO_PB_CREDENTIALS.password,
+    createdAt: nowIso,
+  };
 
-  if (db.pbs.length === 0) {
-    db.pbs.push(pb);
+  const demoIndex = db.pbs.findIndex((p) => p.id === SAMPLE_PB_ID);
+  if (demoIndex < 0) {
+    // 기존에 다른 PB만 있어도 시연 계정(PB-001)은 항상 존재해야 로그인·대시보드가 깨지지 않음
+    db.pbs.unshift(demoPb);
     changed = true;
+  } else {
+    // 사원번호/비밀번호가 바뀌어 있어도 데모 자격증명은 유지
+    const existing = db.pbs[demoIndex];
+    if (
+      existing.employeeId !== DEMO_PB_CREDENTIALS.employeeId ||
+      existing.password !== DEMO_PB_CREDENTIALS.password ||
+      existing.code !== "PB-001"
+    ) {
+      db.pbs[demoIndex] = {
+        ...existing,
+        code: "PB-001",
+        employeeId: DEMO_PB_CREDENTIALS.employeeId,
+        password: DEMO_PB_CREDENTIALS.password,
+        name: existing.name || demoPb.name,
+      };
+      changed = true;
+    }
   }
+
+  const pb = db.pbs.find((p) => p.id === SAMPLE_PB_ID) ?? db.pbs[0] ?? demoPb;
 
   const sample: Client = {
     id: SAMPLE_CLIENT_ID,

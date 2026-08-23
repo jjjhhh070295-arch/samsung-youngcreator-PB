@@ -133,17 +133,25 @@ export default function HomePage() {
     try {
       const employeeId = loginEmpId.trim().toUpperCase();
       const normalizedPassword = password.trim();
-      if (
+
+      // 최신 PB 목록을 다시 읽어 데모 PB 보장 후 매칭 (stale state / 구 localStorage 대비)
+      const latestPbs = await listPbs();
+      setPbs(latestPbs);
+
+      const demoLogin =
         employeeId === DEMO_PB_CREDENTIALS.employeeId &&
-        normalizedPassword === DEMO_PB_CREDENTIALS.password
-      ) {
-        setLoggedInPbId(DEMO_PB_ID);
-        router.push(`/pb/${DEMO_PB_ID}`);
-        return;
-      }
-      const found = pbs.find(
-        (pb) => pb.employeeId.trim().toUpperCase() === employeeId && pb.password === normalizedPassword
-      );
+        normalizedPassword === DEMO_PB_CREDENTIALS.password;
+
+      const found =
+        latestPbs.find(
+          (pb) =>
+            pb.employeeId.trim().toUpperCase() === employeeId && pb.password === normalizedPassword,
+        ) ??
+        (demoLogin
+          ? latestPbs.find((pb) => pb.id === DEMO_PB_ID) ??
+            latestPbs.find((pb) => pb.code.trim().toUpperCase() === "PB-001")
+          : undefined);
+
       if (!found) {
         setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다.");
         return;
