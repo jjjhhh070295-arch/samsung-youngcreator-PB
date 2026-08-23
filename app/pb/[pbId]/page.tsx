@@ -20,6 +20,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import HouseholdModule from "@/components/HouseholdModule";
 import BookDashboard from "@/components/advisory/BookDashboard";
+import ClientAvatar from "@/components/ClientAvatar";
 import { analyzeBook, buildClientBookRow } from "@/lib/advisory/book";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
 
@@ -127,7 +128,7 @@ export default function PBPage() {
           </section>
           <section className="card p-4">
             <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-fg">최근 상담 고객</h2><span className="text-[11px] text-fg-muted">최근 {Math.min(5, myConsultations.length)}건</span></div>
-            {myConsultations.length > 0 ? <ul className="mt-3 space-y-2">{myConsultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1)).slice(0, 5).map((consultation) => { const target = myClients.find((client) => client.id === consultation.clientId); return target ? <li key={consultation.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"><button className="min-w-0 text-left" onClick={() => router.push(`/pb/${pbId}/${target.id}?view=consultation`)}><span className="block truncate text-xs font-bold text-fg">{target.name}</span><span className="text-[10px] text-fg-muted">{new Date(consultation.createdAt).toLocaleDateString("ko-KR")}</span></button><span className="badge-muted">상담 보기</span></li> : null; })}</ul> : <p className="mt-3 text-xs text-fg-muted">기록된 상담이 없습니다.</p>}
+            {myConsultations.length > 0 ? <ul className="mt-3 space-y-2">{myConsultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1)).slice(0, 5).map((consultation) => { const target = myClients.find((client) => client.id === consultation.clientId); return target ? <li key={consultation.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"><button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => router.push(`/pb/${pbId}/${target.id}?view=consultation`)}><ClientAvatar name={target.name} type={target.clientType} size="sm" /><span className="min-w-0"><span className="block truncate text-xs font-bold text-fg">{target.name}</span><span className="text-[10px] text-fg-muted">{new Date(consultation.createdAt).toLocaleDateString("ko-KR")}</span></span></button><span className="badge-muted">상담 보기</span></li> : null; })}</ul> : <p className="mt-3 text-xs text-fg-muted">기록된 상담이 없습니다.</p>}
           </section>
         </aside>
       </div>

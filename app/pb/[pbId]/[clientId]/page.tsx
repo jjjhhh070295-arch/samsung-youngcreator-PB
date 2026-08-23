@@ -154,8 +154,22 @@ export default function ClientDetailPage() {
     <div className="mx-auto max-w-[1680px] space-y-5 px-4 py-4 lg:px-6">
       <section className="console-panel overflow-hidden bg-gradient-to-r from-white via-white to-[#F2F5FF]">
         <div className="flex flex-wrap items-center justify-between gap-4 p-5">
-          <div className="flex items-center gap-4"><ClientAvatar name={client.name} type={client.clientType} size="lg" /><div><div className="flex flex-wrap gap-1.5"><span className="badge-navy font-mono">{client.code}</span><span className="badge-muted">{CLIENT_TYPE_LABEL[client.clientType]}</span>{client.isMajorityShareholder && <span className="badge-warning">최대주주</span>}</div><h1 className="mt-2 text-2xl font-black tracking-tight text-fg">{client.name}</h1><p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>{riskProfile ? ` · ${riskProfile}` : ""}</p></div></div>
-          <div className="grid min-w-[420px] grid-cols-3 gap-2"><div className="console-metric"><p className="console-label">상담 진행률</p><p className="mt-1 text-xl font-black text-[#1428A0]">{completedStages}/{totalStages || "—"}</p></div><div className="console-metric"><p className="console-label">마지막 상담</p><p className="mt-1 text-sm font-bold text-fg">{lastConsultedAt ? formatDate(lastConsultedAt) : "기록 없음"}</p></div><div className="console-metric"><p className="console-label">현재 상태</p><p className="mt-1 text-sm font-bold text-fg">{client.stages?.portfolio ? "포트폴리오 확정" : "분석 진행 중"}</p></div></div>
+          <div className="flex min-w-0 items-center gap-4">
+            <ClientAvatar name={client.name} type={client.clientType} size="lg" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap gap-1.5"><span className="badge-navy font-mono">{client.code}</span><span className="badge-muted">{CLIENT_TYPE_LABEL[client.clientType]}</span>{client.isMajorityShareholder && <span className="badge-warning">최대주주</span>}</div>
+              <h1 className="mt-2 truncate text-2xl font-black tracking-tight text-fg">{client.name}</h1>
+              <p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>{riskProfile ? ` · ${riskProfile}` : ""}</p>
+            </div>
+          </div>
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto lg:min-w-[480px]">
+            <div className="console-metric">
+              <div className="flex items-center justify-between"><p className="console-label">상담 진행률</p><p className="text-sm font-black text-[#1428A0]">{completedStages}/{totalStages || "—"}</p></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE4F5]"><div className="h-full rounded-full bg-[#1428A0]" style={{ width: `${totalStages ? Math.round((completedStages / totalStages) * 100) : 0}%` }} /></div>
+            </div>
+            <div className="console-metric"><p className="console-label">마지막 상담</p><p className="mt-1 text-sm font-bold text-fg">{lastConsultedAt ? formatDate(lastConsultedAt) : "기록 없음"}</p></div>
+            <div className="console-metric"><p className="console-label">현재 상태</p><p className="mt-1 text-sm font-bold text-fg">{client.stages?.portfolio ? "포트폴리오 확정" : "분석 진행 중"}</p></div>
+          </div>
         </div>
       </section>
 

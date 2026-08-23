@@ -112,6 +112,18 @@ function MeasuredHint({ asOf, source, currency }: { asOf: string; source: string
   );
 }
 
+const PRODUCT_MIX_COLORS = ["#1428A0", "#315DEB", "#16A34A", "#F59E0B", "#64748B"];
+
+function productMixGradient(weights: number[]) {
+  let cursor = 0;
+  const stops = weights.map((weight, index) => {
+    const start = cursor;
+    cursor += Math.max(0, weight);
+    return `${PRODUCT_MIX_COLORS[index % PRODUCT_MIX_COLORS.length]} ${start}% ${cursor}%`;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
 export default function BookDashboard({ pbId, rows, analysis }: Props) {
   const router = useRouter();
   const [view, setView] = useState<View>("table");
@@ -231,20 +243,24 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
               <h3 className="text-sm font-bold text-fg">상품군 편입 비중</h3>
               <MeasuredHint asOf={analysis.asOf} source={analysis.source} currency="KRW" />
             </div>
-            <div className="space-y-2">
-              {analysis.productMix.map((s) => (
-                <div key={s.category}>
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="font-medium text-fg">{PRODUCT_CATEGORY_LABEL[s.category]}</span>
-                    <span className="text-fg-muted">
-                      {s.weightPct.toFixed(1)}% · {s.clientCount}명 · {formatKRWShort(s.amount)}
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-surface-2">
-                    <div className="h-full bg-[#1428A0]" style={{ width: `${Math.min(100, s.weightPct)}%` }} />
-                  </div>
+            <div className="grid items-center gap-5 sm:grid-cols-[148px_1fr]">
+              <div className="relative mx-auto h-36 w-36 rounded-full" style={{ background: productMixGradient(analysis.productMix.map((slice) => slice.weightPct)) }}>
+                <div className="absolute inset-[22px] flex flex-col items-center justify-center rounded-full bg-white shadow-inner">
+                  <strong className="text-lg font-black text-[#1428A0]">{formatKRWShort(rows.reduce((sum, row) => sum + row.totalAssets, 0))}</strong>
+                  <span className="mt-0.5 text-[10px] font-semibold text-fg-muted">총 AUM</span>
                 </div>
-              ))}
+              </div>
+              <div className="space-y-2">
+                {analysis.productMix.map((s, index) => (
+                  <div key={s.category} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="flex min-w-0 items-center gap-2 font-medium text-fg">
+                      <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: PRODUCT_MIX_COLORS[index % PRODUCT_MIX_COLORS.length] }} />
+                      {PRODUCT_CATEGORY_LABEL[s.category]}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-fg-muted">{s.weightPct.toFixed(1)}% · {formatKRWShort(s.amount)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           <div className="card p-4">
@@ -272,7 +288,7 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
       )}
 
       {analysis && (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           {([
             ["high_risk", analysis.flagged.highRisk],
             ["low_return", analysis.flagged.lowReturn],
@@ -296,6 +312,14 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
               )}
             </div>
           ))}
+          <div className="card border-[#1428A0]/20 p-3.5">
+            <div className="flex items-center justify-between"><p className="text-xs font-semibold text-[#1428A0]">액션이 필요한 고객</p><span className="badge-navy">{priorityRows.length}명</span></div>
+            {priorityRows.length === 0 ? <p className="mt-2 text-xs text-fg-muted">해당 없음</p> : (
+              <ul className="mt-2 space-y-1.5">
+                {priorityRows.map((client) => <li key={client.clientId} className="flex items-center justify-between gap-2"><Link href={`/pb/${pbId}/${client.clientId}`} className="truncate text-sm font-semibold text-fg hover:text-[#1428A0]">{client.name}</Link><span className="shrink-0 text-[10px] text-fg-muted">상세 보기 →</span></li>)}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 
