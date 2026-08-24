@@ -26,7 +26,7 @@ import {
 } from "@/lib/portfolio";
 import { buildReturnContributionsFromPortfolio } from "@/lib/portfolioReturnContribution";
 import { scoreReadinessEvents } from "@/lib/taxReadinessScoring";
-import { buildPeriodCashflowSeries } from "@/lib/periodCashflow";
+import { buildMonthlyCashflowSummarySeries } from "@/lib/periodCashflow";
 import type { TaxPaymentEvent } from "@/lib/cashflowUpload";
 import TaxReadinessRubricButton from "@/components/TaxReadinessRubricButton";
 import PeriodCashflowLineChart from "@/components/cashflow/PeriodCashflowLineChart";
@@ -798,7 +798,7 @@ export default function IPSDocumentPage() {
     value: allocation.weight,
   }));
   const returnContributions = pf ? buildReturnContributionsFromPortfolio(displayAllocations, pf.expectedReturn) : [];
-  const periodSeries = buildPeriodCashflowSeries(documentClient.cashFlows);
+  const periodSeries = buildMonthlyCashflowSummarySeries(documentClient.cashFlows);
   const vmWeights = confirmedWeights ?? {
     etf: 30, bond: 25, els: 0, mmf: 30, gold: 10, dollar: 5, raw: 0,
   };
@@ -1166,22 +1166,21 @@ export default function IPSDocumentPage() {
         </Section>
 
         {periodSeries.length >= 2 && (
-          <Section title="부록. 기간별 현금흐름 추이">
+          <Section title="부록. 월별 간소화 현금흐름">
             <div className="space-y-3 text-xs">
               <div className="rounded border border-gray-200 p-3">
-                <p className="mb-1 font-semibold text-gray-800">기간별 현금흐름 추이</p>
-                <p className="mb-2 text-[10px] text-gray-500">유입·유출·저축·세금·순현금흐름 (만원)</p>
+                <p className="mb-1 font-semibold text-gray-800">월별 현금흐름 추이</p>
+                <p className="mb-2 text-[10px] text-gray-500">순유입·순유출(세금 제외)·총세금·월 순자금 (만원)</p>
                 <PeriodCashflowLineChart series={periodSeries} className="h-80" />
               </div>
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-gray-300 text-left text-gray-500">
                     <th className="py-1.5">기간</th>
-                    <th className="py-1.5 text-right">유입</th>
-                    <th className="py-1.5 text-right">유출</th>
-                    <th className="py-1.5 text-right">저축/투자</th>
-                    <th className="py-1.5 text-right">세금</th>
-                    <th className="py-1.5 text-right">순현금흐름</th>
+                    <th className="py-1.5 text-right">순유입</th>
+                    <th className="py-1.5 text-right">순유출(세금 제외)</th>
+                    <th className="py-1.5 text-right">총세금</th>
+                    <th className="py-1.5 text-right">월 순자금</th>
                     <th className="py-1.5 text-right">누적</th>
                   </tr>
                 </thead>
@@ -1190,8 +1189,7 @@ export default function IPSDocumentPage() {
                     <tr key={point.period} className="border-b border-gray-100">
                       <td className="py-1.5 font-semibold">{point.period}</td>
                       <td className="py-1.5 text-right">{formatManwon(point.incomeWon)}</td>
-                      <td className="py-1.5 text-right text-red-600">{formatManwon(point.outflowWon)}</td>
-                      <td className="py-1.5 text-right">{formatManwon(point.savingWon)}</td>
+                      <td className="py-1.5 text-right text-red-600">{formatManwon(point.outflowWon + point.savingWon)}</td>
                       <td className="py-1.5 text-right">{formatManwon(point.taxWon)}</td>
                       <td className={`py-1.5 text-right font-medium ${point.netWon < 0 ? "text-red-600" : "text-gray-900"}`}>
                         {formatManwon(point.netWon)}
@@ -1204,7 +1202,7 @@ export default function IPSDocumentPage() {
                 </tbody>
               </table>
               <p className="text-[10px] text-gray-400">
-                ※ 이 부록은 XLSX의 부록_기간별현금흐름 시트와 메인 세금일정의 납부월 데이터를 기반으로 표시됩니다.
+                ※ 순유출은 세금을 제외한 생활비·운영비·투자성 유출을 합산한 값입니다. 총세금은 별도 컬럼으로 분리했습니다.
               </p>
             </div>
           </Section>

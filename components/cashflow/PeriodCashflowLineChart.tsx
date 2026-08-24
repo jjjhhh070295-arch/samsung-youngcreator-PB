@@ -1,10 +1,11 @@
 "use client";
 
 import {
+  Bar,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -18,14 +19,12 @@ export const LINE_COLORS = {
   income: "#2563eb",
   tax: "#8b5cf6",
   outflow: "#ef4444",
-  saving: "#f59e0b",
   net: "#0f172a",
 } as const;
 
 const plottedValues = (point: PeriodCashflowChartPoint) => [
   point.incomePlotManwon,
-  point.outflowPlotManwon,
-  point.savingPlotManwon,
+  point.nonTaxOutflowPlotManwon,
   point.taxPlotManwon,
   point.netPlotManwon,
 ];
@@ -54,7 +53,7 @@ export default function PeriodCashflowLineChart({
   return (
     <div className={className}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 8, right: 14, bottom: 0, left: -10 }}>
+        <ComposedChart data={chartData} margin={{ top: 8, right: 14, bottom: 0, left: -10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
           <XAxis dataKey="period" tick={{ fontSize: 10 }} />
           <YAxis
@@ -65,12 +64,11 @@ export default function PeriodCashflowLineChart({
           <ReferenceLine y={0} stroke="#111827" strokeWidth={2} ifOverflow="extendDomain" />
           <Tooltip formatter={(value: unknown) => `${Number(value).toLocaleString()}만원`} />
           <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
-          <Line type="monotone" dataKey="incomePlotManwon" name="유입" stroke={LINE_COLORS.income} strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="outflowPlotManwon" name="유출" stroke={LINE_COLORS.outflow} strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="savingPlotManwon" name="저축/투자" stroke={LINE_COLORS.saving} strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="taxPlotManwon" name="세금" stroke={LINE_COLORS.tax} strokeWidth={2.25} dot={false} />
-          <Line type="monotone" dataKey="netPlotManwon" name="순현금흐름" stroke={LINE_COLORS.net} strokeWidth={3} dot={false} />
-        </LineChart>
+          <Bar dataKey="incomePlotManwon" name="순유입" fill={LINE_COLORS.income} radius={[4, 4, 0, 0]} />
+          <Bar dataKey="nonTaxOutflowPlotManwon" name="순유출(세금 제외)" fill={LINE_COLORS.outflow} radius={[4, 4, 0, 0]} />
+          <Bar dataKey="taxPlotManwon" name="총세금" fill={LINE_COLORS.tax} radius={[4, 4, 0, 0]} />
+          <Line type="monotone" dataKey="netPlotManwon" name="월 순자금" stroke={LINE_COLORS.net} strokeWidth={3} dot={false} />
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
