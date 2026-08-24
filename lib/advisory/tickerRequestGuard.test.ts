@@ -6,6 +6,7 @@ import {
   tickerClientScope,
   tickerContextClientId,
   tickerFlowScope,
+  tickerSubviewFromQuery,
 } from "./tickerRequestGuard";
 
 describe("ticker request state isolation", () => {
@@ -82,5 +83,19 @@ describe("ticker request state isolation", () => {
     assert.equal(tickerAnalysisHref("pb-demo", detailContext), "/pb/pb-demo/ticker?clientId=client-detail");
     assert.equal(tickerAnalysisHref("pb-demo", tickerQueryContext), "/pb/pb-demo/ticker?clientId=client-query");
     assert.equal(tickerAnalysisHref("pb-demo"), "/pb/pb-demo/ticker");
+  });
+
+  it("수급·공매도 직접 열기 링크는 고객·종목 범위와 하위 보기를 함께 보존한다", () => {
+    assert.equal(
+      tickerAnalysisHref("pb demo", " client-a ", {
+        symbol: " DEMO-HIGH ",
+        subview: "flows",
+      }),
+      "/pb/pb%20demo/ticker?clientId=client-a&symbol=DEMO-HIGH&subview=flows",
+    );
+    assert.equal(tickerSubviewFromQuery("flows"), "flows");
+    assert.equal(tickerSubviewFromQuery("flow-short"), "flows");
+    assert.equal(tickerSubviewFromQuery("evidence"), "momentum");
+    assert.equal(tickerSubviewFromQuery(null), "momentum");
   });
 });

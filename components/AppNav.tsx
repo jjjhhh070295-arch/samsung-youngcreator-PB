@@ -171,8 +171,14 @@ export default function AppNav() {
               </Link>
             )}
             {pbId && (
-              <Link href={tickerHref} onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
-                📈 티커 분석
+              <Link href={tickerHref} onClick={() => setMobileOpen(false)} className="flex items-center justify-between gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden="true">📈</span>
+                  <span>티커 분석</span>
+                  <span className="shrink-0 rounded-full border border-[#AAB7F8] bg-white px-1.5 py-0.5 text-[9px] font-bold text-[#1428A0]">
+                    신규
+                  </span>
+                </span>
               </Link>
             )}
             <Link href="/research" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
@@ -186,7 +192,7 @@ export default function AppNav() {
   }
 
   // ── 일반 페이지용 사이드바 ──
-  const navItem = (href: string, icon: string, label: string) => {
+  const navItem = (href: string, icon: string, label: string, badge?: string) => {
     const active = pathname === href.split("?")[0];
     return (
       <Link
@@ -196,9 +202,14 @@ export default function AppNav() {
           active ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-white"
         }`}
       >
-        <span className="flex items-center gap-2">
-          <span>{icon}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true">{icon}</span>
           <span>{label}</span>
+          {badge && (
+            <span className="shrink-0 rounded-full border border-[#AAB7F8] bg-white px-1.5 py-0.5 text-[9px] font-bold text-[#1428A0]">
+              {badge}
+            </span>
+          )}
         </span>
         <span className={active ? "text-white/60" : "text-fg-muted"}>›</span>
       </Link>
@@ -225,7 +236,7 @@ export default function AppNav() {
         <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
         {navItem("/", "🏠", "홈")}
         {pbId && navItem(`/pb/${pbId}`, "📒", "다고객 북")}
-        {pbId && navItem(tickerHref, "📈", "티커 분석")}
+        {pbId && navItem(tickerHref, "📈", "티커 분석", "신규")}
         {navItem("/research", "📊", "리서치")}
 
         <p className="px-4 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">바로가기</p>

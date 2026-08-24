@@ -22,6 +22,7 @@ import {
   createTickerRequestGuard,
   tickerClientScope,
   tickerFlowScope,
+  type TickerAvailableSubview,
   type TickerRequestToken,
 } from "@/lib/advisory/tickerRequestGuard";
 import { buildTickerFlowShortEvidence, type TickerFlowShortEvidence } from "@/lib/advisory/tickerFlowShort";
@@ -128,10 +129,14 @@ function liveQuoteLabel(quote: TickerLiveQuote | null) {
 
 export default function TickerAnalysisPanel({
   initialSymbol = "",
+  initialSubview = "momentum",
   clientId,
+  onResolvedSymbolChange,
 }: {
   initialSymbol?: string;
+  initialSubview?: TickerAvailableSubview;
   clientId?: string;
+  onResolvedSymbolChange?: (symbol: string) => void;
 }) {
   const [symbol, setSymbol] = useState(initialSymbol);
   const [busy, setBusy] = useState(false);
@@ -144,7 +149,7 @@ export default function TickerAnalysisPanel({
   const [briefModel, setBriefModel] = useState("");
   const [explanation, setExplanation] = useState("");
   const [explainBusy, setExplainBusy] = useState(false);
-  const [activeSubview, setActiveSubview] = useState<TickerSubviewId>("momentum");
+  const [activeSubview, setActiveSubview] = useState<TickerSubviewId>(initialSubview);
   const [flowEvidence, setFlowEvidence] = useState<TickerFlowShortEvidence | null>(null);
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowError, setFlowError] = useState("");
@@ -155,6 +160,11 @@ export default function TickerAnalysisPanel({
   const flowRequestGuardRef = useRef(createTickerRequestGuard(tickerFlowScope(clientId)));
   const requestAbortRef = useRef<AbortController | null>(null);
   const clientScopeRef = useRef(tickerClientScope(clientId));
+
+  useEffect(() => {
+    setActiveSubview(initialSubview);
+    setTabNotice("");
+  }, [initialSubview]);
 
   useEffect(() => {
     const nextScope = tickerClientScope(clientId);
@@ -268,6 +278,7 @@ export default function TickerAnalysisPanel({
   const load = async (q: string) => {
     if (!q.trim()) return;
     const requestedSymbol = q.trim();
+    onResolvedSymbolChange?.("");
     requestAbortRef.current?.abort();
     const controller = new AbortController();
     requestAbortRef.current = controller;
@@ -299,6 +310,7 @@ export default function TickerAnalysisPanel({
       }
       const snap = data.snapshot as TickerSnapshot;
       const prof = (data.profile ?? null) as TickerProfile | null;
+      onResolvedSymbolChange?.(snap.resolvedSymbol);
       setSnapshot(snap);
       setProfile(prof);
       setLiveQuote((data.quote ?? null) as TickerLiveQuote | null);

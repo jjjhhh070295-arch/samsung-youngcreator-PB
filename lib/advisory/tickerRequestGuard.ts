@@ -3,6 +3,13 @@ export interface TickerRequestToken {
   scopeKey: string;
 }
 
+export type TickerAvailableSubview = "momentum" | "flows";
+
+export interface TickerAnalysisHrefOptions {
+  symbol?: string;
+  subview?: TickerAvailableSubview;
+}
+
 export function tickerClientScope(clientId?: string) {
   return clientId?.trim() || "global";
 }
@@ -11,10 +18,23 @@ export function tickerContextClientId(routeClientId?: string, queryClientId?: st
   return routeClientId?.trim() || queryClientId?.trim() || undefined;
 }
 
-export function tickerAnalysisHref(pbId: string, clientId?: string) {
+export function tickerAnalysisHref(
+  pbId: string,
+  clientId?: string,
+  options: TickerAnalysisHrefOptions = {},
+) {
   const normalizedClientId = tickerContextClientId(clientId);
   const base = `/pb/${encodeURIComponent(pbId)}/ticker`;
-  return normalizedClientId ? `${base}?clientId=${encodeURIComponent(normalizedClientId)}` : base;
+  const query = new URLSearchParams();
+  if (normalizedClientId) query.set("clientId", normalizedClientId);
+  if (options.symbol?.trim()) query.set("symbol", options.symbol.trim());
+  if (options.subview) query.set("subview", options.subview);
+  const encodedQuery = query.toString();
+  return encodedQuery ? `${base}?${encodedQuery}` : base;
+}
+
+export function tickerSubviewFromQuery(value?: string | null): TickerAvailableSubview {
+  return value === "flows" || value === "flow-short" ? "flows" : "momentum";
 }
 
 export function tickerFlowScope(clientId: string | undefined, symbol = "") {
