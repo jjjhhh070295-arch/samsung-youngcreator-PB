@@ -59,3 +59,12 @@ export const INHERITANCE_TAX_BRACKETS = [
 
 export const HERITAGE_TAX_DISCLAIMER =
   "배우자공제 적용 범위(최소 5억원~법정상속분 한도)에 따라 달라지는 개략 추정치이며, 정확한 세액은 세무사 상담이 필요합니다.";
+
+export const HERITAGE_TAX_ASSUMPTIONS = {
+  // 배우자 법정상속분 상당액 = 상속재산가액 × [1.5 / (1.5 + 자녀수)] (배우자:자녀 = 1.5:1 단순화).
+  // 최소 5억 보장, 30억(spouseMaxWon) 초과分은 인정 안 됨 — 두 한도 사이에서 실제 공제액이 정해진다.
+  spouseLegalPortionWeight: 1.5,
+  // 자녀 수를 party_relationships에서 확인할 수 없을 때 보수적으로 가정하는 값.
+  // "가정했다"는 사실은 반드시 결과(childrenCountAssumed)에 표시한다.
+  assumedChildrenCountWhenUnknown: 2,
+} as const;

@@ -55,12 +55,20 @@ export interface HeritageUrgencyResult {
 }
 
 export interface HeritageTaxRangeResult {
-  /** 상한 시나리오(세액 최대) — 배우자공제 최소(5억원) 적용. */
+  /** 상한 시나리오(세액 최대) — 배우자공제 최소(5억원)만 적용. */
   maxTaxWon: number;
-  /** 하한 시나리오(세액 최소) — 배우자공제 법정상속분 한도(단순화, 최대 30억원) 적용. */
+  /** 하한 시나리오(세액 최소) — 배우자공제 = min(배우자 법정상속분 상당액, 30억), 최소 5억 보장. */
   minTaxWon: number;
   maxTaxExemptionWon: number;
   minTaxExemptionWon: number;
+  /** 상속개시 기준 10년 내 증여 합계 — 과세가액에 가산된 금액. 0이면 해당 없음. */
+  giftAddBackWon: number;
+  /** 계산에 실제로 쓰인 자녀 수(모르면 assumedChildrenCountWhenUnknown이 대입된다). */
+  childrenCountUsed: number;
+  /** true면 자녀 수를 몰라서 보수적으로 가정한 값을 썼다는 뜻 — 결과 표시에서 숨기면 안 된다. */
+  childrenCountAssumed: boolean;
+  /** 증여 합산 가산, 자녀 수 가정 등 세액 구간 산출 근거를 PB가 그대로 말할 수 있는 문장들. */
+  reasons: HeritageReason[];
   /** 화면에 절대 숨기거나 축소하면 안 되는 문구. */
   disclaimer: string;
 }

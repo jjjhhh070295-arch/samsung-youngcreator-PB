@@ -213,6 +213,93 @@ describe("estimateInheritanceTaxRange", () => {
     const range = estimateInheritanceTaxRange({ assetSizeWon: 5_000_000_000, hasSpouse: true, childrenCount: 0 });
     assert.match(range.disclaimer, /정확한 세액은 세무사 상담이 필요합니다/);
   });
+
+  it("150억(배우자 없음, 자녀 0)의 세액은 그대로 67.9억 — 회귀 없음", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 15_000_000_000, hasSpouse: false, childrenCount: 0 });
+    assert.equal(range.minTaxWon, range.maxTaxWon);
+    assert.equal(Math.round(range.minTaxWon / 100_000_000), 68); // 67.9억 반올림
+  });
+
+  it("F(150억)와 F.regression과 별개로 F.giftAddBackWon/childrenCountAssumed는 증여·자녀 미지정 시 0/false", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 15_000_000_000, hasSpouse: false, childrenCount: 0 });
+    assert.equal(range.giftAddBackWon, 0);
+    assert.equal(range.childrenCountAssumed, false);
+  });
+});
+
+describe("estimateInheritanceTaxRange — 배우자공제는 법정상속분 한도(자녀수 반영), 정액 30억 아님", () => {
+  it("32억, 배우자O, 자녀 2명 — 하한이 0원이 아니다(정액 30억 적용 시 발생하던 버그)", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 2 });
+    assert.ok(range.minTaxWon > 0, `minTaxWon=${range.minTaxWon} should be > 0`);
+    // 배우자 법정상속분 = 1.5/(1.5+2) ≈ 0.4286 → 30억 한도(spouseMax)보다 작아야 캡이 아니라
+    // 법정상속분 자체가 공제 상한을 결정한다.
+    assert.ok(range.minTaxExemptionWon < 500_000_000 + 3_000_000_000 + 100_000_000);
+  });
+
+  it("자녀 수를 모르면(null) 보수적으로 2명을 가정하고 결과에 표시한다", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: null });
+    assert.equal(range.childrenCountAssumed, true);
+    assert.equal(range.childrenCountUsed, 2);
+    assert.ok(range.reasons.some((r) => r.code === "children_count_assumed"));
+  });
+
+  it("자녀 수를 알면(0명 포함) childrenCountAssumed=false", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 0 });
+    assert.equal(range.childrenCountAssumed, false);
+    assert.equal(range.childrenCountUsed, 0);
+  });
+
+  it("하한이 0원이면 근거 사유(min_tax_zero)가 남는다", () => {
+    // 자녀 0명 → 법정상속분 비율 1.0 → 30억 캡에 걸려 공제(3.5억+... )가 자산을 넘어 0원이 되는 케이스.
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 0 });
+    assert.equal(range.minTaxWon, 0);
+    assert.ok(range.reasons.some((r) => r.code === "min_tax_zero"));
+  });
+});
+
+describe("estimateInheritanceTaxRange — 사전증여 10년 합산이 세액에 반영된다", () => {
+  it("10년 내 증여가 있으면 없는 경우보다 세액이 높다(같은 자녀수로 비교)", () => {
+    const noGift = estimateInheritanceTaxRange({
+      assetSizeWon: 3_200_000_000,
+      hasSpouse: true,
+      childrenCount: 2,
+      asOf: ASOF,
+    });
+    const withGift = estimateInheritanceTaxRange({
+      assetSizeWon: 3_200_000_000,
+      hasSpouse: true,
+      childrenCount: 2,
+      givenGiftEvents: [giftEvent(3, 300_000_000)],
+      asOf: ASOF,
+    });
+    assert.equal(withGift.giftAddBackWon, 300_000_000);
+    assert.ok(withGift.maxTaxWon > noGift.maxTaxWon, `${withGift.maxTaxWon} should be > ${noGift.maxTaxWon}`);
+    assert.ok(withGift.minTaxWon > noGift.minTaxWon, `${withGift.minTaxWon} should be > ${noGift.minTaxWon}`);
+  });
+
+  it("10년을 넘긴 증여는 가산되지 않는다", () => {
+    const range = estimateInheritanceTaxRange({
+      assetSizeWon: 3_200_000_000,
+      hasSpouse: true,
+      childrenCount: 2,
+      givenGiftEvents: [giftEvent(11, 300_000_000)],
+      asOf: ASOF,
+    });
+    assert.equal(range.giftAddBackWon, 0);
+  });
+
+  it("근거 문장에 몇 년 전 증여가 얼마나 합산되는지 나온다", () => {
+    const range = estimateInheritanceTaxRange({
+      assetSizeWon: 3_200_000_000,
+      hasSpouse: true,
+      childrenCount: 2,
+      givenGiftEvents: [giftEvent(3, 300_000_000)],
+      asOf: ASOF,
+    });
+    const reason = range.reasons.find((r) => r.code === "gift_addback");
+    assert.ok(reason);
+    assert.match(reason!.text, /3년 전 증여하신 3억원은 상속재산에 합산됩니다/);
+  });
 });
 
 describe("compareHeritagePriority — 1순위 긴급도, 2순위 score", () => {

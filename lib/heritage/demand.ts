@@ -7,7 +7,8 @@ import { HERITAGE_DEMAND, HERITAGE_EXEMPTION } from "./constants";
 import { eok } from "./format";
 import type { HeritageAssessmentInput, HeritageDemandResult, HeritageReason } from "./types";
 
-function isWithinYears(dateStr: string, years: number, asOf: Date): boolean {
+// tax.ts가 사전증여 10년 합산 가산에 그대로 재사용한다 — 커트오프 로직이 두 곳에서 갈라지지 않게.
+export function isWithinYears(dateStr: string, years: number, asOf: Date): boolean {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return false;
   const cutoff = new Date(asOf);

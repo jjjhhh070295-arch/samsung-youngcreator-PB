@@ -22,7 +22,10 @@ export function assessHeritage(input: HeritageAssessmentInput): HeritageAssessme
       ? estimateInheritanceTaxRange({
           assetSizeWon: input.assetSizeWon,
           hasSpouse: input.hasSpouse,
+          // HeritageAssessmentInput.childrenCount는 호출부가 이미 확인해 넘긴 값이므로 "known"으로 다룬다.
           childrenCount: input.childrenCount,
+          givenGiftEvents: input.givenGiftEvents,
+          asOf: input.asOf,
         })
       : null;
   return { demand, urgency, taxRange };
