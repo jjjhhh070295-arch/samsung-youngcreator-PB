@@ -1,16 +1,7 @@
 import { NextResponse } from "next/server";
-import {
-  fetchKoreanTopGainers,
-  fetchKisOhlcBars,
-  mapPool,
-  MIN_KR_MARKET_CAP_WON,
-} from "@/lib/advisory/krGainers";
+import { fetchKoreanTopGainers, fetchNaverOhlcBars, mapPool, MIN_KR_MARKET_CAP_WON } from "@/lib/advisory/krGainers";
 import { evaluateTechnicalFilters } from "@/lib/advisory/krTrendFilter";
-import { judgeThemeFromReports, type ThemeSourceDoc } from "@/lib/advisory/themeFromResearch";
-import { selectTopKrStocksByMarketCap } from "@/lib/advisory/selectTopKrStocks";
-import { MAX_SELECTED_KR_STOCKS } from "@/lib/advisory/krConstants";
-import { demoThemePass, isTradingDemoMode } from "@/lib/advisory/demoScreen";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { fetchNaverProfile } from "@/lib/advisory/naver";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -41,14 +32,31 @@ export interface KrTrendCandidate {
     source: string;
     asOf: string;
     status: "pass" | "review" | "blocked";
-    reportCount?: number;
-    summaryLabel?: string;
-    sources?: ThemeSourceDoc[];
   } | null;
   isFinalCandidate: boolean;
-  finalRank?: number | null;
-  selectedForRecommend?: boolean;
-  excludeReason?: string | null;
+}
+
+function heuristicTheme(profileSummary: string | null, name: string): KrTrendCandidate["theme"] {
+  const asOf = new Date().toISOString();
+  if (!profileSummary || profileSummary.trim().length < 40) {
+    return {
+      passed: false,
+      themeName: "테마 검증 부족",
+      evidence: "회사개요/섹터 출처가 부족해 테마 추세를 확정하지 않습니다. 고객 확정 포트폴리오에 자동 반영하지 않습니다.",
+      source: "none",
+      asOf,
+      status: "review",
+    };
+  }
+  const text = profileSummary.slice(0, 400);
+  return {
+    passed: true,
+    themeName: `${name} 사업개요 기반 참고`,
+    evidence: text,
+    source: "naver-finance:item-main:fnguide",
+    asOf,
+    status: "pass",
+  };
 }
 
 function baseCandidateFields(g: Awaited<ReturnType<typeof fetchKoreanTopGainers>>["gainers"][number]) {
@@ -72,78 +80,21 @@ function baseCandidateFields(g: Awaited<ReturnType<typeof fetchKoreanTopGainers>
   };
 }
 
-async function loadResearchSourcesForTicker(ticker: string, name: string): Promise<ThemeSourceDoc[]> {
-  if (!isSupabaseConfigured || !supabase) return [];
-  try {
-    const since = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
-    const { data } = await supabase
-      .from("research_reports")
-      .select("title, source, published_at, url, summary, tickers")
-      .gte("published_at", since)
-      .limit(40);
-    const rows = (data ?? []) as Array<{
-      title?: string;
-      source?: string;
-      published_at?: string;
-      url?: string;
-      summary?: string;
-      tickers?: string[] | null;
-    }>;
-    return rows
-      .filter((r) => {
-        const hay = `${r.title ?? ""} ${r.summary ?? ""} ${(r.tickers ?? []).join(" ")}`;
-        return hay.includes(ticker) || (name && hay.includes(name));
-      })
-      .map((r) => ({
-        title: r.title ?? "",
-        publisher: r.source ?? "research",
-        publishedAt: r.published_at ?? "",
-        url: r.url ?? "",
-      }));
-  } catch {
-    return [];
-  }
-}
-
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const limit = Math.min(70, Math.max(10, Number(url.searchParams.get("limit") || 70)));
   const screen = url.searchParams.get("screen") !== "0";
 
   try {
-    const result = await fetchKoreanTopGainers(limit);
-
-    if (result.status === "config_required" || result.status === "error") {
-      return NextResponse.json({
-        ok: result.status !== "error",
-        status: result.status,
-        message: result.message,
-        asOf: result.asOf,
-        source: result.source,
-        currency: "KRW",
-        marketCapFloorWon: result.floorWon,
-        maxSelected: MAX_SELECTED_KR_STOCKS,
-        universeSize: result.universeSize,
-        count: 0,
-        finalCount: 0,
-        candidates: [],
-        unverifiable: [],
-        recommendable: [],
-        excludedByCap: [],
-      });
-    }
-
-    const { gainers, unverifiable, universeSize, floorWon, asOf, source } = result;
+    const { gainers, unverifiable, universeSize, floorWon } = await fetchKoreanTopGainers(limit);
 
     if (!screen) {
       return NextResponse.json({
         ok: true,
-        status: "ok",
-        asOf,
-        source,
+        asOf: new Date().toISOString(),
+        source: "naver-finance:marketValue+changePct",
         currency: "KRW",
         marketCapFloorWon: floorWon,
-        maxSelected: MAX_SELECTED_KR_STOCKS,
         universeSize,
         count: gainers.length,
         candidates: gainers.map((g) => ({
@@ -153,56 +104,44 @@ export async function GET(req: Request) {
           theme: null,
           isFinalCandidate: false,
         })),
-        unverifiable,
+        unverifiable: unverifiable.map((g) => ({
+          ...baseCandidateFields(g),
+          technical: null,
+          technicalError: "시총 검증 불가",
+          theme: null,
+          isFinalCandidate: false,
+        })),
       });
     }
 
-    const screened = await mapPool(gainers, 3, async (g) => {
+    const screened = await mapPool(gainers, 6, async (g) => {
       const base = baseCandidateFields(g);
       if (g.marketCapStatus !== "ok") {
         return {
           ...base,
           technical: null,
-          technicalError:
-            g.marketCapStatus === "unverifiable" ? "시총 검증 불가" : "시가총액 2조 원 미만",
+          technicalError: g.marketCapStatus === "unverifiable" ? "시총 검증 불가" : "시가총액 5,000억 미만",
           theme: null,
           isFinalCandidate: false,
         } satisfies KrTrendCandidate;
       }
       try {
-        const { bars, asOf: barAsOf, source: barSource } = await fetchKisOhlcBars(g.ticker);
+        const { bars, asOf, source } = await fetchNaverOhlcBars(g.ticker);
         const technical = evaluateTechnicalFilters(bars);
         let theme: KrTrendCandidate["theme"] = null;
         if (technical.passed) {
-          if (isTradingDemoMode()) {
-            theme = demoThemePass(g.name);
-          } else {
-            const sources = await loadResearchSourcesForTicker(g.ticker, g.name);
-            const judged = judgeThemeFromReports({
-              themeName: `${g.name} 테마`,
-              sources,
-              evidence: sources.map((s) => s.title),
-            });
-            theme = {
-              passed: judged.status === "pass",
-              themeName: judged.themeName,
-              evidence: judged.summaryLabel + (judged.evidence[0] ? ` · ${judged.evidence[0]}` : ""),
-              source: judged.sources.map((s) => s.url).join(" | ") || "research",
-              asOf: judged.asOf,
-              status: judged.status,
-              reportCount: judged.reportCount,
-              summaryLabel: judged.summaryLabel,
-              sources: judged.sources,
-            };
-          }
+          const profile = await fetchNaverProfile(g.ticker).catch(() => null);
+          theme = heuristicTheme(profile?.longBusinessSummary ?? null, g.name);
         }
         const isFinalCandidate = Boolean(
-          g.marketCapStatus === "ok" && technical.passed && theme?.status === "pass",
+          g.marketCapStatus === "ok" &&
+            technical.passed &&
+            theme?.passed,
         );
         return {
           ...base,
-          asOf: barAsOf || g.asOf,
-          source: `${g.source} · ${barSource}`,
+          asOf: asOf || g.asOf,
+          source: `${g.source} · ${source}`,
           technical,
           technicalError: null,
           theme,
@@ -219,48 +158,16 @@ export async function GET(req: Request) {
       }
     });
 
-    const finals = screened.filter((c) => c.isFinalCandidate);
-    const { selected, excluded } = selectTopKrStocksByMarketCap(finals, MAX_SELECTED_KR_STOCKS);
-    const selectedTickers = new Set(selected.map((s) => s.ticker));
-    const excludedTickers = new Map(excluded.map((e) => [e.ticker, e]));
-
-    const annotated = screened.map((c) => {
-      if (!c.isFinalCandidate) {
-        return { ...c, finalRank: null, selectedForRecommend: false, excludeReason: null };
-      }
-      if (selectedTickers.has(c.ticker)) {
-        const s = selected.find((x) => x.ticker === c.ticker)!;
-        return {
-          ...c,
-          finalRank: s.finalRank,
-          selectedForRecommend: true,
-          excludeReason: null,
-        };
-      }
-      const ex = excludedTickers.get(c.ticker);
-      return {
-        ...c,
-        finalRank: ex?.finalRank ?? null,
-        selectedForRecommend: false,
-        excludeReason: ex?.excludeReason ?? `최대 ${MAX_SELECTED_KR_STOCKS}종목 제한으로 제외`,
-      };
-    });
-
     return NextResponse.json({
       ok: true,
-      status: "ok",
-      asOf: asOf || new Date().toISOString(),
-      source,
+      asOf: new Date().toISOString(),
+      source: "naver-finance:marketValue+chart",
       currency: "KRW",
       marketCapFloorWon: MIN_KR_MARKET_CAP_WON,
-      maxSelected: MAX_SELECTED_KR_STOCKS,
       universeSize,
-      count: annotated.length,
-      finalCount: finals.length,
-      recommendableCount: selected.length,
-      candidates: annotated,
-      recommendable: selected,
-      excludedByCap: excluded,
+      count: screened.length,
+      finalCount: screened.filter((c) => c.isFinalCandidate).length,
+      candidates: screened,
       unverifiable: unverifiable.map((g) => ({
         ...baseCandidateFields(g),
         technical: null,
@@ -268,7 +175,7 @@ export async function GET(req: Request) {
         theme: null,
         isFinalCandidate: false,
       })),
-      note: "등락률 상위 70 후 시총·기술·리포트 테마. 최종 추천은 시총 상위 3종목. 가격 지표는 완료 일봉만 사용.",
+      note: "시총 5,000억 이상만 상위 70 후보. 가격·이동평균·양봉은 결정론. 테마는 출처 기반.",
     });
   } catch (e: unknown) {
     return NextResponse.json(

@@ -1,31 +1,143 @@
-@import "tailwindcss/base";
-@import "tailwindcss/components";
-@import "tailwindcss/utilities";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
+/* ── CSS 변수 기반 테마 토큰 ── */
 :root {
+  --bg: 245 247 252;          /* 본문 배경 (거의 흰색) */
+  --surface: 255 255 255;     /* 카드·패널 흰색 */
+  --surface-2: 240 243 250;
+  --border: 220 228 245;
+  --fg: 15 23 42;             /* 본문 텍스트 (거의 검정) */
+  --fg-muted: 100 116 139;
+  --font-sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic";
+  --primary: 20 40 160;
+  --primary-strong: 12 32 122;
+}
+
+.dark {
+  --bg: 245 247 252;
+  --surface: 255 255 255;
+  --surface-2: 240 243 250;
+  --border: 220 228 245;
+  --fg: 15 23 42;
+  --fg-muted: 100 116 139;
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+html {
   color-scheme: light;
 }
 
 body {
-  margin: 0;
-  min-height: 100vh;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% -10%, #dbeafe 0%, transparent 55%),
-    radial-gradient(ellipse 60% 40% at 90% 10%, #ecfccb 0%, transparent 50%),
-    linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
-  color: #0f172a;
-  font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  background-color: rgb(var(--bg));
+  color: rgb(var(--fg));
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-.text-fg { color: #0f172a; }
-.text-fg-muted { color: #64748b; }
-.bg-surface { background: #ffffff; }
-.bg-surface-2 { background: #f1f5f9; }
-
-.btn-outline {
-  @apply rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50;
+/* 공용 컴포넌트 클래스 */
+@layer components {
+  .card {
+    @apply rounded-xl border border-border bg-surface shadow-sm;
+  }
+  .decision-section { @apply space-y-4; }
+  .decision-card { @apply rounded-xl border border-border bg-surface p-5 shadow-sm; }
+  .decision-kicker { @apply text-[11px] font-bold uppercase tracking-[0.12em] text-[#1428A0]; }
+  .decision-title { @apply text-lg font-bold tracking-tight text-fg; }
+  .decision-copy { @apply text-xs leading-relaxed text-fg-muted; }
+  .metric-value { @apply text-2xl font-black tracking-tight text-fg; }
+  .console-panel { @apply rounded-xl border border-border bg-white shadow-sm; }
+  .console-panel-header { @apply flex items-center justify-between border-b border-border px-4 py-3; }
+  .console-metric { @apply rounded-xl border border-border bg-white px-4 py-3; }
+  .console-label { @apply text-[10px] font-bold uppercase tracking-wide text-fg-muted; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-navy-500 text-white hover:bg-navy-600 dark:bg-navy-500 dark:hover:bg-navy-400;
+  }
+  .btn-gold {
+    @apply btn bg-white text-navy-900 hover:bg-gold-100 font-semibold dark:bg-white dark:text-navy-900 dark:hover:bg-gold-100;
+  }
+  .btn-outline {
+    @apply btn border border-border bg-transparent text-fg hover:bg-surface-2;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-fg-muted hover:bg-surface-2 hover:text-fg;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .input {
+    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition-shadow placeholder:text-fg-muted/60 focus:ring-2 focus:ring-navy-500/60 disabled:bg-surface-2 disabled:opacity-70;
+  }
+  /* OS 다크모드에서 native select가 흰 글자로 뒤집히지 않게, 실제 토큰 색을 강제 */
+  .sort-select,
+  .dark .sort-select {
+    color-scheme: light;
+    background-color: rgb(var(--surface));
+    color: rgb(var(--fg));
+  }
+  .sort-select option,
+  .dark .sort-select option {
+    background-color: rgb(var(--surface));
+    color: rgb(var(--fg));
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-fg-muted;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-gold {
+    @apply badge bg-gold-100 text-gold-800 dark:bg-gold-900/40 dark:text-gold-200;
+  }
+  .badge-navy {
+    @apply badge bg-navy-100 text-navy-800 dark:bg-navy-700 dark:text-navy-100;
+  }
+  .badge-muted {
+    @apply badge bg-surface-2 text-fg-muted;
+  }
+  .badge-success { @apply badge bg-emerald-50 text-emerald-700; }
+  .badge-warning { @apply badge bg-amber-50 text-amber-700; }
+  .badge-danger { @apply badge bg-red-50 text-red-700; }
 }
 
-.input {
-  @apply rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 outline-none focus:border-slate-500;
+/* 스크롤바 (다크 모드 대응) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 5px;
+}
+
+@media print {
+  body.pb-pdf-print-blocked > * {
+    display: none !important;
+  }
+
+  body.pb-pdf-print-blocked::before {
+    display: block;
+    margin: 24mm;
+    border: 2px solid #dc2626;
+    padding: 16mm;
+    color: #991b1b;
+    background: #ffffff;
+    font-size: 16pt;
+    font-weight: 700;
+    content: "고객 문서 출력 차단 — 문서 발행 조건과 PB 상담 검토 승인이 완료되지 않아 고객 정보 및 투자정책서 본문을 출력하지 않습니다.";
+  }
 }

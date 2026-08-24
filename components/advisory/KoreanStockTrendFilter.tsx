@@ -72,7 +72,6 @@ export default function KoreanStockTrendFilter({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [confirmError, setConfirmError] = useState("");
-  const [configMessage, setConfigMessage] = useState("");
   const [meta, setMeta] = useState<{
     asOf: string;
     source: string;
@@ -142,21 +141,13 @@ export default function KoreanStockTrendFilter({
     try {
       const res = await fetch("/api/advisory/kr-trend?limit=70&screen=1", { cache: "no-store" });
       const data = await res.json();
-      if (data.status === "config_required" || data.status === "error") {
-        setCandidates([]);
-        setUnverifiable([]);
-        setConfigMessage(data.message || "KIS 조건검색 설정이 필요합니다.");
-        setMeta(null);
-        return;
-      }
       if (!data.ok) throw new Error(data.error || "조회 실패");
-      setConfigMessage("");
       setCandidates(data.candidates ?? []);
       setUnverifiable(data.unverifiable ?? []);
       setMeta({
         asOf: data.asOf,
         source: data.source,
-        finalCount: data.recommendableCount ?? data.finalCount ?? 0,
+        finalCount: data.finalCount ?? 0,
         universeSize: data.universeSize,
         marketCapFloorWon: data.marketCapFloorWon,
       });
@@ -184,54 +175,8 @@ export default function KoreanStockTrendFilter({
       setConfirmed([]);
       return;
     }
-    if (checkedList.length > 3) {
-      setConfirmError("최종 확정은 최대 3종목까지입니다.");
-      return;
-    }
-    // 손익비 입력이 잘못된 종목 있으면 확정 차단
-    for (const s of checkedList) {
-      const c = candidates.find((x) => x.ticker === s.ticker);
-      const draft = rr[s.ticker];
-      if (!c || !draft) {
-        setConfirmError(`${s.name}: 손절·익절·매수금액을 입력하세요.`);
-        return;
-      }
-      const calc = calculateRiskReward({
-        seedWon: Number(draft.seedWon) || 0,
-        entryPrice: c.price,
-        stopLossPrice: Number(draft.stopLoss) || 0,
-        takeProfitPrice: Number(draft.takeProfit) || 0,
-        bullishDays20: c.technical?.bullish20d.bullishDays ?? 0,
-      });
-      if (!calc.ok) {
-        setConfirmError(`${s.name}: ${calc.notes.join(" ") || "손익비 검증 실패"}`);
-        return;
-      }
-    }
     setConfirmError("");
-    const next: PbSelectedKoreanStock[] = checkedList.slice(0, 3).map((s) => {
-      const c = candidates.find((x) => x.ticker === s.ticker)!;
-      const draft = rr[s.ticker]!;
-      const calc = calculateRiskReward({
-        seedWon: Number(draft.seedWon) || 0,
-        entryPrice: c.price,
-        stopLossPrice: Number(draft.stopLoss) || 0,
-        takeProfitPrice: Number(draft.takeProfit) || 0,
-        bullishDays20: c.technical?.bullish20d.bullishDays ?? 0,
-      });
-      return {
-        ticker: c.ticker,
-        name: c.name,
-        marketCapWon: c.marketCapWon,
-        changePct: c.changePct,
-        seedWon: Number(draft.seedWon) || 0,
-        entryPrice: c.price,
-        stopLossPrice: Number(draft.stopLoss) || 0,
-        takeProfitPrice: Number(draft.takeProfit) || 0,
-        rewardRiskRatio: calc.ok ? calc.rewardRiskRatio : null,
-      };
-    });
-    setConfirmed(next);
+    setConfirmed(checkedList);
   };
 
   const handleClearConfirm = () => {
@@ -248,7 +193,7 @@ export default function KoreanStockTrendFilter({
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8B6914]">국내 주식 추세 필터</p>
           <h3 className="text-base font-bold text-fg">국장 추세 후보 (체크 → 후보 확정 → 주식형 반영)</h3>
           <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-fg-muted">
-            KIS 조건검색 → 등락률 상위 70 → 시총 2조·완료일봉 기술조건·리포트 테마 pass → 시총 상위 최대 3종목만 추천.
+            시가총액 1조 원 이상 국내 주식만 universe에 포함 → 당일 상승률 상위 70개 → 20일선·양봉·적삼봉 → 테마 출처 검증.
             체크만으로는 반영되지 않으며, 「후보 확정」한 종목만 주식형 {equityWeightPct.toFixed(0)}%에 배분됩니다.
           </p>
         </div>
@@ -267,20 +212,11 @@ export default function KoreanStockTrendFilter({
           as-of {meta.asOf.slice(0, 19)} · source {meta.source} · KRW · 시총하한{" "}
           {meta.marketCapFloorWon
             ? `${(meta.marketCapFloorWon / 1e12).toFixed(0)}조원`
-            : "2조원"}{" "}
+            : "1조원"}{" "}
           · 시총충족 universe {meta.universeSize ?? "—"}종 · 최종 후보 {meta.finalCount}종
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-      {configMessage && (
-        <div className="mt-3 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-          <p className="font-semibold">설정 필요 (네이버/스크래핑 폴백 없음)</p>
-          <p className="mt-1">{configMessage}</p>
-          <p className="mt-1 text-[10px] text-amber-800">
-            .env.local에 KIS_APP_KEY, KIS_APP_SECRET, KIS_CONDITION_SEQ(eFriend Plus 조건검색식 번호)를 설정하세요.
-          </p>
-        </div>
-      )}
 
       {unverifiable.length > 0 && (
         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
@@ -337,17 +273,13 @@ export default function KoreanStockTrendFilter({
             stop > 0 && take > 0
               ? calculateRiskReward({
                   seedWon: seed,
-                  entryPrice: c.price,
+                  currentPrice: c.price,
                   stopLossPrice: stop,
                   takeProfitPrice: take,
                   bullishDays20: bullishDays,
                 })
               : null;
-          const selectable =
-            (c as { selectedForRecommend?: boolean }).selectedForRecommend === true ||
-            ((c as { selectedForRecommend?: boolean }).selectedForRecommend == null && c.isFinalCandidate);
-          const canCheck = selectable;
-          const excludedByCap = Boolean((c as { excludeReason?: string }).excludeReason);
+          const canCheck = c.isFinalCandidate;
           const isConfirmed = confirmedTickers.has(c.ticker);
 
           return (
@@ -375,19 +307,19 @@ export default function KoreanStockTrendFilter({
                   </span>
                 </label>
                 <span className="text-xs text-fg-muted">{c.market}</span>
-                {excludedByCap && (
-                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                    {(c as { excludeReason?: string }).excludeReason}
-                  </span>
-                )}
-                {!canCheck && !excludedByCap && (
+                {!canCheck && (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                     후보 미통과 / 체크 불가
                   </span>
                 )}
-                {canCheck && (
+                {canCheck && !isConfirmed && (
                   <span className="rounded-full bg-[#1428A0] px-2 py-0.5 text-[10px] font-semibold text-white">
-                    최종 추천 (시총 상위 3)
+                    최종 후보
+                  </span>
+                )}
+                {isConfirmed && (
+                  <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                    확정됨
                   </span>
                 )}
               </div>
@@ -488,29 +420,22 @@ export default function KoreanStockTrendFilter({
                       />
                     </label>
                   </div>
-                  {calc && calc.ok && (
+                  {calc && (
                     <ul className="mt-2 grid grid-cols-2 gap-1 text-[10px] md:grid-cols-4">
+                      <li>상승확률(20일 양봉비): {(calc.winRate * 100).toFixed(0)}%</li>
+                      <li>하락확률: {(calc.lossRate * 100).toFixed(0)}%</li>
                       <li>매수수량: {calc.shares}주</li>
-                      <li>주당위험: {fmtWon(calc.riskPerShare)}</li>
-                      <li>주당보상: {fmtWon(calc.rewardPerShare)}</li>
-                      <li>최대손실: {fmtWon(calc.maxLossWon)}</li>
-                      <li>목표수익: {fmtWon(calc.targetProfitWon)}</li>
+                      <li>주당손실: {fmtWon(calc.lossPerShare)}</li>
+                      <li>주당이익: {fmtWon(calc.profitPerShare)}</li>
+                      <li>예상손실: {fmtWon(calc.expectedLossWon)}</li>
+                      <li>예상이익: {fmtWon(calc.expectedProfitWon)}</li>
                       <li>
-                        위험 1 대비 보상{" "}
-                        {calc.rewardRiskRatio == null ? "—" : calc.rewardRiskRatio.toFixed(2)}
+                        손익비: {calc.riskRewardRatio == null ? "—" : calc.riskRewardRatio.toFixed(2)}
                       </li>
-                      <li>양봉비율: {(calc.bullishRatio * 100).toFixed(0)}%</li>
-                      <li>상승확률(검증): {calc.historicalWinRate == null ? "N/A" : `${(calc.historicalWinRate * 100).toFixed(0)}%`}</li>
-                      <li>프록시 기대이익: {fmtWon(calc.proxyExpectedProfitWon)}</li>
-                      <li>프록시 기대손실: {fmtWon(calc.proxyExpectedLossWon)}</li>
-                      <li className="md:col-span-2">프록시 순기댓값: {fmtWon(calc.proxyNetExpectedWon)}</li>
                     </ul>
                   )}
-                  {calc && (
-                    <p className="mt-1 text-[10px] text-amber-800">{calc.disclaimer}</p>
-                  )}
-                  {calc && !calc.ok && calc.notes?.length ? (
-                    <p className="mt-1 text-[10px] text-red-700">{calc.notes.join(" · ")}</p>
+                  {calc?.notes?.length ? (
+                    <p className="mt-1 text-[10px] text-amber-800">{calc.notes.join(" · ")}</p>
                   ) : null}
                 </div>
               )}

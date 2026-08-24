@@ -1,46 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchKisOhlcBars } from "@/lib/advisory/krGainers";
+import { fetchNaverOhlcBars, mapPool } from "@/lib/advisory/krGainers";
 
 export const dynamic = "force-dynamic";
 
-/** 단일/복수 종목 OHLC — ticker= 또는 tickers= */
+/** PB 확정 종목 OHLC 일봉 — 성과지표·백테스트 재계산용 */
 export async function GET(req: NextRequest) {
-  const single = req.nextUrl.searchParams.get("ticker")?.trim() ?? "";
   const tickersParam = req.nextUrl.searchParams.get("tickers") ?? "";
-  const tickers = [
-    ...(single && /^\d{6}$/.test(single) ? [single] : []),
-    ...tickersParam
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => /^\d{6}$/.test(t)),
-  ];
-  const unique = Array.from(new Set(tickers));
+  const tickers = tickersParam
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => /^\d{6}$/.test(t));
 
-  if (unique.length === 0) {
-    return NextResponse.json({ ok: false, error: "ticker 또는 tickers 필요" }, { status: 400 });
+  if (tickers.length === 0) {
+    return NextResponse.json({ ok: false, error: "tickers 필요 (예: 005930,000660)" }, { status: 400 });
   }
 
   try {
-    const lookback = Math.min(400, Math.max(60, Number(req.nextUrl.searchParams.get("days") ?? 80) || 80));
-    if (unique.length === 1) {
-      const { bars, asOf, source, name } = await fetchKisOhlcBars(unique[0]!, lookback);
-      return NextResponse.json({
-        ok: true,
-        ticker: unique[0],
+    const lookback = Math.min(400, Math.max(80, Number(req.nextUrl.searchParams.get("days") ?? 260) || 260));
+    const results = await mapPool(tickers, 3, async (ticker) => {
+      const { bars, asOf, source, name } = await fetchNaverOhlcBars(ticker, lookback);
+      return {
+        ticker,
         name,
         asOf,
         source,
-        bars,
-      });
-    }
+        currency: "KRW" as const,
+        closes: bars.map((b) => ({ date: b.date, close: b.close })),
+      };
+    });
 
-    const series = await Promise.all(
-      unique.map(async (ticker) => {
-        const { bars, asOf, source, name } = await fetchKisOhlcBars(ticker, lookback);
-        return { ticker, name, asOf, source, bars };
-      }),
-    );
-    return NextResponse.json({ ok: true, series });
+    const blocked = results.filter((r) => r.closes.length < 2);
+    return NextResponse.json({
+      ok: true,
+      asOf: new Date().toISOString(),
+      source: "api.stock.naver.com chart/domestic",
+      currency: "KRW",
+      series: results,
+      blockedTickers: blocked.map((b) => b.ticker),
+      status: blocked.length === results.length ? "blocked" : blocked.length ? "review" : "ok",
+    });
   } catch (e: unknown) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "OHLC 조회 실패" },

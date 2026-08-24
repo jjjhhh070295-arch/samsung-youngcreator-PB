@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
-import { judgeThemeFromReports, type ThemeSourceDoc } from "@/lib/advisory/themeFromResearch";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { fetchNaverProfile } from "@/lib/advisory/naver";
 
 export const runtime = "nodejs";
 
 /**
- * 테마 판정 — 리포트 출처 기반. LLM은 선택적 요약만(숫자 생성 금지).
- * heuristic(회사개요만 pass) 제거.
+ * 테마 설명 — LLM은 요약만. 숫자 생성 금지.
+ * ANTHROPIC_API_KEY 없으면 개요 원문 기반 fallback.
  */
 export async function POST(req: Request) {
-  let body: { ticker?: string; name?: string; sources?: ThemeSourceDoc[] };
+  let body: { ticker?: string; name?: string };
   try {
     body = await req.json();
   } catch {
@@ -21,37 +20,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, status: "blocked", error: "ticker가 필요합니다." }, { status: 400 });
   }
 
-  let sources: ThemeSourceDoc[] = Array.isArray(body.sources) ? body.sources : [];
+  const profile = await fetchNaverProfile(ticker).catch(() => null);
+  const summary = profile?.longBusinessSummary?.trim() || "";
+  const asOf = new Date().toISOString();
+  const source = profile?.source || "none";
 
-  if (sources.length === 0 && isSupabaseConfigured && supabase) {
-    try {
-      const since = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
-      const { data } = await supabase
-        .from("research_reports")
-        .select("title, source, published_at, url, summary, tickers")
-        .gte("published_at", since)
-        .limit(40);
-      sources = ((data ?? []) as Array<Record<string, unknown>>)
-        .filter((r) => {
-          const hay = `${r.title ?? ""} ${r.summary ?? ""} ${JSON.stringify(r.tickers ?? [])}`;
-          return hay.includes(ticker) || (name && hay.includes(name));
-        })
-        .map((r) => ({
-          title: String(r.title ?? ""),
-          publisher: String(r.source ?? "research"),
-          publishedAt: String(r.published_at ?? ""),
-          url: String(r.url ?? ""),
-        }));
-    } catch {
-      /* ignore */
-    }
+  if (summary.length < 40) {
+    return NextResponse.json({
+      ok: true,
+      status: "review",
+      passed: false,
+      themeName: "테마 검증 부족",
+      evidence: "출처 부족 — 고객 확정 포트폴리오에 자동 반영하지 않습니다.",
+      source,
+      asOf,
+      currency: "KRW",
+    });
   }
 
-  let themeName = `${name} 테마`;
-  let evidence = sources.map((s) => s.title);
-
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (apiKey && sources.length > 0) {
+  let evidence = summary.slice(0, 500);
+  let themeName = `${name} 사업개요 요약`;
+
+  if (apiKey) {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -63,43 +54,44 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           model: process.env.ANTHROPIC_MODEL?.trim() || "claude-3-5-haiku-20241022",
           max_tokens: 400,
-          system: `당신은 리포트 테마 추출만 담당한다.
+          system: `당신은 국내 주식 테마 설명만 담당한다.
 규칙:
-- 제공된 리포트 제목/출처만 사용한다.
-- 가격·수익률·이동평균·확률을 만들지 마라.
-- 단기 급등인지 단정하지 말고 중기 테마 근거만 요약한다.
-- JSON만 반환: {"themeName":"...","evidence":["..."]}`,
+- 제공된 회사개요 원문만 요약한다.
+- 가격·수익률·이동평균·양봉·손익비를 만들지 마라.
+- 단기 급등인지 단정하지 말고, 사업/섹터 테마를 2~3문장으로 설명한다.
+- 투자 권유 금지.
+- 첫 줄에 테마명(짧게), 이어서 근거 문장.`,
           messages: [
             {
               role: "user",
-              content: `종목 ${name}(${ticker})\n문서:\n${sources
-                .slice(0, 8)
-                .map((s) => `- ${s.title} | ${s.publisher} | ${s.publishedAt} | ${s.url}`)
-                .join("\n")}`,
+              content: `종목: ${name}(${ticker})\n회사개요 원문:\n${summary.slice(0, 1500)}`,
             },
           ],
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        const text = data?.content?.[0]?.text?.trim() ?? "";
-        const match = text.match(/\{[\s\S]*\}/);
-        if (match) {
-          const parsed = JSON.parse(match[0]) as { themeName?: string; evidence?: string[] };
-          if (parsed.themeName) themeName = parsed.themeName;
-          if (parsed.evidence?.length) evidence = parsed.evidence;
+        const text = data?.content?.[0]?.text?.trim();
+        if (text) {
+          const lines = text.split("\n").map((l: string) => l.trim()).filter(Boolean);
+          themeName = lines[0]?.replace(/^테마명[:：]\s*/, "") || themeName;
+          evidence = lines.slice(1).join(" ") || text;
         }
       }
     } catch {
-      /* keep deterministic judge */
+      /* fallback to raw summary */
     }
   }
 
-  const judged = judgeThemeFromReports({ themeName, evidence, sources });
   return NextResponse.json({
     ok: true,
-    ...judged,
-    passed: judged.status === "pass",
+    status: "pass",
+    passed: true,
+    themeName,
+    evidence,
+    source,
+    asOf,
     currency: "KRW",
+    note: "LLM은 설명만. 숫자는 엔진 계산값을 사용하세요.",
   });
 }
