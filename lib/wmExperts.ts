@@ -13,3 +13,8 @@ export function expertForTaxPain(id: string): WmExpert {
   const expertId = id === "inheritance-gift" ? "kim-tax" : id === "real-estate-tax" ? "lee-realty" : ["financial-income", "stock-capital-gain"].includes(id) ? "park-finance" : "choi-wm";
   return WM_EXPERTS.find((expert) => expert.id === expertId) ?? WM_EXPERTS[3];
 }
+
+// 헤리티지(상속·증여) 탭에서 쓰는 전문가 추천 — 상속·증여 태그를 가진 전문가를 우선한다.
+export function expertForHeritage(): WmExpert {
+  return WM_EXPERTS.find((expert) => expert.specialties.includes("상속·증여")) ?? WM_EXPERTS[3];
+}

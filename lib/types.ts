@@ -358,6 +358,23 @@ export interface Consultation {
   createdAt: string;
 }
 
+// 헤리티지 탭에서 MeetingBookingModal로 잡은 전문가 상담 예약 요청.
+export interface HeritageMeetingRequest {
+  id: string;
+  clientId: string;
+  pbId: string;
+  expertId: string;
+  expertName: string;
+  /** MeetingBookingModal의 onConfirm이 넘기는 문자열 그대로("김세무 전문가 / 2026-09-01 10:00 예약 요청"). */
+  requestedLabel: string;
+  /** requestedLabel에서 파싱한 날짜(YYYY-MM-DD). 파싱 실패 시 null. */
+  requestedDate: string | null;
+  /** requestedLabel에서 파싱한 시간(HH:MM). 파싱 실패 시 null. */
+  requestedTime: string | null;
+  status: "requested";
+  createdAt: string;
+}
+
 // ── 7요인 메타 (라벨·설명·순서) ──
 export const FACTOR_META: {
   key: FactorKey;

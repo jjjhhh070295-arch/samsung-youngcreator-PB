@@ -126,8 +126,12 @@ describe("resolveHeritageInputsBulk — 벌크 조회 결과를 clientId별 Map�
     const input = result.heritageInputs.get("B");
     assert.equal(input!.assetSizeWon, 500_000_000);
     assert.equal(input!.realEstateWeightPct, 0);
-    assert.equal(input!.hasSpouse, false);
-    assert.equal(input!.childrenCount, 0);
+  });
+
+  it("B: 가족관계 행이 하나도 없으면 hasSpouse/childrenCount가 false/0이 아니라 null(미상)이다", () => {
+    const input = result.heritageInputs.get("B");
+    assert.equal(input!.hasSpouse, null);
+    assert.equal(input!.childrenCount, null);
   });
 
   it("B: 지분율 신호(B)가 succession 신호에 반영된다(owns 60%)", () => {
@@ -155,5 +159,15 @@ describe("resolveHeritageInputsBulk — 벌크 조회 결과를 clientId별 Map�
     assert.ok(assessment.taxRange);
     assert.equal(assessment.taxRange!.breakdown.debtWon, 500_000_000);
     assert.equal(assessment.taxRange!.breakdown.netAssetWon, 2_700_000_000);
+    assert.equal(assessment.dataAssumptionsUsed, false, "A는 가족관계가 모두 확인됐으므로 가정 배지가 뜨면 안 된다");
+  });
+
+  it("B(가족관계 미상)를 assessHeritage에 넣으면 가정이 쓰였다는 배지가 뜬다", () => {
+    const input = result.heritageInputs.get("B")!;
+    const assessment = assessHeritage(input);
+    assert.equal(assessment.demand.hasSpouseAssumed, true);
+    assert.equal(assessment.demand.childrenCountAssumed, true);
+    assert.equal(assessment.dataAssumptionsUsed, true);
+    assert.ok(assessment.demand.reasons.some((r) => r.code === "has_spouse_assumed"));
   });
 });

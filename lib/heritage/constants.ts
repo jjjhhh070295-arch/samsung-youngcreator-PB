@@ -72,4 +72,9 @@ export const HERITAGE_TAX_ASSUMPTIONS = {
   // 자녀 수를 party_relationships에서 확인할 수 없을 때 보수적으로 가정하는 값.
   // "가정했다"는 사실은 반드시 결과(childrenCountAssumed)에 표시한다.
   assumedChildrenCountWhenUnknown: 2,
+  // 배우자 유무를 party_relationships에서 확인할 수 없을 때의 가정. false(없음)를 쓰면
+  // 배우자공제가 안 붙어 예상 공제가 작아지고(taxableExcessWon이 커짐) — 미입력 때문에
+  // 상담 필요 신호를 놓치지 않는 쪽으로 보수적이다. "가정했다"는 사실은 반드시
+  // 결과(hasSpouseAssumed)에 표시한다.
+  hasSpouseWhenUnknown: false,
 } as const;

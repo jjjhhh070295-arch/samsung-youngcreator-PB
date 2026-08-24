@@ -12,6 +12,10 @@ import {
   deletePb,
   createClient,
   nextClientCode,
+  listOwnershipRelationshipsBulk,
+  listFamilyRelationshipsBulk,
+  listRealEstateWithDebtBulk,
+  listGiftEventsBulk,
 } from "@/lib/store";
 import PBDashboard from "@/components/PBDashboard";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -23,6 +27,7 @@ import BookDashboard from "@/components/advisory/BookDashboard";
 import ClientAvatar from "@/components/ClientAvatar";
 import { analyzeBook, buildClientBookRow } from "@/lib/advisory/book";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
+import { resolveHeritageInputsBulk } from "@/lib/heritage";
 
 export default function PBPage() {
   const { pbId } = useParams<{ pbId: string }>();
@@ -56,7 +61,27 @@ export default function PBPage() {
       const mine = clients.filter((c) => c.assignedPbId === pbId);
       const holdings = await listBookHoldings(mine.map((c) => c.id));
       const asOf = new Date().toISOString();
-      const rows = mine.map((c) => buildClientBookRow(c, holdings, cons, asOf));
+
+      // 헤리티지 판정 입력을 벌크로 조립 — 고객 한 명마다 쿼리를 새로 날리지 않고 4개 쿼리로
+      // 전체를 가져온다(lib/heritage/resolveBulk.ts 참고). 개인 고객만 대상.
+      const individualIds = mine.filter((c) => c.clientType === "individual").map((c) => c.id);
+      const [ownershipRelationships, familyRelationships, realEstate, giftEvents] = await Promise.all([
+        listOwnershipRelationshipsBulk(individualIds),
+        listFamilyRelationshipsBulk(individualIds),
+        listRealEstateWithDebtBulk(individualIds),
+        listGiftEventsBulk(individualIds),
+      ]);
+      const { heritageInputs } = resolveHeritageInputsBulk({
+        allClients: clients,
+        targetClientIds: individualIds,
+        ownershipRelationships,
+        familyRelationships,
+        realEstate,
+        giftEvents,
+        asOf: new Date(asOf),
+      });
+
+      const rows = mine.map((c) => buildClientBookRow(c, holdings, cons, asOf, heritageInputs.get(c.id)));
       setBookRows(rows);
       setBookAnalysis(analyzeBook(rows, holdings.filter((h) => mine.some((c) => c.id === h.clientId)), asOf, holdings[0]?.source ?? "local-book"));
       setStatus("ready");

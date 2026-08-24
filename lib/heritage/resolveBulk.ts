@@ -6,12 +6,14 @@
 // 재구성한다. 고객 한 명마다 쿼리를 새로 날리는 대신, 쿼리 결과를 한 번 순회하며
 // groupBy 하는 것으로 N+1을 피한다.
 //
-// 알려진 한계(다음 단계에서 실제로 연결할 때 반드시 고려할 것):
-//   - childrenCount: party_relationships에 'child' 행이 하나도 없으면 이 함수는 0으로
-//     채운다. 이건 "자녀가 확인상 0명"과 "PB가 아직 가족관계를 안 입력했다"를 구분하지
-//     못한다 — 진짜 미상 상태를 표현하려면 이 함수가 아니라 estimateInheritanceTaxRange를
-//     직접 호출부에서 불러 childrenCount:null(자동으로 2명 가정 + 표시)을 넘기는 경로를
-//     따로 둬야 한다. 지금은 "관계 데이터가 있는 만큼만 반영"으로 단순화했다.
+// hasSpouse/childrenCount는 party_relationships 행의 "부재"를 절대 "확인된 없음/0명"으로
+// 바꾸지 않는다 — 이 관계 테이블은 양의 행(관계가 있다)만 증명할 수 있고, 행이 없는 것은
+// "관계 없음"과 "PB가 아직 입력 안 함"을 구분하지 못한다. 그래서 이 함수는 spouse/child
+// 관계 행을 하나도 못 찾은 클라이언트에게는 hasSpouse/childrenCount를 null(미상)로 남기고,
+// HeritageAssessmentInput을 받는 demand.ts/tax.ts가 각자 보수적으로 가정 + 표시하도록
+// 그대로 넘긴다(이 함수 자체는 가정을 하지 않는다).
+//
+// 남은 한계:
 //   - taxTagIds: RRTTLLU 태그 매칭(보조 신호)은 상담 메모 벌크 분석이 필요해 이번 범위에
 //     넣지 않았다. 넘기지 않으면 빈 배열로 처리되며, 구조적 신호(자산·부동산·증여이력)만으로
 //     판정한다 — score에 큰 영향은 없다(보조 가산 최대 6점).
@@ -105,8 +107,11 @@ export function resolveHeritageInputsBulk(params: HeritageBulkResolveParams): He
       assetSizeWon,
       debtWon: re.debtWon,
       realEstateWeightPct,
-      hasSpouse: hasSpouseByFrom.has(clientId),
-      childrenCount: childCountByFrom.get(clientId) ?? 0,
+      // 관계 행이 없으면 null(미상) — 0/false로 채우지 않는다. 아래 두 Map 모두 "행이 있을
+      // 때만" 채워지므로 .has()가 false면 그 클라이언트에 대해 이 관계 타입이 전혀 조회되지
+      // 않았다는 뜻이다.
+      hasSpouse: hasSpouseByFrom.has(clientId) ? true : null,
+      childrenCount: childCountByFrom.has(clientId) ? childCountByFrom.get(clientId)! : null,
       givenGiftEvents: giftsByFrom.get(clientId) ?? [],
       taxTagIds: params.taxTagIdsByClientId?.get(clientId) ?? [],
     });

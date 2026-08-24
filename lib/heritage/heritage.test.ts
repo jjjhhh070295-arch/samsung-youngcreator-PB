@@ -70,6 +70,71 @@ describe("estimateExemptionWon", () => {
       550_000_000 + 500_000_000, // (기초 2억+자녀공제 7×5천만=5.5억) + 배우자공제 5억
     );
   });
+
+  it("배우자 유무가 null(미상)이면 '없음'으로 가정한다(5억, 배우자공제 없음)", () => {
+    assert.equal(estimateExemptionWon({ hasSpouse: null, childrenCount: 0 }), 500_000_000);
+  });
+});
+
+describe("assessHeritageDemand — 배우자/자녀 미상(null) 처리 — '미입력'이 '확인된 0'으로 둔갑하지 않는다", () => {
+  it("hasSpouse:null이면 '배우자 없음'으로 가정하고, 그 사실이 가장 먼저 나온다", () => {
+    const result = assessHeritageDemand(baseInput({ hasSpouse: null, childrenCount: 1 }));
+    assert.equal(result.hasSpouseAssumed, true);
+    assert.equal(result.reasons[0].code, "has_spouse_assumed");
+  });
+
+  it("childrenCount:null이면 2명으로 가정하고 그 사실을 표시한다", () => {
+    const result = assessHeritageDemand(baseInput({ hasSpouse: true, childrenCount: null }));
+    assert.equal(result.childrenCountAssumed, true);
+    assert.ok(result.reasons.some((r) => r.code === "children_count_assumed"));
+  });
+
+  it("둘 다 확인됐으면(null 아님) 가정 플래그가 전부 false다", () => {
+    const result = assessHeritageDemand(baseInput({ hasSpouse: false, childrenCount: 0 }));
+    assert.equal(result.hasSpouseAssumed, false);
+    assert.equal(result.childrenCountAssumed, false);
+  });
+
+  it("hasSpouse:null(→배우자 없음 가정)은 hasSpouse:false와 동일한 taxableExcessWon을 낸다", () => {
+    const withNull = assessHeritageDemand(baseInput({ hasSpouse: null, childrenCount: 0 }));
+    const withFalse = assessHeritageDemand(baseInput({ hasSpouse: false, childrenCount: 0 }));
+    assert.equal(withNull.taxableExcessWon, withFalse.taxableExcessWon);
+  });
+});
+
+describe("estimateInheritanceTaxRange — 배우자 미상(null) 처리", () => {
+  it("hasSpouse:null이면 hasSpouseAssumed=true, hasSpouseUsed=false(가정값)로 계산된다", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: null, childrenCount: 2 });
+    assert.equal(range.hasSpouseAssumed, true);
+    assert.equal(range.hasSpouseUsed, false);
+    assert.ok(range.reasons.some((r) => r.code === "has_spouse_assumed"));
+  });
+
+  it("hasSpouse:null과 hasSpouse:false는 동일한 세액구간을 낸다(같은 가정을 쓰므로)", () => {
+    const withNull = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: null, childrenCount: 2 });
+    const withFalse = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: false, childrenCount: 2 });
+    assert.equal(withNull.maxTaxWon, withFalse.maxTaxWon);
+    assert.equal(withNull.minTaxWon, withFalse.minTaxWon);
+  });
+});
+
+describe("assessHeritage — dataAssumptionsUsed 배지 플래그", () => {
+  it("배우자/자녀가 전부 확인됐으면 false", () => {
+    const result = assessHeritage(baseInput({ hasSpouse: true, childrenCount: 1 }));
+    assert.equal(result.dataAssumptionsUsed, false);
+  });
+
+  it("배우자 유무만 미상이어도 true(자녀는 확인됐어도)", () => {
+    const result = assessHeritage(baseInput({ hasSpouse: null, childrenCount: 1 }));
+    assert.equal(result.dataAssumptionsUsed, true);
+  });
+
+  it("법인 고객은 taxRange가 없어도(null이어도) demand의 가정 여부만으로 판단한다", () => {
+    const result = assessHeritage(baseInput({ clientType: "corporate", birthDate: null, hasSpouse: null, childrenCount: null }));
+    // 법인은 demand.assessHeritageDemand에서 corporate_separate_track으로 조기 반환 —
+    // hasSpouseAssumed/childrenCountAssumed가 계산되지 않으므로 false여야 한다(가정 자체를 안 함).
+    assert.equal(result.dataAssumptionsUsed, false);
+  });
 });
 
 describe("assessHeritageDemand — 법인은 별도 트랙", () => {
@@ -281,9 +346,10 @@ describe("estimateInheritanceTaxRange — 채무 차감(순자산 기준)", () =
   });
 });
 
-describe("computePaymentGap — 납부재원 갭", () => {
-  it("예시 문구와 동일한 형태로 갭이 있을 때 최악의 경우(상한) 기준 문장을 낸다", () => {
+describe("computePaymentGap — 납부재원 갭 (3단계: 충분/불확실/부족)", () => {
+  it("하한·상한 모두 부족(insufficient)이면 예시 문구와 동일한 형태로 단정한다", () => {
     const gap = computePaymentGap({ liquidAssetsWon: 310_000_000, minTaxWon: 370_000_000, maxTaxWon: 720_000_000 });
+    assert.equal(gap.certainty, "insufficient");
     assert.equal(gap.hasGap, true);
     assert.equal(gap.maxGapWon, 410_000_000);
     assert.equal(gap.minGapWon, 60_000_000);
@@ -292,19 +358,27 @@ describe("computePaymentGap — 납부재원 갭", () => {
     assert.match(reason!.text, /예상 상속세 7\.2억원에 비해 현금성 자산이 3\.1억원으로 최대 4\.1억원이 부족합니다/);
   });
 
-  it("재원이 충분하면(상한 기준으로도 갭이 없으면) 위기감을 만들지 않는 안심 문장을 낸다", () => {
+  it("상한 기준으로도 충분(sufficient)하면 위기감을 만들지 않는 안심 문장을 낸다", () => {
     const gap = computePaymentGap({ liquidAssetsWon: 1_000_000_000, minTaxWon: 370_000_000, maxTaxWon: 720_000_000 });
+    assert.equal(gap.certainty, "sufficient");
     assert.equal(gap.hasGap, false);
-    assert.ok(gap.maxGapWon <= 0);
     const reason = gap.reasons.find((r) => r.code === "payment_gap_none");
     assert.ok(reason);
     assert.doesNotMatch(reason!.text, /부족/);
   });
 
-  it("하한 기준으로는 충분해도(minGapWon<=0) 상한 기준으로 부족하면 여전히 갭으로 처리한다", () => {
-    const gap = computePaymentGap({ liquidAssetsWon: 400_000_000, minTaxWon: 370_000_000, maxTaxWon: 720_000_000 });
-    assert.ok(gap.minGapWon <= 0);
+  it("하한은 충분한데(minGapWon<=0) 상한은 부족(maxGapWon>0)하면 uncertain — 단정하지 않고 '충분할 수도/부족할 수도'로 말한다", () => {
+    // E 시나리오와 동일한 형태: -1.8억(여유) ~ 3.7억(부족)에 걸치는 경계 케이스.
+    const gap = computePaymentGap({ liquidAssetsWon: 350_000_000, minTaxWon: 170_000_000, maxTaxWon: 720_000_000 });
+    assert.equal(gap.minGapWon, -180_000_000);
+    assert.equal(gap.maxGapWon, 370_000_000);
+    assert.equal(gap.certainty, "uncertain");
     assert.equal(gap.hasGap, true);
+    const reason = gap.reasons.find((r) => r.code === "payment_gap_uncertain");
+    assert.ok(reason);
+    assert.match(reason!.text, /배우자공제 적용 범위에 따라 재원이 충분할 수도, 최대 3\.7억원이 부족할 수도 있습니다/);
+    // insufficient 전용 문구("~부족합니다.")로 단정하면 안 된다.
+    assert.equal(gap.reasons.some((r) => r.code === "payment_gap"), false);
   });
 });
 

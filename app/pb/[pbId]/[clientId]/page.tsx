@@ -311,6 +311,7 @@ export default function ClientDetailPage() {
       {activeView === "analysis" && (
         <IPSResultTabs
           client={client}
+          allClients={allClients}
           pbId={pbId}
           clientId={clientId}
           tab={activeTab}

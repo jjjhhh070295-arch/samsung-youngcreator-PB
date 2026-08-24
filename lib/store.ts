@@ -24,6 +24,7 @@ import type {
   TransferEventType,
   AssetKind,
   GiftPairSummary,
+  HeritageMeetingRequest,
 } from "./types";
 import { emptyIPS } from "./types";
 import { SAMPLE_BOOK_CLIENTS } from "./advisory/sampleBook";
@@ -1111,6 +1112,121 @@ export async function listGiftEventsBulk(fromPartyIds: string[]): Promise<Transf
     .in("from_party_id", fromPartyIds);
   if (error) throw error;
   return (data ?? []).map(rowToTransferEvent);
+}
+
+// ───────────────────────── 헤리티지 상담 예약 ─────────────────────────
+// MeetingBookingModal이 확정한 예약 요청을 저장한다. heritage_meeting_requests 테이블이
+// Supabase에 아직 없으면(마이그레이션 미실행) insert가 실패하고 localStorage로 조용히
+// 폴백한다 — 그 세션에서는 정상 동작하지만 다른 기기·다른 PB에게는 안 보인다는 뜻이므로,
+// 실제 배포 전에 supabase-migration-heritage-meetings.sql을 한 번 실행해야 한다.
+
+const HERITAGE_MEETING_LS_KEY = "pb-heritage-meeting-requests";
+
+function loadLocalHeritageMeetings(): HeritageMeetingRequest[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(HERITAGE_MEETING_LS_KEY);
+    return raw ? (JSON.parse(raw) as HeritageMeetingRequest[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalHeritageMeetings(list: HeritageMeetingRequest[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(HERITAGE_MEETING_LS_KEY, JSON.stringify(list));
+  } catch {
+    // 저장 공간 초과 등 — 조용히 무시(예약 요청 자체는 화면에 이미 반영됨).
+  }
+}
+
+function rowToHeritageMeetingRequest(r: any): HeritageMeetingRequest {
+  return {
+    id: r.id,
+    clientId: r.client_id,
+    pbId: r.pb_id ?? "",
+    expertId: r.expert_id,
+    expertName: r.expert_name,
+    requestedLabel: r.requested_label,
+    requestedDate: r.requested_date ?? null,
+    requestedTime: r.requested_time ?? null,
+    status: "requested",
+    createdAt: r.created_at,
+  };
+}
+
+export async function createHeritageMeetingRequest(input: {
+  clientId: string;
+  pbId: string;
+  expertId: string;
+  expertName: string;
+  /** MeetingBookingModal의 onConfirm(value) 문자열 그대로. */
+  requestedLabel: string;
+}): Promise<HeritageMeetingRequest> {
+  const parsed = input.requestedLabel.match(/(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/);
+  const record: HeritageMeetingRequest = {
+    id: uid(),
+    clientId: input.clientId,
+    pbId: input.pbId,
+    expertId: input.expertId,
+    expertName: input.expertName,
+    requestedLabel: input.requestedLabel,
+    requestedDate: parsed?.[1] ?? null,
+    requestedTime: parsed?.[2] ?? null,
+    status: "requested",
+    createdAt: new Date().toISOString(),
+  };
+
+  if (usingLocalFallback) {
+    const list = loadLocalHeritageMeetings();
+    list.push(record);
+    saveLocalHeritageMeetings(list);
+    return record;
+  }
+
+  const { data, error } = await supabase!
+    .from("heritage_meeting_requests")
+    .insert({
+      client_id: record.clientId,
+      pb_id: record.pbId || null,
+      expert_id: record.expertId,
+      expert_name: record.expertName,
+      requested_label: record.requestedLabel,
+      requested_date: record.requestedDate,
+      requested_time: record.requestedTime,
+      status: record.status,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.warn("[store] heritage_meeting_requests 저장 실패(마이그레이션 미실행일 수 있음) — 로컬에 저장:", error.message);
+    const list = loadLocalHeritageMeetings();
+    list.push(record);
+    saveLocalHeritageMeetings(list);
+    return record;
+  }
+  return rowToHeritageMeetingRequest(data);
+}
+
+export async function listHeritageMeetingRequests(clientId: string): Promise<HeritageMeetingRequest[]> {
+  const local = loadLocalHeritageMeetings().filter((r) => r.clientId === clientId);
+  if (usingLocalFallback) {
+    return local.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+  const { data, error } = await supabase!
+    .from("heritage_meeting_requests")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.warn("[store] heritage_meeting_requests 조회 실패(마이그레이션 미실행일 수 있음) — 로컬만 표시:", error.message);
+    return local;
+  }
+  const remote = (data ?? []).map(rowToHeritageMeetingRequest);
+  const remoteIds = new Set(remote.map((r) => r.id));
+  return [...remote, ...local.filter((r) => !remoteIds.has(r.id))].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
 // ───────────────────────── 가문 §4 CRUD ─────────────────────────

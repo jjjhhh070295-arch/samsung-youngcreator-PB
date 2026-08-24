@@ -17,6 +17,7 @@ const ANALYSIS_TABS = [
   { id: "portfolio", label: "포트폴리오" },
   { id: "recommend", label: "상품추천" },
   { id: "taxProjection", label: "세전·세후" },
+  { id: "heritage", label: "헤리티지" },
   { id: "stress", label: "스트레스" },
   { id: "ips", label: "IPS" },
 ];

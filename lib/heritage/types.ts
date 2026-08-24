@@ -23,10 +23,13 @@ export interface HeritageAssessmentInput {
   debtWon?: number;
   /** 0~100. 모르면 null(구조 신호 하나가 빠졌다는 뜻이며, 판정에서는 단순히 반영하지 않는다). */
   realEstateWeightPct: number | null;
-  hasSpouse: boolean;
+  /** party_relationships에 배우자 관계 행이 없으면 "확인된 배우자 없음"이 아니라 "미입력"일
+   *  수 있다 — 모르면 null(demand.ts/tax.ts가 보수적으로 가정하고 그 사실을 결과에 표시한다). */
+  hasSpouse: boolean | null;
   /** 자녀 수만 쓴다(자녀공제 계산용) — 자녀 개별 생년월일/미성년 여부는 판정에 쓰지 않는다.
-   *  이유: 세대생략증여(조부모→손자)가 흔해 자녀의 성년 여부가 증여 시점을 결정하지 못한다. */
-  childrenCount: number;
+   *  이유: 세대생략증여(조부모→손자)가 흔해 자녀의 성년 여부가 증여 시점을 결정하지 못한다.
+   *  모르면 null(위 hasSpouse와 동일한 이유 — 관계 행 부재가 "확인된 0명"을 증명하지 못한다). */
+  childrenCount: number | null;
   /** 이 고객이 증여자(fromPartyId)인 gift 타입 TransferEvent만 호출부에서 걸러 넘긴다. */
   givenGiftEvents: TransferEvent[];
   /** lib/rrttlluScoring.ts에서 이미 매칭된 태그 id (예: "inheritance","gift","trust","corporate","family_gov","philanthropy"). */
@@ -48,6 +51,10 @@ export interface HeritageDemandResult {
   estimatedExemptionWon: number;
   /** 총자산 - 예상 공제액. 0 미만이면 0. */
   taxableExcessWon: number;
+  /** true면 배우자 유무를 몰라서 보수적으로 "없음"을 가정해 계산했다는 뜻. */
+  hasSpouseAssumed: boolean;
+  /** true면 자녀 수를 몰라서 보수적으로 가정한 값을 썼다는 뜻. */
+  childrenCountAssumed: boolean;
 }
 
 export type HeritageUrgencyLevel = "즉시" | "3개월 내" | "6개월 내" | "1년 내" | "해당없음";
@@ -71,6 +78,11 @@ export interface HeritageTaxRangeResult {
   childrenCountUsed: number;
   /** true면 자녀 수를 몰라서 보수적으로 가정한 값을 썼다는 뜻 — 결과 표시에서 숨기면 안 된다. */
   childrenCountAssumed: boolean;
+  /** 계산에 실제로 쓰인 배우자 유무(모르면 hasSpouseWhenUnknown=false가 대입된다). */
+  hasSpouseUsed: boolean;
+  /** true면 배우자 유무를 몰라서 보수적으로 "없음"을 가정해 계산했다는 뜻 — 배우자공제 유무를
+   *  가르므로 자녀 수 가정보다 결과에 미치는 영향이 훨씬 크다. 숨기면 안 된다. */
+  hasSpouseAssumed: boolean;
   /** 검산용 공제 내역 분해 — 상한/하한 모두 기초+인적공제 vs 일괄공제 중 큰 쪽 하나만 쓴다. */
   breakdown: {
     /** 총 상속재산(채무 차감 전). */
@@ -107,4 +119,7 @@ export interface HeritageAssessment {
   urgency: HeritageUrgencyResult;
   /** 법인 고객이면 null(이 트랙에서 다루지 않음). */
   taxRange: HeritageTaxRangeResult | null;
+  /** demand 또는 taxRange 어느 쪽이든 배우자/자녀 정보를 몰라 가정을 썼으면 true — 화면에
+   *  "가족 정보 미입력 — 추정치입니다" 배지를 띄울지 결정하는 단일 플래그. */
+  dataAssumptionsUsed: boolean;
 }

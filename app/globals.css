@@ -140,4 +140,22 @@ body {
     font-weight: 700;
     content: "고객 문서 출력 차단 — Evidence 검증과 PB 상담 검토 승인이 완료되지 않아 고객 정보 및 투자정책서 본문을 출력하지 않습니다.";
   }
+
+  /* 헤리티지 탭 세무사 인계 요약 — 별도 승인 게이트 없는 가벼운 인쇄 화면.
+     body에 heritage-print-mode가 붙으면 DOM 어디에 중첩돼 있든 .heritage-print-area만
+     종이에 남긴다(visibility 트릭 — display:none은 레이아웃 계산 자체가 사라져 아래
+     absolute 배치가 깨지므로 쓰지 않는다). */
+  body.heritage-print-mode * {
+    visibility: hidden !important;
+  }
+  body.heritage-print-mode .heritage-print-area,
+  body.heritage-print-mode .heritage-print-area * {
+    visibility: visible !important;
+  }
+  body.heritage-print-mode .heritage-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
 }

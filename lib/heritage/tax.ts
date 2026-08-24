@@ -16,7 +16,7 @@
 // 반드시 반영한다. 커트오프 판단은 demand.ts의 isWithinYears를 그대로 재사용한다.
 
 import { HERITAGE_DEMAND, HERITAGE_EXEMPTION, HERITAGE_TAX_ASSUMPTIONS, HERITAGE_TAX_DISCLAIMER, INHERITANCE_TAX_BRACKETS } from "./constants";
-import { isWithinYears, personalOrBlanketDeductionWon } from "./demand";
+import { isWithinYears, personalOrBlanketDeductionWon, resolveHasSpouse, resolveChildrenCount } from "./demand";
 import { eok } from "./format";
 import type { HeritageReason, HeritageTaxRangeResult } from "./types";
 import type { TransferEvent } from "../types";
@@ -66,7 +66,8 @@ export function estimateInheritanceTaxRange(input: {
   assetSizeWon: number;
   /** 채무(주로 부동산 담보대출) — client_real_estate_debt 합계. 모르면 0(채무 없음으로 간주). */
   debtWon?: number;
-  hasSpouse: boolean;
+  /** null이면 배우자 유무를 모른다는 뜻 — 보수적으로 "없음"을 가정하고 그 사실을 결과에 남긴다. */
+  hasSpouse: boolean | null;
   /** null이면 자녀 수를 모른다는 뜻 — 보수적으로 2명을 가정하고 그 사실을 결과에 남긴다. */
   childrenCount: number | null;
   /** 이 고객이 증여자인 gift 타입 TransferEvent. 10년 내 것만 내부에서 걸러 가산한다. */
@@ -74,8 +75,8 @@ export function estimateInheritanceTaxRange(input: {
   asOf?: Date;
 }): HeritageTaxRangeResult {
   const asOf = input.asOf ?? new Date();
-  const childrenCountAssumed = input.childrenCount == null;
-  const childrenCountUsed = input.childrenCount ?? HERITAGE_TAX_ASSUMPTIONS.assumedChildrenCountWhenUnknown;
+  const { value: hasSpouse, assumed: hasSpouseAssumed } = resolveHasSpouse(input.hasSpouse);
+  const { value: childrenCountUsed, assumed: childrenCountAssumed } = resolveChildrenCount(input.childrenCount);
 
   const { totalWon: giftAddBackWon, reasons: giftAddBackReasons } = sumGiftAddBack(input.givenGiftEvents ?? [], asOf);
   // 채무 차감 → 순자산. 사전증여 10년 합산은 채무 차감 후(이미 증여로 나간 재산이라 채무와
@@ -92,12 +93,12 @@ export function estimateInheritanceTaxRange(input: {
   const usedBlanket = baseOrPersonalDeductionWon <= HERITAGE_EXEMPTION.baseWon;
 
   // 상한 시나리오(세액 최대) = 배우자공제 최소(5억)만 적용 → 공제가 작으니 과세표준이 커진다.
-  const spouseDeductionForMaxTax = input.hasSpouse ? HERITAGE_EXEMPTION.spouseMinWon : 0;
+  const spouseDeductionForMaxTax = hasSpouse ? HERITAGE_EXEMPTION.spouseMinWon : 0;
   const maxTaxExemptionWon = baseOrPersonalDeductionWon + spouseDeductionForMaxTax;
 
   // 하한 시나리오(세액 최소) = 배우자공제 = min(법정상속분 상당액, 30억 한도), 최소 5억 보장.
   let spouseDeductionForMinTax = 0;
-  if (input.hasSpouse) {
+  if (hasSpouse) {
     const legalPortionWon = grossEstateWon * spouseLegalPortionRatio(childrenCountUsed);
     spouseDeductionForMinTax = Math.min(
       HERITAGE_EXEMPTION.spouseMaxWon,
@@ -109,7 +110,21 @@ export function estimateInheritanceTaxRange(input: {
   const maxTaxBaseWon = Math.max(0, grossEstateWon - maxTaxExemptionWon);
   const minTaxBaseWon = Math.max(0, grossEstateWon - minTaxExemptionWon);
 
+  // 가정이 쓰였으면(특히 배우자 유무 — 공제액이 최대 25억원 갈린다) 다른 어떤 근거보다
+  // 먼저 보여준다.
   const reasons: HeritageReason[] = [];
+  if (hasSpouseAssumed) {
+    reasons.push({
+      code: "has_spouse_assumed",
+      text: "가족관계 정보가 없어 배우자가 없는 것으로 보수적으로 가정해 계산했습니다 — 배우자 유무에 따라 세액 구간이 크게 달라질 수 있어, 실제 확인이 필요합니다.",
+    });
+  }
+  if (childrenCountAssumed) {
+    reasons.push({
+      code: "children_count_assumed",
+      text: `자녀 수를 확인할 수 없어 보수적으로 ${childrenCountUsed}명으로 가정해 계산했습니다 — 실제 자녀 수를 확인하면 세액 구간이 달라질 수 있습니다.`,
+    });
+  }
   if (debtWon > 0) {
     reasons.push({
       code: "debt_deducted",
@@ -117,19 +132,13 @@ export function estimateInheritanceTaxRange(input: {
     });
   }
   reasons.push(...giftAddBackReasons);
-  if (childrenCountAssumed) {
-    reasons.push({
-      code: "children_count_assumed",
-      text: `자녀 수를 확인할 수 없어 보수적으로 ${childrenCountUsed}명으로 가정해 계산했습니다 — 실제 자녀 수를 확인하면 세액 구간이 달라질 수 있습니다.`,
-    });
-  }
   if (!usedBlanket) {
     reasons.push({
       code: "used_personal_deduction",
       text: `자녀 ${childrenCountUsed}명 기준 기초공제+자녀공제 합계(${eok(personalDeductionWon)})가 일괄공제(5억원)보다 커서 일괄공제 대신 이쪽을 적용했습니다.`,
     });
   }
-  if (input.hasSpouse && minTaxBaseWon === 0 && maxTaxBaseWon > 0) {
+  if (hasSpouse && minTaxBaseWon === 0 && maxTaxBaseWon > 0) {
     reasons.push({
       code: "min_tax_zero",
       text: "배우자가 법정상속분 상당액까지 상속받는 경우를 가정하면 공제액이 과세가액을 넘어 하한 세액이 0원으로 계산됩니다 — 실제 배우자 상속 비율에 따라 달라질 수 있습니다.",
@@ -144,6 +153,8 @@ export function estimateInheritanceTaxRange(input: {
     giftAddBackWon,
     childrenCountUsed,
     childrenCountAssumed,
+    hasSpouseUsed: hasSpouse,
+    hasSpouseAssumed,
     breakdown: {
       grossAssetWon,
       debtWon,
