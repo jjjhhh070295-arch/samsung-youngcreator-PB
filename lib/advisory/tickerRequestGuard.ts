@@ -3,6 +3,25 @@ export interface TickerRequestToken {
   scopeKey: string;
 }
 
+export function tickerClientScope(clientId?: string) {
+  return clientId?.trim() || "global";
+}
+
+export function tickerContextClientId(routeClientId?: string, queryClientId?: string | null) {
+  return routeClientId?.trim() || queryClientId?.trim() || undefined;
+}
+
+export function tickerAnalysisHref(pbId: string, clientId?: string) {
+  const normalizedClientId = tickerContextClientId(clientId);
+  const base = `/pb/${encodeURIComponent(pbId)}/ticker`;
+  return normalizedClientId ? `${base}?clientId=${encodeURIComponent(normalizedClientId)}` : base;
+}
+
+export function tickerFlowScope(clientId: string | undefined, symbol = "") {
+  const normalizedSymbol = symbol.trim();
+  return `${tickerClientScope(clientId)}:${normalizedSymbol}`;
+}
+
 /**
  * 느린 종목 A 응답이 더 늦게 도착해 최신 종목 B 상태를 덮지 못하게 하는 순수 guard.
  * 네트워크 취소와 별개로 모든 비동기 state commit 직전에 검사한다.
