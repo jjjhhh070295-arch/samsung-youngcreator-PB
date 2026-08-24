@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx --yes tsx --test lib/strategy/threeBullTwoBear.test.ts lib/strategy/marketRegime.test.ts lib/trading/trading.test.ts lib/trading/regimeGate.test.ts"
+    "test": "npx --yes tsx --test lib/advisory/krTrendFilter.test.ts lib/strategy/threeBullTwoBear.test.ts lib/strategy/marketRegime.test.ts lib/trading/trading.test.ts lib/trading/regimeGate.test.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
     "next": "^14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
