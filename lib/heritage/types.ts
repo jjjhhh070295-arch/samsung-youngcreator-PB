@@ -16,7 +16,11 @@ export interface HeritageAssessmentInput {
   clientType: ClientType;
   /** 개인 고객의 생년월일. 법인이면 null. */
   birthDate: string | null;
+  /** 총 상속재산(채무 차감 전). demand.ts의 수요 판정은 이 값을 그대로 쓴다(개략 스크리닝이므로). */
   assetSizeWon: number;
+  /** 채무(부동산 담보대출 등, client_real_estate_debt 합계). 세액 구간 계산에서만 차감한다
+   *  — 수요 판정 스코어는 기존대로 총자산 기준 개략치를 유지한다. 모르면 0. */
+  debtWon?: number;
   /** 0~100. 모르면 null(구조 신호 하나가 빠졌다는 뜻이며, 판정에서는 단순히 반영하지 않는다). */
   realEstateWeightPct: number | null;
   hasSpouse: boolean;
@@ -69,6 +73,12 @@ export interface HeritageTaxRangeResult {
   childrenCountAssumed: boolean;
   /** 검산용 공제 내역 분해 — 상한/하한 모두 기초+인적공제 vs 일괄공제 중 큰 쪽 하나만 쓴다. */
   breakdown: {
+    /** 총 상속재산(채무 차감 전). */
+    grossAssetWon: number;
+    /** 채무(부동산 담보대출 등). */
+    debtWon: number;
+    /** 순자산 = max(0, grossAssetWon - debtWon). 과세가액 산정의 출발점. */
+    netAssetWon: number;
     /** 기초공제(2억) + 자녀공제 합계 — "인적공제 조합"을 택했을 때의 값. */
     personalDeductionWon: number;
     /** 일괄공제(5억). */

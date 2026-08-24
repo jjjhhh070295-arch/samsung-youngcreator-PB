@@ -1,5 +1,7 @@
 import type { Client, Consultation } from "@/lib/types";
 import { classifyProduct } from "./classify";
+import { assessHeritage } from "@/lib/heritage";
+import type { HeritageAssessmentInput } from "@/lib/heritage";
 import type {
   BookAnalysis,
   BookHolding,
@@ -107,6 +109,9 @@ export function buildClientBookRow(
   holdings: BookHolding[],
   consultations: Consultation[],
   asOf: string,
+  /** 사전 조회된 헤리티지 판정 입력(없으면 heritage 플래그 계산을 건너뛴다) — 이 함수는
+   *  Supabase를 직접 조회하지 않는다(호출부가 이미 벌크로 조회해 넘긴다, N+1 방지). */
+  heritageInput?: HeritageAssessmentInput,
 ): ClientBookRow {
   const mine = holdings.filter((h) => h.clientId === client.id);
   const investedAmount = mine.reduce((s, h) => s + h.evalAmount, 0);
@@ -169,6 +174,19 @@ export function buildClientBookRow(
     });
   }
 
+  let heritagePriority: ClientBookRow["heritagePriority"];
+  if (heritageInput) {
+    const heritage = assessHeritage(heritageInput);
+    if (heritage.demand.hasNeed) {
+      const recommendation = heritage.urgency.reasons.find((r) => r.code === "recommendation");
+      flags.push({
+        kind: "heritage",
+        reason: recommendation?.text ?? "신탁·상속·증여 상담이 필요합니다.",
+      });
+      heritagePriority = { urgencyLevel: heritage.urgency.level, score: heritage.demand.score };
+    }
+  }
+
   return {
     clientId: client.id,
     code: client.code,
@@ -196,6 +214,7 @@ export function buildClientBookRow(
         : null,
     flags,
     cashNeed12m: need,
+    heritagePriority,
   };
 }
 
@@ -278,6 +297,7 @@ export function analyzeBook(
       highRisk: rows.filter((r) => r.flags.some((f) => f.kind === "high_risk")),
       lowReturn: rows.filter((r) => r.flags.some((f) => f.kind === "low_return")),
       lowLiquidity: rows.filter((r) => r.flags.some((f) => f.kind === "low_liquidity")),
+      heritage: rows.filter((r) => r.flags.some((f) => f.kind === "heritage")),
     },
   };
 }

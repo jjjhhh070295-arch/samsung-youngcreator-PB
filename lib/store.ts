@@ -1020,6 +1020,99 @@ export async function computeEffectiveAssets(partyId: string): Promise<Effective
   };
 }
 
+// ───────────────────────── 헤리티지 벌크 조회 (N+1 방지) ─────────────────────────
+// BookDashboard처럼 담당 고객 전체를 훑는 화면에서 고객 수만큼 쿼리가 늘어나지 않도록,
+// 아래 함수들은 모두 partyId 배열 하나를 받아 쿼리 1번으로 전체를 가져온다(listRelationships/
+// listTransferEvents처럼 단건 partyId만 받는 기존 함수와 달리 .in(...)을 쓴다). 호출부(예:
+// lib/heritage/resolveBulk.ts)가 결과를 partyId별 Map으로 재구성해 재사용한다.
+
+// 최대주주 신호(B) — party_relationships 'owns' 관계를 fromPartyId 배열로 한 번에 조회.
+export async function listOwnershipRelationshipsBulk(fromPartyIds: string[]): Promise<PartyRelationship[]> {
+  if (!supabase || fromPartyIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("party_relationships")
+    .select("*")
+    .in("from_party_id", fromPartyIds)
+    .eq("relation_type", "owns")
+    .is("valid_to", null);
+  if (error) throw error;
+  return (data ?? []).map(rowToRelationship);
+}
+
+// 배우자 유무 / 자녀 수 — party_relationships 'spouse'·'child' 관계를 한 번에 조회.
+export async function listFamilyRelationshipsBulk(fromPartyIds: string[]): Promise<PartyRelationship[]> {
+  if (!supabase || fromPartyIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("party_relationships")
+    .select("*")
+    .in("from_party_id", fromPartyIds)
+    .in("relation_type", ["spouse", "child"])
+    .is("valid_to", null);
+  if (error) throw error;
+  return (data ?? []).map(rowToRelationship);
+}
+
+export interface RealEstatePropertyBulkItem {
+  id: string;
+  ownerPartyId: string;
+  marketValue: number;
+  ownershipShare: number;
+}
+
+export interface RealEstateWithDebtBulkResult {
+  properties: RealEstatePropertyBulkItem[];
+  /** property_id → 채무 합계. */
+  debtByPropertyId: Map<string, number>;
+}
+
+// 부동산 시가 + 채무 — owner_party_id 배열로 client_real_estate 1번, 거기서 나온
+// property_id들로 client_real_estate_debt 1번. 고객 수와 무관하게 항상 쿼리 2번.
+export async function listRealEstateWithDebtBulk(ownerPartyIds: string[]): Promise<RealEstateWithDebtBulkResult> {
+  if (!supabase || ownerPartyIds.length === 0) return { properties: [], debtByPropertyId: new Map() };
+
+  const { data: propRows, error: e1 } = await supabase
+    .from("client_real_estate")
+    .select("id, owner_party_id, market_value, ownership_share")
+    .in("owner_party_id", ownerPartyIds);
+  if (e1) throw e1;
+
+  const properties: RealEstatePropertyBulkItem[] = (propRows ?? []).map((r: any) => ({
+    id: r.id,
+    ownerPartyId: r.owner_party_id,
+    marketValue: Number(r.market_value ?? 0),
+    ownershipShare: Number(r.ownership_share ?? 1),
+  }));
+
+  const debtByPropertyId = new Map<string, number>();
+  const propertyIds = properties.map((p) => p.id);
+  if (propertyIds.length > 0) {
+    const { data: debtRows, error: e2 } = await supabase
+      .from("client_real_estate_debt")
+      .select("property_id, balance")
+      .in("property_id", propertyIds);
+    if (e2) throw e2;
+    for (const d of debtRows ?? []) {
+      const pid = (d as any).property_id as string;
+      debtByPropertyId.set(pid, (debtByPropertyId.get(pid) ?? 0) + Number((d as any).balance ?? 0));
+    }
+  }
+
+  return { properties, debtByPropertyId };
+}
+
+// 10년 합산용 증여 이력 — from_party_id 배열로 한 번에 조회(join 없이, 이름 표시가
+// 필요없는 헤리티지 계산 전용 경량 버전).
+export async function listGiftEventsBulk(fromPartyIds: string[]): Promise<TransferEvent[]> {
+  if (!supabase || fromPartyIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("transfer_events")
+    .select("*")
+    .eq("event_type", "gift")
+    .in("from_party_id", fromPartyIds);
+  if (error) throw error;
+  return (data ?? []).map(rowToTransferEvent);
+}
+
 // ───────────────────────── 가문 §4 CRUD ─────────────────────────
 
 function rowToHousehold(r: any): Household {

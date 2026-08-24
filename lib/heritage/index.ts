@@ -5,8 +5,12 @@ export { assessHeritageUrgency } from "./urgency";
 export { estimateInheritanceTaxRange } from "./tax";
 export { compareHeritagePriority, URGENCY_RANK } from "./priority";
 export type { HeritagePriorityInput } from "./priority";
-export { flagBusinessSuccessionReview } from "./succession";
-export type { BusinessSuccessionSignal, BusinessSuccessionFlag } from "./succession";
+export { flagBusinessSuccessionReview, buildMajorityShareholderMap } from "./succession";
+export type { BusinessSuccessionSignal, BusinessSuccessionFlag, MajorityShareholderLink } from "./succession";
+export { computePaymentGap } from "./liquidity";
+export type { HeritagePaymentGapResult } from "./liquidity";
+export { resolveHeritageInputsBulk } from "./resolveBulk";
+export type { HeritageBulkResolveParams, HeritageBulkResolveResult } from "./resolveBulk";
 
 import { assessHeritageDemand } from "./demand";
 import { assessHeritageUrgency } from "./urgency";
@@ -21,6 +25,7 @@ export function assessHeritage(input: HeritageAssessmentInput): HeritageAssessme
     input.clientType === "individual"
       ? estimateInheritanceTaxRange({
           assetSizeWon: input.assetSizeWon,
+          debtWon: input.debtWon,
           hasSpouse: input.hasSpouse,
           // HeritageAssessmentInput.childrenCount는 호출부가 이미 확인해 넘긴 값이므로 "known"으로 다룬다.
           childrenCount: input.childrenCount,

@@ -16,6 +16,29 @@
 //
 // 이 함수는 위 두 신호 중 호출부가 이미 조회해 넘긴 값만 조합해서 "표시할지 말지"만
 // 결정한다 — Supabase 조회는 이 파일에서 하지 않는다(호출부 책임).
+//
+// buildMajorityShareholderMap()은 신호(A)를 위한 역방향 인덱스를 만든다. listClients()가
+// 이미 법인 레코드까지 한 번에 불러오므로(lib/store.ts:574) 별도 쿼리 없이 메모리에서
+// grouping만 한다 — BookDashboard처럼 고객 여러 명을 한 화면에서 다룰 때도 쿼리가 늘지 않는다.
+
+import type { Client } from "../types";
+
+export interface MajorityShareholderLink {
+  corporatePartyId: string;
+  corporateName: string;
+}
+
+/** listClients() 결과 전체를 넣으면 개인 partyId → 그 개인이 최대주주로 등록된 법인 목록. */
+export function buildMajorityShareholderMap(clients: Client[]): Map<string, MajorityShareholderLink[]> {
+  const map = new Map<string, MajorityShareholderLink[]>();
+  for (const c of clients) {
+    if (c.clientType !== "corporate" || !c.linkedClientId || c.isMajorityShareholder !== true) continue;
+    const list = map.get(c.linkedClientId) ?? [];
+    list.push({ corporatePartyId: c.id, corporateName: c.name });
+    map.set(c.linkedClientId, list);
+  }
+  return map;
+}
 
 export interface BusinessSuccessionSignal {
   /** (A) 이 개인이 대표로 등록된 법인이 있고, 그 법인의 "최대주주" 체크박스가 true인 경우. */

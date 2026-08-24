@@ -3,9 +3,13 @@
 // 반영해 단일 값이 아닌 구간으로 낸다. 배우자가 없으면 배우자공제 자체가 없으므로 구간이
 // 사실상 한 점(상한=하한)이 된다.
 //
-// 배우자 법정상속분 상당액 = 상속재산가액 × [1.5 / (1.5 + 자녀수)], 최소 5억 보장, 30억 초과분은
-// 인정 안 됨. 자녀 수를 모르면(party_relationships에서 relation_type='child'로 못 찾으면)
-// 보수적으로 2명을 가정하고, 그 사실을 결과(childrenCountAssumed)에 반드시 남긴다.
+// 상속세 과세가액 = 총 상속재산 − 채무(장례비 등은 이 단순화 모델에서 생략) + 10년 내 증여
+// 합산액. assetSizeWon은 "총 상속재산"(채무 차감 전)이고, debtWon(주로 부동산 담보대출)을
+// 별도로 받아 순자산 기준으로 계산한다 — 차감 전/후 금액은 모두 breakdown에 남긴다.
+//
+// 배우자 법정상속분 상당액 = 순상속재산가액 × [1.5 / (1.5 + 자녀수)], 최소 5억 보장, 30억
+// 초과分은 인정 안 됨. 자녀 수를 모르면(party_relationships에서 relation_type='child'로
+// 못 찾으면) 보수적으로 2명을 가정하고, 그 사실을 결과(childrenCountAssumed)에 반드시 남긴다.
 //
 // 상속개시 기준 10년 내 증여는 상속재산에 합산된다(사전증여 합산과세) — 이 기능 전체가
 // "10년 합산과세 때문에 지금 움직여야 한다"는 논리 위에 서 있으므로, 세액 계산에서도
@@ -58,7 +62,10 @@ function spouseLegalPortionRatio(childrenCount: number): number {
 }
 
 export function estimateInheritanceTaxRange(input: {
+  /** 총 상속재산(채무 차감 전) — client_real_estate 등 자산 평가액의 합. */
   assetSizeWon: number;
+  /** 채무(주로 부동산 담보대출) — client_real_estate_debt 합계. 모르면 0(채무 없음으로 간주). */
+  debtWon?: number;
   hasSpouse: boolean;
   /** null이면 자녀 수를 모른다는 뜻 — 보수적으로 2명을 가정하고 그 사실을 결과에 남긴다. */
   childrenCount: number | null;
@@ -71,8 +78,12 @@ export function estimateInheritanceTaxRange(input: {
   const childrenCountUsed = input.childrenCount ?? HERITAGE_TAX_ASSUMPTIONS.assumedChildrenCountWhenUnknown;
 
   const { totalWon: giftAddBackWon, reasons: giftAddBackReasons } = sumGiftAddBack(input.givenGiftEvents ?? [], asOf);
-  // 사전증여 10년 합산 — 과세가액은 현재 자산 + 10년 내 증여 합계.
-  const grossEstateWon = input.assetSizeWon + giftAddBackWon;
+  // 채무 차감 → 순자산. 사전증여 10년 합산은 채무 차감 후(이미 증여로 나간 재산이라 채무와
+  // 무관) 더한다 — 과세가액 = 순자산 + 10년 내 증여 합계.
+  const grossAssetWon = input.assetSizeWon;
+  const debtWon = input.debtWon ?? 0;
+  const netAssetWon = Math.max(0, grossAssetWon - debtWon);
+  const grossEstateWon = netAssetWon + giftAddBackWon;
 
   // 상속공제 = max(기초공제 + 자녀공제 합계, 일괄공제) — 일괄공제를 택하면 자녀공제는 별도로
   // 더하지 않는다(이중계상 금지). 자녀 7명 미만이면 일괄공제(5억) 쪽이 항상 더 크다.
@@ -98,7 +109,14 @@ export function estimateInheritanceTaxRange(input: {
   const maxTaxBaseWon = Math.max(0, grossEstateWon - maxTaxExemptionWon);
   const minTaxBaseWon = Math.max(0, grossEstateWon - minTaxExemptionWon);
 
-  const reasons: HeritageReason[] = [...giftAddBackReasons];
+  const reasons: HeritageReason[] = [];
+  if (debtWon > 0) {
+    reasons.push({
+      code: "debt_deducted",
+      text: `총 상속재산 ${eok(grossAssetWon)}에서 채무(대출 등) ${eok(debtWon)}을 차감한 순자산 ${eok(netAssetWon)}을 기준으로 계산했습니다.`,
+    });
+  }
+  reasons.push(...giftAddBackReasons);
   if (childrenCountAssumed) {
     reasons.push({
       code: "children_count_assumed",
@@ -127,6 +145,9 @@ export function estimateInheritanceTaxRange(input: {
     childrenCountUsed,
     childrenCountAssumed,
     breakdown: {
+      grossAssetWon,
+      debtWon,
+      netAssetWon,
       personalDeductionWon,
       blanketDeductionWon: HERITAGE_EXEMPTION.baseWon,
       usedBlanket,

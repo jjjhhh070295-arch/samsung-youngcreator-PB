@@ -8,6 +8,7 @@ import {
   estimateInheritanceTaxRange,
   compareHeritagePriority,
   flagBusinessSuccessionReview,
+  computePaymentGap,
 } from "./index";
 import type { HeritageAssessmentInput } from "./types";
 import type { TransferEvent } from "../types";
@@ -231,6 +232,79 @@ describe("estimateInheritanceTaxRange", () => {
     const range = estimateInheritanceTaxRange({ assetSizeWon: 15_000_000_000, hasSpouse: false, childrenCount: 0 });
     assert.equal(range.giftAddBackWon, 0);
     assert.equal(range.childrenCountAssumed, false);
+  });
+});
+
+describe("estimateInheritanceTaxRange — 채무 차감(순자산 기준)", () => {
+  it("채무가 있으면 총자산이 아닌 순자산 기준으로 과세가액이 줄어든다", () => {
+    const noDebt = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 0 });
+    const withDebt = estimateInheritanceTaxRange({
+      assetSizeWon: 3_200_000_000,
+      debtWon: 500_000_000,
+      hasSpouse: true,
+      childrenCount: 0,
+    });
+    assert.equal(withDebt.breakdown.grossAssetWon, 3_200_000_000);
+    assert.equal(withDebt.breakdown.debtWon, 500_000_000);
+    assert.equal(withDebt.breakdown.netAssetWon, 2_700_000_000);
+    assert.ok(withDebt.maxTaxWon < noDebt.maxTaxWon, `${withDebt.maxTaxWon} should be < ${noDebt.maxTaxWon}`);
+  });
+
+  it("채무가 자산을 넘으면 순자산은 0으로 clamp된다(음수 과세가액 없음)", () => {
+    const range = estimateInheritanceTaxRange({
+      assetSizeWon: 300_000_000,
+      debtWon: 500_000_000,
+      hasSpouse: false,
+      childrenCount: 0,
+    });
+    assert.equal(range.breakdown.netAssetWon, 0);
+    assert.equal(range.maxTaxWon, 0);
+  });
+
+  it("채무를 지정하지 않으면 0으로 간주하고 근거 문장도 남지 않는다", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 0 });
+    assert.equal(range.breakdown.debtWon, 0);
+    assert.equal(range.breakdown.netAssetWon, 3_200_000_000);
+    assert.equal(range.reasons.some((r) => r.code === "debt_deducted"), false);
+  });
+
+  it("채무가 있으면 근거 문장에 총자산/채무/순자산이 명시된다", () => {
+    const range = estimateInheritanceTaxRange({
+      assetSizeWon: 3_200_000_000,
+      debtWon: 500_000_000,
+      hasSpouse: true,
+      childrenCount: 0,
+    });
+    const reason = range.reasons.find((r) => r.code === "debt_deducted");
+    assert.ok(reason);
+    assert.match(reason!.text, /총 상속재산 32억원에서 채무\(대출 등\) 5억원을 차감한 순자산 27억원/);
+  });
+});
+
+describe("computePaymentGap — 납부재원 갭", () => {
+  it("예시 문구와 동일한 형태로 갭이 있을 때 최악의 경우(상한) 기준 문장을 낸다", () => {
+    const gap = computePaymentGap({ liquidAssetsWon: 310_000_000, minTaxWon: 370_000_000, maxTaxWon: 720_000_000 });
+    assert.equal(gap.hasGap, true);
+    assert.equal(gap.maxGapWon, 410_000_000);
+    assert.equal(gap.minGapWon, 60_000_000);
+    const reason = gap.reasons.find((r) => r.code === "payment_gap");
+    assert.ok(reason);
+    assert.match(reason!.text, /예상 상속세 7\.2억원에 비해 현금성 자산이 3\.1억원으로 최대 4\.1억원이 부족합니다/);
+  });
+
+  it("재원이 충분하면(상한 기준으로도 갭이 없으면) 위기감을 만들지 않는 안심 문장을 낸다", () => {
+    const gap = computePaymentGap({ liquidAssetsWon: 1_000_000_000, minTaxWon: 370_000_000, maxTaxWon: 720_000_000 });
+    assert.equal(gap.hasGap, false);
+    assert.ok(gap.maxGapWon <= 0);
+    const reason = gap.reasons.find((r) => r.code === "payment_gap_none");
+    assert.ok(reason);
+    assert.doesNotMatch(reason!.text, /부족/);
+  });
+
+  it("하한 기준으로는 충분해도(minGapWon<=0) 상한 기준으로 부족하면 여전히 갭으로 처리한다", () => {
+    const gap = computePaymentGap({ liquidAssetsWon: 400_000_000, minTaxWon: 370_000_000, maxTaxWon: 720_000_000 });
+    assert.ok(gap.minGapWon <= 0);
+    assert.equal(gap.hasGap, true);
   });
 });
 

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { BookAnalysis, ClientBookRow, ClientFlagKind } from "@/lib/advisory/types";
 import { CLIENT_FLAG_LABEL, PRODUCT_CATEGORY_LABEL } from "@/lib/advisory/types";
+import { URGENCY_RANK } from "@/lib/heritage";
 import { CLIENT_TYPE_LABEL, type ClientType } from "@/lib/types";
 import { formatKRW, formatKRWShort, formatDate } from "@/lib/format";
 import ClientAvatar from "@/components/ClientAvatar";
@@ -38,6 +39,20 @@ const SORT_OPTIONS: { id: SortKey; label: string }[] = [
   { id: "consult-desc", label: "최근 상담일 최신순" },
   { id: "consult-asc", label: "최근 상담일 오래된 순" },
 ];
+
+// "우선 확인 고객" 정렬 — 헤리티지 긴급도가 있는 고객은 1순위 긴급도(즉시>3개월>6개월>1년),
+// 2순위 score로 우선한다(compareHeritagePriority와 동일 기준). 긴급도가 없는 고객끼리는
+// 기존처럼 플래그 개수로 비교한다. export는 시뮬레이션/테스트에서 재사용하기 위함.
+export function comparePriorityRows(a: ClientBookRow, b: ClientBookRow): number {
+  const aRank = a.heritagePriority ? URGENCY_RANK[a.heritagePriority.urgencyLevel] : -1;
+  const bRank = b.heritagePriority ? URGENCY_RANK[b.heritagePriority.urgencyLevel] : -1;
+  if (aRank !== bRank) return bRank - aRank;
+  if (aRank >= 0) {
+    const scoreDiff = (b.heritagePriority?.score ?? 0) - (a.heritagePriority?.score ?? 0);
+    if (scoreDiff !== 0) return scoreDiff;
+  }
+  return b.flags.length - a.flags.length;
+}
 
 function cmpNullableNumber(a: number | null, b: number | null, dir: 1 | -1) {
   if (a == null && b == null) return 0;
@@ -133,7 +148,7 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("name-asc");
   const sortLabel = SORT_OPTIONS.find((o) => o.id === sortKey)?.label ?? "고객명 ㄱㄴㄷ 순";
   const priorityRows = useMemo(
-    () => rows.filter((row) => row.flags.length > 0).slice().sort((a, b) => b.flags.length - a.flags.length).slice(0, 3),
+    () => rows.filter((row) => row.flags.length > 0).slice().sort(comparePriorityRows).slice(0, 3),
     [rows],
   );
   const immediateCount = rows.filter((row) => row.flags.length > 0).length;

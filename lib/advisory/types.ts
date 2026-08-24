@@ -1,6 +1,8 @@
 // PB Insight advisory layer — 결정론 엔진 공유 타입.
 // AI는 설명만 하고, 수익률·변동성·비중·세금·VaR/CVaR는 여기서 확정하지 않는다.
 
+import type { HeritageUrgencyLevel } from "@/lib/heritage";
+
 export type AdvisoryStatus = "draft" | "review" | "locked" | "blocked";
 
 export const ADVISORY_STATUS_LABEL: Record<AdvisoryStatus, string> = {
@@ -23,12 +25,13 @@ export const PRODUCT_CATEGORY_LABEL: Record<ProductCategory, string> = {
 
 export type RiskGrade = "안정" | "안정추구" | "위험중립" | "적극" | "공격";
 
-export type ClientFlagKind = "high_risk" | "low_return" | "low_liquidity";
+export type ClientFlagKind = "high_risk" | "low_return" | "low_liquidity" | "heritage";
 
 export const CLIENT_FLAG_LABEL: Record<ClientFlagKind, string> = {
   high_risk: "위험고객",
   low_return: "수익률 저조",
   low_liquidity: "유동성 부족",
+  heritage: "신탁·상속 상담 필요",
 };
 
 /** 결정론 엔진이 산출한 수치. AI가 이 필드를 채우거나 덮어쓰면 Judge가 차단한다. */
@@ -154,6 +157,13 @@ export interface ConsultationStatus {
   notesPreview: string;
 }
 
+/** heritage 플래그가 있는 행에만 채워진다 — BookDashboard가 "우선 확인 고객" 정렬에서
+ *  compareHeritagePriority(1순위 긴급도, 2순위 score)를 그대로 반영할 수 있도록. */
+export interface ClientHeritagePriority {
+  urgencyLevel: HeritageUrgencyLevel;
+  score: number;
+}
+
 export interface ClientBookRow {
   clientId: string;
   code: string;
@@ -169,6 +179,7 @@ export interface ClientBookRow {
   lastConsultation: ConsultationStatus | null;
   flags: ClientFlag[];
   cashNeed12m: number;
+  heritagePriority?: ClientHeritagePriority;
 }
 
 export interface ProductMixSlice {
@@ -200,6 +211,7 @@ export interface BookAnalysis {
     highRisk: ClientBookRow[];
     lowReturn: ClientBookRow[];
     lowLiquidity: ClientBookRow[];
+    heritage: ClientBookRow[];
   };
 }
 
