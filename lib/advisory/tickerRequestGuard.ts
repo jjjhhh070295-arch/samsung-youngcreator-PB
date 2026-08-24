@@ -10,6 +10,11 @@ export interface TickerAnalysisHrefOptions {
   subview?: TickerAvailableSubview;
 }
 
+export interface TickerResolvedSelection {
+  scopeKey: string;
+  symbol: string;
+}
+
 export function tickerClientScope(clientId?: string) {
   return clientId?.trim() || "global";
 }
@@ -40,6 +45,24 @@ export function tickerSubviewFromQuery(value?: string | null): TickerAvailableSu
 export function tickerFlowScope(clientId: string | undefined, symbol = "") {
   const normalizedSymbol = symbol.trim();
   return `${tickerClientScope(clientId)}:${normalizedSymbol}`;
+}
+
+export function tickerSelectionScope(clientId: string | undefined, routeSymbol = "") {
+  return tickerFlowScope(clientId, routeSymbol);
+}
+
+/**
+ * 현재 고객·URL 종목 범위에서 완료된 분석 결과만 직접 열기 링크에 반영한다.
+ * 고객이나 URL 종목이 바뀌면 이전 범위의 결과를 버리고 현재 URL 종목으로 되돌린다.
+ */
+export function tickerLinkSymbol(
+  selection: TickerResolvedSelection,
+  clientId: string | undefined,
+  routeSymbol = "",
+) {
+  const normalizedRouteSymbol = routeSymbol.trim();
+  const currentScope = tickerSelectionScope(clientId, normalizedRouteSymbol);
+  return selection.scopeKey === currentScope ? selection.symbol.trim() : normalizedRouteSymbol;
 }
 
 /**

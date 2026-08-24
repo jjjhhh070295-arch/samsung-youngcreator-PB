@@ -7,7 +7,10 @@ import TickerAnalysisPanel from "@/components/advisory/TickerAnalysisPanel";
 import {
   tickerAnalysisHref,
   tickerContextClientId,
+  tickerLinkSymbol,
+  tickerSelectionScope,
   tickerSubviewFromQuery,
+  type TickerResolvedSelection,
 } from "@/lib/advisory/tickerRequestGuard";
 
 function TickerInner() {
@@ -16,9 +19,12 @@ function TickerInner() {
   const pbId = params.pbId;
   const symbol = q.get("symbol") ?? "";
   const clientId = tickerContextClientId(undefined, q.get("clientId"));
-  const selectionScope = `${clientId ?? "global"}:${symbol}`;
-  const [activeSelection, setActiveSelection] = useState({ scope: selectionScope, symbol });
-  const activeSymbol = activeSelection.scope === selectionScope ? activeSelection.symbol : symbol;
+  const selectionScope = tickerSelectionScope(clientId, symbol);
+  const [activeSelection, setActiveSelection] = useState<TickerResolvedSelection>({
+    scopeKey: selectionScope,
+    symbol: symbol.trim(),
+  });
+  const activeSymbol = tickerLinkSymbol(activeSelection, clientId, symbol);
   const initialSubview = tickerSubviewFromQuery(q.get("subview"));
   const flowHref = tickerAnalysisHref(pbId, clientId, { symbol: activeSymbol, subview: "flows" });
   const momentumHref = tickerAnalysisHref(pbId, clientId, { symbol: activeSymbol, subview: "momentum" });
@@ -65,11 +71,12 @@ function TickerInner() {
       </section>
 
       <TickerAnalysisPanel
+        key={selectionScope}
         clientId={clientId}
         initialSubview={initialSubview}
         initialSymbol={symbol}
         onResolvedSymbolChange={(nextSymbol) => {
-          setActiveSelection({ scope: selectionScope, symbol: nextSymbol });
+          setActiveSelection({ scopeKey: selectionScope, symbol: nextSymbol });
         }}
       />
     </div>

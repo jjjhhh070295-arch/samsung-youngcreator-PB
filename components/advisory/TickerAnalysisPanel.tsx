@@ -278,7 +278,6 @@ export default function TickerAnalysisPanel({
   const load = async (q: string) => {
     if (!q.trim()) return;
     const requestedSymbol = q.trim();
-    onResolvedSymbolChange?.("");
     requestAbortRef.current?.abort();
     const controller = new AbortController();
     requestAbortRef.current = controller;
