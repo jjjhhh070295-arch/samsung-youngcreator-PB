@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx --yes tsx --test lib/advisory/control.test.ts lib/advisory/krTrendFilter.test.ts",
+    "test": "npx --yes tsx --test lib/advisory/control.test.ts lib/advisory/krTrendFilter.test.ts lib/advisory/tickerData.test.ts lib/advisory/tickerExplanationSafety.test.ts lib/advisory/tickerMomentum.test.ts lib/advisory/tickerFlowShort.test.ts lib/advisory/tickerRequestGuard.test.ts",
     "generate:fred-snapshot": "node scripts/generate-fred-snapshot.mjs",
     "generate:cashflow-templates": "node scripts/generate-cashflow-templates.mjs"
   },

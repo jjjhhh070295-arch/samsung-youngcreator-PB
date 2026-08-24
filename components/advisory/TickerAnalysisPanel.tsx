@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -17,6 +17,27 @@ import {
 } from "recharts";
 import type { EvidenceBundle, MeasuredNumber, TickerLiveQuote, TickerProfile, TickerSnapshot } from "@/lib/advisory/types";
 import { appendRun, loadBundle, saveBundle } from "@/lib/advisory/control";
+import { MOMENTUM_DEMO_SYMBOLS } from "@/lib/advisory/tickerMomentumFixture";
+import {
+  createTickerRequestGuard,
+  tickerClientScope,
+  tickerFlowScope,
+  type TickerAvailableSubview,
+  type TickerRequestToken,
+} from "@/lib/advisory/tickerRequestGuard";
+import { buildTickerFlowShortEvidence, type TickerFlowShortEvidence } from "@/lib/advisory/tickerFlowShort";
+import { getTickerFlowShortDemoDataset, resolveFlowShortDemoSymbol } from "@/lib/advisory/tickerFlowShortFixture";
+import TickerFlowShortPanel from "@/components/advisory/TickerFlowShortPanel";
+import TickerMomentumEvidencePanel from "@/components/advisory/TickerMomentumEvidence";
+
+const TICKER_SUBVIEWS = [
+  { id: "momentum", label: "가격·모멘텀", available: true },
+  { id: "flows", label: "수급·공매도", available: true },
+  { id: "evidence", label: "근거·데이터", available: false },
+] as const;
+
+type TickerSubviewId = (typeof TICKER_SUBVIEWS)[number]["id"];
+const AVAILABLE_SUBVIEW_INDICES = TICKER_SUBVIEWS.flatMap((view, index) => view.available ? [index] : []);
 
 const CHART_COLORS = {
   close: "#111827",
@@ -81,13 +102,13 @@ function Metric({ label, m }: { label: string; m: MeasuredNumber | null | undefi
   const up = m && m.unit === "%" && m.value > 0;
   const down = m && m.unit === "%" && m.value < 0;
   return (
-    <div className="rounded-lg border border-border bg-surface px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-border bg-surface px-3 py-2">
       <p className="text-[10px] text-fg-muted">{label}</p>
       <p className={`text-sm font-bold ${up ? "text-red-600" : down ? "text-blue-700" : "text-fg"}`}>
         {formatMetric(m)}
       </p>
       {m ? (
-        <p className="text-[10px] text-fg-muted">as-of {formatAsOf(m.asOf)} · {m.source}{m.currency ? ` · ${m.currency}` : ""}</p>
+        <p className="break-words text-[10px] text-fg-muted">as-of {formatAsOf(m.asOf)} · {m.source}{m.currency ? ` · ${m.currency}` : ""}</p>
       ) : (
         <p className="text-[10px] text-amber-700">자료 없음 · 임의값 없음</p>
       )}
@@ -98,6 +119,7 @@ function Metric({ label, m }: { label: string; m: MeasuredNumber | null | undefi
 function liveQuoteLabel(quote: TickerLiveQuote | null) {
   if (!quote) return null;
   const state = quote.marketState?.toUpperCase();
+  if (state === "FIXTURE" || quote.source.includes("local-fixture")) return "교육용 고정 스냅샷";
   if (state === "CLOSE" || state === "CLOSED") return "장 마감 시세";
   if (state === "PREOPEN" || state === "PRE") return "개장 전 시세";
   if (quote.delayMinutes === 0) return "실시간 · 30초 자동 갱신";
@@ -107,10 +129,14 @@ function liveQuoteLabel(quote: TickerLiveQuote | null) {
 
 export default function TickerAnalysisPanel({
   initialSymbol = "",
+  initialSubview = "momentum",
   clientId,
+  onResolvedSymbolChange,
 }: {
   initialSymbol?: string;
+  initialSubview?: TickerAvailableSubview;
   clientId?: string;
+  onResolvedSymbolChange?: (symbol: string) => void;
 }) {
   const [symbol, setSymbol] = useState(initialSymbol);
   const [busy, setBusy] = useState(false);
@@ -123,10 +149,50 @@ export default function TickerAnalysisPanel({
   const [briefModel, setBriefModel] = useState("");
   const [explanation, setExplanation] = useState("");
   const [explainBusy, setExplainBusy] = useState(false);
+  const [activeSubview, setActiveSubview] = useState<TickerSubviewId>(initialSubview);
+  const [flowEvidence, setFlowEvidence] = useState<TickerFlowShortEvidence | null>(null);
+  const [flowBusy, setFlowBusy] = useState(false);
+  const [flowError, setFlowError] = useState("");
+  const [tabNotice, setTabNotice] = useState("");
+  const tabListId = useId();
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const requestGuardRef = useRef(createTickerRequestGuard(tickerClientScope(clientId)));
+  const flowRequestGuardRef = useRef(createTickerRequestGuard(tickerFlowScope(clientId)));
+  const requestAbortRef = useRef<AbortController | null>(null);
+  const clientScopeRef = useRef(tickerClientScope(clientId));
 
   useEffect(() => {
-    if (initialSymbol) setSymbol(initialSymbol);
-  }, [initialSymbol]);
+    setActiveSubview(initialSubview);
+    setTabNotice("");
+  }, [initialSubview]);
+
+  useEffect(() => {
+    const nextScope = tickerClientScope(clientId);
+    if (clientScopeRef.current === nextScope) return;
+    clientScopeRef.current = nextScope;
+    requestAbortRef.current?.abort();
+    requestGuardRef.current.invalidate(nextScope);
+    flowRequestGuardRef.current.invalidate(tickerFlowScope(clientId));
+    setBusy(false);
+    setExplainBusy(false);
+    setFlowBusy(false);
+    setStatus("idle");
+    setError("");
+    setFlowError("");
+    setSnapshot(null);
+    setFlowEvidence(null);
+    setProfile(null);
+    setLiveQuote(null);
+    setBrief("");
+    setBriefModel("");
+    setExplanation("");
+  }, [clientId]);
+
+  useEffect(() => () => {
+    requestAbortRef.current?.abort();
+    requestGuardRef.current.invalidate(clientScopeRef.current);
+    flowRequestGuardRef.current.invalidate(`${clientScopeRef.current}:`);
+  }, []);
 
   const recordRun = (client: string | undefined, kind: "ticker" | "explain", evidence: any, notes: string) => {
     if (!client || !evidence) return;
@@ -142,15 +208,52 @@ export default function TickerAnalysisPanel({
     );
   };
 
-  const explain = async (snap: TickerSnapshot, prof: TickerProfile | null, mode: "brief" | "full") => {
+  const loadFlowEvidence = async (snap: TickerSnapshot, parentToken: TickerRequestToken) => {
+    const flowScope = tickerFlowScope(clientId, snap.resolvedSymbol);
+    const flowToken = flowRequestGuardRef.current.begin(flowScope);
+    setFlowBusy(true);
+    setFlowError("");
+    try {
+      const demoSymbol = resolveFlowShortDemoSymbol(snap.resolvedSymbol);
+      if (!demoSymbol) {
+        if (requestGuardRef.current.isCurrent(parentToken) && flowRequestGuardRef.current.isCurrent(flowToken)) {
+          setFlowEvidence(null);
+        }
+        return;
+      }
+      const fixture = await Promise.resolve(getTickerFlowShortDemoDataset(demoSymbol));
+      const evidence = buildTickerFlowShortEvidence(fixture);
+      if (!requestGuardRef.current.isCurrent(parentToken) || !flowRequestGuardRef.current.isCurrent(flowToken)) return;
+      setFlowEvidence(evidence);
+    } catch (caught) {
+      if (!requestGuardRef.current.isCurrent(parentToken) || !flowRequestGuardRef.current.isCurrent(flowToken)) return;
+      setFlowEvidence(null);
+      setFlowError(caught instanceof Error ? caught.message : "수급·공매도 교육용 자료를 불러오지 못했습니다.");
+    } finally {
+      if (requestGuardRef.current.isCurrent(parentToken) && flowRequestGuardRef.current.isCurrent(flowToken)) {
+        setFlowBusy(false);
+      }
+    }
+  };
+
+  const explain = async (
+    snap: TickerSnapshot,
+    prof: TickerProfile | null,
+    mode: "brief" | "full",
+    token: TickerRequestToken = requestGuardRef.current.current(),
+    signal?: AbortSignal,
+  ) => {
+    if (!requestGuardRef.current.isCurrent(token)) return;
     setExplainBusy(true);
     try {
       const res = await fetch("/api/ticker/explain", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ snapshot: snap, profile: prof, mode }),
+        signal,
       });
       const data = await res.json();
+      if (!requestGuardRef.current.isCurrent(token)) return;
       const text = data.explanation ?? "";
       if (mode === "brief") {
         setBrief(text);
@@ -158,25 +261,47 @@ export default function TickerAnalysisPanel({
       }
       else setExplanation(text);
       recordRun(clientId, "explain", data.evidence, mode === "brief" ? "회사 개요 2~3문장" : "쉬운 말 해석 (수치 미변경)");
+    } catch (caught) {
+      if (!requestGuardRef.current.isCurrent(token)) return;
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      if (mode === "brief") {
+        setBrief("");
+        setBriefModel("explain-unavailable");
+      } else {
+        setExplanation("AI 설명을 불러오지 못했습니다. 위 결정론 계산값은 그대로 유지됩니다.");
+      }
     } finally {
-      setExplainBusy(false);
+      if (requestGuardRef.current.isCurrent(token)) setExplainBusy(false);
     }
   };
 
   const load = async (q: string) => {
     if (!q.trim()) return;
+    const requestedSymbol = q.trim();
+    requestAbortRef.current?.abort();
+    const controller = new AbortController();
+    requestAbortRef.current = controller;
+    const token = requestGuardRef.current.begin(tickerClientScope(clientId));
+    flowRequestGuardRef.current.invalidate(tickerFlowScope(clientId, requestedSymbol));
     setBusy(true);
+    setFlowBusy(false);
     setError("");
+    setFlowError("");
     setBrief("");
     setBriefModel("");
     setExplanation("");
     setSnapshot(null);
+    setFlowEvidence(null);
     setProfile(null);
     setLiveQuote(null);
     setStatus("idle");
     try {
-      const res = await fetch(`/api/ticker?symbol=${encodeURIComponent(q.trim())}`, { cache: "no-store" });
+      const res = await fetch(`/api/ticker?symbol=${encodeURIComponent(requestedSymbol)}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       const data = await res.json();
+      if (!requestGuardRef.current.isCurrent(token)) return;
       if (!data.ok || data.status === "blocked" || !data.snapshot) {
         setStatus("blocked");
         setError(data.error || "시세를 조회하지 못했습니다.");
@@ -184,40 +309,72 @@ export default function TickerAnalysisPanel({
       }
       const snap = data.snapshot as TickerSnapshot;
       const prof = (data.profile ?? null) as TickerProfile | null;
+      onResolvedSymbolChange?.(snap.resolvedSymbol);
       setSnapshot(snap);
       setProfile(prof);
       setLiveQuote((data.quote ?? null) as TickerLiveQuote | null);
       setStatus(data.status === "warning" || snap.warnings?.length ? "warning" : "ok");
       recordRun(clientId, "ticker", data.evidence, `티커 ${q} 결정론 분석`);
-      await explain(snap, prof, "brief");
-      await explain(snap, prof, "full");
+      await loadFlowEvidence(snap, token);
+      await explain(snap, prof, "brief", token, controller.signal);
+      await explain(snap, prof, "full", token, controller.signal);
     } catch (e: any) {
+      if (!requestGuardRef.current.isCurrent(token)) return;
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setStatus("blocked");
       setError(e?.message ?? "시세를 불러오지 못했습니다.");
+      flowRequestGuardRef.current.invalidate(tickerFlowScope(clientId, requestedSymbol));
+      setFlowBusy(false);
+      setFlowEvidence(null);
+      setFlowError("");
     } finally {
-      setBusy(false);
+      if (requestGuardRef.current.isCurrent(token)) setBusy(false);
     }
   };
 
   useEffect(() => {
-    if (initialSymbol) load(initialSymbol);
+    const nextSymbol = initialSymbol.trim();
+    setSymbol(nextSymbol);
+    if (nextSymbol) {
+      load(nextSymbol);
+      return;
+    }
+
+    requestAbortRef.current?.abort();
+    requestGuardRef.current.invalidate(tickerClientScope(clientId));
+    flowRequestGuardRef.current.invalidate(tickerFlowScope(clientId));
+    setBusy(false);
+    setExplainBusy(false);
+    setFlowBusy(false);
+    setStatus("idle");
+    setError("");
+    setFlowError("");
+    setSnapshot(null);
+    setFlowEvidence(null);
+    setProfile(null);
+    setLiveQuote(null);
+    setBrief("");
+    setBriefModel("");
+    setExplanation("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSymbol]);
+  }, [clientId, initialSymbol]);
 
   useEffect(() => {
     const resolvedSymbol = snapshot?.resolvedSymbol;
-    if (!resolvedSymbol) return;
+    if (!resolvedSymbol || snapshot?.momentum.dataMode === "demo") return;
     let cancelled = false;
+    const requestToken = requestGuardRef.current.current();
 
     const refresh = async () => {
       try {
         const res = await fetch(`/api/ticker/quote?symbol=${encodeURIComponent(resolvedSymbol)}`, { cache: "no-store" });
         const data = await res.json();
-        if (cancelled || !data.ok || !data.quote) return;
+        if (cancelled || !requestGuardRef.current.isCurrent(requestToken) || !data.ok || !data.quote) return;
         const quote = data.quote as TickerLiveQuote;
+        if (quote.symbol !== resolvedSymbol) return;
         setLiveQuote(quote);
         setSnapshot((current) => {
-          if (!current || current.resolvedSymbol !== resolvedSymbol) return current;
+          if (!requestGuardRef.current.isCurrent(requestToken) || !current || current.resolvedSymbol !== resolvedSymbol) return current;
           return {
             ...current,
             name: quote.name || current.name,
@@ -252,7 +409,7 @@ export default function TickerAnalysisPanel({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [snapshot?.resolvedSymbol]);
+  }, [snapshot?.momentum.dataMode, snapshot?.resolvedSymbol]);
 
   const chartData = useMemo(
     () => (snapshot?.bars ?? []).map((bar) => ({ ...bar, t: bar.time.slice(5) })),
@@ -267,33 +424,129 @@ export default function TickerAnalysisPanel({
   return (
     <div className="space-y-4">
       <form
-        className="flex flex-wrap gap-2"
+        className="flex flex-col gap-2 sm:flex-row"
         onSubmit={(e) => {
           e.preventDefault();
+          if (busy) return;
           load(symbol);
         }}
       >
+        <label className="sr-only" htmlFor={`${tabListId}-ticker-input`}>티커 또는 종목명</label>
         <input
-          className="input max-w-sm"
+          aria-label="티커 또는 종목명"
+          className="input w-full sm:max-w-sm"
+          id={`${tabListId}-ticker-input`}
           value={symbol}
           onChange={(e) => setSymbol(e.target.value)}
-          placeholder="티커 또는 종목명 (예: NVDA, 005930, 삼성전자)"
+          placeholder="티커·종목명 또는 DEMO-HIGH"
         />
-        <button className="btn-primary" disabled={busy || !symbol.trim()} type="submit">
-          {busy ? "분석 중…" : "시세 분석"}
+        <button className="btn-primary w-full sm:w-auto" disabled={busy || !symbol.trim()} type="submit">
+          {busy ? "분석 중…" : "종목 분석 실행"}
         </button>
       </form>
 
+      <div className="flex flex-wrap items-center gap-2 text-xs text-[#526079]">
+        <span className="font-semibold text-[#0F172A]">교육용 예시</span>
+        {MOMENTUM_DEMO_SYMBOLS.map((demoSymbol) => (
+          <button
+            className="btn-outline px-3 py-1.5 text-xs"
+            disabled={busy}
+            key={demoSymbol}
+            onClick={() => {
+              setSymbol(demoSymbol);
+              load(demoSymbol);
+            }}
+            type="button"
+          >
+            {demoSymbol}
+          </button>
+        ))}
+        <span>실제 기업·가격과 관계없는 고정 fixture입니다.</span>
+      </div>
+
+      <div
+        aria-label="티커 분석 하위 보기"
+        className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+        id={tabListId}
+        role="tablist"
+      >
+        {TICKER_SUBVIEWS.map((view, index) => {
+          const selected = activeSubview === view.id;
+          return (
+            <button
+              aria-controls={view.available ? `${tabListId}-${view.id}-panel` : undefined}
+              aria-disabled={!view.available}
+              aria-selected={selected}
+              className={`min-h-11 min-w-0 whitespace-normal rounded-lg border px-3 py-2 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8] focus-visible:ring-offset-2 ${
+                selected
+                  ? "border-[#1428A0] bg-[#1428A0] text-white"
+                  : view.available
+                    ? "border-[#DCE4F5] bg-white text-[#1428A0]"
+                    : "border-[#DCE4F5] bg-[#F0F3FA] text-[#64748B]"
+              }`}
+              disabled={!view.available}
+              id={`${tabListId}-${view.id}-tab`}
+              key={view.id}
+              onClick={() => {
+                if (!view.available) return;
+                setActiveSubview(view.id);
+                setTabNotice("");
+              }}
+              onKeyDown={(event) => {
+                let nextIndex: number | null = null;
+                const enabledPosition = AVAILABLE_SUBVIEW_INDICES.indexOf(index);
+                if (event.key === "ArrowRight") {
+                  nextIndex = AVAILABLE_SUBVIEW_INDICES[(enabledPosition + 1) % AVAILABLE_SUBVIEW_INDICES.length];
+                }
+                if (event.key === "ArrowLeft") {
+                  nextIndex = AVAILABLE_SUBVIEW_INDICES[(enabledPosition - 1 + AVAILABLE_SUBVIEW_INDICES.length) % AVAILABLE_SUBVIEW_INDICES.length];
+                }
+                if (event.key === "Home") nextIndex = AVAILABLE_SUBVIEW_INDICES[0];
+                if (event.key === "End") nextIndex = AVAILABLE_SUBVIEW_INDICES.at(-1) ?? null;
+                if (nextIndex != null) {
+                  event.preventDefault();
+                  const nextView = TICKER_SUBVIEWS[nextIndex];
+                  if (nextView.available) setActiveSubview(nextView.id);
+                  setTabNotice("");
+                  tabRefs.current[nextIndex]?.focus();
+                }
+              }}
+              ref={(element) => { tabRefs.current[index] = element; }}
+              role="tab"
+              tabIndex={selected ? 0 : -1}
+              type="button"
+            >
+              <span className="block break-words">{view.label}</span>
+              <span className={`mt-0.5 block text-xs ${selected ? "text-white/80" : "text-[#64748B]"}`}>
+                {view.available ? "결정론 계산 활성" : "데이터 승인 필요"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p aria-live="polite" className="min-h-5 text-xs text-[#64748B]" role="status">{tabNotice}</p>
+
+      <div
+        aria-busy={busy || explainBusy}
+        aria-labelledby={`${tabListId}-momentum-tab`}
+        className="space-y-4"
+        hidden={activeSubview !== "momentum"}
+        id={`${tabListId}-momentum-panel`}
+        role="tabpanel"
+        tabIndex={0}
+      >
+      {activeSubview === "momentum" ? (
+        <>
       {status === "blocked" && (
-        <div className="rounded-xl border border-red-300 bg-red-50 p-4">
-          <p className="text-xs font-bold tracking-wide text-red-700">조회 차단</p>
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4" role="alert">
+          <p className="text-xs font-bold tracking-wide text-red-700">조회 차단 (blocked)</p>
           <p className="mt-1 text-sm font-semibold text-red-800">시세 조회 실패 — 임의 숫자는 표시하지 않습니다.</p>
           <p className="mt-1 text-xs text-red-700">{error}</p>
         </div>
       )}
 
       {status === "warning" && snapshot && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3" role="status">
           <p className="text-xs font-bold uppercase tracking-wide text-amber-800">warning</p>
           <ul className="mt-1 list-disc pl-4 text-xs text-amber-900">
             {(snapshot.warnings.length ? snapshot.warnings : ["일부 지표를 계산하지 못했습니다."]).map((w) => (
@@ -334,6 +587,7 @@ export default function TickerAnalysisPanel({
               </div>
               <button
                 className="btn-outline text-xs"
+                type="button"
                 onClick={() => explain(snapshot, profile, "full")}
                 disabled={explainBusy}
               >
@@ -358,6 +612,7 @@ export default function TickerAnalysisPanel({
                 </p>
               </div>
             )}
+            <TickerMomentumEvidencePanel evidence={snapshot.momentum} />
             <div className="mt-5 overflow-hidden rounded-xl border border-border bg-surface-2/40">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface px-3 py-2">
                 <div>
@@ -543,6 +798,40 @@ export default function TickerAnalysisPanel({
           )}
         </>
       )}
+        </>
+      ) : null}
+      </div>
+
+      <div
+        aria-busy={flowBusy}
+        aria-labelledby={`${tabListId}-flows-tab`}
+        className="space-y-4"
+        hidden={activeSubview !== "flows"}
+        id={`${tabListId}-flows-panel`}
+        role="tabpanel"
+        tabIndex={0}
+      >
+        {activeSubview === "flows" ? (
+          <>
+        {flowBusy ? (
+          <div className="rounded-xl border border-[#DCE4F5] bg-[#F0F3FA] p-4 text-sm text-[#64748B]" role="status">
+            수급·공매도 교육용 자료를 계산하는 중입니다.
+          </div>
+        ) : flowError ? (
+          <div className="rounded-xl border border-red-300 bg-red-50 p-4" role="alert">
+            <p className="text-sm font-semibold text-red-800">수급·공매도 자료를 표시할 수 없습니다.</p>
+            <p className="mt-1 text-xs text-red-700">{flowError}</p>
+          </div>
+        ) : flowEvidence ? (
+          <TickerFlowShortPanel evidence={flowEvidence} />
+        ) : (
+          <div className="rounded-xl border border-[#DCE4F5] bg-[#F0F3FA] p-4 text-sm text-[#64748B]" role="status">
+            위 검색창에서 교육용 예시 종목을 분석하면 수급·공매도 근거가 표시됩니다.
+          </div>
+        )}
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

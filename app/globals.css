@@ -62,7 +62,7 @@ body {
   .console-metric { @apply rounded-xl border border-border bg-white px-4 py-3; }
   .console-label { @apply text-[10px] font-bold uppercase tracking-wide text-fg-muted; }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
     @apply btn bg-navy-500 text-white hover:bg-navy-600 dark:bg-navy-500 dark:hover:bg-navy-400;

@@ -15,6 +15,7 @@ import {
 } from "./indicators";
 import type { MeasuredNumber, TickerSnapshot } from "./types";
 import type { YahooDaily } from "./yahoo";
+import { buildTickerMomentumEvidence, buildUnavailableTickerMomentum } from "./tickerMomentum";
 
 function m(
   value: number | null,
@@ -58,6 +59,13 @@ export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSna
     rsi14,
     macdHist: macd?.histogram ?? null,
   });
+  const momentum = daily.momentumDataset
+    ? buildTickerMomentumEvidence(daily.momentumDataset)
+    : buildUnavailableTickerMomentum({
+        asOf,
+        source,
+        reason: "현재 시세 제공처는 승인된 수정 OHLCV·거래량 계약이 확인되지 않아 P0 모멘텀을 계산하지 않았습니다.",
+      });
 
   const d1 =
     daily.previousClose && daily.previousClose > 0
@@ -69,6 +77,9 @@ export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSna
   if (d1 == null) warnings.push("1일 수익률을 계산할 전일 종가가 없습니다.");
   if (rsi14 == null) warnings.push("RSI 산출에 필요한 일봉이 부족합니다.");
   if (macd == null) warnings.push("MACD 산출에 필요한 일봉이 부족합니다.");
+  if (momentum.status !== "ok") {
+    warnings.push(...momentum.warnings.map((warning) => `가격·모멘텀: ${warning}`));
+  }
 
   const bars = dates.map((time, i) => ({
     time,
@@ -119,6 +130,7 @@ export function buildTickerSnapshot(daily: YahooDaily, query: string): TickerSna
       histogram: m(macd?.histogram ?? null, "price", asOf, historySource, currency, 4),
     },
     technicalState: tech,
+    momentum,
     bars,
   };
 }

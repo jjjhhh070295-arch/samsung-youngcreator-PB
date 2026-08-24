@@ -296,6 +296,85 @@ export interface TickerLiveQuote {
   marketState: string | null;
 }
 
+export type TickerMomentumDataMode = "demo" | "live";
+export type TickerMomentumApprovalStatus = "not_applicable" | "approved" | "not_approved";
+export type TickerMomentumAdjustmentStatus =
+  | "provider_adjusted"
+  | "split_adjusted"
+  | "unadjusted"
+  | "unknown";
+
+/**
+ * 한 거래일의 정규장 완료 OHLCV입니다. 가격 필드는 dataset의 adjustmentStatus에
+ * 적힌 기준으로 이미 보정된 값만 넣습니다. 거래량 누락은 0이 아니라 null입니다.
+ */
+export interface TickerMomentumOhlcvBar {
+  sessionDate: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+  /** 교육용 액면분할 회귀 테스트와 감사 표시에만 사용하며 계산에는 쓰지 않습니다. */
+  rawHigh?: number;
+  rawClose?: number;
+}
+
+export interface TickerMomentumDataset {
+  dataMode: TickerMomentumDataMode;
+  approvalStatus: TickerMomentumApprovalStatus;
+  datasetId: string;
+  version: string;
+  label: string;
+  asOf: string;
+  source: string;
+  adjustmentStatus: TickerMomentumAdjustmentStatus;
+  adjustmentBasis: string;
+  volumeBasis: string;
+  sessionCompleteness: "complete" | "partial" | "unknown";
+  bars: TickerMomentumOhlcvBar[];
+}
+
+export interface TickerMomentumEvidence {
+  status: "ok" | "warning" | "blocked" | "unavailable";
+  dataMode: TickerMomentumDataMode | "unavailable";
+  approvalStatus: TickerMomentumApprovalStatus | "unknown";
+  datasetId: string | null;
+  version: string | null;
+  label: string;
+  asOf: string;
+  source: string;
+  adjustmentStatus: TickerMomentumAdjustmentStatus;
+  adjustmentBasis: string;
+  volumeBasis: string;
+  sessionCompleteness: "complete" | "partial" | "unknown";
+  freshness: "fixture" | "current" | "stale" | "unknown";
+  observationCount: number;
+  previousWindowCount: number;
+  duplicateDatesRemoved: number;
+  missingVolumeCount: number;
+  currentAdjustedClose: number | null;
+  currentAdjustedHigh: number | null;
+  prior252High: number | null;
+  distanceToPriorHighPct: number | null;
+  isNewHigh: boolean | null;
+  proximityState: "new_high" | "near_high" | "below_high" | "unavailable";
+  nearThresholdPct: number;
+  returnsPct: {
+    d20: number | null;
+    d60: number | null;
+    d120: number | null;
+    d252: number | null;
+  };
+  movingAverages: {
+    sma20: number | null;
+    sma60: number | null;
+    sma120: number | null;
+  };
+  volumeRatio20: number | null;
+  warnings: string[];
+}
+
 export interface TickerSnapshot {
   symbol: string;
   resolvedSymbol: string;
@@ -337,6 +416,7 @@ export interface TickerSnapshot {
     macdState: string;
     summary: string;
   };
+  momentum: TickerMomentumEvidence;
   bars: TickerBar[];
 }
 

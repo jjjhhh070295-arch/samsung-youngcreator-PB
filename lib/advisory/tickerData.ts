@@ -15,15 +15,28 @@ import {
   type YahooDaily,
   type YahooProfile,
 } from "./yahoo";
+import {
+  getMomentumDemoDaily,
+  getMomentumDemoProfile,
+  getMomentumDemoQuote,
+  resolveMomentumDemoSymbol,
+  type MomentumDemoSymbol,
+} from "./tickerMomentumFixture";
 
 export interface ResolvedTicker {
   symbol: string;
   domesticCode: string | null;
+  momentumDemoSymbol?: MomentumDemoSymbol;
 }
 
 export async function resolveTickerInput(raw: string): Promise<ResolvedTicker> {
   const input = raw.trim();
   if (!input) throw new Error("티커가 비어 있습니다.");
+
+  const momentumDemoSymbol = resolveMomentumDemoSymbol(input);
+  if (momentumDemoSymbol) {
+    return { symbol: momentumDemoSymbol, domesticCode: null, momentumDemoSymbol };
+  }
 
   // NAVER, LS ELECTRIC처럼 영문이 공식 종목명인 국내 기업도 있으므로
   // 입력 문자 종류와 무관하게 국내 종목 검색을 먼저 시도한다.
@@ -37,6 +50,7 @@ export async function resolveTickerInput(raw: string): Promise<ResolvedTicker> {
 }
 
 export async function fetchTickerDaily(resolved: ResolvedTicker): Promise<YahooDaily> {
+  if (resolved.momentumDemoSymbol) return getMomentumDemoDaily(resolved.momentumDemoSymbol);
   if (!resolved.domesticCode) return fetchYahooDaily(resolved.symbol);
   try {
     return await fetchNaverDaily(resolved.domesticCode);
@@ -63,11 +77,13 @@ export async function fetchTickerDaily(resolved: ResolvedTicker): Promise<YahooD
 }
 
 export async function fetchTickerProfile(resolved: ResolvedTicker): Promise<YahooProfile> {
+  if (resolved.momentumDemoSymbol) return getMomentumDemoProfile(resolved.momentumDemoSymbol);
   if (resolved.domesticCode) return fetchNaverProfile(resolved.domesticCode);
   return fetchYahooProfile(resolved.symbol);
 }
 
 export async function fetchTickerQuote(resolved: ResolvedTicker): Promise<TickerLiveQuote> {
+  if (resolved.momentumDemoSymbol) return getMomentumDemoQuote(resolved.momentumDemoSymbol);
   if (resolved.domesticCode) return fetchNaverQuote(resolved.domesticCode);
   return fetchYahooQuote(resolved.symbol);
 }
