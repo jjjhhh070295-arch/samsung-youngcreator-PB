@@ -2,22 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { getLoggedInPbId, clearLoggedInPbId } from "@/lib/auth";
 import { listPbs } from "@/lib/store";
 
 export default function Header() {
   const [pbName, setPbName] = useState<string | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
   useEffect(() => {
+    let cancelled = false;
     // 세션만 사용 — URL pbId로 세션을 만들지 않는다(인증 우회 차단)
     const pbId = getLoggedInPbId();
-    if (!pbId) return;
+    if (!pbId) {
+      setPbName(null);
+      return;
+    }
     listPbs().then((pbs) => {
+      if (cancelled) return;
       const pb = pbs.find((p) => p.id === pbId);
-      if (pb) setPbName(pb.name);
+      setPbName(pb?.name ?? null);
     }).catch(() => {});
-  }, []);
+    return () => { cancelled = true; };
+  }, [pathname, router]);
 
   const handleLogout = () => {
     clearLoggedInPbId();

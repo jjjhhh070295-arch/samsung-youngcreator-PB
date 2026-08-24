@@ -13,7 +13,7 @@ import {
   DEMO_PB_ID,
   DEMO_PB_CREDENTIALS,
 } from "@/lib/store";
-import { setLoggedInPbId } from "@/lib/auth";
+import { AUTH_SESSION_CHANGED_EVENT, getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import MarketMiniChart from "@/components/MarketMiniChart";
@@ -43,6 +43,7 @@ export default function HomePage() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
+  const [loggedInPbId, setLoggedInPbIdState] = useState<string | null>(null);
 
   // 시세
   const [market, setMarket] = useState<MarketTicker[]>(DUMMY_MARKET);
@@ -58,6 +59,13 @@ export default function HomePage() {
     spx:   {points:[],prevClose:null,delayMinutes:0,startTime:null,endTime:null},
   });
   const [chartLoading, setChartLoading] = useState(true);
+
+  useEffect(() => {
+    const syncSession = () => setLoggedInPbIdState(getLoggedInPbId());
+    syncSession();
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,7 +316,34 @@ export default function HomePage() {
 
       {status === "ready" && (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1fr]">
-          {/* 로그인 폼 */}
+          {/* 로그인 상태 / 로그인 폼 */}
+          {loggedInPbId ? (
+            <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
+              <div className="mb-6">
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-sm font-black text-white">
+                    ✓
+                  </span>
+                  <span className="text-base font-bold text-fg">PB 로그인 상태</span>
+                </div>
+                <p className="text-xs text-fg-muted">홈 화면을 둘러보는 동안에도 로그인 상태가 유지됩니다.</p>
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-lg bg-surface-2 px-4 py-4">
+                  <p className="text-xs text-fg-muted">현재 로그인</p>
+                  <p className="mt-1 text-base font-bold text-fg">
+                    {pbs.find((pb) => pb.id === loggedInPbId)?.name ?? "PB 사용자"}
+                  </p>
+                </div>
+                <button
+                  className="w-full rounded-lg bg-[#1428A0] py-3 text-sm font-bold text-white transition-colors hover:bg-[#1020c0]"
+                  onClick={() => router.push(`/pb/${loggedInPbId}`)}
+                >
+                  PB 고객관리로 돌아가기
+                </button>
+              </div>
+            </div>
+          ) : (
           <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
             <div className="mb-6">
               <div className="mb-1 flex items-center gap-2">
@@ -360,6 +395,7 @@ export default function HomePage() {
               </p>
             </div>
           </div>
+          )}
 
           {/* 관리자 패널 */}
           <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
