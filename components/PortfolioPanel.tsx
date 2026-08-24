@@ -3118,23 +3118,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         )}
       </section>
 
-      <SimplifiedBenchmarkReturnChart
-        data={benchmarkChartData}
-        source={benchmarkSource}
-        fallback={benchmarkFallback}
-        updatedAt={benchmarkUpdatedAt}
-      />
-
-      <ObjectiveMetricsTable
-        data={benchmarkChartData}
-        source={benchmarkSource}
-        fallback={benchmarkFallback}
-        updatedAt={benchmarkUpdatedAt}
-        weights={adjustedWeights}
-        planSummary={planSummary}
-        sectorEtfData={sectorEtfData}
-      />
-
       <div className="grid grid-cols-1 gap-5">
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <div className="mb-5 flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
