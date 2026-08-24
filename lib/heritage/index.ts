@@ -1,6 +1,6 @@
 export * from "./types";
 export * from "./constants";
-export { assessHeritageDemand, estimateExemptionWon } from "./demand";
+export { assessHeritageDemand, estimateExemptionWon, personalOrBlanketDeductionWon } from "./demand";
 export { assessHeritageUrgency } from "./urgency";
 export { estimateInheritanceTaxRange } from "./tax";
 export { compareHeritagePriority, URGENCY_RANK } from "./priority";

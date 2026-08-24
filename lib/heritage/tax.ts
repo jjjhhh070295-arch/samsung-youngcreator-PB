@@ -12,7 +12,7 @@
 // 반드시 반영한다. 커트오프 판단은 demand.ts의 isWithinYears를 그대로 재사용한다.
 
 import { HERITAGE_DEMAND, HERITAGE_EXEMPTION, HERITAGE_TAX_ASSUMPTIONS, HERITAGE_TAX_DISCLAIMER, INHERITANCE_TAX_BRACKETS } from "./constants";
-import { isWithinYears } from "./demand";
+import { isWithinYears, personalOrBlanketDeductionWon } from "./demand";
 import { eok } from "./format";
 import type { HeritageReason, HeritageTaxRangeResult } from "./types";
 import type { TransferEvent } from "../types";
@@ -69,15 +69,20 @@ export function estimateInheritanceTaxRange(input: {
   const asOf = input.asOf ?? new Date();
   const childrenCountAssumed = input.childrenCount == null;
   const childrenCountUsed = input.childrenCount ?? HERITAGE_TAX_ASSUMPTIONS.assumedChildrenCountWhenUnknown;
-  const childDeductionWon = childrenCountUsed * HERITAGE_EXEMPTION.perChildWon;
 
   const { totalWon: giftAddBackWon, reasons: giftAddBackReasons } = sumGiftAddBack(input.givenGiftEvents ?? [], asOf);
   // 사전증여 10년 합산 — 과세가액은 현재 자산 + 10년 내 증여 합계.
   const grossEstateWon = input.assetSizeWon + giftAddBackWon;
 
+  // 상속공제 = max(기초공제 + 자녀공제 합계, 일괄공제) — 일괄공제를 택하면 자녀공제는 별도로
+  // 더하지 않는다(이중계상 금지). 자녀 7명 미만이면 일괄공제(5억) 쪽이 항상 더 크다.
+  const personalDeductionWon = HERITAGE_EXEMPTION.basicWon + childrenCountUsed * HERITAGE_EXEMPTION.perChildWon;
+  const baseOrPersonalDeductionWon = personalOrBlanketDeductionWon(childrenCountUsed);
+  const usedBlanket = baseOrPersonalDeductionWon <= HERITAGE_EXEMPTION.baseWon;
+
   // 상한 시나리오(세액 최대) = 배우자공제 최소(5억)만 적용 → 공제가 작으니 과세표준이 커진다.
-  const maxTaxExemptionWon =
-    HERITAGE_EXEMPTION.baseWon + (input.hasSpouse ? HERITAGE_EXEMPTION.spouseMinWon : 0) + childDeductionWon;
+  const spouseDeductionForMaxTax = input.hasSpouse ? HERITAGE_EXEMPTION.spouseMinWon : 0;
+  const maxTaxExemptionWon = baseOrPersonalDeductionWon + spouseDeductionForMaxTax;
 
   // 하한 시나리오(세액 최소) = 배우자공제 = min(법정상속분 상당액, 30억 한도), 최소 5억 보장.
   let spouseDeductionForMinTax = 0;
@@ -88,7 +93,7 @@ export function estimateInheritanceTaxRange(input: {
       Math.max(HERITAGE_EXEMPTION.spouseMinWon, legalPortionWon),
     );
   }
-  const minTaxExemptionWon = HERITAGE_EXEMPTION.baseWon + spouseDeductionForMinTax + childDeductionWon;
+  const minTaxExemptionWon = baseOrPersonalDeductionWon + spouseDeductionForMinTax;
 
   const maxTaxBaseWon = Math.max(0, grossEstateWon - maxTaxExemptionWon);
   const minTaxBaseWon = Math.max(0, grossEstateWon - minTaxExemptionWon);
@@ -98,6 +103,12 @@ export function estimateInheritanceTaxRange(input: {
     reasons.push({
       code: "children_count_assumed",
       text: `자녀 수를 확인할 수 없어 보수적으로 ${childrenCountUsed}명으로 가정해 계산했습니다 — 실제 자녀 수를 확인하면 세액 구간이 달라질 수 있습니다.`,
+    });
+  }
+  if (!usedBlanket) {
+    reasons.push({
+      code: "used_personal_deduction",
+      text: `자녀 ${childrenCountUsed}명 기준 기초공제+자녀공제 합계(${eok(personalDeductionWon)})가 일괄공제(5억원)보다 커서 일괄공제 대신 이쪽을 적용했습니다.`,
     });
   }
   if (input.hasSpouse && minTaxBaseWon === 0 && maxTaxBaseWon > 0) {
@@ -115,6 +126,16 @@ export function estimateInheritanceTaxRange(input: {
     giftAddBackWon,
     childrenCountUsed,
     childrenCountAssumed,
+    breakdown: {
+      personalDeductionWon,
+      blanketDeductionWon: HERITAGE_EXEMPTION.baseWon,
+      usedBlanket,
+      baseOrPersonalDeductionWon,
+      spouseDeductionForMaxTaxWon: spouseDeductionForMaxTax,
+      spouseDeductionForMinTaxWon: spouseDeductionForMinTax,
+      maxTaxBaseWon,
+      minTaxBaseWon,
+    },
     reasons,
     disclaimer: HERITAGE_TAX_DISCLAIMER,
   };

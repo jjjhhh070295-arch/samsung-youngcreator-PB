@@ -56,10 +56,17 @@ describe("estimateExemptionWon", () => {
   it("일괄공제만(배우자 없음, 자녀 없음)", () => {
     assert.equal(estimateExemptionWon({ hasSpouse: false, childrenCount: 0 }), 500_000_000);
   });
-  it("일괄공제+배우자공제(최소)+자녀공제 2인", () => {
+  it("자녀 2인은 일괄공제(5억)가 기초+인적공제(2억+1억=3억)보다 커서 일괄공제를 쓴다 — 자녀공제 이중계상 없음", () => {
     assert.equal(
       estimateExemptionWon({ hasSpouse: true, childrenCount: 2 }),
-      500_000_000 + 500_000_000 + 100_000_000,
+      500_000_000 + 500_000_000, // 일괄공제 5억 + 배우자공제 5억 (자녀공제는 별도로 더하지 않는다)
+    );
+  });
+
+  it("자녀 7인은 기초+인적공제(2억+3.5억=5.5억)가 일괄공제(5억)를 넘어 이쪽을 쓴다", () => {
+    assert.equal(
+      estimateExemptionWon({ hasSpouse: true, childrenCount: 7 }),
+      550_000_000 + 500_000_000, // (기초 2억+자녀공제 7×5천만=5.5억) + 배우자공제 5억
     );
   });
 });
@@ -224,6 +231,36 @@ describe("estimateInheritanceTaxRange", () => {
     const range = estimateInheritanceTaxRange({ assetSizeWon: 15_000_000_000, hasSpouse: false, childrenCount: 0 });
     assert.equal(range.giftAddBackWon, 0);
     assert.equal(range.childrenCountAssumed, false);
+  });
+});
+
+describe("estimateInheritanceTaxRange — 상속공제는 max(기초+인적공제, 일괄공제) 하나만, 이중계상 아님", () => {
+  it("32억, 배우자O, 자녀 2명 — 상한은 7.2억(일괄5억+배우자5억 적용, 자녀공제 별도 가산 없음)", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 2 });
+    assert.equal(range.breakdown.usedBlanket, true);
+    assert.equal(range.breakdown.baseOrPersonalDeductionWon, 500_000_000);
+    assert.equal(range.maxTaxExemptionWon, 500_000_000 + 500_000_000);
+    assert.equal(range.maxTaxWon, 720_000_000);
+  });
+
+  it("자녀 0명(F류) — 이중계상 버그와 무관, 결과 그대로", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 15_000_000_000, hasSpouse: false, childrenCount: 0 });
+    assert.equal(range.breakdown.usedBlanket, true);
+    assert.equal(range.breakdown.baseOrPersonalDeductionWon, 500_000_000);
+  });
+
+  it("자녀 6명은 아직 일괄공제(동률 이하)를 쓴다", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 6 });
+    assert.equal(range.breakdown.usedBlanket, true);
+    assert.equal(range.breakdown.baseOrPersonalDeductionWon, 500_000_000);
+  });
+
+  it("자녀 7명이면 기초+인적공제(5.5억)가 일괄공제(5억)를 넘어선다", () => {
+    const range = estimateInheritanceTaxRange({ assetSizeWon: 3_200_000_000, hasSpouse: true, childrenCount: 7 });
+    assert.equal(range.breakdown.usedBlanket, false);
+    assert.equal(range.breakdown.personalDeductionWon, 550_000_000);
+    assert.equal(range.breakdown.baseOrPersonalDeductionWon, 550_000_000);
+    assert.ok(range.reasons.some((r) => r.code === "used_personal_deduction"));
   });
 });
 

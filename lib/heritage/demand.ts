@@ -16,12 +16,18 @@ export function isWithinYears(dateStr: string, years: number, asOf: Date): boole
   return d >= cutoff;
 }
 
-/** 일괄공제 + 배우자공제(최소) + 자녀공제(1인당) — 단순화된 개략 공제 추정. */
+/** 상속공제 = max(기초공제 + 기타인적공제(자녀) 합계, 일괄공제) — 일괄공제를 택하면 자녀공제는
+ *  별도로 더하지 않는다(이중계상 금지). tax.ts도 이 함수를 그대로 재사용한다. */
+export function personalOrBlanketDeductionWon(childrenCount: number): number {
+  const personalWon = HERITAGE_EXEMPTION.basicWon + childrenCount * HERITAGE_EXEMPTION.perChildWon;
+  return Math.max(personalWon, HERITAGE_EXEMPTION.baseWon);
+}
+
+/** 위 공제(일괄 vs 기초+인적, 큰 쪽) + 배우자공제(최소) — 단순화된 개략 공제 추정. */
 export function estimateExemptionWon(input: Pick<HeritageAssessmentInput, "hasSpouse" | "childrenCount">): number {
   return (
-    HERITAGE_EXEMPTION.baseWon +
-    (input.hasSpouse ? HERITAGE_EXEMPTION.spouseMinWon : 0) +
-    input.childrenCount * HERITAGE_EXEMPTION.perChildWon
+    personalOrBlanketDeductionWon(input.childrenCount) +
+    (input.hasSpouse ? HERITAGE_EXEMPTION.spouseMinWon : 0)
   );
 }
 
@@ -64,12 +70,17 @@ export function assessHeritageDemand(input: HeritageAssessmentInput): HeritageDe
   }
 
   if (taxableExcessWon > 0) {
+    const personalDeductionWon = personalOrBlanketDeductionWon(input.childrenCount);
+    const usedBlanket = personalDeductionWon <= HERITAGE_EXEMPTION.baseWon;
+    const baseDeductionNote = usedBlanket
+      ? "일괄공제 5억원"
+      : `기초공제 2억원 + 자녀공제 ${input.childrenCount}인×5천만원(일괄공제 5억원보다 커서 이쪽을 적용)`;
     reasons.push({
       code: "taxable_excess",
       text:
         `총자산 ${eok(input.assetSizeWon)}이 예상 공제 ${eok(exemptionWon)}` +
-        `(일괄공제 5억원 + 배우자공제 ${input.hasSpouse ? "5억원" : "0원(배우자 없음)"} + ` +
-        `자녀공제 ${input.childrenCount}인×5천만원)을 ${eok(taxableExcessWon)} 초과합니다 — 과세 가능성이 있습니다.`,
+        `(${baseDeductionNote} + 배우자공제 ${input.hasSpouse ? "5억원" : "0원(배우자 없음)"})을 ` +
+        `${eok(taxableExcessWon)} 초과합니다 — 과세 가능성이 있습니다.`,
     });
   } else {
     reasons.push({

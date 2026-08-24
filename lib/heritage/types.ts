@@ -67,6 +67,25 @@ export interface HeritageTaxRangeResult {
   childrenCountUsed: number;
   /** true면 자녀 수를 몰라서 보수적으로 가정한 값을 썼다는 뜻 — 결과 표시에서 숨기면 안 된다. */
   childrenCountAssumed: boolean;
+  /** 검산용 공제 내역 분해 — 상한/하한 모두 기초+인적공제 vs 일괄공제 중 큰 쪽 하나만 쓴다. */
+  breakdown: {
+    /** 기초공제(2억) + 자녀공제 합계 — "인적공제 조합"을 택했을 때의 값. */
+    personalDeductionWon: number;
+    /** 일괄공제(5억). */
+    blanketDeductionWon: number;
+    /** true면 일괄공제를 택함(= personalDeductionWon <= blanketDeductionWon, 자녀 7명 미만이면 항상 이쪽). */
+    usedBlanket: boolean;
+    /** max(personalDeductionWon, blanketDeductionWon) — 실제 적용된 기초/인적 vs 일괄 공제액. */
+    baseOrPersonalDeductionWon: number;
+    /** 상한 시나리오에서 적용된 배우자공제(항상 5억, 배우자 없으면 0). */
+    spouseDeductionForMaxTaxWon: number;
+    /** 하한 시나리오에서 적용된 배우자공제(법정상속분 한도, 배우자 없으면 0). */
+    spouseDeductionForMinTaxWon: number;
+    /** 과세가액(자산 + 10년 내 증여 합산) - 상한 시나리오 공제 총액. */
+    maxTaxBaseWon: number;
+    /** 과세가액(자산 + 10년 내 증여 합산) - 하한 시나리오 공제 총액. */
+    minTaxBaseWon: number;
+  };
   /** 증여 합산 가산, 자녀 수 가정 등 세액 구간 산출 근거를 PB가 그대로 말할 수 있는 문장들. */
   reasons: HeritageReason[];
   /** 화면에 절대 숨기거나 축소하면 안 되는 문구. */
