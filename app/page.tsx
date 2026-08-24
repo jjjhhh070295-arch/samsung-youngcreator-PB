@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import AutoTraderPanel from "@/components/advisory/AutoTraderPanel";
 import KoreanStockTrendFilter from "@/components/advisory/KoreanStockTrendFilter";
 import TradingOrderPanel from "@/components/advisory/TradingOrderPanel";
 import type { PbSelectedKoreanStock } from "@/lib/advisory/krTrendPortfolio";
@@ -45,12 +46,13 @@ export default function HomePage() {
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-8">
       <header>
         <p className="text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">KIS Regime Trader</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">국장 스크리닝 · 3양봉 · 국면 게이트</h1>
+        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">자동매매 · 국장 3양봉 · 국면 게이트</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          상승률 상위 70 → 시총 2조 · 기술필터 · 테마 → 최대 3종목 확정 → 런타임 국면으로 매수 강제 게이트.
-          KIS 미설정 시 데모 유니버스로 전체 플로우가 동작합니다.
+          아래 Auto Trader가 스크리닝→국면→진입/청산을 주기 실행합니다. 기본은 dry-run이며, 실주문은 KIS_LIVE + LIVE 무장일 때만.
         </p>
       </header>
+
+      <AutoTraderPanel />
 
       <section className="rounded-2xl border border-slate-200 bg-white/85 p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">

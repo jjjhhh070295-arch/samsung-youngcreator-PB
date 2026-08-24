@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx --yes tsx --test lib/advisory/krTrendFilter.test.ts lib/strategy/threeBullTwoBear.test.ts lib/strategy/marketRegime.test.ts lib/trading/trading.test.ts lib/trading/regimeGate.test.ts"
+    "test": "npx --yes tsx --test lib/advisory/krTrendFilter.test.ts lib/strategy/threeBullTwoBear.test.ts lib/strategy/marketRegime.test.ts lib/strategy/autoTrader.test.ts lib/trading/trading.test.ts lib/trading/regimeGate.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
