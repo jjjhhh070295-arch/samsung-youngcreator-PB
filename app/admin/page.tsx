@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import HelpToolbar from "@/components/help/HelpToolbar";
+import AccountBalanceCard from "@/components/advisory/AccountBalanceCard";
 
 const TRADER_HEADER = JSON.stringify({ id: "local-demo", role: "admin" });
 
@@ -25,6 +26,7 @@ export default function AdminPage() {
       <p className="mt-2 text-sm text-slate-600">
         브라우저를 닫아도 Worker가 켜져 있으면 자동매매는 계속됩니다. Worker 오프라인이면 주문이 나가지 않습니다.
       </p>
+      <div className="mt-4"><AccountBalanceCard /></div>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <div className="rounded-xl border bg-white p-4 text-sm">
           <p className="font-semibold">Worker</p>

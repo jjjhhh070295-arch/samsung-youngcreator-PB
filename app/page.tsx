@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AutoTraderPanel from "@/components/advisory/AutoTraderPanel";
+import AccountBalanceCard from "@/components/advisory/AccountBalanceCard";
 import HelpToolbar from "@/components/help/HelpToolbar";
 import KoreanStockTrendFilter from "@/components/advisory/KoreanStockTrendFilter";
 import TradingOrderPanel from "@/components/advisory/TradingOrderPanel";
@@ -54,6 +55,8 @@ export default function HomePage() {
           아래 Auto Trader가 스크리닝→국면→진입/청산을 주기 실행합니다. 기본은 dry-run이며, 실주문은 KIS_LIVE + LIVE 무장일 때만.
         </p>
       </header>
+
+      <AccountBalanceCard />
 
       <AutoTraderPanel />
 
