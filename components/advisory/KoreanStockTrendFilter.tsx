@@ -73,6 +73,7 @@ export default function KoreanStockTrendFilter({
   const [error, setError] = useState("");
   const [confirmError, setConfirmError] = useState("");
   const [configMessage, setConfigMessage] = useState("");
+  const [sourceNotice, setSourceNotice] = useState("");
   const [meta, setMeta] = useState<{
     asOf: string;
     source: string;
@@ -146,13 +147,19 @@ export default function KoreanStockTrendFilter({
         setCandidates([]);
         setUnverifiable([]);
         setConfigMessage(data.message || "KIS 조건검색 설정이 필요합니다.");
+        setSourceNotice("");
         setMeta(null);
         return;
       }
       if (!data.ok) throw new Error(data.error || "조회 실패");
       setConfigMessage("");
-      setCandidates(data.candidates ?? []);
+      const loadedCandidates = (data.candidates ?? []) as KrTrendCandidateView[];
+      setCandidates(loadedCandidates);
       setUnverifiable(data.unverifiable ?? []);
+      setSourceNotice(data.message || "");
+      if (loadedCandidates.length > 0 && !loadedCandidates.some((c) => c.isFinalCandidate)) {
+        setOnlyFinal(false);
+      }
       setMeta({
         asOf: data.asOf,
         source: data.source,
@@ -248,7 +255,7 @@ export default function KoreanStockTrendFilter({
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8B6914]">국내 주식 추세 필터</p>
           <h3 className="text-base font-bold text-fg">국장 추세 후보 (체크 → 후보 확정 → 주식형 반영)</h3>
           <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-fg-muted">
-            KIS 조건검색 → 등락률 상위 70 → 시총 2조·완료일봉 기술조건·리포트 테마 pass → 시총 상위 최대 3종목만 추천.
+            조건검색식이 있으면 등락률 상위 70, Mac에서 조건검색 번호가 없으면 KIS 공식 순위를 합쳐 최대 70 → 시총 2조·완료일봉 기술조건·리포트 테마 pass → 시총 상위 최대 3종목만 추천.
             체크만으로는 반영되지 않으며, 「후보 확정」한 종목만 주식형 {equityWeightPct.toFixed(0)}%에 배분됩니다.
           </p>
         </div>
@@ -258,7 +265,7 @@ export default function KoreanStockTrendFilter({
           onClick={() => void load()}
           disabled={loading}
         >
-          {loading ? "필터링 중…" : "상위 70 추출 · 필터 실행"}
+          {loading ? "필터링 중…" : "상승률 후보 추출 · 필터 실행"}
         </button>
       </div>
 
@@ -268,7 +275,7 @@ export default function KoreanStockTrendFilter({
           {meta.marketCapFloorWon
             ? `${(meta.marketCapFloorWon / 1e12).toFixed(0)}조원`
             : "2조원"}{" "}
-          · 시총충족 universe {meta.universeSize ?? "—"}종 · 최종 후보 {meta.finalCount}종
+          · 조회 후보 {meta.universeSize ?? "—"}종 · 최종 후보 {meta.finalCount}종
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
@@ -279,6 +286,12 @@ export default function KoreanStockTrendFilter({
           <p className="mt-1 text-[10px] text-amber-800">
             .env.local에 KIS_APP_KEY, KIS_APP_SECRET, KIS_CONDITION_SEQ(eFriend Plus 조건검색식 번호)를 설정하세요.
           </p>
+        </div>
+      )}
+      {sourceNotice && (
+        <div className="mt-3 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-950">
+          <p className="font-semibold">조회 방식 안내</p>
+          <p className="mt-1">{sourceNotice}</p>
         </div>
       )}
 
@@ -325,7 +338,11 @@ export default function KoreanStockTrendFilter({
 
       <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
         {visible.length === 0 && !loading && (
-          <p className="text-xs text-fg-muted">아직 결과가 없습니다. 위 버튼을 눌러 국장 상승률 상위 종목을 가져오세요.</p>
+          <p className="text-xs text-fg-muted">
+            {candidates.length > 0
+              ? "조회는 완료됐지만 모든 조건을 통과한 최종 후보가 없습니다. ‘최종 후보만 보기’를 끄면 탈락 사유를 확인할 수 있습니다."
+              : "아직 결과가 없습니다. 위 버튼을 눌러 국장 상승률 후보를 가져오세요."}
+          </p>
         )}
         {visible.map((c) => {
           const draft = rr[c.ticker] ?? { seedWon: "1000000", stopLoss: "", takeProfit: "" };

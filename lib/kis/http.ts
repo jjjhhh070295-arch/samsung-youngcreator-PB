@@ -20,6 +20,10 @@ export interface KisRequestOptions {
   query?: Record<string, string | number | boolean | undefined | null>;
   body?: Record<string, unknown>;
   fetchImpl?: FetchImpl;
+  /** KIS 연속조회: 최초는 생략, 다음 페이지는 "N". */
+  trCont?: string;
+  /** 응답 헤더의 연속조회 상태가 필요한 순위 API용. */
+  onResponseMeta?: (meta: { trCont: string | null }) => void;
 }
 
 function buildUrl(baseUrl: string, path: string, query?: KisRequestOptions["query"]): string {
@@ -122,6 +126,7 @@ export async function kisRequest<T = unknown>(options: KisRequestOptions): Promi
           appsecret: config.appSecret,
           tr_id: options.trId,
           custtype: "P",
+          ...(options.trCont ? { tr_cont: options.trCont } : {}),
         },
         body: options.body ? JSON.stringify(options.body) : undefined,
         cache: "no-store",
@@ -157,6 +162,8 @@ export async function kisRequest<T = unknown>(options: KisRequestOptions): Promi
         }
         throw new Error(`KIS API error (${rtCd}): ${msg}`);
       }
+
+      options.onResponseMeta?.({ trCont: res.headers.get("tr_cont") });
 
       if (method === "GET" && isQuotationPath(options.path)) {
         const key = cacheKey(method, url, options.trId);

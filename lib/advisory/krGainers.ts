@@ -1,8 +1,9 @@
 /**
  * KIS 기반 국내주식 상위 등락률 후보 추출.
  * - 조건검색으로 최대 100종 → 등락률 내림차순 → 상위 70
+ * - Mac 등에서 조건검색식 번호가 없으면 KIS 등락률 순위(KOSPI/KOSDAQ 각 30종) 사용
  * - 시총은 70 선정 후 개별 확인 (시총 선필터 금지)
- * - 조건검색 미설정 시 네이버/스크래핑 폴백 없이 config_required
+ * - 네이버/스크래핑 폴백은 사용하지 않음
  */
 
 import { kisRequest } from "@/lib/kis/http";
@@ -34,6 +35,15 @@ export interface KrGainerRow {
 }
 
 export type KrScreenStatus = "ok" | "config_required" | "error";
+
+type GainerSourceRow = {
+  ticker: string;
+  name: string;
+  price: number;
+  changePct: number;
+  volume: number;
+  market: "KOSPI" | "KOSDAQ";
+};
 
 function parseNumeric(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -85,7 +95,7 @@ export async function mapPool<T, R>(
 
 /** KIS 종목조건검색 결과 (eFriend Plus 저장식 seq 필요). */
 async function fetchConditionSearchRows(seq: string): Promise<{
-  rows: Array<{ ticker: string; name: string; price: number; changePct: number; volume: number; market: "KOSPI" | "KOSDAQ" }>;
+  rows: GainerSourceRow[];
   asOf: string;
   source: string;
 }> {
@@ -126,6 +136,103 @@ async function fetchConditionSearchRows(seq: string): Promise<{
     .filter((x): x is NonNullable<typeof x> => Boolean(x));
 
   return { rows, asOf, source };
+}
+
+/**
+ * KIS 등락률 순위 응답을 화면 후보 형태로 변환한다.
+ * 조건검색식 번호가 없는 Mac 환경에서도 공식 KIS 데이터만 사용하기 위한 폴백이다.
+ */
+export function parseKisFluctuationRows(
+  raw: Array<Record<string, string>>,
+  market: "KOSPI" | "KOSDAQ",
+): GainerSourceRow[] {
+  return raw
+    .map((r) => {
+      const ticker = String(r.stck_shrn_iscd ?? r.mksc_shrn_iscd ?? "")
+        .replace(/\D/g, "")
+        .padStart(6, "0")
+        .slice(-6);
+      const name = String(r.hts_kor_isnm ?? "").trim();
+      const price = parseNumeric(r.stck_prpr) ?? 0;
+      const changePct = parseNumeric(r.prdy_ctrt) ?? 0;
+      const volume = parseNumeric(r.acml_vol) ?? 0;
+      if (!/^\d{6}$/.test(ticker) || !name || !(price > 0) || isExcludedInstrument(name)) return null;
+      return { ticker, name, price, changePct, volume, market };
+    })
+    .filter((row): row is GainerSourceRow => Boolean(row));
+}
+
+async function fetchFluctuationRankingRows(
+  market: "KOSPI" | "KOSDAQ",
+): Promise<{ rows: GainerSourceRow[]; asOf: string; source: string }> {
+  const inputIscd = market === "KOSPI" ? "0001" : "1001";
+  const collected: GainerSourceRow[] = [];
+  let trCont = "";
+  for (let page = 0; page < 3; page += 1) {
+    let nextTrCont: string | null = null;
+    const json = await kisRequest<{
+      rt_cd?: string;
+      msg1?: string;
+      output?: Array<Record<string, string>>;
+    }>({
+      path: "/uapi/domestic-stock/v1/ranking/fluctuation",
+      method: "GET",
+      trId: "FHPST01700000",
+      trCont,
+      onResponseMeta: (meta) => {
+        nextTrCont = meta.trCont;
+      },
+      query: {
+        FID_COND_MRKT_DIV_CODE: "J",
+        FID_COND_SCR_DIV_CODE: "20170",
+        FID_INPUT_ISCD: inputIscd,
+        FID_RANK_SORT_CLS_CODE: "0",
+        FID_INPUT_CNT_1: "30",
+        FID_PRC_CLS_CODE: "0",
+        FID_INPUT_PRICE_1: "0",
+        FID_INPUT_PRICE_2: "999999999",
+        FID_VOL_CNT: "0",
+        FID_TRGT_CLS_CODE: "0",
+        FID_TRGT_EXLS_CLS_CODE: "0",
+        FID_DIV_CLS_CODE: "0",
+        FID_RSFL_RATE1: "-30",
+        FID_RSFL_RATE2: "30",
+      },
+    });
+
+    if (json.rt_cd && json.rt_cd !== "0") {
+      throw new Error(json.msg1 || `${market} KIS 등락률 순위 조회 실패`);
+    }
+    collected.push(...parseKisFluctuationRows(Array.isArray(json.output) ? json.output : [], market));
+    if (nextTrCont !== "M") break;
+    trCont = "N";
+  }
+
+  const deduped = new Map<string, GainerSourceRow>();
+  for (const row of collected) deduped.set(row.ticker, row);
+  return {
+    rows: Array.from(deduped.values()),
+    asOf: new Date().toISOString(),
+    source: `kis:fluctuation:FHPST01700000:${market}`,
+  };
+}
+
+async function fetchMacCompatibleRankingRows(): Promise<{
+  rows: GainerSourceRow[];
+  asOf: string;
+  source: string;
+}> {
+  const [kospi, kosdaq] = await Promise.all([
+    fetchFluctuationRankingRows("KOSPI"),
+    fetchFluctuationRankingRows("KOSDAQ"),
+  ]);
+  const deduped = new Map<string, GainerSourceRow>();
+  for (const row of [...kospi.rows, ...kosdaq.rows]) deduped.set(row.ticker, row);
+  return {
+    rows: Array.from(deduped.values()),
+    asOf: kospi.asOf > kosdaq.asOf ? kospi.asOf : kosdaq.asOf,
+    source: "kis:fluctuation:FHPST01700000:KOSPI+KOSDAQ",
+  };
 }
 
 /** 현재가·시총 조회 (시총은 hts_avls 억원 단위 가정). */
@@ -274,22 +381,11 @@ export async function fetchKoreanTopGainers(limit = KR_TOP_GAINERS_LIMIT): Promi
     };
   }
 
-  if (!config.conditionSeq) {
-    return {
-      status: "config_required",
-      gainers: [],
-      unverifiable: [],
-      universeSize: 0,
-      floorWon,
-      asOf,
-      source: "kis:condition-seq-missing",
-      message:
-        "eFriend Plus에 저장한 종목조건검색식 번호(KIS_CONDITION_SEQ)이 필요합니다. 네이버/스크래핑 폴백은 사용하지 않습니다.",
-    };
-  }
-
   try {
-    const { rows, asOf: searchAsOf, source } = await fetchConditionSearchRows(config.conditionSeq);
+    const sourceResult = config.conditionSeq
+      ? await fetchConditionSearchRows(config.conditionSeq)
+      : await fetchMacCompatibleRankingRows();
+    const { rows, asOf: searchAsOf, source } = sourceResult;
     if (rows.length < Math.min(30, limit)) {
       return {
         status: "config_required",
@@ -299,7 +395,7 @@ export async function fetchKoreanTopGainers(limit = KR_TOP_GAINERS_LIMIT): Promi
         floorWon,
         asOf: searchAsOf,
         source,
-        message: `조건검색 결과가 ${rows.length}건으로 상위 ${limit}종목을 신뢰성 있게 확보할 수 없습니다. 조건식을 확인하세요.`,
+        message: `KIS 등락률 후보가 ${rows.length}건뿐이라 필터를 실행할 수 없습니다. 잠시 후 다시 시도하세요.`,
       };
     }
 
@@ -358,6 +454,9 @@ export async function fetchKoreanTopGainers(limit = KR_TOP_GAINERS_LIMIT): Promi
       floorWon,
       asOf: searchAsOf,
       source,
+      message: config.conditionSeq
+        ? undefined
+        : `Mac 호환 모드: 조건검색 번호 없이 KIS 공식 등락률 순위에서 KOSPI·KOSDAQ 최대 ${rows.length}종목을 가져왔습니다.`,
     };
   } catch (e: unknown) {
     return {
