@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx --yes tsx --test lib/advisory/krTrendFilter.test.ts lib/strategy/threeBullTwoBear.test.ts lib/strategy/marketRegime.test.ts lib/strategy/autoTrader.test.ts lib/trading/trading.test.ts lib/trading/regimeGate.test.ts"
+    "worker": "tsx worker/index.ts",
+    "worker:dev": "tsx watch worker/index.ts",
+    "test": "npx --yes tsx --test lib/advisory/krTrendFilter.test.ts lib/strategy/threeBullTwoBear.test.ts lib/strategy/marketRegime.test.ts lib/strategy/autoTrader.test.ts lib/trading/trading.test.ts lib/trading/regimeGate.test.ts lib/market/sessions.test.ts lib/market/calendar.test.ts lib/kis/exchange.test.ts lib/worker/safety.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

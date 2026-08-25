@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AutoTraderPanel from "@/components/advisory/AutoTraderPanel";
+import HelpToolbar from "@/components/help/HelpToolbar";
 import KoreanStockTrendFilter from "@/components/advisory/KoreanStockTrendFilter";
 import TradingOrderPanel from "@/components/advisory/TradingOrderPanel";
 import type { PbSelectedKoreanStock } from "@/lib/advisory/krTrendPortfolio";
@@ -43,6 +44,8 @@ export default function HomePage() {
   const live = regime?.detected?.regime;
 
   return (
+    <>
+      <HelpToolbar nextAction="CHECK_WORKER" />
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-8">
       <header>
         <p className="text-xs font-semibold tracking-[0.18em] text-slate-500 uppercase">KIS Regime Trader</p>
@@ -84,5 +87,6 @@ export default function HomePage() {
 
       <TradingOrderPanel stocks={selected} />
     </main>
+    </>
   );
 }

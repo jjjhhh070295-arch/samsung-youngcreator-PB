@@ -6,6 +6,7 @@ import {
   ORD_DVSN_AFTER_CLOSE,
   ORD_DVSN_LIMIT,
 } from "@/lib/kis/config";
+import { buildExchangeOrderFields, resolveExchangeRoute, getConfiguredExchangeMode } from "@/lib/kis/exchange";
 import type {
   KisOrderResponse,
   LimitOrdDvsn,
@@ -102,6 +103,10 @@ export function validateLimitCashOrder(input: PreviewOrderInput): PreviewOrderRe
       ordDvsn: input.ordDvsn,
       estimatedWon,
       maxOrderWon: config.maxOrderWon,
+      exchange: resolveExchangeRoute({
+        mode: input.excgIdDvsnCd ?? getConfiguredExchangeMode(),
+        nxtEligible: input.nxtEligible !== false,
+      }).effective,
     },
   };
 }
@@ -118,6 +123,11 @@ export { enforceRegimeBuyGate } from "./regimeGate";
 
 function buildKisOrderBody(input: PreviewOrderInput) {
   const config = getKisConfig();
+  const route = resolveExchangeRoute({
+    mode: input.excgIdDvsnCd ?? getConfiguredExchangeMode(),
+    nxtEligible: input.nxtEligible !== false,
+  });
+  const exch = buildExchangeOrderFields(route.effective);
   return {
     CANO: config.cano,
     ACNT_PRDT_CD: config.acntPrdtCd,
@@ -125,6 +135,9 @@ function buildKisOrderBody(input: PreviewOrderInput) {
     ORD_DVSN: input.ordDvsn,
     ORD_QTY: String(input.quantity),
     ORD_UNPR: String(Math.round(input.price)),
+    EXCG_ID_DVSN_CD: exch.EXCG_ID_DVSN_CD,
+    SLL_TYPE: exch.SLL_TYPE,
+    CNDT_PRIC: exch.CNDT_PRIC,
   };
 }
 

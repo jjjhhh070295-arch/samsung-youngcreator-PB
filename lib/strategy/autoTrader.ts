@@ -77,7 +77,7 @@ async function placeOrSimulate(input: {
 }): Promise<{ dryRun: boolean; orderId?: string }> {
   const dryRun = !canPlaceLive();
   const session = sessionLabel();
-  const ordDvsn = session === "after_close" ? ORD_DVSN_AFTER_CLOSE : ORD_DVSN_LIMIT;
+  const ordDvsn = session === "NXT_AFTER" ? ORD_DVSN_AFTER_CLOSE : ORD_DVSN_LIMIT;
 
   if (dryRun) {
     appendLog("info", `[dry-run] ${input.side} ${input.name}(${input.ticker}) x${input.qty}`, {
@@ -197,7 +197,7 @@ export async function runAutoTradeCycle(options?: {
 
   const readiness = describeSchedulerReadiness();
   const session = sessionLabel();
-  if (!options?.ignoreSession && session === "closed") {
+  if (!options?.ignoreSession && session === "CLOSED") {
     appendLog("info", "장 마감 — 사이클 스킵");
     return {
       ok: true,

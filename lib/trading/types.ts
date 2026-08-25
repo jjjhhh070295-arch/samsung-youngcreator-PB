@@ -21,6 +21,9 @@ export interface PreviewOrderInput {
   ordDvsn: LimitOrdDvsn;
   idempotencyKey?: string;
   strategyId?: string;
+  /** KRX | NXT | SOR */
+  excgIdDvsnCd?: "KRX" | "NXT" | "SOR";
+  nxtEligible?: boolean;
 }
 
 export interface OrderIntent {
@@ -52,6 +55,7 @@ export interface OrderPreviewResult {
     ordDvsn: LimitOrdDvsn;
     estimatedWon: number;
     maxOrderWon: number;
+    exchange?: string;
   };
 }
 
