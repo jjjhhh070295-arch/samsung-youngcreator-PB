@@ -15,6 +15,7 @@ import {
   validateLimitCashOrder,
 } from "./orders";
 import { isLiveTradingEnabled } from "../kis/config";
+import { setAccountCashOverrideForTests } from "../kis/balance";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -45,9 +46,17 @@ describe("trading guards and orders", () => {
     resetTradingStoresForTests();
     setAuthResolverForTests(null);
     process.env = { ...ORIGINAL_ENV };
+    setAccountCashOverrideForTests({
+      ok: true,
+      orderableCashWon: 50_000_000,
+      depositWon: 50_000_000,
+      source: "test",
+      asOf: new Date().toISOString(),
+    });
   });
 
   afterEach(() => {
+    setAccountCashOverrideForTests(null);
     process.env = { ...ORIGINAL_ENV };
     setAuthResolverForTests(null);
     resetTradingStoresForTests();
@@ -218,4 +227,32 @@ describe("trading guards and orders", () => {
     assert.equal(order.side, "sell");
     assert.equal(order.ordDvsn, "06");
   });
+
+  it("blocks live buy when account cash is zero", async () => {
+    enableLiveTradingEnv();
+    setAccountCashOverrideForTests({
+      ok: true,
+      orderableCashWon: 0,
+      depositWon: 0,
+      source: "test",
+      asOf: new Date().toISOString(),
+    });
+    await assert.rejects(
+      () =>
+        placeOrderViaKis(
+          {
+            symbol: "005930",
+            side: "buy",
+            quantity: 1,
+            price: 70000,
+            ordDvsn: "00",
+            userId: "u1",
+            idempotencyKey: "cash-zero",
+          },
+          { fetchImpl: mockKisFetchSuccess() },
+        ),
+      /0원|잔고/,
+    );
+  });
+
 });

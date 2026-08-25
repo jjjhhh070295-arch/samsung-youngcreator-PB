@@ -20,6 +20,7 @@ import { seoulDateKey } from "@/lib/market/calendar";
 import { resolveExchangeRoute, buildExchangeOrderFields, getConfiguredExchangeMode } from "@/lib/kis/exchange";
 import { evaluateLiveSafety } from "./safety";
 import { isHeartbeatFresh } from "./heartbeat";
+import { assertBuyAffordable, fetchAccountCashSummary } from "@/lib/kis/balance";
 
 export interface CycleResult {
   ok: boolean;
@@ -127,6 +128,17 @@ export async function runWorkerCycle(input: {
   const finals = evaluated.filter(Boolean) as NonNullable<(typeof evaluated)[number]>[];
   const { selected } = selectTopKrStocksByMarketCap(finals, MAX_SELECTED_KR_STOCKS);
 
+  const cash = await fetchAccountCashSummary();
+  if (!cash.ok || (cash.orderableCashWon ?? 0) <= 0) {
+    return {
+      ok: true,
+      dryRun,
+      summary: `잔고 부족/조회실패 — 매수 없음 (${cash.error || `주문가능 ${cash.orderableCashWon}원`})`,
+      buys: 0,
+      sells: 0,
+    };
+  }
+
   let buys = 0;
   const tradingDay = seoulDateKey();
   const strategyVersion = `${STRATEGY_ID}@1`;
@@ -152,6 +164,10 @@ export async function runWorkerCycle(input: {
       dayChangePct: c.changePct,
     });
     if (!decision.allow) continue;
+
+    const estimated = decision.qty * c.price;
+    const afford = assertBuyAffordable(estimated, cash);
+    if (!afford.ok) continue;
 
     const route = resolveExchangeRoute({
       mode: (admin.exchange_mode as "KRX" | "NXT" | "SOR") || getConfiguredExchangeMode(),

@@ -7,6 +7,7 @@ import {
   ORD_DVSN_LIMIT,
 } from "@/lib/kis/config";
 import { buildExchangeOrderFields, resolveExchangeRoute, getConfiguredExchangeMode } from "@/lib/kis/exchange";
+import { assertBuyAffordable, fetchAccountCashSummary } from "@/lib/kis/balance";
 import type {
   KisOrderResponse,
   LimitOrdDvsn,
@@ -184,6 +185,14 @@ export async function placeOrderViaKis(
   const preview = validateLimitCashOrder(params);
   if (!preview.ok) {
     throw new Error(preview.error);
+  }
+
+  if (params.side === "buy") {
+    const cash = await fetchAccountCashSummary();
+    const afford = assertBuyAffordable(params.quantity * params.price, cash);
+    if (!afford.ok) {
+      throw new Error(afford.reason || "잔고 부족으로 매수 차단");
+    }
   }
 
   const idempotencyKey = params.idempotencyKey?.trim() || newId();
