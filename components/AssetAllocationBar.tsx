@@ -158,28 +158,25 @@ export default function AssetAllocationBar({ clientId, totalAsset }: Props) {
   // 폴백 종목이 있으면 주식 범례에 표시
   const hasFallback = alloc.stocksFallback > 0;
 
+  // 래퍼 div·"자산 비중" 라벨·구분선 없이 인라인 조각만 반환한다 — 고객 기본 프로필 헤더의
+  // "설립일 · 자산규모" 줄에 그대로 이어붙여 쓰기 위함(이 컴포넌트의 유일한 사용처).
+  // 각 항목이 스스로 "·" 구분자를 앞에 붙이므로, 부모 쪽 "자산규모" 뒤에도 자연스럽게 이어진다.
   return (
-    <div className="mt-4 pt-4 border-t border-border">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted mb-2">자산 비중</p>
-      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-fg-muted">
-        {segments.map((s, i) => (
-          <span key={s.label} className="flex items-center gap-1">
-            {i > 0 && <span className="text-fg-muted/40">·</span>}
-            <span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
-            <span>
-              {s.label}
-              {s.label === "주식" && hasFallback && (
-                <span className="ml-0.5 text-[9px] text-fg-muted/60" title="일부 종목은 시세 미연결 — 평균단가 기준">*</span>
-              )}
-              {" "}<span className="font-semibold text-fg">{s.pct.toFixed(1)}%</span>
-              <span className="ml-1 text-[10px]">({formatW(s.value)})</span>
-            </span>
+    <>
+      {segments.map((s) => (
+        <span key={s.label} className="flex items-center gap-1">
+          <span className="text-fg-muted/40">·</span>
+          <span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
+          <span>
+            {s.label}
+            {s.label === "주식" && hasFallback && (
+              <span className="ml-0.5 text-[9px] text-fg-muted/60" title="일부 종목은 시세 미연결 — 평균단가 기준">*</span>
+            )}
+            {" "}<span className="font-semibold text-fg">{s.pct.toFixed(1)}%</span>
+            <span className="ml-1 text-[10px]">({formatW(s.value)})</span>
           </span>
-        ))}
-      </p>
-      {hasFallback && (
-        <p className="mt-1 text-[9px] text-fg-muted/50">* 일부 주식 평균단가 기준</p>
-      )}
-    </div>
+        </span>
+      ))}
+    </>
   );
 }

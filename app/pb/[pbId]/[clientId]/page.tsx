@@ -189,11 +189,18 @@ export default function ClientDetailPage() {
                   {client.isMajorityShareholder && <span className="badge-gold">최대주주</span>}
                 </div>
                 <h1 className="text-lg font-bold text-fg">고객 기본 프로필</h1>
-                <p className="mt-1 text-sm text-fg-muted">
-                  {client.clientType === "corporate" ? "설립일" : "생년월일"}{" "}
-                  {formatDate(client.birthDate)} · 자산규모{" "}
-                  <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>
-                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-fg-muted">
+                  <span>
+                    {client.clientType === "corporate" ? "설립일" : "생년월일"}{" "}
+                    {formatDate(client.birthDate)}
+                  </span>
+                  <span className="text-fg-muted/40">·</span>
+                  <span>
+                    자산규모{" "}
+                    <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>
+                  </span>
+                  <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} />
+                </div>
                 {(linkedClient || client.accountSeparation) && (
                   <p className="mt-1 text-xs text-fg-muted">
                     {linkedClient && (
@@ -213,7 +220,6 @@ export default function ClientDetailPage() {
                 <button className="btn-ghost text-sm text-red-500" onClick={() => setDeleteOpen(true)}>삭제</button>
               </div>
             </div>
-            <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} />
           </div>
         </section>
 
