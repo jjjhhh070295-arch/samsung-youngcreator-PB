@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import readXlsxFile from "read-excel-file/browser";
 import {
   ACCOUNT_SEPARATION_LABEL,
@@ -12,7 +12,7 @@ import {
   type ClientType,
 } from "@/lib/types";
 import { cellToText, parseCashflowRows, parseCsvRows, type CashflowUploadResult } from "@/lib/cashflowUpload";
-import { isPeriodCashFlow } from "@/lib/periodCashflow";
+import { buildMonthlyCashflowSummarySeries, isPeriodCashFlow } from "@/lib/periodCashflow";
 import { formatKRW, formatKRWShort, parseNumber } from "@/lib/format";
 import { EmptyView } from "./StateViews";
 import TaxReadinessRubricButton from "./TaxReadinessRubricButton";
@@ -34,13 +34,26 @@ function uid() {
 const ENTITY_OPTIONS: CashFlowEntity[] = ["personal", "corporate", "sole_business", "mixed"];
 
 const CASHFLOW_TEMPLATE_LINKS = [
-  { type: "individual" as const, label: "개인 XLSX", href: "/templates/cashflow/vvip-cashflow-individual.xlsx" },
-  { type: "corporate" as const, label: "법인 XLSX", href: "/templates/cashflow/vvip-cashflow-corporate.xlsx" },
-  { type: "sole_proprietor" as const, label: "개인사업자 XLSX", href: "/templates/cashflow/vvip-cashflow-sole-proprietor.xlsx" },
-  { type: "corporate" as const, label: "법인-대표 연동 XLSX", href: "/templates/cashflow/vvip-cashflow-linked-corporate-rep.xlsx" },
+  { type: "simple" as const, label: "월별 간소화 XLSX", href: "/templates/cashflow/monthly-cashflow-simple.xlsx" },
+  { type: "individual" as const, label: "개인 상세 XLSX", href: "/templates/cashflow/vvip-cashflow-individual.xlsx" },
+  { type: "corporate" as const, label: "법인 상세 XLSX", href: "/templates/cashflow/vvip-cashflow-corporate.xlsx" },
+  { type: "sole_proprietor" as const, label: "개인사업자 상세 XLSX", href: "/templates/cashflow/vvip-cashflow-sole-proprietor.xlsx" },
+  { type: "linked_corporate_rep" as const, label: "법인-대표 연동 XLSX", href: "/templates/cashflow/vvip-cashflow-linked-corporate-rep.xlsx" },
 ];
 
-const XLSX_UPLOAD_SHEET_ALIASES = ["업로드용_키값", "upload", "keyvalue", "업로드", "키값", "현금흐름표", "기간별현금흐름"];
+const XLSX_UPLOAD_SHEET_ALIASES = [
+  "월별_간소화_현금흐름",
+  "월별간소화현금흐름",
+  "월별요약",
+  "간소화",
+  "업로드용_키값",
+  "upload",
+  "keyvalue",
+  "업로드",
+  "키값",
+  "현금흐름표",
+  "기간별현금흐름",
+];
 
 const normalizeSheetName = (value: string) => value.toLowerCase().replace(/[\s_\-]/g, "");
 
@@ -108,6 +121,7 @@ export default function CashFlowEditor({
   const [uploadResult, setUploadResult] = useState<CashflowUploadResult | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const guide = CASHFLOW_GUIDES[clientType];
@@ -273,6 +287,18 @@ export default function CashFlowEditor({
     event.target.value = "";
   };
 
+  const onFileDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setDragActive(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) void handleFile(file);
+  };
+
+  const onFileDrag = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setDragActive(event.type === "dragenter" || event.type === "dragover");
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -284,9 +310,21 @@ export default function CashFlowEditor({
   };
 
   const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
-  const totalInflow = rows.reduce((sum, row) => sum + Math.max(0, row.amount || 0), 0);
-  const totalOutflow = rows.reduce((sum, row) => sum + Math.abs(Math.min(0, row.amount || 0)), 0);
-  const recurringNet = rows.filter((row) => row.recurring).reduce((sum, row) => sum + (row.amount || 0), 0);
+  const monthlySummarySeries = useMemo(() => buildMonthlyCashflowSummarySeries(rows), [rows]);
+  const uploadPreviewSeries = useMemo(
+    () => (uploadResult ? buildMonthlyCashflowSummarySeries(uploadResult.cashFlows) : []),
+    [uploadResult],
+  );
+  const displayedInflow = monthlySummarySeries.reduce((sum, point) => sum + point.incomeWon, 0);
+  const displayedOutflowExTax = monthlySummarySeries.reduce((sum, point) => sum + point.outflowWon + point.savingWon, 0);
+  const displayedTax = monthlySummarySeries.reduce((sum, point) => sum + point.taxWon, 0);
+  const displayedNet = monthlySummarySeries.reduce((sum, point) => sum + point.netWon, 0);
+  const uploadedInflow = uploadPreviewSeries.reduce((sum, point) => sum + point.incomeWon, 0);
+  const uploadedOutflowExTax = uploadPreviewSeries.reduce((sum, point) => sum + point.outflowWon + point.savingWon, 0);
+  const uploadedTax = uploadPreviewSeries.reduce((sum, point) => sum + point.taxWon, 0);
+  const uploadedNet = uploadPreviewSeries.reduce((sum, point) => sum + point.netWon, 0);
+  const uploadedFirstPeriod = uploadPreviewSeries[0]?.period;
+  const uploadedLastPeriod = uploadPreviewSeries.at(-1)?.period;
   const entityTotals = useMemo(
     () =>
       rows.reduce<Record<string, number>>((acc, row) => {
@@ -315,10 +353,10 @@ export default function CashFlowEditor({
       </div>
 
       <section className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="console-metric"><p className="console-label">전체 유입</p><p className="mt-1 text-xl font-black text-emerald-700">{formatKRWShort(totalInflow)}</p></div>
-        <div className="console-metric"><p className="console-label">전체 유출</p><p className="mt-1 text-xl font-black text-red-600">-{formatKRWShort(totalOutflow)}</p></div>
-        <div className="console-metric"><p className="console-label">순현금흐름</p><p className={`mt-1 text-xl font-black ${total < 0 ? "text-red-600" : "text-[#1428A0]"}`}>{formatKRWShort(total)}</p></div>
-        <div className="console-metric"><p className="console-label">반복 현금흐름</p><p className={`mt-1 text-xl font-black ${recurringNet < 0 ? "text-amber-700" : "text-fg"}`}>{formatKRWShort(recurringNet)}</p></div>
+        <div className="console-metric"><p className="console-label">표시기간 순유입</p><p className="mt-1 text-xl font-black text-emerald-700">{formatKRWShort(displayedInflow)}</p></div>
+        <div className="console-metric"><p className="console-label">순유출(세금 제외)</p><p className="mt-1 text-xl font-black text-red-600">-{formatKRWShort(displayedOutflowExTax)}</p></div>
+        <div className="console-metric"><p className="console-label">표시기간 총세금</p><p className="mt-1 text-xl font-black text-violet-700">-{formatKRWShort(displayedTax)}</p></div>
+        <div className="console-metric"><p className="console-label">표시기간 순자금</p><p className={`mt-1 text-xl font-black ${displayedNet < 0 ? "text-red-600" : "text-[#1428A0]"}`}>{formatKRWShort(displayedNet)}</p></div>
       </section>
 
       <div className="mb-4 rounded-xl border border-border bg-surface p-4">
@@ -376,13 +414,31 @@ export default function CashFlowEditor({
       <div className="card mb-4 overflow-hidden">
         <div className="grid grid-cols-1 gap-0 lg:grid-cols-[320px_1fr]">
           <div className="border-b border-border p-4 lg:border-b-0 lg:border-r">
-            <p className="text-sm font-bold text-fg">현금흐름표 업로드</p>
+            <p className="text-sm font-bold text-fg">월별 현금흐름 파일 첨부</p>
             <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-              엑셀/CSV의 <b>항목 · 값(만원) · 납부일 · 분류</b> 표를 읽어 현금흐름과
-              세금 납부 일정을 자동 생성합니다.
+              엑셀 양식에 <b>순유입 · 순유출(세금 제외) · 총세금</b>만 월별로 입력하면
+              아래 차트와 표에 바로 반영합니다.
             </p>
-            <label className="btn-gold mt-3 w-full cursor-pointer text-sm">
-              {uploading ? "파일 읽는 중…" : "CSV/XLSX 파일 선택"}
+            <label
+              className={`mt-3 flex min-h-[132px] cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-4 py-5 text-center transition-colors ${
+                dragActive
+                  ? "border-[#1428A0] bg-blue-50 text-[#1428A0] dark:bg-blue-950/30"
+                  : "border-border bg-surface-2 text-fg hover:border-[#1428A0]"
+              }`}
+              onDragEnter={onFileDrag}
+              onDragOver={onFileDrag}
+              onDragLeave={onFileDrag}
+              onDrop={onFileDrop}
+            >
+              <span className="text-sm font-black">
+                {uploading ? "파일 읽는 중…" : "XLSX/CSV 파일 첨부"}
+              </span>
+              <span className="mt-1 text-xs leading-relaxed text-fg-muted">
+                파일을 여기에 끌어오거나 클릭해서 선택하세요.
+              </span>
+              <span className="mt-2 rounded-full bg-surface px-3 py-1 text-[11px] font-bold text-fg-muted">
+                권장: 월별 간소화 XLSX
+              </span>
               <input
                 type="file"
                 accept=".csv,.tsv,.xlsx"
@@ -392,16 +448,17 @@ export default function CashFlowEditor({
               />
             </label>
             <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3">
-              <p className="text-[11px] font-bold text-fg">Google Sheets용 XLSX 양식</p>
+              <p className="text-[11px] font-bold text-fg">엑셀 양식 다운로드</p>
               <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                내려받은 XLSX를 Google Sheets에서 열어 작성하세요. 앱은 <b>업로드용_키값</b>과{" "}
-                <b>부록_기간별현금흐름</b> 시트를 함께 읽어 세금 일정과 월별 추이를 만듭니다.
+                발표용은 <b>월별 간소화 XLSX</b>만 쓰면 충분합니다. 상세 상담이 필요할 때만
+                고객 유형별 상세 양식을 사용하세요.
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {CASHFLOW_TEMPLATE_LINKS.map((template) => {
                   const highlighted =
+                    template.type === "simple" ||
                     template.type === clientType ||
-                    (template.label.includes("연동") && Boolean(linkedClientName));
+                    (template.type === "linked_corporate_rep" && Boolean(linkedClientName));
                   return (
                     <a
                       key={template.href}
@@ -435,13 +492,13 @@ export default function CashFlowEditor({
             {uploadResult ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                  <UploadMetric label="월 소득" value={formatKRWShort(uploadResult.summary.monthlyIncomeWon)} />
-                  <UploadMetric label="월 유출" value={formatKRWShort(uploadResult.summary.monthlyOutflowWon)} danger />
-                  <UploadMetric label="현재 현금" value={formatKRWShort(uploadResult.summary.currentCashWon)} />
+                  <UploadMetric label="업로드 순유입" value={formatKRWShort(uploadedInflow)} />
+                  <UploadMetric label="순유출(세금 제외)" value={`-${formatKRWShort(uploadedOutflowExTax)}`} danger />
+                  <UploadMetric label="업로드 총세금" value={`-${formatKRWShort(uploadedTax)}`} danger />
                   <UploadMetric
-                    label="세금 커버"
-                    value={`${uploadResult.summary.liquidityCoveragePct}%`}
-                    danger={uploadResult.summary.liquidityCoveragePct < 100}
+                    label="업로드 순자금"
+                    value={formatKRWShort(uploadedNet)}
+                    danger={uploadedNet < 0}
                   />
                 </div>
                 <div className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-fg-muted">
@@ -452,6 +509,13 @@ export default function CashFlowEditor({
                         {uploadResult.summary.nearestEvent.cashReadyDate} ·{" "}
                         {uploadResult.summary.nearestEvent.label}{" "}
                         {formatKRWShort(uploadResult.summary.nearestEvent.amountWon)}
+                      </b>
+                    </>
+                  ) : uploadedFirstPeriod && uploadedLastPeriod ? (
+                    <>
+                      월별 요약 반영:{" "}
+                      <b className="text-fg">
+                        {uploadedFirstPeriod}~{uploadedLastPeriod} · 순유출은 세금 제외, 총세금 별도 분리
                       </b>
                     </>
                   ) : (
@@ -521,8 +585,18 @@ export default function CashFlowEditor({
           }
         />
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
+        <>
+          <PeriodCashflowAppendix cashFlows={rows} />
+
+          <details className="card overflow-hidden">
+            <summary className="cursor-pointer border-b border-border bg-surface-2 px-4 py-3 text-sm font-bold text-fg">
+              원본 세부항목 보기 / 편집
+              <span className="ml-2 text-xs font-medium text-fg-muted">
+                발표 화면에서는 월별 순유입·순유출·총세금 요약만 사용
+              </span>
+            </summary>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
             <thead className="border-b border-border bg-surface-2 text-xs text-fg-muted">
               <tr>
                 <th className="px-3 py-2 text-left">자금주체</th>
@@ -624,11 +698,11 @@ export default function CashFlowEditor({
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+              </table>
+            </div>
+          </details>
+        </>
       )}
-
-      <PeriodCashflowAppendix cashFlows={rows} />
 
       {rows.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">

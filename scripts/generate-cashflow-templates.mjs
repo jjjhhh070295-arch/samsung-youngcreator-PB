@@ -282,6 +282,130 @@ function periodRowsFor(config) {
   });
 }
 
+function simpleMonthlyRows() {
+  const monthlyBase = [
+    { period: "2026-01", income: 89000, outflow: 146000, tax: 5700, memo: "정상 월간 현금흐름" },
+    { period: "2026-02", income: 89000, outflow: 146000, tax: 5700, memo: "정상 월간 현금흐름" },
+    { period: "2026-03", income: 89000, outflow: 146000, tax: 126000, memo: "법인세/종합소득세 등 납부월 예시" },
+    { period: "2026-04", income: 139000, outflow: 146000, tax: 21000, memo: "배당·상여 유입월 예시" },
+    { period: "2026-05", income: 89000, outflow: 146000, tax: 5700, memo: "종합소득세 납부 전 현금화 점검" },
+    { period: "2026-06", income: 89000, outflow: 346000, tax: 5700, memo: "증여 실행·목적자금 유출월 예시" },
+    { period: "2026-07", income: 89000, outflow: 146000, tax: 5700, memo: "재산세 납부월 예시" },
+    { period: "2026-08", income: 89000, outflow: 161000, tax: 5700, memo: "교육비/휴가비 등 계절성 지출" },
+    { period: "2026-09", income: 89000, outflow: 146000, tax: 32000, memo: "증여세 납부월 예시" },
+    { period: "2026-10", income: 89000, outflow: 146000, tax: 5700, memo: "정상 월간 현금흐름" },
+    { period: "2026-11", income: 89000, outflow: 146000, tax: 5700, memo: "부동산 양도세 현금화 준비월" },
+    { period: "2026-12", income: 95000, outflow: 146000, tax: 65000, memo: "종부세/연말 세금 납부월 예시" },
+  ];
+
+  return monthlyBase.map((row) => ({
+    ...row,
+    net: row.income - row.outflow - row.tax,
+    app: "Y",
+  }));
+}
+
+async function buildSimpleMonthlyTemplate() {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "samsung-youngcreator-PB";
+  workbook.created = new Date();
+
+  const ws = workbook.addWorksheet("월별_간소화_현금흐름", { views: [{ state: "frozen", ySplit: 5 }] });
+  ws.columns = [
+    { width: 16 },
+    { width: 16 },
+    { width: 22 },
+    { width: 16 },
+    { width: 18 },
+    { width: 34 },
+    { width: 12 },
+  ];
+
+  ws.mergeCells("A1:G1");
+  ws.getCell("A1").value = "월별 간소화 현금흐름 업로드 양식";
+  ws.getCell("A1").font = { bold: true, size: 18, color: { argb: "FF111827" } };
+  ws.getCell("A1").alignment = { horizontal: "center" };
+  ws.mergeCells("A2:G2");
+  ws.getCell("A2").value =
+    "세부항목을 적지 않고 월별 순유입, 순유출(세금 제외), 총세금만 입력합니다. 금액 단위는 만원입니다.";
+  ws.getCell("A2").font = { size: 10, color: { argb: "FF4B5563" } };
+  ws.getCell("A2").alignment = { horizontal: "center", wrapText: true };
+
+  ws.mergeCells("A3:G3");
+  ws.getCell("A3").value =
+    "순유출에는 세금을 넣지 마세요. 세금은 반드시 총세금 컬럼에 따로 입력해야 앱 차트와 세후 결과가 맞습니다.";
+  ws.getCell("A3").font = { bold: true, color: { argb: "FFB91C1C" } };
+  ws.getCell("A3").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFE4E6" } };
+  ws.getCell("A3").alignment = { horizontal: "center", wrapText: true };
+
+  const header = ws.getRow(5);
+  header.values = [
+    "기간(YYYY-MM)",
+    "순유입(만원)",
+    "순유출(세금 제외)(만원)",
+    "총세금(만원)",
+    "월 순자금(만원)",
+    "메모",
+    "앱 반영(Y/N)",
+  ];
+  styleHeader(header);
+
+  let cumulative = 0;
+  simpleMonthlyRows().forEach((item, index) => {
+    const rowNumber = 6 + index;
+    cumulative += item.net;
+    const row = ws.getRow(rowNumber);
+    row.values = [
+      item.period,
+      item.income,
+      item.outflow,
+      item.tax,
+      {
+        formula: `B${rowNumber}-C${rowNumber}-D${rowNumber}`,
+        result: item.net,
+      },
+      item.memo,
+      item.app,
+    ];
+    styleInputRow(row, [1, 2, 3, 4, 6, 7]);
+    row.getCell(5).font = { color: { argb: item.net < 0 ? "FFB91C1C" : "FF1428A0" }, bold: true };
+    row.getCell(5).border = border;
+  });
+
+  for (let column = 2; column <= 5; column += 1) ws.getColumn(column).numFmt = "#,##0";
+
+  ws.getCell("A20").value = "작성 예시";
+  ws.getCell("A20").font = { bold: true };
+  ws.getCell("B20").value =
+    "예: 2026-05 순유입 8,900 / 순유출 14,600 / 총세금 5,700이면 앱에는 순유입 8.9억, 순유출 14.6억, 총세금 5,700만으로 표시됩니다.";
+  ws.getCell("B20").alignment = { wrapText: true };
+  ws.mergeCells("B20:G20");
+  ws.getRow(20).eachCell((cell) => {
+    cell.border = border;
+    cell.fill = mutedFill;
+  });
+
+  const guideWs = workbook.addWorksheet("작성가이드");
+  guideWs.columns = [{ width: 28 }, { width: 92 }];
+  styleHeader(guideWs.addRow(["구분", "가이드"]));
+  [
+    ["목적", "PB 상담 화면의 월별 간소화 현금흐름 차트와 표에 바로 반영하기 위한 업로드 양식입니다."],
+    ["필수 입력", "기간(YYYY-MM), 순유입, 순유출(세금 제외), 총세금, 앱 반영(Y/N)을 입력합니다."],
+    ["순유입", "급여, 매출, 배당, 임대수입, 상여금처럼 해당 월에 들어오는 현금 총액입니다."],
+    ["순유출", "생활비, 사업비용, 교육비, 증여 실행 원금, 목적자금 지출 등 세금을 제외한 유출 총액입니다."],
+    ["총세금", "종합소득세, 종부세, 재산세, 법인세, 양도소득세, 증여세 등 해당 월 납부 세금 총액입니다."],
+    ["주의", "순유출에 세금을 포함하면 앱에서 세금이 중복 계산될 수 있습니다."],
+    ["업로드", "현금흐름 화면의 '월별 현금흐름 파일 첨부' 영역에 이 XLSX 파일을 첨부하면 됩니다."],
+  ].forEach((values) => {
+    const added = guideWs.addRow(values);
+    styleInputRow(added, []);
+  });
+
+  const filePath = path.join(outputDir, "monthly-cashflow-simple.xlsx");
+  await workbook.xlsx.writeFile(filePath);
+  return filePath;
+}
+
 function addPeriodAppendixSheet(workbook, config) {
   const ws = workbook.addWorksheet("부록_기간별현금흐름", { views: [{ state: "frozen", ySplit: 4 }] });
   ws.columns = [
@@ -462,7 +586,11 @@ async function buildWorkbook(config) {
 }
 
 await mkdir(outputDir, { recursive: true });
-for (const config of configs) {
-  const filePath = await buildWorkbook(config);
-  console.log(`generated ${path.relative(repoRoot, filePath)}`);
+const simpleFilePath = await buildSimpleMonthlyTemplate();
+console.log(`generated ${path.relative(repoRoot, simpleFilePath)}`);
+if (!process.argv.includes("--simple-only")) {
+  for (const config of configs) {
+    const filePath = await buildWorkbook(config);
+    console.log(`generated ${path.relative(repoRoot, filePath)}`);
+  }
 }

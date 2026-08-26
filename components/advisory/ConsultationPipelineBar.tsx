@@ -1,7 +1,7 @@
 "use client";
 
 import type { EvidenceBundle, PipelineStep } from "@/lib/advisory/types";
-import { AI_ROLE_COPY, ENGINE_ROLE_COPY, HONESTY_LIMITS } from "@/lib/advisory/constants";
+import { HONESTY_LIMITS } from "@/lib/advisory/constants";
 import { currentPipelineStep } from "@/lib/advisory/pipeline";
 
 const TONE: Record<PipelineStep["state"], string> = {
@@ -23,13 +23,11 @@ export default function ConsultationPipelineBar({
   clientName,
   bundle,
   currentLabel,
-  statusLabel,
 }: {
   steps: PipelineStep[];
   clientName: string;
   bundle: EvidenceBundle;
   currentLabel?: string;
-  statusLabel?: string;
 }) {
   const current = currentPipelineStep(steps);
   const completeCount = steps.filter((step) => step.state === "complete").length;
@@ -40,15 +38,14 @@ export default function ConsultationPipelineBar({
     <div className="card space-y-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="decision-kicker">Human-in-the-loop</p>
+          <p className="decision-kicker">상담 진행 현황</p>
           <p className="decision-title mt-1">{clientName} 고객 상담 · {completeCount} / {steps.length} 단계 완료</p>
           <p className="mt-1 text-sm font-semibold text-fg">
             현재 단계: {currentLabel ?? current?.label} · {current ? LABEL[current.state] : ""}
-            {statusLabel ? <span className="ml-2 text-xs font-semibold text-[#1428A0]">({statusLabel})</span> : null}
           </p>
         </div>
         <p className="hidden max-w-xl text-[11px] leading-relaxed text-fg-muted xl:block">
-          {AI_ROLE_COPY} {ENGINE_ROLE_COPY}
+          상담 입력부터 고객 제안서까지 한 흐름으로 이어지며, PB 승인 전에는 고객용 최종 문서가 발행되지 않습니다.
         </p>
       </div>
 
@@ -56,7 +53,7 @@ export default function ConsultationPipelineBar({
         <div className="rounded-xl border-2 border-[#1428A0] bg-[#EEF1FF] p-4 shadow-sm [color-scheme:light]">
           <p className="text-sm font-bold text-[#0F1E7A]">3단계 PB 상담 검토 승인 필요</p>
           <p className="mt-1 text-[11px] leading-relaxed text-[#334155]">
-            이 파이프라인은 진행상태만 보여줍니다. 바로 아래 상태 패널의 단일 행동 버튼에서 Evidence 생성과 PB 상담 검토 승인을 서로 다른 클릭으로 순서대로 진행합니다.
+            이 파이프라인은 진행상태를 보여줍니다. 바로 아래 상태 패널의 버튼에서 계산 기록 준비와 PB 상담 검토 승인을 순서대로 진행합니다.
           </p>
         </div>
       )}
@@ -70,7 +67,7 @@ export default function ConsultationPipelineBar({
               }`}
             >
               <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
-                {i + 1}. {s.state === "blocked" ? "🔒 " : ""}{LABEL[s.state]}
+                {i + 1}. {LABEL[s.state]}
               </p>
               <p className="text-xs font-bold">{s.label}</p>
               <p className="mt-0.5 text-[10px] leading-snug opacity-90">{s.note}</p>
@@ -79,7 +76,7 @@ export default function ConsultationPipelineBar({
           </li>
         ))}
       </ol>
-      <details><summary className="cursor-pointer text-[10px] font-semibold text-fg-muted">AI·엔진 역할과 검증 한계 보기</summary><ul className="mt-2 grid grid-cols-1 gap-1 text-[10px] text-fg-muted md:grid-cols-2">
+      <details><summary className="cursor-pointer text-[10px] font-semibold text-fg-muted">상담 유의사항 보기</summary><ul className="mt-2 grid grid-cols-1 gap-1 text-[10px] text-fg-muted md:grid-cols-2">
         {HONESTY_LIMITS.map((line) => (
           <li key={line}>· {line}</li>
         ))}

@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function ScoreRubricButton({
-  label = "AI점수 기준표 확인",
+  label = "요인 점수 기준표 확인",
   className = "rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700",
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -46,7 +46,7 @@ export default function ScoreRubricButton({
               <div>
                 <p className="text-base font-black text-fg">RRTTLLU 7요인 점수 기준표</p>
                 <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-                  AI 분석과 수동 입력 모두 아래 1~5점 기준을 사용합니다. 점수가 높을수록 해당 요인의 강도나 제약 수준이 큽니다.
+                  자동 분석과 수동 입력 모두 아래 1~5점 기준을 사용합니다. 점수가 높을수록 해당 요인의 강도나 제약 수준이 큽니다.
                 </p>
               </div>
               <button

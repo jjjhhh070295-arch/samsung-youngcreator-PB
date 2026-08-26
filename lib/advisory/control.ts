@@ -121,7 +121,7 @@ export function canIssueClientPdf(bundle: EvidenceBundle): boolean {
 export function pdfBlockReason(bundle: EvidenceBundle): string {
   if (canIssueClientPdf(bundle)) return "";
   if (bundle.status === "locked") {
-    return softLockReasons(bundle)[0] || hardStopReasons(bundle)[0] || "기존 확정 상태가 현재 Evidence 게이트를 충족하지 않아 PDF를 발행할 수 없습니다.";
+    return softLockReasons(bundle)[0] || hardStopReasons(bundle)[0] || "기존 확정 상태가 현재 문서 발행 조건을 충족하지 않아 PDF를 발행할 수 없습니다.";
   }
   if (bundle.status === "blocked") {
     return bundle.blockReasons[0] || "고객 제안 차단 상태입니다. 고객용 최종 PDF를 저장할 수 없습니다.";
@@ -130,9 +130,9 @@ export function pdfBlockReason(bundle: EvidenceBundle): string {
     return `PDF 비활성: ${bundle.pendingReasons[0]}`;
   }
   if (bundle.status === "review") {
-    return "PB 검토 중입니다. 「PB 검토 완료/승인」으로 locked가 되어야 고객용 최종 PDF를 발행할 수 있습니다.";
+    return "PB 검토 중입니다. 「PB 검토 완료/승인」으로 확정되어야 고객용 최종 PDF를 발행할 수 있습니다.";
   }
-  return "초안(draft) 상태입니다. Evidence Bundle 생성 후 PB 상담 검토 승인을 거쳐 locked가 되어야 고객용 최종 PDF를 발행할 수 있습니다.";
+  return "초안 상태입니다. 계산·검토 기록 생성 후 PB 상담 검토 승인을 거쳐 확정되어야 고객용 최종 PDF를 발행할 수 있습니다.";
 }
 
 const ALLOWED: Record<AdvisoryStatus, AdvisoryStatus[]> = {
@@ -149,13 +149,13 @@ export function canTransition(from: AdvisoryStatus, to: AdvisoryStatus): boolean
 export function hardStopReasons(bundle: EvidenceBundle): string[] {
   const reasons: string[] = [];
   if (bundle.resultHash && bundle.outputHash && bundle.resultHash !== bundle.outputHash) {
-    reasons.push("Evidence 결과 해시 불일치 — 고객 제안 차단.");
+    reasons.push("계산 결과 확인값 불일치 — 고객 제안 차단.");
   }
   if (bundle.judge && !bundle.judge.passed) {
-    reasons.push("Judge 실패 — locked로 이동할 수 없습니다.");
+    reasons.push("검토 실패 — 확정으로 이동할 수 없습니다.");
   }
   if (bundle.judgeAttempts >= JUDGE_MAX_RETRIES && !(bundle.judge?.passed)) {
-    reasons.push(`Judge 재시도 ${JUDGE_MAX_RETRIES}회 소진 — locked 불가.`);
+    reasons.push(`검토 ${JUDGE_MAX_RETRIES}회 확인 후에도 통과하지 못해 확정할 수 없습니다.`);
   }
   if (bundle.citation && !bundle.citation.passed) {
     reasons.push(bundle.citation.message || "인용 검증 실패 — 고객 확정본 PDF 발행 불가.");
@@ -170,19 +170,19 @@ export function hardStopReasons(bundle: EvidenceBundle): string[] {
 export function softLockReasons(bundle: EvidenceBundle): string[] {
   const reasons: string[] = [];
   if (!bundle.judge || !hasCalcGateJudge(bundle.judge)) {
-    reasons.push("계산 Judge 결과가 없습니다. Evidence Bundle을 생성하세요.");
+    reasons.push("계산 검토 결과가 없습니다. 계산·검토 기록을 생성하세요.");
   }
   if (!bundle.citation) {
-    reasons.push("인용 검증 결과가 없습니다. Evidence Bundle을 생성하세요.");
+    reasons.push("출처 확인 결과가 없습니다. 계산·검토 기록을 생성하세요.");
   }
   if (bundle.conflict && !bundle.conflict.passed && bundle.conflict.needsReview) {
     reasons.push(bundle.conflict.message || "고객 선호·포트폴리오 충돌 — PB가 검토 후 승인해야 합니다.");
   }
   if (!bundle.calcResults) {
-    reasons.push("결정론 계산 스냅샷이 없습니다. Evidence Bundle을 생성하세요.");
+    reasons.push("계산 결과 기록이 없습니다. 계산·검토 기록을 생성하세요.");
   }
   if (!bundle.inputHash || !bundle.settingsHash || !bundle.resultHash || !bundle.outputHash) {
-    reasons.push("Evidence 핵심 해시가 없습니다. Evidence Bundle을 다시 생성하세요.");
+    reasons.push("핵심 확인값이 없습니다. 계산·검토 기록을 다시 생성하세요.");
   }
   return reasons;
 }
@@ -241,7 +241,7 @@ export function judgeCalcResults(results: CalcResults): JudgeResult {
   findings.push({
     code: "ENGINE_ONLY",
     severity: "pass",
-    message: "스냅샷은 결정론 엔진 산출(세금·VaR 확정 AI 없음)",
+    message: "세금·리스크 수치는 계산 규칙 기준으로 산출",
   });
   return {
     at: now,
@@ -438,7 +438,7 @@ export function applyJudge(bundle: EvidenceBundle, judge: JudgeResult, actor: st
   const reasons = judge.passed
     ? []
     : [
-        "Judge 실패로 고객 제안 차단",
+        "검토 실패로 고객 제안 차단",
         ...judge.findings.filter((f) => f.severity === "fail").map((f) => `${f.code}: ${f.message}`),
         ...(retriesExhausted ? [`재시도 ${JUDGE_MAX_RETRIES}회 소진`] : []),
       ];
@@ -450,7 +450,7 @@ export function applyJudge(bundle: EvidenceBundle, judge: JudgeResult, actor: st
             actor,
             from: bundle.status,
             to: nextStatus,
-            note: judge.passed ? "Judge 통과" : "Judge 실패로 고객 제안 차단",
+            note: judge.passed ? "검토 통과" : "검토 실패로 고객 제안 차단",
           },
           ...bundle.approvals,
         ]
@@ -945,8 +945,8 @@ function buildLegacyReviewVersion(
     ? `${fresh.runId}-v${nextVersion}`
     : fresh.runId;
   const note = original.status === "locked"
-    ? "기존 locked 원본을 보존하고 현재 Evidence 게이트 재검토본을 생성"
-    : "기존 blocked 원본을 보존하고 별도 재검토본을 생성";
+    ? "기존 확정 원본을 보존하고 현재 문서 발행 조건 재검토본을 생성"
+    : "기존 차단 원본을 보존하고 별도 재검토본을 생성";
   const pendingReasons = Array.from(new Set([
     note,
     ...normalized.blockReasons,
@@ -1061,7 +1061,7 @@ export function startNewReviewVersion(
     return {
       ok: false,
       bundle,
-      error: "새 검토본은 locked 또는 blocked 원본에서만 시작할 수 있습니다.",
+      error: "새 검토본은 확정 또는 차단 원본에서만 시작할 수 있습니다.",
     };
   }
 
@@ -1078,7 +1078,7 @@ export function startNewReviewVersion(
     () => ({
       ok: false,
       bundle,
-      error: "다른 화면에서 같은 고객의 Evidence를 저장 중입니다. 잠시 후 다시 시도하세요.",
+      error: "다른 화면에서 같은 고객의 검토 기록을 저장 중입니다. 잠시 후 다시 시도하세요.",
     }),
     () => {
       const current = readCurrent(bundle.clientId);
@@ -1155,7 +1155,7 @@ export function startNewReviewVersion(
         engine: "human-review",
         inputHash: bundle.inputHash,
         outputHash: "",
-        notes: `새 draft v${nextVersion} 생성 · 이전 원본 ${bundle.id} 보존`,
+        notes: `새 초안 v${nextVersion} 생성 · 이전 원본 ${bundle.id} 보존`,
       });
 
       if (!writeCurrentExact(bundle.clientId, next)) {
@@ -1230,7 +1230,7 @@ export function approveByPb(bundle: EvidenceBundle, actor = "PB"): EvidenceBundl
   const note =
     soft.length > 0
       ? `PB 검토 대기 — ${soft[0]}`
-      : "PB 검토 대기 — locked 조건을 충족하지 못했습니다.";
+      : "PB 검토 대기 — 확정 조건을 충족하지 못했습니다.";
 
   // 이미 review여도 pendingReasons를 갱신하고 승인 이력을 남겨 UI가 멈춘 것처럼 보이지 않게 함
   if (working.status === "review" || canTransition(working.status, "review")) {
@@ -1296,7 +1296,7 @@ export function applyCalcSnapshot(
     engine: ENGINE_SOURCE,
     inputHash: payload.inputHash,
     outputHash: payload.resultHash,
-    notes: `Evidence Bundle 생성 · settings ${payload.settingsHash.slice(0, 8)} · result ${payload.resultHash.slice(0, 8)}`,
+    notes: `계산·검토 기록 생성 · 설정 확인 ${payload.settingsHash.slice(0, 8)} · 결과 확인 ${payload.resultHash.slice(0, 8)}`,
   });
   // Evidence 준비는 사람의 PB 상담 검토 승인을 대신하지 않는다.
   // canLock(next)가 true여도 명시적인 승인 버튼을 누르기 전에는 기존 상태를 유지한다.

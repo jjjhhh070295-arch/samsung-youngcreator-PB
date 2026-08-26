@@ -25,7 +25,6 @@ import HoldingsExtractor from "@/components/HoldingsExtractor";
 import RealEstateModule from "@/components/RealEstateModule";
 import AssetAllocationBar from "@/components/AssetAllocationBar";
 import PartyRelationshipModule from "@/components/PartyRelationshipModule";
-import TransferEventModule from "@/components/TransferEventModule";
 import ClientAvatar from "@/components/ClientAvatar";
 
 export default function ClientDetailPage() {
@@ -251,15 +250,6 @@ export default function ClientDetailPage() {
           </div>
         </section>
 
-        {/* 증여·상속 이력 */}
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>📋</span> 증여·상속 이력
-          </h2>
-          <div className="card p-5">
-            <TransferEventModule partyId={clientId} partyName={client.name} />
-          </div>
-        </section>
       </>}
 
       {/* 상담 진행 */}

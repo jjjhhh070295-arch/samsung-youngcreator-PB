@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         verified: false,
-        error: "clientId, pbId, evidenceId만 전송해야 합니다. 고객·Evidence 객체는 신뢰하지 않습니다.",
+        error: "clientId, pbId, 검토 기록 ID만 전송해야 합니다. 고객 원본 객체는 신뢰하지 않습니다.",
       },
       { status: 400 },
     );
@@ -90,7 +90,7 @@ export async function PATCH(req: Request) {
   const parsed = parseConsume(raw);
   if (!parsed) {
     return NextResponse.json(
-      { ok: false, permitted: false, error: "출력 토큰과 고객·PB·Evidence 식별자가 필요합니다." },
+      { ok: false, permitted: false, error: "출력 토큰과 고객·PB·검토 기록 식별자가 필요합니다." },
       { status: 400 },
     );
   }

@@ -85,7 +85,7 @@ ${rubricFor(keys)}
     const parsed = extractJson(block && block.type === "text" ? block.text : "");
     if (!parsed) {
       return NextResponse.json(
-        { ok: false, code: "PARSE_FAILED", error: "AI 채점 파싱 실패 — 점수를 수동으로 선택하세요." },
+        { ok: false, code: "PARSE_FAILED", error: "요인 채점 결과를 읽지 못했습니다. 점수를 수동으로 선택하세요." },
         { status: 200 },
       );
     }

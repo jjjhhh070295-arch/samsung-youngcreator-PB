@@ -17,9 +17,9 @@ export function judgeCitations(citations: CitationRef[]): CitationVerdict {
     count: citations.length,
     incompleteIds: incomplete.map((c) => c.sourceId || c.chunkId || "(empty)"),
     message: passed
-      ? `인용 ${citations.length}건 메타데이터 통과 (sourceId/title/as-of/chunkId)`
+      ? `출처 ${citations.length}건 정보 확인 완료`
       : citations.length === 0
-        ? "출처 메타데이터 없음 — citation failed, locked 불가"
-        : `인용 ${incomplete.length}건에 sourceId/title/as-of/chunkId가 없음 — citation failed`,
+        ? "출처 정보가 없어 확정할 수 없습니다."
+        : `출처 ${incomplete.length}건에 필요한 식별 정보가 없습니다.`,
   };
 }

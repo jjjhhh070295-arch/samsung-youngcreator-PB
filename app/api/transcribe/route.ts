@@ -57,7 +57,7 @@ export async function POST(req: Request) {
         dummy: true,
         text,
         provider: "dummy",
-        note: "샘플(더미) 변환 결과입니다. 실제 음성 변환은 CLOVA 또는 OpenAI 키를 설정하면 동작합니다.",
+        note: "샘플(더미) 변환 결과입니다. 실제 음성 변환은 음성 변환 키를 설정하면 동작합니다.",
       });
     }
 

@@ -341,7 +341,7 @@ export function buildRecommendResult(
         : "추가 제약 없음. RRTTLLU·현금흐름·상담메모 기준으로 후보를 구성";
 
   const weightDisclaimer =
-    "비중·세금·VaR/CVaR는 AI가 확정하지 않습니다. 표시 구간은 결정론 엔진 초안이며 PB 검토 전 미확정입니다.";
+    "비중·세금·VaR/CVaR는 계산 규칙 기준의 초안이며 PB 검토 전에는 확정되지 않습니다.";
 
   const mkPlan = (id: RecommendPlan["id"], label: string, posture: RecommendPlan["posture"], items: CatalogItem[], ranges: string[]): RecommendPlan => ({
     id,

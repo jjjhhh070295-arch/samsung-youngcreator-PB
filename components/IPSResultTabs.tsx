@@ -315,7 +315,7 @@ export default function IPSResultTabs({
         <div>
           <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
             <ScoreRubricButton
-              label="AI점수 기준표 확인"
+              label="요인 점수 기준표 확인"
               className="shrink-0 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700"
             />
             <button className="btn-outline text-xs" onClick={onEdit}>

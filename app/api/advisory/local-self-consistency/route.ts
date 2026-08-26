@@ -37,7 +37,7 @@ export async function PUT(req: Request) {
   const contentLength = Number(req.headers.get("content-length") || 0);
   if (contentLength > MAX_BODY_BYTES) {
     return NextResponse.json(
-      { ok: false, registered: false, mode: "local-self-consistency", error: "Evidence 요청 크기가 너무 큽니다." },
+      { ok: false, registered: false, mode: "local-self-consistency", error: "검토 기록 요청 크기가 너무 큽니다." },
       { status: 413 },
     );
   }
