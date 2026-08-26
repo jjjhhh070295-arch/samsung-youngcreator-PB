@@ -41,7 +41,7 @@ const DEMO_NAMES: Array<{ ticker: string; name: string; market: "KOSPI" | "KOSDA
   { ticker: "068270", name: "셀트리온", market: "KOSPI", capTril: 32 },
 ];
 
-/** 최근 lookback일: MA20 위 + 양봉 다수 + 끝 연속 양봉은 정확히 3일(전략 신호용) */
+/** 최근 lookback일: MA20 위 + 양봉 다수 + 끝 연속 양봉은 3일 이상(전략 신호용) */
 export function buildDemoOhlcBars(ticker: string, lookback = 60): OhlcBar[] {
   const seed = Number(ticker.replace(/\D/g, "").slice(-4)) || 1000;
   const bars: OhlcBar[] = [];

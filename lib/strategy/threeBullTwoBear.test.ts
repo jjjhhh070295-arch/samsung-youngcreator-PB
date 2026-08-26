@@ -32,7 +32,7 @@ describe("KR_THREE_BULL_TWO_BEAR strategy", () => {
     assert.equal(isBullishBar(bar("d1", 100, 100)), false);
   });
 
-  it("buy signal: 2 days no, 3 days yes, 4th day no duplicate", () => {
+  it("buy signal: 2 days no, 3 days and 4th day yes", () => {
     const twoBull = [bar("d1", 100, 105), bar("d2", 105, 110)];
     const twoResult = detectBuySignal(twoBull);
     assert.equal(twoResult.signal, false);
@@ -45,9 +45,8 @@ describe("KR_THREE_BULL_TWO_BEAR strategy", () => {
 
     const fourBull = [...threeBull, bar("d4", 115, 120)];
     const fourResult = detectBuySignal(fourBull);
-    assert.equal(fourResult.signal, false);
+    assert.equal(fourResult.signal, true);
     assert.equal(fourResult.bullStreak, 4);
-    assert.match(fourResult.reason ?? "", /duplicate/i);
   });
 
   it("doji breaks bull and bear streaks", () => {

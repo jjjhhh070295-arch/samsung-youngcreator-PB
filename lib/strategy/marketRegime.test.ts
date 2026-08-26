@@ -97,6 +97,25 @@ describe("market regime policy", () => {
     assert.match(decision.reasons.join(" "), /신규매수/);
   });
 
+  it("상승장에서는 4일 연속 양봉도 미보유 종목 매수 허용", () => {
+    const stock = [
+      bar("2026-08-01", 100, 105),
+      bar("2026-08-02", 105, 110),
+      bar("2026-08-03", 110, 115),
+      bar("2026-08-04", 115, 120),
+    ];
+    const decision = evaluateRegimeEntry({
+      indexBars: risingIndex(70),
+      stockBars: stock,
+      openCount: 0,
+      allocatedWon: 10_000_000,
+      closePrice: 120,
+    });
+    assert.equal(decision.bullStreak, 4);
+    assert.equal(decision.buySignal, true);
+    assert.equal(decision.allow, true);
+  });
+
   it("횡보장에서는 최대 1종목 — 이미 1개면 차단", () => {
     const stock = [
       bar("2026-08-01", 100, 101),
@@ -150,7 +169,7 @@ describe("market regime policy", () => {
     const heat = isOverheatedStock(stock, { dayChangePct: 8 });
     assert.equal(heat.overheated, true);
 
-    // Need exactly 3 bull streak at end for buy signal — rebuild short 3 bull after MA series
+    // 3일 이상 연속 양봉이면 신호 — 과열 차단만 검증하도록 마지막 구간을 재구성
     const entryBars = [
       ...stock.slice(0, -3),
       bar("2026-08-10", 100, 101),

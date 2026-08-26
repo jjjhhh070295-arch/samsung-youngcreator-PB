@@ -74,8 +74,9 @@ export function countTrailingBearStreak(completedBars: CompletedBar[]): number {
 }
 
 /**
- * Buy when exactly 3 consecutive bullish completed bars appear.
- * Day 4+ (streak > 3) does not re-fire — avoids duplicate entries.
+ * Buy when at least 3 consecutive bullish completed bars appear.
+ * Day 4+ may enter only when the ticker is not already held or pending;
+ * duplicate prevention belongs to the position/order layers.
  */
 export function detectBuySignal(completedBars: CompletedBar[]): BuySignalResult {
   if (completedBars.length < 3) {
@@ -83,11 +84,8 @@ export function detectBuySignal(completedBars: CompletedBar[]): BuySignalResult 
   }
 
   const bullStreak = countTrailingBullStreak(completedBars);
-  if (bullStreak === 3) {
+  if (bullStreak >= 3) {
     return { signal: true, bullStreak };
-  }
-  if (bullStreak > 3) {
-    return { signal: false, bullStreak, reason: "duplicate entry blocked on day 4+" };
   }
   return { signal: false, bullStreak, reason: "need 3 consecutive bullish bars" };
 }

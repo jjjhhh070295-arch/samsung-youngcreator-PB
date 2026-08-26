@@ -143,17 +143,31 @@ export async function runWorkerCycle(input: {
   const tradingDay = seoulDateKey();
   const strategyVersion = `${STRATEGY_ID}@1`;
 
-  // open count from DB
+  // open count/tickers from DB — 4일째 이후 신호도 허용하되 동일 종목 중복매수는 차단
   let openCount = 0;
+  const openTickers = new Set<string>();
   if (db) {
-    const { count } = await db
+    const { data, count, error } = await db
       .from("trading_positions")
-      .select("*", { count: "exact", head: true })
+      .select("ticker", { count: "exact" })
       .in("current_state", ["OPEN", "BUY_SUBMITTED", "PARTIALLY_FILLED"]);
+    if (error) {
+      return {
+        ok: false,
+        dryRun: true,
+        summary: `보유종목 조회 실패 — 중복매수 방지를 위해 신규매수 차단 (${error.message})`,
+        buys: 0,
+        sells: 0,
+      };
+    }
     openCount = count ?? 0;
+    for (const row of data ?? []) {
+      if (row.ticker) openTickers.add(String(row.ticker));
+    }
   }
 
   for (const c of selected) {
+    if (openTickers.has(c.ticker)) continue;
     const stockBars = c.bars.map((b) => ({ date: b.date, open: b.open, close: b.close }));
     const decision = evaluateRegimeEntry({
       indexBars,
@@ -214,6 +228,7 @@ export async function runWorkerCycle(input: {
         });
         buys += 1;
         openCount += 1;
+        openTickers.add(c.ticker);
       } else {
         // live path: submit via placeOrderViaKis then mark ACCEPTED only — fill via reconcile
         await updateOrderStatus(order!.id, { status: "ORDER_SUBMITTING" });
