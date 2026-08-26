@@ -11,9 +11,10 @@ export async function POST(req: NextRequest) {
 
   const { legalDongCode, complexName, areaM2, monthsBack } = body;
 
-  if (!legalDongCode || !complexName || !areaM2) {
+  // areaM2는 선택 — 없으면 "부동산 추가" 2단계(평형 선택 전) 조회로, 평형별 전체 목록만 낸다.
+  if (!legalDongCode || !complexName) {
     return NextResponse.json(
-      { error: "legalDongCode, complexName, areaM2 필수" },
+      { error: "legalDongCode, complexName 필수" },
       { status: 400 },
     );
   }
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   const result = await estimateMarketValue({
     legalDongCode: String(legalDongCode),
     complexName:   String(complexName),
-    areaM2:        Number(areaM2),
+    areaM2:        areaM2 != null ? Number(areaM2) : undefined,
     monthsBack:    monthsBack != null ? Number(monthsBack) : 24, // 시점보정 범위 24개월
   });
 

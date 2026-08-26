@@ -287,7 +287,9 @@ function buildAreaResult(
 export async function estimateMarketValue(input: {
   legalDongCode: string;
   complexName:   string;
-  areaM2:        number;
+  /** 없으면 평형을 아직 모른다는 뜻 — 평형별 전체 목록(areaBreakdown)만 반환하고
+   *  value/low/high는 null로 둔다("부동산 추가" 2단계: 조회 후 평형 선택 흐름). */
+  areaM2?:       number;
   monthsBack?:   number; // default 24 — 시점보정 범위 확보
 }): Promise<MarketValueResult> {
   const serviceKey = process.env.DATA_GO_KR_SERVICE_KEY;
@@ -357,9 +359,21 @@ export async function estimateMarketValue(input: {
     .map(([areaKey, txns]) => buildAreaResult(areaKey, txns, indexMap, curYm))
     .sort((a, b) => b.area - a.area); // 큰 평형 먼저
 
+  // 평형을 아직 모르면(2단계: 평형 선택 전) 여기서 끝 — 목록만 돌려주고 PB가 고르게 한다.
+  if (input.areaM2 == null) {
+    return {
+      value: null, low: null, high: null, confidence: "low",
+      source: "molit_realtxn", sampleSize: 0,
+      note: `${areaBreakdown.length}개 평형 거래 확인 — 평형을 선택하세요`,
+      connected: true,
+      freshness: "참고용",
+      areaBreakdown,
+    };
+  }
+
   // ④ 대상 평형 (±5% 필터)
   const targetGroup = areaBreakdown.find(
-    (r) => Math.abs(r.area - input.areaM2) / input.areaM2 <= 0.05,
+    (r) => Math.abs(r.area - input.areaM2!) / input.areaM2! <= 0.05,
   );
 
   if (!targetGroup) {

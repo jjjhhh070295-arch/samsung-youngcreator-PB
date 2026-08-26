@@ -97,7 +97,8 @@ function emptyForm() {
     market_value_high: "",
     market_source: "manual" as MarketSource,
     market_confidence: "medium" as MarketConf,
-    official_price: "",
+    // official_price(공시가격): 폼 입력란 제거됨(어디서도 안 읽히는 필드) — DB 컬럼은 유지,
+    // insert 시 항상 null로 보낸다(handleSave 참고).
     lease_type: "none" as LeaseType,
     deposit: "",
     monthly_rent: "",
@@ -138,10 +139,75 @@ export default function RealEstateModule({ clientId }: Props) {
       : Number(form.area_m2)
     : null;
 
-  // 대출 추가 상태 (property별)
+  // 대출 추가 상태 (property별 — "저장된 부동산" 탭에서 기존 물건에 대출 추가할 때)
   const [debtFormProp, setDebtFormProp] = useState<string | null>(null);
   const [debtForm, setDebtForm] = useState(emptyDebtForm());
   const [savingDebt, setSavingDebt] = useState(false);
+
+  // ── "부동산 추가" 3단계 마법사 상태 (조회 → 평형 선택 → 확인/저장) ──
+  const [addStep, setAddStep] = useState<"search" | "results" | "confirm">("search");
+  const [searchComplexName, setSearchComplexName] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchResult, setSearchResult] = useState<MarketValueResult | null>(null);
+  const [manualEntry, setManualEntry] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // 저장 전 임시 대출 초안 — 신규 물건은 아직 property_id가 없어 handleSave에서 물건 저장 직후 이어붙인다.
+  const [addDebtDraft, setAddDebtDraft] = useState({ lender: "", balance: "", interest_rate: "", rate_type: "fixed" as RateType, maturity_date: "" });
+
+  const resetAddWizard = () => {
+    setAddStep("search");
+    setSearchComplexName("");
+    setSearchResult(null);
+    setManualEntry(false);
+    setShowAdvanced(false);
+    setAddDebtDraft({ lender: "", balance: "", interest_rate: "", rate_type: "fixed", maturity_date: "" });
+    setForm(emptyForm());
+    setLawdSearch("");
+    setAreaUnit("m2");
+  };
+
+  const handleSearchComplex = async () => {
+    if (!form.legal_dong_code || !searchComplexName.trim()) return;
+    setSearching(true);
+    setForm((p) => ({ ...p, complex_name: searchComplexName.trim() }));
+    try {
+      const res = await fetch("/api/realestate-price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ legalDongCode: form.legal_dong_code, complexName: searchComplexName.trim() }),
+      });
+      const data: MarketValueResult = await res.json();
+      setSearchResult(data);
+    } catch {
+      setSearchResult({
+        value: null, low: null, high: null, confidence: "low", source: "molit_realtxn",
+        sampleSize: 0, note: "네트워크 오류", connected: false, freshness: "참고용", areaBreakdown: [],
+      });
+    }
+    setSearching(false);
+    setAddStep("results");
+  };
+
+  const pickArea = (area: AptAreaResult) => {
+    const confidence: MarketConf = area.sampleSize >= 3 ? "high" : area.sampleSize >= 1 ? "medium" : "low";
+    setForm((p) => ({
+      ...p,
+      area_m2: String(area.area),
+      market_value: area.median != null ? String(area.median) : "",
+      market_value_low: area.low != null ? String(area.low) : "",
+      market_value_high: area.high != null ? String(area.high) : "",
+      market_source: "molit_realtxn",
+      market_confidence: confidence,
+    }));
+    setManualEntry(false);
+    setAddStep("confirm");
+  };
+
+  const handleManualEntry = () => {
+    setForm((p) => ({ ...p, market_source: "manual" }));
+    setManualEntry(true);
+    setAddStep("confirm");
+  };
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -173,12 +239,17 @@ export default function RealEstateModule({ clientId }: Props) {
 
   const handleSave = async () => {
     if (!supabase) return;
+    // 시세 없이 저장되면 이 부동산이 0원으로 잡혀 헤리티지 상속세 계산이 과소 추정된다 — 반드시 막는다.
+    if (!form.market_value || Number(form.market_value) <= 0) {
+      setMsg({ ok: false, text: "추정 시세를 입력해야 저장할 수 있습니다 — 시세가 없으면 이 부동산이 0원으로 계산돼 상속세 등 자산 평가가 과소 추정됩니다." });
+      return;
+    }
     if (!form.property_type) { setMsg({ ok: false, text: "물건 종류를 선택하세요." }); return; }
     if (!form.address && !form.complex_name) { setMsg({ ok: false, text: "주소 또는 단지명을 입력하세요." }); return; }
     setSaving(true);
     setMsg(null);
     const shareVal = Number(form.ownership_share) / 100;
-    const { error } = await supabase.from("client_real_estate").insert([{
+    const { data, error } = await supabase.from("client_real_estate").insert([{
       client_id: clientId,
       owner_party_id: clientId,
       property_type: form.property_type,
@@ -196,22 +267,36 @@ export default function RealEstateModule({ clientId }: Props) {
       market_value_high: form.market_value_high ? Number(form.market_value_high) : null,
       market_source: form.market_source,
       market_confidence: form.market_confidence,
-      official_price: form.official_price ? Number(form.official_price) : null,
+      official_price: null, // 폼에서 입력란 제거됨(어디서도 안 읽히는 필드) — DB 컬럼은 유지
       lease_type: form.lease_type,
       deposit: form.deposit ? Number(form.deposit) : null,
       monthly_rent: form.monthly_rent ? Number(form.monthly_rent) : null,
       source: "manual",
-    }]);
-    if (error) {
-      setMsg({ ok: false, text: `저장 실패: ${error.message}` });
-    } else {
-      setMsg({ ok: true, text: "부동산 자산이 저장되었습니다." });
-      setForm(emptyForm());
-      setLawdSearch("");
-      setAreaUnit("m2");
-      await load();
-      setTimeout(() => { setMsg(null); setTab("saved"); }, 800);
+    }]).select().single();
+
+    if (error || !data) {
+      setMsg({ ok: false, text: `저장 실패: ${error?.message ?? "알 수 없는 오류"}` });
+      setSaving(false);
+      return;
     }
+
+    // 3단계에서 입력한 대출 초안이 있으면 방금 저장된 물건에 이어 붙인다.
+    if (addDebtDraft.balance) {
+      await supabase.from("client_real_estate_debt").insert([{
+        property_id: data.id,
+        lender: addDebtDraft.lender || null,
+        balance: Number(addDebtDraft.balance),
+        interest_rate: addDebtDraft.interest_rate ? Number(addDebtDraft.interest_rate) : null,
+        rate_type: addDebtDraft.rate_type || null,
+        maturity_date: addDebtDraft.maturity_date || null,
+        source: "manual",
+        confidence: "medium",
+      }]);
+    }
+
+    setMsg({ ok: true, text: "부동산 자산이 저장되었습니다." });
+    await load();
+    setTimeout(() => { setMsg(null); resetAddWizard(); setTab("saved"); }, 800);
     setSaving(false);
   };
 
@@ -349,7 +434,7 @@ export default function RealEstateModule({ clientId }: Props) {
 
   const tabBar = (
     <div className="flex gap-1 mb-4 border-b border-border">
-      {([["saved", `저장된 부동산${properties.length > 0 ? ` (${properties.length})` : ""}`], ["add", "직접 추가"]] as const).map(([t, label]) => (
+      {([["saved", `저장된 부동산${properties.length > 0 ? ` (${properties.length})` : ""}`], ["add", "부동산 추가"]] as const).map(([t, label]) => (
         <button key={t} onClick={() => setTab(t as "saved" | "add")}
           className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${tab === t ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>
           {label}
@@ -521,21 +606,30 @@ export default function RealEstateModule({ clientId }: Props) {
                       );
                     })()}
 
-                    {/* 파생 지표 */}
+                    {/* 파생 지표 — 대출·임대 정보가 없으면 LTV/임대수익률 타일은 자리만 차지하므로 숨긴다 */}
                     {(() => {
                       const priced = p.market_value != null;
+                      const hasDebtInfo = priced && (m.totalDebt > 0 || m.depositLiability > 0);
+                      const hasRentalYield = m.rentalYield != null;
+                      const tiles: [string, string, string][] = [
+                        ["지분 가치", priced ? formatW(m.myValue) : "—", "text-fg"],
+                        ["주담대+부채", priced || m.totalDebt > 0 ? formatW(m.totalDebt + m.depositLiability) : "—", "text-red-500"],
+                        ["순자산", priced ? formatW(m.equity) : "—", priced && m.equity < 0 ? "text-red-500" : "text-green-600"],
+                      ];
+                      if (hasDebtInfo) {
+                        tiles.push(["LTV", pct(m.ltv), m.ltv != null && m.ltv > 0.8 ? "text-red-500" : m.ltv != null && m.ltv > 0.6 ? "text-amber-600" : "text-fg-muted"]);
+                      }
+                      if (hasRentalYield) {
+                        tiles.push(["임대수익률", pct(m.rentalYield), "text-[#1428A0]"]);
+                      }
+                      // Tailwind JIT는 소스에 리터럴로 존재하는 클래스만 생성한다 — 템플릿 보간 금지.
+                      const GRID_COLS: Record<number, string> = { 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" };
                       return (
-                        <div className="mt-3 grid grid-cols-5 gap-2 text-center">
-                          {[
-                            ["지분 가치", priced ? formatW(m.myValue) : "—", "text-fg"],
-                            ["주담대+부채", priced || m.totalDebt > 0 ? formatW(m.totalDebt + m.depositLiability) : "—", "text-red-500"],
-                            ["순자산", priced ? formatW(m.equity) : "—", priced && m.equity < 0 ? "text-red-500" : "text-green-600"],
-                            ["LTV", pct(m.ltv), m.ltv != null && m.ltv > 0.8 ? "text-red-500" : m.ltv != null && m.ltv > 0.6 ? "text-amber-600" : "text-fg-muted"],
-                            ["임대수익률", m.rentalYield != null ? pct(m.rentalYield) : "—", "text-[#1428A0]"],
-                          ].map(([label, val, cls]) => (
-                            <div key={label as string} className="rounded-lg bg-surface-2 px-2 py-2">
-                              <p className="text-[9px] text-fg-muted mb-0.5">{label as string}</p>
-                              <p className={`text-sm font-bold ${cls}`}>{val as string}</p>
+                        <div className={`mt-3 grid gap-2 text-center ${GRID_COLS[tiles.length] ?? "grid-cols-3"}`}>
+                          {tiles.map(([label, val, cls]) => (
+                            <div key={label} className="rounded-lg bg-surface-2 px-2 py-2">
+                              <p className="text-[9px] text-fg-muted mb-0.5">{label}</p>
+                              <p className={`text-sm font-bold ${cls}`}>{val}</p>
                             </div>
                           ))}
                         </div>
@@ -643,7 +737,7 @@ export default function RealEstateModule({ clientId }: Props) {
     );
   }
 
-  // ── 직접 추가 탭 ──
+  // ── 부동산 추가 탭 — 조회(1) → 평형 선택(2) → 확인/저장(3) ──
   const inp = (label: string, key: keyof ReturnType<typeof emptyForm>, type = "text", ph = "", required = false) => (
     <div>
       <label className="label">{label}{required && " *"}</label>
@@ -662,64 +756,164 @@ export default function RealEstateModule({ clientId }: Props) {
     </div>
   );
 
+  const STEP_LABEL: [typeof addStep, string][] = [
+    ["search", "1. 조회 입력"],
+    ["results", "2. 평형별 결과"],
+    ["confirm", "3. 확인 후 저장"],
+  ];
+
   return (
     <div>
       {tabBar}
-      <div className="space-y-5">
-        {/* 섹션 1: 물건 기본 */}
-        <div>
-          <p className="text-xs font-semibold text-fg-muted mb-2 uppercase tracking-wide">물건 기본</p>
-          <div className="grid grid-cols-2 gap-3">
-            {sel("물건 종류 *", "property_type", [
-              ["apartment", "아파트"], ["officetel", "오피스텔"], ["house", "단독/다가구"],
-              ["land", "토지"], ["presale_right", "분양권"],
-            ])}
-            {inp("단지명", "complex_name", "text", "예: 래미안 퍼스티지")}
-            {inp("주소", "address", "text", "예: 서울 서초구 반포동 1234")}
-            {/* 지역 검색 자동완성 */}
-            <div ref={lawdRef} className="relative">
-              <label className="label">지역 검색 (법정동코드)</label>
-              <input
-                className="input"
-                placeholder="예: 강남구, 분당구, 해운대구"
-                value={lawdSearch}
-                onChange={(e) => {
-                  setLawdSearch(e.target.value);
-                  setLawdDropdown(true);
-                  if (!e.target.value) setForm((p) => ({ ...p, legal_dong_code: "" }));
-                }}
-                onFocus={() => { if (lawdSearch) setLawdDropdown(true); }}
-                onBlur={() => setTimeout(() => setLawdDropdown(false), 150)}
-              />
-              {lawdDropdown && searchLawd(lawdSearch).length > 0 && (
-                <div className="absolute z-50 top-full left-0 right-0 bg-white border border-border rounded-xl shadow-lg mt-1 overflow-hidden max-h-48 overflow-y-auto">
-                  {searchLawd(lawdSearch).map((l) => (
-                    <button
-                      key={l.code}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-surface-2 flex items-center justify-between"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setForm((p) => ({ ...p, legal_dong_code: l.code }));
-                        setLawdSearch(l.name);
-                        setLawdDropdown(false);
-                      }}
-                    >
-                      <span>{l.name}</span>
-                      <span className="text-xs text-fg-muted">{l.code}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {form.legal_dong_code && (
-                <p className="text-xs text-[#1428A0] mt-0.5">코드 확정: {form.legal_dong_code}</p>
-              )}
+
+      {/* 진행 표시 */}
+      <div className="mb-5 flex flex-wrap items-center gap-2 text-xs">
+        {STEP_LABEL.map(([step, label], i) => (
+          <div key={step} className="flex items-center gap-2">
+            {i > 0 && <span className="text-fg-muted">→</span>}
+            <span className={`rounded-full px-3 py-1 font-semibold ${addStep === step ? "bg-[#1428A0] text-white" : "bg-surface-2 text-fg-muted"}`}>
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* 1단계 — 조회 입력: 지역 + 단지명만 */}
+      {addStep === "search" && (
+        <div className="max-w-md space-y-4">
+          <div ref={lawdRef} className="relative">
+            <label className="label">지역 선택 (법정동코드) *</label>
+            <input
+              className="input"
+              placeholder="예: 강남구, 분당구, 해운대구"
+              value={lawdSearch}
+              onChange={(e) => {
+                setLawdSearch(e.target.value);
+                setLawdDropdown(true);
+                if (!e.target.value) setForm((p) => ({ ...p, legal_dong_code: "" }));
+              }}
+              onFocus={() => { if (lawdSearch) setLawdDropdown(true); }}
+              onBlur={() => setTimeout(() => setLawdDropdown(false), 150)}
+            />
+            {lawdDropdown && searchLawd(lawdSearch).length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 bg-white border border-border rounded-xl shadow-lg mt-1 overflow-hidden max-h-48 overflow-y-auto">
+                {searchLawd(lawdSearch).map((l) => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-surface-2 flex items-center justify-between"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setForm((p) => ({ ...p, legal_dong_code: l.code }));
+                      setLawdSearch(l.name);
+                      setLawdDropdown(false);
+                    }}
+                  >
+                    <span>{l.name}</span>
+                    <span className="text-xs text-fg-muted">{l.code}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {form.legal_dong_code && (
+              <p className="text-xs text-[#1428A0] mt-0.5">코드 확정: {form.legal_dong_code}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="label">단지명 *</label>
+            <input
+              className="input"
+              placeholder="예: 래미안 퍼스티지"
+              value={searchComplexName}
+              onChange={(e) => setSearchComplexName(e.target.value)}
+            />
+          </div>
+
+          <button
+            className="w-full btn-primary py-3 text-sm font-bold disabled:opacity-50"
+            disabled={!form.legal_dong_code || !searchComplexName.trim() || searching}
+            onClick={handleSearchComplex}
+          >
+            {searching ? "조회 중…" : "조회"}
+          </button>
+        </div>
+      )}
+
+      {/* 2단계 — 평형별 결과 */}
+      {addStep === "results" && searchResult && (
+        <div className="space-y-4">
+          <button type="button" className="text-xs text-fg-muted hover:text-fg" onClick={() => setAddStep("search")}>← 다시 검색</button>
+
+          {searchResult.areaBreakdown.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-2 text-xs text-fg-muted">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-semibold">전용면적</th>
+                    <th className="px-4 py-2 text-right font-semibold">추정 시세</th>
+                    <th className="px-4 py-2 text-right font-semibold">최근 거래건수</th>
+                    <th className="px-4 py-2 text-center font-semibold">신뢰도</th>
+                    <th className="px-4 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {searchResult.areaBreakdown.map((area) => {
+                    const confidence: MarketConf = area.sampleSize >= 3 ? "high" : area.sampleSize >= 1 ? "medium" : "low";
+                    return (
+                      <tr key={area.area} className="border-t border-border hover:bg-surface-2">
+                        <td className="px-4 py-3 font-semibold text-fg whitespace-nowrap">
+                          {area.area}㎡ <span className="font-normal text-fg-muted">({area.pyeong}평)</span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-[#1428A0] whitespace-nowrap">{formatW(area.median)}</td>
+                        <td className="px-4 py-3 text-right text-fg-muted whitespace-nowrap">{area.sampleSize}건</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${confidence === "high" ? "bg-green-50 text-green-700" : confidence === "low" ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-600"}`}>
+                            {confidence === "high" ? "신뢰도 높음" : confidence === "low" ? "신뢰도 낮음" : "신뢰도 보통"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button type="button" className="btn-outline text-xs py-1 px-3" onClick={() => pickArea(area)}>선택</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-            {/* 전용면적 + 단위 토글 */}
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              {searchResult.note || "일치하는 거래를 찾지 못했습니다."}
+            </div>
+          )}
+
+          <button type="button" className="w-full btn-outline py-2.5 text-sm font-semibold" onClick={handleManualEntry}>
+            직접 입력하기
+          </button>
+        </div>
+      )}
+
+      {/* 3단계 — 확인 후 저장 */}
+      {addStep === "confirm" && (
+        <div className="space-y-5">
+          <button
+            type="button"
+            className="text-xs text-fg-muted hover:text-fg"
+            onClick={() => setAddStep(manualEntry ? "search" : "results")}
+          >
+            ← {manualEntry ? "다시 검색" : "다른 평형 선택"}
+          </button>
+
+          <div className="rounded-xl border border-border bg-surface-2 px-4 py-3">
+            <p className="text-sm font-semibold text-fg">{form.complex_name || "단지명 미입력"}</p>
+            <p className="text-xs text-fg-muted mt-0.5">{lawdSearch || form.legal_dong_code}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="flex items-center justify-between mb-1">
+              <div className="mb-1 flex items-center justify-between">
                 <label className="label mb-0">전용면적</label>
-                <div className="flex rounded-lg overflow-hidden border border-border text-[11px] font-semibold">
+                <div className="flex overflow-hidden rounded-lg border border-border text-[11px] font-semibold">
                   {(["m2", "pyeong"] as const).map((u) => (
                     <button key={u} type="button"
                       className={`px-2 py-0.5 transition-colors ${areaUnit === u ? "bg-[#1428A0] text-white" : "bg-white text-fg-muted hover:bg-surface-2"}`}
@@ -733,87 +927,120 @@ export default function RealEstateModule({ clientId }: Props) {
                 placeholder={areaUnit === "m2" ? "84.5" : "25.6"}
                 value={form.area_m2}
                 onChange={f("area_m2")} />
-              {form.area_m2 && areaUnit === "pyeong" && (
-                <p className="text-xs text-fg-muted mt-0.5">
-                  ≈ {(Number(form.area_m2) * PYEONG).toFixed(2)} m²로 저장됩니다
-                </p>
-              )}
-              {form.area_m2 && areaUnit === "m2" && (
-                <p className="text-xs text-fg-muted mt-0.5">
-                  ≈ {(Number(form.area_m2) / PYEONG).toFixed(1)} 평
-                </p>
-              )}
             </div>
-          </div>
-        </div>
-
-        {/* 섹션 2: 보유 현황 */}
-        <div>
-          <p className="text-xs font-semibold text-fg-muted mb-2 uppercase tracking-wide">보유 현황</p>
-          <div className="grid grid-cols-2 gap-3">
-            {sel("보유형태 *", "ownership_type", [["sole", "단독명의"], ["joint", "공동명의/지분"]])}
             <div>
-              <label className="label">지분율 (%)</label>
-              <input className="input" type="number" placeholder="100" min={1} max={100}
-                value={form.ownership_share}
-                onChange={f("ownership_share")}
-                disabled={form.ownership_type === "sole"} />
+              <label className="label">추정 시세 (원) *</label>
+              <input className="input" type="number" placeholder="예: 500000000"
+                value={form.market_value}
+                onChange={f("market_value")} />
+              {form.market_value != "" && (
+                <p className="text-xs text-fg-muted mt-0.5">{formatW(Number(form.market_value))}</p>
+              )}
             </div>
-            {sel("용도 *", "usage", [
-              ["primary_residence", "실거주"], ["rental", "임대"], ["investment", "투자"],
-            ])}
-            {inp("취득일", "acquired_at", "date")}
-            {inp("취득가액 (원)", "acquired_price", "number", "0")}
           </div>
-        </div>
 
-        {/* 섹션 3: 시세 */}
-        <div>
-          <p className="text-xs font-semibold text-fg-muted mb-2 uppercase tracking-wide">시세 <span className="text-amber-500 normal-case font-normal">← 입력해야 순자산·LTV가 계산됩니다</span></p>
-          <div className="grid grid-cols-2 gap-3">
-            {inp("추정 시세 (원) *", "market_value", "number", "예: 500000000")}
-            {inp("시세 하한 (원)", "market_value_low", "number", "")}
-            {inp("시세 상한 (원)", "market_value_high", "number", "")}
-            {sel("시세 출처", "market_source", [
-              ["manual", "수동 입력"], ["molit_realtxn", "국토부 실거래"],
-              ["public_price", "공시가격"], ["kb", "KB시세"],
-            ])}
-            {sel("신뢰도", "market_confidence", [
-              ["high", "높음"], ["medium", "보통"], ["low", "낮음"],
-            ])}
-            {inp("공시가격 (원)", "official_price", "number", "세금 base")}
+          {!manualEntry && form.market_confidence && (
+            <p className="text-xs text-fg-muted">
+              국토부 실거래 기반 · 신뢰도 {form.market_confidence === "high" ? "높음" : form.market_confidence === "low" ? "낮음" : "보통"} — PB가 필요하면 위 시세를 직접 조정할 수 있습니다.
+            </p>
+          )}
+
+          {/* 대출 (있으면 여기서 추가 — 저장 시 물건과 함께 연결된다) */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">대출 (있으면 추가)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label text-[10px]">대출기관</label>
+                <input className="input text-sm" placeholder="예: 국민은행"
+                  value={addDebtDraft.lender}
+                  onChange={(e) => setAddDebtDraft((p) => ({ ...p, lender: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-[10px]">대출 잔액 (원)</label>
+                <input className="input text-sm" type="number" placeholder="0"
+                  value={addDebtDraft.balance}
+                  onChange={(e) => setAddDebtDraft((p) => ({ ...p, balance: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-[10px]">금리 (%)</label>
+                <input className="input text-sm" type="number" placeholder="3.5"
+                  value={addDebtDraft.interest_rate}
+                  onChange={(e) => setAddDebtDraft((p) => ({ ...p, interest_rate: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-[10px]">만기일</label>
+                <input className="input text-sm" type="date"
+                  value={addDebtDraft.maturity_date}
+                  onChange={(e) => setAddDebtDraft((p) => ({ ...p, maturity_date: e.target.value }))} />
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* 섹션 4: 임대 현황 */}
-        <div>
-          <p className="text-xs font-semibold text-fg-muted mb-2 uppercase tracking-wide">임대 현황</p>
-          <div className="grid grid-cols-2 gap-3">
-            {sel("임대형태", "lease_type", [
-              ["none", "없음 (직접 거주·공실)"], ["jeonse", "전세"], ["monthly", "월세"],
-            ])}
-            {form.lease_type !== "none" && inp("보증금 (원)", "deposit", "number", "0")}
-            {form.lease_type === "monthly" && inp("월세 (원/월)", "monthly_rent", "number", "0")}
+          {/* 직접 입력 (접이식) — 나머지 필드는 지우지 않고 기본값으로 채운 채 접어둔다 */}
+          <div className="rounded-xl border border-border">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-fg hover:bg-surface-2"
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              <span>직접 입력 (물건 종류·지분율·보유형태·용도·취득·임대 등)</span>
+              <span className="text-fg-muted">{showAdvanced ? "▲" : "▼"}</span>
+            </button>
+            {showAdvanced && (
+              <div className="space-y-4 border-t border-border p-4">
+                <div className="grid grid-cols-2 gap-3">
+                  {sel("물건 종류", "property_type", [
+                    ["apartment", "아파트"], ["officetel", "오피스텔"], ["house", "단독/다가구"],
+                    ["land", "토지"], ["presale_right", "분양권"],
+                  ])}
+                  {inp("주소", "address", "text", "예: 서울 서초구 반포동 1234")}
+                  {sel("보유형태", "ownership_type", [["sole", "단독명의"], ["joint", "공동명의/지분"]])}
+                  <div>
+                    <label className="label">지분율 (%)</label>
+                    <input className="input" type="number" placeholder="100" min={1} max={100}
+                      value={form.ownership_share}
+                      onChange={f("ownership_share")}
+                      disabled={form.ownership_type === "sole"} />
+                  </div>
+                  {sel("용도", "usage", [
+                    ["primary_residence", "실거주"], ["rental", "임대"], ["investment", "투자"],
+                  ])}
+                  {inp("취득일", "acquired_at", "date")}
+                  {inp("취득가액 (원)", "acquired_price", "number", "0")}
+                  {sel("임대형태", "lease_type", [
+                    ["none", "없음 (직접 거주·공실)"], ["jeonse", "전세"], ["monthly", "월세"],
+                  ])}
+                  {form.lease_type !== "none" && inp("보증금 (원)", "deposit", "number", "0")}
+                  {form.lease_type === "monthly" && inp("월세 (원/월)", "monthly_rent", "number", "0")}
+                  {inp("시세 하한 (원)", "market_value_low", "number", "")}
+                  {inp("시세 상한 (원)", "market_value_high", "number", "")}
+                  {sel("시세 출처", "market_source", [
+                    ["manual", "수동 입력"], ["molit_realtxn", "국토부 실거래"],
+                    ["public_price", "공시가격"], ["kb", "KB시세"],
+                  ])}
+                  {sel("신뢰도", "market_confidence", [
+                    ["high", "높음"], ["medium", "보통"], ["low", "낮음"],
+                  ])}
+                </div>
+              </div>
+            )}
           </div>
+
+          {msg && (
+            <p className={`rounded-lg px-4 py-2 text-sm font-medium ${msg.ok ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
+              {msg.ok ? "✓ " : "✕ "}{msg.text}
+            </p>
+          )}
+
+          <button
+            className="w-full btn-primary py-3 text-sm font-bold disabled:opacity-50"
+            disabled={saving}
+            onClick={handleSave}
+          >
+            {saving ? "저장 중…" : "부동산 자산 저장"}
+          </button>
         </div>
-
-        {msg && (
-          <p className={`rounded-lg px-4 py-2 text-sm font-medium ${msg.ok ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"}`}>
-            {msg.ok ? "✓ " : "✕ "}{msg.text}
-          </p>
-        )}
-
-        <button
-          className="w-full btn-primary py-3 text-sm font-bold disabled:opacity-50"
-          disabled={saving}
-          onClick={handleSave}
-        >
-          {saving ? "저장 중…" : "부동산 자산 저장"}
-        </button>
-        <p className="text-[10px] text-fg-muted/70 text-center">
-          ※ 취득가·공시가격·지분율을 정확히 입력하면 순자산·투자가능자산이 자동 계산됩니다.
-        </p>
-      </div>
+      )}
     </div>
   );
 }
