@@ -124,6 +124,15 @@ export function assessHeritageUrgency(
     });
   }
 
+  // "해당없음"이면 권고할 내용 자체가 없다(baseLevelForAge/escalate는 실제로 이 값을
+  // 내지 않지만, level의 선언 타입이 전체 HeritageUrgencyLevel이라 방어적으로 가드한다).
+  // 이 가드 덕분에 아래에서 TypeScript가 level을 "해당없음" 제외 타입으로 좁혀서
+  // RECOMMENDATION_TEXT 인덱싱이 안전해진다 — RECOMMENDATION_TEXT에 억지로 "해당없음"
+  // 항목을 채워 넣지 않는다.
+  if (level === "해당없음") {
+    return { level, reasons, ageAtAssessment: age };
+  }
+
   reasons.push({ code: "recommendation", text: RECOMMENDATION_TEXT[level] });
 
   return { level, reasons, ageAtAssessment: age };
