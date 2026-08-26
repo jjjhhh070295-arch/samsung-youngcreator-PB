@@ -457,6 +457,41 @@ export default function RealEstateModule({ clientId }: Props) {
       };
     }, { totalValue: 0, totalDebt: 0, totalEquity: 0, investable: 0 });
 
+    // 대출 추가/수정 폼 — "연결 대출 N건" 아코디언 안에서도, 대출이 하나도 없을 때도 재사용한다.
+    const debtAddForm = (propertyId: string) => (
+      <div className="rounded-lg border border-dashed border-border p-2.5 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            ["대출기관", "lender", "text", "예: 국민은행"],
+            ["잔액 (원) *", "balance", "number", "0"],
+            ["금리 (%)", "interest_rate", "number", "3.5"],
+            ["만기일", "maturity_date", "date", ""],
+          ].map(([label, key, type, ph]) => (
+            <div key={key as string}>
+              <label className="label text-[10px]">{label as string}</label>
+              <input className="input text-xs py-1" type={type as string} placeholder={ph as string}
+                value={(debtForm as Record<string, string>)[key as string]}
+                onChange={(e) => setDebtForm((p) => ({ ...p, [key as string]: e.target.value }))} />
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <select className="input text-xs py-1 w-auto" value={debtForm.rate_type}
+            onChange={(e) => setDebtForm((p) => ({ ...p, rate_type: e.target.value as RateType }))}>
+            <option value="fixed">고정금리</option>
+            <option value="variable">변동금리</option>
+          </select>
+          <div className="flex gap-1.5 ml-auto">
+            <button className="btn-ghost text-xs py-1 px-3" onClick={() => { setDebtFormProp(null); setDebtForm(emptyDebtForm()); }}>취소</button>
+            <button className="btn-primary text-xs py-1 px-3 disabled:opacity-50" disabled={!debtForm.balance || savingDebt}
+              onClick={() => handleAddDebt(propertyId)}>
+              {savingDebt ? "저장 중…" : "추가"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+
     return (
       <div>
         {tabBar}
@@ -469,264 +504,244 @@ export default function RealEstateModule({ clientId }: Props) {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* 포트폴리오 요약 */}
-            <div className="rounded-xl border border-border bg-surface-2 px-5 py-4">
-              <p className="text-xs font-semibold text-fg-muted mb-3 uppercase tracking-wide">부동산 전체 요약</p>
-              <div className="grid grid-cols-4 gap-4 text-center">
-                {[
-                  ["총 자산 가치", formatW(totals.totalValue), "text-fg"],
-                  ["총 부채", formatW(totals.totalDebt), "text-red-500"],
-                  ["순자산 기여", formatW(totals.totalEquity), totals.totalEquity >= 0 ? "text-green-600" : "text-red-500"],
-                  ["투자가능 자산", formatW(totals.investable), "text-[#1428A0]"],
-                ].map(([label, val, cls]) => (
-                  <div key={label as string}>
-                    <p className="text-[10px] text-fg-muted mb-1">{label as string}</p>
-                    <p className={`text-base font-bold ${cls}`}>{val as string}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <button className="btn-outline text-xs py-1 px-3" onClick={() => setTab("add")}>+ 부동산 추가</button>
-            </div>
-
-            {/* 개별 물건 카드 */}
-            {properties.map((p) => {
-              const pDebts = debts.filter((d) => d.property_id === p.id);
-              const m = deriveMetrics(p, pDebts);
-              const isExpanded = expandedDebt === p.id;
-              const isAddingDebt = debtFormProp === p.id;
-
-              return (
-                <div key={p.id} className="rounded-xl border border-border bg-card overflow-hidden">
-                  {/* 카드 헤더 */}
-                  <div className="px-5 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                          <span className="badge-navy text-[10px]">{PROP_TYPE_LABEL[p.property_type]}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${p.usage === "primary_residence" ? "bg-blue-50 text-blue-700 border border-blue-200" : p.usage === "rental" ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
-                            {USAGE_LABEL[p.usage]}
-                          </span>
-                          {p.ownership_type === "joint" && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
-                              지분 {(p.ownership_share * 100).toFixed(0)}%
-                            </span>
-                          )}
-                        </div>
-                        <p className="font-semibold text-fg">
-                          {p.complex_name || p.address || "주소 미입력"}
-                          {p.area_m2 && <span className="text-sm font-normal text-fg-muted ml-1">{p.area_m2}m²</span>}
-                        </p>
-                        {p.address && p.complex_name && (
-                          <p className="text-xs text-fg-muted mt-0.5">{p.address}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {p.legal_dong_code && p.complex_name && p.area_m2 ? (
-                          <button
-                            onClick={() => lookupMarketValue(p)}
-                            disabled={lookingUp === p.id}
-                            className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-[#1428A0] text-white hover:bg-[#0f1e7a] disabled:opacity-50 transition-colors"
-                          >
-                            {lookingUp === p.id ? (
-                              <span className="flex items-center gap-1">
-                                <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                                조회 중
-                              </span>
-                            ) : "시세 조회"}
-                          </button>
-                        ) : (
-                          <span className="text-[10px] text-fg-muted" title="법정동코드·단지명·면적을 입력하면 시세 자동조회 가능합니다">조회불가</span>
-                        )}
-                        <button onClick={() => deleteProperty(p.id)} disabled={deletingProp === p.id}
-                          className="text-red-400 hover:text-red-600 font-bold text-sm disabled:opacity-40">✕</button>
-                      </div>
+            {/* 좌: 요약 패널 / 우: 카드 격자 — 900px 이하에서는 1열(요약 위, 카드 아래) */}
+            <div className="grid grid-cols-[290px_1fr] gap-[18px] max-[900px]:grid-cols-1">
+              {/* 왼쪽 요약 패널 */}
+              <div className="self-start sticky top-[18px] max-[900px]:static rounded-xl border border-border bg-surface-2 px-4 py-4">
+                <p className="text-xs font-semibold text-fg-muted mb-2 uppercase tracking-wide">부동산 전체 요약</p>
+                <div className="divide-y divide-border">
+                  {[
+                    ["총 자산 가치", formatW(totals.totalValue), "text-fg"],
+                    ["총 부채", formatW(totals.totalDebt), totals.totalDebt > 0 ? "text-red-500" : "text-fg-muted"],
+                    ["순자산 기여", formatW(totals.totalEquity), totals.totalEquity >= 0 ? "text-green-600" : "text-red-500"],
+                    ["투자가능 자산", formatW(totals.investable), "text-[#1428A0]"],
+                  ].map(([label, val, cls]) => (
+                    <div key={label as string} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
+                      <span className="text-xs text-fg-muted">{label as string}</span>
+                      <span className={`text-sm font-bold ${cls}`}>{val as string}</span>
                     </div>
+                  ))}
+                </div>
+                <button className="w-full btn-primary text-sm py-2 mt-3" onClick={() => setTab("add")}>+ 부동산 추가</button>
+              </div>
 
-                    {/* 시세 */}
-                    {p.market_value != null ? (
-                      <div className="mt-3 flex items-center gap-2 text-xs text-fg-muted">
-                        <span className="font-semibold text-fg text-base">{formatW(p.market_value)}</span>
-                        {(p.market_value_low || p.market_value_high) && (
-                          <span>({formatW(p.market_value_low)} ~ {formatW(p.market_value_high)})</span>
-                        )}
-                        {p.market_source && <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded">{SOURCE_LABEL[p.market_source]}</span>}
-                        {p.market_confidence && (
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${p.market_confidence === "high" ? "bg-green-50 text-green-700" : p.market_confidence === "low" ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-600"}`}>
-                            {p.market_confidence === "high" ? "신뢰도 높음" : p.market_confidence === "low" ? "신뢰도 낮음" : "신뢰도 보통"}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="mt-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 inline-flex items-center gap-1">
-                        ⚠ 추정 시세 미입력 — 우측 &ldquo;시세 조회&rdquo; 버튼을 누르거나 직접 입력하세요.
-                      </p>
-                    )}
+              {/* 오른쪽 카드 격자 — 넓으면 2열, 좁으면 1열로 자동 */}
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(330px,1fr))] gap-[14px]">
+                {properties.map((p) => {
+                  const pDebts = debts.filter((d) => d.property_id === p.id);
+                  const m = deriveMetrics(p, pDebts);
+                  const isExpanded = expandedDebt === p.id;
+                  const isAddingDebt = debtFormProp === p.id;
 
-                    {/* 국토부 API 조회 결과 */}
-                    {lookupResult[p.id] && (() => {
-                      const res = lookupResult[p.id];
-                      // 성공
-                      if (res.value != null) return (
-                        <div className="mt-2 text-xs px-3 py-1.5 rounded-lg border bg-green-50 border-green-200 text-green-700">
-                          ✓ 국토부 실거래 {res.sampleSize}건 → {formatW(res.value)} 저장됨 · {res.note}
+                  return (
+                    <div key={p.id} className="rounded-xl border border-border bg-card overflow-hidden">
+                      {/* 카드 헤더 */}
+                      <div className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                              <span className="badge-navy text-[10px]">{PROP_TYPE_LABEL[p.property_type]}</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${p.usage === "primary_residence" ? "bg-blue-50 text-blue-700 border border-blue-200" : p.usage === "rental" ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
+                                {USAGE_LABEL[p.usage]}
+                              </span>
+                              {p.ownership_type === "joint" && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                                  지분 {(p.ownership_share * 100).toFixed(0)}%
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-semibold text-fg">
+                              {p.complex_name || p.address || "주소 미입력"}
+                              {p.area_m2 && <span className="text-xs font-normal text-fg-muted ml-1">{p.area_m2}m²</span>}
+                            </p>
+                            {p.address && p.complex_name && (
+                              <p className="text-xs text-fg-muted mt-0.5">{p.address}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {p.legal_dong_code && p.complex_name && p.area_m2 ? (
+                              <button
+                                onClick={() => lookupMarketValue(p)}
+                                disabled={lookingUp === p.id}
+                                className="text-xs font-semibold px-2 py-1 rounded-lg bg-[#1428A0] text-white hover:bg-[#0f1e7a] disabled:opacity-50 transition-colors"
+                              >
+                                {lookingUp === p.id ? (
+                                  <span className="flex items-center gap-1">
+                                    <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                    조회 중
+                                  </span>
+                                ) : "시세 조회"}
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-fg-muted" title="법정동코드·단지명·면적을 입력하면 시세 자동조회 가능합니다">조회불가</span>
+                            )}
+                            <button onClick={() => deleteProperty(p.id)} disabled={deletingProp === p.id}
+                              className="text-red-400 hover:text-red-600 font-bold text-sm disabled:opacity-40">✕</button>
+                          </div>
                         </div>
-                      );
-                      // 면적 불일치 — 같은 단지 면적 선택 UI
-                      if (res.areaBreakdown && res.areaBreakdown.length > 0) return (
-                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                          <p className="text-xs text-amber-700 font-medium mb-2">
-                            {p.area_m2 != null ? `${p.area_m2}㎡ 거래 없음 —` : ""} 같은 단지 거래 면적을 선택하세요
+
+                        {/* 시세 */}
+                        {p.market_value != null ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
+                            <span className="font-semibold text-fg text-sm">{formatW(p.market_value)}</span>
+                            {(p.market_value_low || p.market_value_high) && (
+                              <span>({formatW(p.market_value_low)} ~ {formatW(p.market_value_high)})</span>
+                            )}
+                            {p.market_source && <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 rounded">{SOURCE_LABEL[p.market_source]}</span>}
+                            {p.market_confidence && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${p.market_confidence === "high" ? "bg-green-50 text-green-700" : p.market_confidence === "low" ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-600"}`}>
+                                {p.market_confidence === "high" ? "신뢰도 높음" : p.market_confidence === "low" ? "신뢰도 낮음" : "신뢰도 보통"}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1">
+                            ⚠ 추정 시세 미입력 — 우측 &ldquo;시세 조회&rdquo; 버튼을 누르거나 직접 입력하세요.
                           </p>
-                          <div className="flex flex-wrap gap-2">
-                            {res.areaBreakdown.map((area) => {
-                              const badge = area.freshness === "확정" ? "🟢" : area.freshness === "추정" ? "🟡" : "🔴";
-                              return (
-                                <button
-                                  key={area.area}
-                                  onClick={() => handleAreaPick(p, area)}
-                                  className="flex flex-col items-start text-xs rounded-lg border border-amber-300 bg-white px-3 py-2 hover:bg-[#1428A0] hover:text-white hover:border-[#1428A0] transition-colors group"
-                                >
-                                  <span className="font-bold text-fg group-hover:text-white">{area.area}㎡ ({area.pyeong}평)</span>
-                                  <span className="text-fg-muted group-hover:text-white/80">{badge} {area.freshness} · {area.sampleSize}건</span>
-                                  <span className="text-[#1428A0] font-semibold group-hover:text-white">{formatW(area.median)}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                      // 데이터 자체 없음
-                      return (
-                        <div className="mt-2 text-xs px-3 py-1.5 rounded-lg border bg-red-50 border-red-200 text-red-600">
-                          ✕ {res.note}
-                        </div>
-                      );
-                    })()}
+                        )}
 
-                    {/* 파생 지표 — 대출·임대 정보가 없으면 LTV/임대수익률 타일은 자리만 차지하므로 숨긴다 */}
-                    {(() => {
-                      const priced = p.market_value != null;
-                      const hasDebtInfo = priced && (m.totalDebt > 0 || m.depositLiability > 0);
-                      const hasRentalYield = m.rentalYield != null;
-                      const tiles: [string, string, string][] = [
-                        ["지분 가치", priced ? formatW(m.myValue) : "—", "text-fg"],
-                        ["주담대+부채", priced || m.totalDebt > 0 ? formatW(m.totalDebt + m.depositLiability) : "—", "text-red-500"],
-                        ["순자산", priced ? formatW(m.equity) : "—", priced && m.equity < 0 ? "text-red-500" : "text-green-600"],
-                      ];
-                      if (hasDebtInfo) {
-                        tiles.push(["LTV", pct(m.ltv), m.ltv != null && m.ltv > 0.8 ? "text-red-500" : m.ltv != null && m.ltv > 0.6 ? "text-amber-600" : "text-fg-muted"]);
-                      }
-                      if (hasRentalYield) {
-                        tiles.push(["임대수익률", pct(m.rentalYield), "text-[#1428A0]"]);
-                      }
-                      // Tailwind JIT는 소스에 리터럴로 존재하는 클래스만 생성한다 — 템플릿 보간 금지.
-                      const GRID_COLS: Record<number, string> = { 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" };
-                      return (
-                        <div className={`mt-3 grid gap-2 text-center ${GRID_COLS[tiles.length] ?? "grid-cols-3"}`}>
-                          {tiles.map(([label, val, cls]) => (
-                            <div key={label} className="rounded-lg bg-surface-2 px-2 py-2">
-                              <p className="text-[9px] text-fg-muted mb-0.5">{label}</p>
-                              <p className={`text-sm font-bold ${cls}`}>{val}</p>
+                        {/* 국토부 API 조회 결과 */}
+                        {lookupResult[p.id] && (() => {
+                          const res = lookupResult[p.id];
+                          // 성공
+                          if (res.value != null) return (
+                            <div className="mt-2 text-xs px-2.5 py-1.5 rounded-lg border bg-green-50 border-green-200 text-green-700">
+                              ✓ 국토부 실거래 {res.sampleSize}건 → {formatW(res.value)} 저장됨 · {res.note}
                             </div>
-                          ))}
-                        </div>
-                      );
-                    })()}
-
-                    {/* 임대 정보 */}
-                    {p.lease_type !== "none" && (
-                      <p className="mt-2 text-xs text-fg-muted">
-                        {LEASE_LABEL[p.lease_type]}
-                        {p.deposit != null && ` · 보증금 ${formatW(p.deposit)}`}
-                        {p.monthly_rent != null && ` · 월세 ${formatW(p.monthly_rent)}/월`}
-                      </p>
-                    )}
-
-                    {/* 취득 정보 */}
-                    {(p.acquired_at || p.acquired_price) && (
-                      <p className="mt-1 text-xs text-fg-muted">
-                        취득{p.acquired_at ? ` ${p.acquired_at}` : ""}
-                        {p.acquired_price != null && ` · 취득가 ${formatW(p.acquired_price)}`}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 대출 섹션 */}
-                  <div className="border-t border-border">
-                    <button
-                      className="w-full flex items-center justify-between px-5 py-2.5 text-xs text-fg-muted hover:bg-surface-2 transition-colors"
-                      onClick={() => setExpandedDebt(isExpanded ? null : p.id)}
-                    >
-                      <span>
-                        <span className="font-semibold">연결 대출</span>
-                        {pDebts.length > 0 ? ` ${pDebts.length}건` : " — 없음"}
-                      </span>
-                      <span>{isExpanded ? "▲" : "▼"}</span>
-                    </button>
-
-                    {isExpanded && (
-                      <div className="px-5 pb-4 space-y-2">
-                        {pDebts.map((d) => (
-                          <div key={d.id} className="flex items-center gap-3 rounded-lg bg-surface-2 px-3 py-2 text-xs">
-                            <div className="flex-1">
-                              <span className="font-medium text-fg">{d.lender || "대출기관 미입력"}</span>
-                              <span className="text-fg-muted ml-2">잔액 {formatW(d.balance)}</span>
-                              {d.interest_rate != null && <span className="text-fg-muted ml-2">금리 {d.interest_rate}%</span>}
-                              {d.rate_type && <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-gray-100 rounded">{d.rate_type === "fixed" ? "고정" : "변동"}</span>}
-                              {d.maturity_date && <span className="text-fg-muted ml-2">만기 {d.maturity_date}</span>}
+                          );
+                          // 면적 불일치 — 같은 단지 면적 선택 UI
+                          if (res.areaBreakdown && res.areaBreakdown.length > 0) return (
+                            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+                              <p className="text-xs text-amber-700 font-medium mb-2">
+                                {p.area_m2 != null ? `${p.area_m2}㎡ 거래 없음 —` : ""} 같은 단지 거래 면적을 선택하세요
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {res.areaBreakdown.map((area) => {
+                                  const badge = area.freshness === "확정" ? "🟢" : area.freshness === "추정" ? "🟡" : "🔴";
+                                  return (
+                                    <button
+                                      key={area.area}
+                                      onClick={() => handleAreaPick(p, area)}
+                                      className="flex flex-col items-start text-xs rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 hover:bg-[#1428A0] hover:text-white hover:border-[#1428A0] transition-colors group"
+                                    >
+                                      <span className="font-bold text-fg group-hover:text-white">{area.area}㎡ ({area.pyeong}평)</span>
+                                      <span className="text-fg-muted group-hover:text-white/80">{badge} {area.freshness} · {area.sampleSize}건</span>
+                                      <span className="text-[#1428A0] font-semibold group-hover:text-white">{formatW(area.median)}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
-                            <button onClick={() => deleteDebt(d.id)} disabled={deletingDebt === d.id}
-                              className="text-red-400 hover:text-red-600 font-bold disabled:opacity-40">✕</button>
-                          </div>
-                        ))}
+                          );
+                          // 데이터 자체 없음
+                          return (
+                            <div className="mt-2 text-xs px-2.5 py-1.5 rounded-lg border bg-red-50 border-red-200 text-red-600">
+                              ✕ {res.note}
+                            </div>
+                          );
+                        })()}
 
-                        {isAddingDebt ? (
-                          <div className="rounded-lg border border-dashed border-border p-3 space-y-2">
-                            <div className="grid grid-cols-2 gap-2">
-                              {[
-                                ["대출기관", "lender", "text", "예: 국민은행"],
-                                ["잔액 (원) *", "balance", "number", "0"],
-                                ["금리 (%)", "interest_rate", "number", "3.5"],
-                                ["만기일", "maturity_date", "date", ""],
-                              ].map(([label, key, type, ph]) => (
-                                <div key={key as string}>
-                                  <label className="label text-[10px]">{label as string}</label>
-                                  <input className="input text-xs py-1" type={type as string} placeholder={ph as string}
-                                    value={(debtForm as Record<string, string>)[key as string]}
-                                    onChange={(e) => setDebtForm((p) => ({ ...p, [key as string]: e.target.value }))} />
+                        {/* 파생 지표 — 대출·임대 정보가 없으면 LTV/임대수익률 타일은 자리만 차지하므로 숨긴다.
+                            카드가 좁아도 기본 3개 타일(지분가치/주담대+부채/순자산)은 항상 3열로 유지한다. */}
+                        {(() => {
+                          const priced = p.market_value != null;
+                          const hasDebtInfo = priced && (m.totalDebt > 0 || m.depositLiability > 0);
+                          const hasRentalYield = m.rentalYield != null;
+                          const tiles: [string, string, string][] = [
+                            ["지분 가치", priced ? formatW(m.myValue) : "—", "text-fg"],
+                            ["주담대+부채", priced || m.totalDebt > 0 ? formatW(m.totalDebt + m.depositLiability) : "—", "text-red-500"],
+                            ["순자산", priced ? formatW(m.equity) : "—", priced && m.equity < 0 ? "text-red-500" : "text-green-600"],
+                          ];
+                          if (hasDebtInfo) {
+                            tiles.push(["LTV", pct(m.ltv), m.ltv != null && m.ltv > 0.8 ? "text-red-500" : m.ltv != null && m.ltv > 0.6 ? "text-amber-600" : "text-fg-muted"]);
+                          }
+                          if (hasRentalYield) {
+                            tiles.push(["임대수익률", pct(m.rentalYield), "text-[#1428A0]"]);
+                          }
+                          // Tailwind JIT는 소스에 리터럴로 존재하는 클래스만 생성한다 — 템플릿 보간 금지.
+                          const GRID_COLS: Record<number, string> = { 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" };
+                          return (
+                            <div className={`mt-2 grid gap-1.5 text-center ${GRID_COLS[tiles.length] ?? "grid-cols-3"}`}>
+                              {tiles.map(([label, val, cls]) => (
+                                <div key={label} className="rounded-lg bg-surface-2 px-1 py-1.5">
+                                  <p className="text-[8px] text-fg-muted mb-0.5 leading-tight">{label}</p>
+                                  <p className={`text-xs font-bold ${cls}`}>{val}</p>
                                 </div>
                               ))}
                             </div>
-                            <div className="flex items-center gap-2">
-                              <select className="input text-xs py-1 w-auto" value={debtForm.rate_type}
-                                onChange={(e) => setDebtForm((p) => ({ ...p, rate_type: e.target.value as RateType }))}>
-                                <option value="fixed">고정금리</option>
-                                <option value="variable">변동금리</option>
-                              </select>
-                              <div className="flex gap-1.5 ml-auto">
-                                <button className="btn-ghost text-xs py-1 px-3" onClick={() => { setDebtFormProp(null); setDebtForm(emptyDebtForm()); }}>취소</button>
-                                <button className="btn-primary text-xs py-1 px-3 disabled:opacity-50" disabled={!debtForm.balance || savingDebt}
-                                  onClick={() => handleAddDebt(p.id)}>
-                                  {savingDebt ? "저장 중…" : "추가"}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <button className="text-xs text-[#1428A0] hover:underline font-medium"
-                            onClick={() => { setDebtFormProp(p.id); setExpandedDebt(p.id); }}>
-                            + 대출 추가
-                          </button>
+                          );
+                        })()}
+
+                        {/* 임대 정보 */}
+                        {p.lease_type !== "none" && (
+                          <p className="mt-1.5 text-xs text-fg-muted">
+                            {LEASE_LABEL[p.lease_type]}
+                            {p.deposit != null && ` · 보증금 ${formatW(p.deposit)}`}
+                            {p.monthly_rent != null && ` · 월세 ${formatW(p.monthly_rent)}/월`}
+                          </p>
+                        )}
+
+                        {/* 취득 정보 */}
+                        {(p.acquired_at || p.acquired_price) && (
+                          <p className="mt-1 text-xs text-fg-muted">
+                            취득{p.acquired_at ? ` ${p.acquired_at}` : ""}
+                            {p.acquired_price != null && ` · 취득가 ${formatW(p.acquired_price)}`}
+                          </p>
                         )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+
+                      {/* 대출 섹션 — 등록된 대출이 있을 때만 아코디언(연결 대출 N건)을 보여준다.
+                          없으면 "연결 대출 — 없음" 줄 자체를 그리지 않고, 추가 링크만 남긴다. */}
+                      {pDebts.length > 0 ? (
+                        <div className="border-t border-border">
+                          <button
+                            className="w-full flex items-center justify-between px-4 py-2 text-xs text-fg-muted hover:bg-surface-2 transition-colors"
+                            onClick={() => setExpandedDebt(isExpanded ? null : p.id)}
+                          >
+                            <span><span className="font-semibold">연결 대출</span> {pDebts.length}건</span>
+                            <span>{isExpanded ? "▲" : "▼"}</span>
+                          </button>
+
+                          {isExpanded && (
+                            <div className="px-4 pb-3 space-y-1.5">
+                              {pDebts.map((d) => (
+                                <div key={d.id} className="flex items-center gap-3 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs">
+                                  <div className="flex-1">
+                                    <span className="font-medium text-fg">{d.lender || "대출기관 미입력"}</span>
+                                    <span className="text-fg-muted ml-2">잔액 {formatW(d.balance)}</span>
+                                    {d.interest_rate != null && <span className="text-fg-muted ml-2">금리 {d.interest_rate}%</span>}
+                                    {d.rate_type && <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-gray-100 rounded">{d.rate_type === "fixed" ? "고정" : "변동"}</span>}
+                                    {d.maturity_date && <span className="text-fg-muted ml-2">만기 {d.maturity_date}</span>}
+                                  </div>
+                                  <button onClick={() => deleteDebt(d.id)} disabled={deletingDebt === d.id}
+                                    className="text-red-400 hover:text-red-600 font-bold disabled:opacity-40">✕</button>
+                                </div>
+                              ))}
+
+                              {isAddingDebt ? debtAddForm(p.id) : (
+                                <button className="text-xs text-[#1428A0] hover:underline font-medium"
+                                  onClick={() => { setDebtFormProp(p.id); setExpandedDebt(p.id); }}>
+                                  + 대출 추가
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="border-t border-border px-4 py-2">
+                          {isAddingDebt ? debtAddForm(p.id) : (
+                            <button className="text-xs text-[#1428A0] hover:underline font-medium"
+                              onClick={() => setDebtFormProp(p.id)}>
+                              + 대출 추가
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
             <p className="text-[10px] text-fg-muted/70 text-center pt-2">
               ※ 추정시세는 실거래 기반 참고값입니다. 중요한 의사결정 전 감정평가·KB시세로 보정하세요.
