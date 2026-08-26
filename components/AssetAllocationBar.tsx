@@ -135,13 +135,25 @@ export default function AssetAllocationBar({ clientId, totalAsset }: Props) {
 
   if (loading || !alloc || alloc.total === 0) return null;
 
-  const segments = [
+  // 비중 큰 순으로 정렬 후 0%(반올림 결과 0.0% 포함)는 아예 뺀다.
+  const sortedByValue = [
     { label: "주식", value: alloc.stocks, color: "#1428A0" },
     { label: "부동산", value: alloc.realEstate, color: "#f59e0b" },
     { label: "현금·기타", value: alloc.cash, color: "#9ca3af" },
-  ].filter((s) => s.value > 0);
+  ]
+    .filter((s) => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  const withPct = sortedByValue.map((s) => ({ ...s, pct: Math.round((s.value / alloc.total) * 1000) / 10 }));
+  const segments = withPct.filter((s) => s.pct > 0);
 
   if (segments.length === 0) return null;
+
+  // 반올림 오차(예: 1.0+48.4+50.7=100.1%)는 가장 비중이 큰 항목(정렬상 첫 번째)에서 흡수해
+  // 합이 정확히 100.0%가 되게 한다.
+  const sumPct = segments.reduce((acc, s) => acc + s.pct, 0);
+  const diff = Math.round((100 - sumPct) * 10) / 10;
+  if (diff !== 0) segments[0].pct = Math.round((segments[0].pct + diff) * 10) / 10;
 
   // 폴백 종목이 있으면 주식 범례에 표시
   const hasFallback = alloc.stocksFallback > 0;
@@ -149,43 +161,25 @@ export default function AssetAllocationBar({ clientId, totalAsset }: Props) {
   return (
     <div className="mt-4 pt-4 border-t border-border">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted mb-2">자산 비중</p>
-
-      {/* 가로 바 */}
-      <div className="flex h-5 w-full rounded-full overflow-hidden gap-px">
-        {segments.map((s) => {
-          const pct = (s.value / alloc.total) * 100;
-          return (
-            <div
-              key={s.label}
-              style={{ width: `${pct}%`, backgroundColor: s.color }}
-              title={`${s.label}: ${formatW(s.value)} (${pct.toFixed(1)}%)`}
-            />
-          );
-        })}
-      </div>
-
-      {/* 범례 */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-        {segments.map((s) => {
-          const pct = ((s.value / alloc.total) * 100).toFixed(1);
-          return (
-            <div key={s.label} className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
-              <span className="text-xs text-fg-muted">
-                {s.label}
-                {s.label === "주식" && hasFallback && (
-                  <span className="ml-0.5 text-[9px] text-fg-muted/60" title="일부 종목은 시세 미연결 — 평균단가 기준">*</span>
-                )}
-                {" "}<span className="font-semibold text-fg">{pct}%</span>
-                <span className="ml-1 text-[10px]">({formatW(s.value)})</span>
-              </span>
-            </div>
-          );
-        })}
-        {hasFallback && (
-          <span className="text-[9px] text-fg-muted/50 self-center">* 일부 주식 평균단가 기준</span>
-        )}
-      </div>
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-fg-muted">
+        {segments.map((s, i) => (
+          <span key={s.label} className="flex items-center gap-1">
+            {i > 0 && <span className="text-fg-muted/40">·</span>}
+            <span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
+            <span>
+              {s.label}
+              {s.label === "주식" && hasFallback && (
+                <span className="ml-0.5 text-[9px] text-fg-muted/60" title="일부 종목은 시세 미연결 — 평균단가 기준">*</span>
+              )}
+              {" "}<span className="font-semibold text-fg">{s.pct.toFixed(1)}%</span>
+              <span className="ml-1 text-[10px]">({formatW(s.value)})</span>
+            </span>
+          </span>
+        ))}
+      </p>
+      {hasFallback && (
+        <p className="mt-1 text-[9px] text-fg-muted/50">* 일부 주식 평균단가 기준</p>
+      )}
     </div>
   );
 }
