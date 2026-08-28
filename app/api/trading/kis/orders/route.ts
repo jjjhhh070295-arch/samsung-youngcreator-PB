@@ -5,21 +5,13 @@ import {
   DuplicateOrderError,
   listOrdersForUser,
   placeOrderViaKis,
-  enforceRegimeBuyGate,
 } from "@/lib/trading/orders";
-import type { CompletedBar } from "@/lib/strategy/threeBullTwoBear";
 import type { PreviewOrderInput } from "@/lib/trading/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Body = PreviewOrderInput & {
-  stockBars?: CompletedBar[];
-  openCount?: number;
-  allocatedWon?: number;
-  dayChangePct?: number | null;
-  confirmPhrase?: string;
-};
+type Body = PreviewOrderInput & { confirmPhrase?: string };
 
 export async function GET(req: Request) {
   try {
@@ -61,26 +53,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const gate = await enforceRegimeBuyGate({
-      side: body.side,
-      symbol: body.symbol,
-      quantity: body.quantity,
-      price: body.price,
-      stockBars: body.stockBars,
-      openCount: body.openCount,
-      allocatedWon: body.allocatedWon,
-      dayChangePct: body.dayChangePct,
+    const order = await placeOrderViaKis({
+      ...body,
+      quantity: Math.max(1, body.quantity),
+      userId: user.id,
+      useAllAvailableCash: body.side === "buy",
+      useAllSellableQuantity: body.side === "sell",
     });
-    if (!gate.ok) {
-      return NextResponse.json(
-        { ok: false, error: gate.error, code: gate.code, regime: gate },
-        { status: 403 },
-      );
-    }
-
-    const qty = gate.allowedQuantity ?? body.quantity;
-    const order = await placeOrderViaKis({ ...body, quantity: qty, userId: user.id });
-    return NextResponse.json({ ok: true, order, regime: gate });
+    return NextResponse.json({
+      ok: true,
+      order,
+      allocationMode: body.side === "buy" ? "ALL_AVAILABLE_CASH" : "ALL_SELLABLE_SHARES",
+    });
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ ok: false, error: error.message }, { status: error.status });

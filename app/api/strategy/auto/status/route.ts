@@ -18,7 +18,6 @@ export async function GET(req: Request) {
         liveArmed: state.liveArmed,
         lastRunAt: state.lastRunAt,
         lastCycleSummary: state.lastCycleSummary,
-        regime: state.regime,
         running: state.running,
         positions: state.positions.slice(0, 50),
         logs: state.logs.slice(0, 40),

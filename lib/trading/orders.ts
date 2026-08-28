@@ -7,7 +7,8 @@ import {
   ORD_DVSN_LIMIT,
 } from "@/lib/kis/config";
 import { buildExchangeOrderFields, resolveExchangeRoute, getConfiguredExchangeMode } from "@/lib/kis/exchange";
-import { assertBuyAffordable, fetchAccountCashSummary } from "@/lib/kis/balance";
+import { fetchKisHoldings, fetchMaxBuyQty } from "@/lib/kis/balance";
+import { getKisToken } from "@/lib/kis/token";
 import type {
   KisOrderResponse,
   LimitOrdDvsn,
@@ -19,9 +20,13 @@ import type {
 } from "./types";
 
 type FetchImpl = typeof fetch;
+type GetAccessToken = (appKey: string, appSecret: string) => Promise<string>;
 
 export interface PlaceOrderDeps {
   fetchImpl?: FetchImpl;
+  getAccessToken?: GetAccessToken;
+  getBuyAvailability?: typeof fetchMaxBuyQty;
+  getHoldings?: typeof fetchKisHoldings;
 }
 
 const idempotencyStore = new Map<string, OrderIntent>();
@@ -50,7 +55,10 @@ function isAllowedOrdDvsn(value: string): value is LimitOrdDvsn {
   return value === ORD_DVSN_LIMIT || value === ORD_DVSN_AFTER_CLOSE;
 }
 
-export function validateLimitCashOrder(input: PreviewOrderInput): PreviewOrderResult {
+export function validateLimitCashOrder(
+  input: PreviewOrderInput,
+  options?: { ignoreBuyAmountLimits?: boolean },
+): PreviewOrderResult {
   const config = getKisConfig();
 
   if (!input.symbol?.trim()) {
@@ -77,7 +85,7 @@ export function validateLimitCashOrder(input: PreviewOrderInput): PreviewOrderRe
   }
 
   const estimatedWon = input.quantity * input.price;
-  if (estimatedWon > config.maxOrderWon) {
+  if (input.side === "buy" && !options?.ignoreBuyAmountLimits && estimatedWon > config.maxOrderWon) {
     return {
       ok: false,
       error: `order exceeds KIS_MAX_ORDER_WON (${config.maxOrderWon})`,
@@ -86,7 +94,11 @@ export function validateLimitCashOrder(input: PreviewOrderInput): PreviewOrderRe
   }
 
   resetDailyIfNeeded();
-  if (dailyOrderWon + estimatedWon > config.maxDailyOrderWon) {
+  if (
+    input.side === "buy" &&
+    !options?.ignoreBuyAmountLimits &&
+    dailyOrderWon + estimatedWon > config.maxDailyOrderWon
+  ) {
     return {
       ok: false,
       error: `daily order limit exceeded (${config.maxDailyOrderWon})`,
@@ -119,9 +131,6 @@ export function previewOrder(input: PreviewOrderInput): PreviewOrderResult {
   return validateLimitCashOrder(input);
 }
 
-export type { RegimeGateInput, RegimeGateResult } from "./regimeGate";
-export { enforceRegimeBuyGate } from "./regimeGate";
-
 function buildKisOrderBody(input: PreviewOrderInput) {
   const config = getKisConfig();
   const route = resolveExchangeRoute({
@@ -137,7 +146,7 @@ function buildKisOrderBody(input: PreviewOrderInput) {
     ORD_QTY: String(input.quantity),
     ORD_UNPR: String(Math.round(input.price)),
     EXCG_ID_DVSN_CD: exch.EXCG_ID_DVSN_CD,
-    SLL_TYPE: exch.SLL_TYPE,
+    SLL_TYPE: input.side === "sell" ? exch.SLL_TYPE : "",
     CNDT_PRIC: exch.CNDT_PRIC,
   };
 }
@@ -145,15 +154,20 @@ function buildKisOrderBody(input: PreviewOrderInput) {
 async function callKisOrder(
   input: PreviewOrderInput,
   fetchImpl: FetchImpl,
+  getAccessToken: GetAccessToken,
 ): Promise<KisOrderResponse> {
   const config = getKisConfig();
   const trId = input.side === "buy" ? LIVE_ORDER_TR.buy : LIVE_ORDER_TR.sell;
   const url = `${config.baseUrl}/uapi/domestic-stock/v1/trading/order-cash`;
+  const accessToken = await getAccessToken(config.appKey, config.appSecret);
 
   const res = await fetchImpl(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8",
+      authorization: `Bearer ${accessToken}`,
+      appkey: config.appKey,
+      appsecret: config.appSecret,
       tr_id: trId,
       custtype: "P",
     },
@@ -170,6 +184,12 @@ async function callKisOrder(
 
 export interface PlaceOrderParams extends PreviewOrderInput {
   userId: string;
+  /** 기존 호환용: 현금과 앱 안전한도 내 최대 매수수량 사용 */
+  useMaxAffordableQuantity?: boolean;
+  /** 한투의 미수 없는 매수가능수량 전체를 사용. */
+  useAllAvailableCash?: boolean;
+  /** 한투 잔고의 해당 종목 주문가능수량 전체를 매도. */
+  useAllSellableQuantity?: boolean;
 }
 
 export async function placeOrderViaKis(
@@ -182,17 +202,62 @@ export async function placeOrderViaKis(
 
   assertLiveOrderAllowed();
 
-  const preview = validateLimitCashOrder(params);
+  const preview = validateLimitCashOrder(params, {
+    ignoreBuyAmountLimits: params.useAllAvailableCash === true,
+  });
   if (!preview.ok) {
     throw new Error(preview.error);
   }
 
+  let effectiveParams = params;
   if (params.side === "buy") {
-    const cash = await fetchAccountCashSummary();
-    const afford = assertBuyAffordable(params.quantity * params.price, cash);
-    if (!afford.ok) {
-      throw new Error(afford.reason || "잔고 부족으로 매수 차단");
+    const getBuyAvailability = deps.getBuyAvailability ?? fetchMaxBuyQty;
+    const availability = await getBuyAvailability({
+      symbol: params.symbol,
+      price: params.price,
+      ordDvsn: params.ordDvsn,
+    });
+    if (!availability.ok || availability.maxQty == null) {
+      throw new Error(`매수가능수량 확인 실패 — ${availability.error || "한투 응답 없음"}`);
     }
+    if (availability.maxQty < 1) {
+      const amount = availability.maxAmt ?? availability.orderableCashWon;
+      const amountLabel = amount == null ? "" : ` (미수 없는 매수가능금액 ${amount.toLocaleString("ko-KR")}원)`;
+      throw new Error(`한투 기준 매수가능수량이 0주입니다${amountLabel}`);
+    }
+    let affordableMaxQty = availability.maxQty;
+    if (!params.useAllAvailableCash) {
+      const config = getKisConfig();
+      resetDailyIfNeeded();
+      const remainingDailyWon = Math.max(0, config.maxDailyOrderWon - dailyOrderWon);
+      const appSafetyMaxQty = Math.floor(
+        Math.min(config.maxOrderWon, remainingDailyWon) / params.price,
+      );
+      affordableMaxQty = Math.min(availability.maxQty, appSafetyMaxQty);
+      if (affordableMaxQty < 1) {
+        throw new Error("앱 주문금액 또는 일일 안전한도 내에서 매수 가능한 수량이 0주입니다");
+      }
+    }
+
+    const effectiveQuantity = params.useAllAvailableCash || params.useMaxAffordableQuantity
+      ? affordableMaxQty
+      : Math.min(params.quantity, affordableMaxQty);
+    if (effectiveQuantity !== params.quantity) {
+      effectiveParams = { ...params, quantity: effectiveQuantity };
+    }
+  }
+
+  if (params.side === "sell" && params.useAllSellableQuantity) {
+    const getHoldings = deps.getHoldings ?? fetchKisHoldings;
+    const result = await getHoldings({ fetchImpl: deps.fetchImpl });
+    if (!result.ok) {
+      throw new Error(`보유수량 확인 실패 — ${result.error || "한투 응답 없음"}`);
+    }
+    const holding = result.holdings.find((row) => row.ticker === params.symbol.trim());
+    if (!holding || holding.sellableQty < 1) {
+      throw new Error("한투 기준 매도 주문가능수량이 0주입니다");
+    }
+    effectiveParams = { ...params, quantity: holding.sellableQty };
   }
 
   const idempotencyKey = params.idempotencyKey?.trim() || newId();
@@ -208,7 +273,11 @@ export async function placeOrderViaKis(
     userId: params.userId,
     symbol: params.symbol.trim(),
     side: params.side,
-    quantity: params.quantity,
+    quantity: effectiveParams.quantity,
+    requestedQuantity:
+      effectiveParams.quantity === params.quantity || params.useAllAvailableCash || params.useAllSellableQuantity
+        ? undefined
+        : params.quantity,
     price: params.price,
     ordDvsn: params.ordDvsn,
     status: "submitted",
@@ -223,14 +292,17 @@ export async function placeOrderViaKis(
 
   try {
     const fetchImpl = deps.fetchImpl ?? fetch;
-    const response = await callKisOrder(params, fetchImpl);
+    const getAccessToken = deps.getAccessToken ?? getKisToken;
+    const response = await callKisOrder(effectiveParams, fetchImpl, getAccessToken);
     pending.kisOrderNo = response.output?.ODNO;
     pending.kisOrgOrderNo = response.output?.KRX_FWDG_ORD_ORGNO;
     pending.status = "accepted";
     pending.updatedAt = new Date().toISOString();
 
     resetDailyIfNeeded();
-    dailyOrderWon += params.quantity * params.price;
+    if (effectiveParams.side === "buy") {
+      dailyOrderWon += effectiveParams.quantity * effectiveParams.price;
+    }
   } catch (error) {
     pending.status = "failed";
     pending.error = error instanceof Error ? error.message : String(error);
@@ -291,12 +363,17 @@ export async function cancelOrderViaKis(
 
   const config = getKisConfig();
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const getAccessToken = deps.getAccessToken ?? getKisToken;
+  const accessToken = await getAccessToken(config.appKey, config.appSecret);
   const url = `${config.baseUrl}/uapi/domestic-stock/v1/trading/order-rvsecncl`;
 
   const res = await fetchImpl(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8",
+      authorization: `Bearer ${accessToken}`,
+      appkey: config.appKey,
+      appsecret: config.appSecret,
       tr_id: LIVE_ORDER_TR.cancel,
       custtype: "P",
     },
@@ -310,6 +387,7 @@ export async function cancelOrderViaKis(
       ORD_QTY: "0",
       ORD_UNPR: "0",
       QTY_ALL_ORD_YN: "Y",
+      EXCG_ID_DVSN_CD: getConfiguredExchangeMode(),
     }),
     cache: "no-store",
   });

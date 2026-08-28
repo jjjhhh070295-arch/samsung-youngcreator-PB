@@ -33,6 +33,8 @@ export interface OrderIntent {
   symbol: string;
   side: OrderSide;
   quantity: number;
+  /** 매수가능수량에 맞춰 축소되기 전 최초 요청 수량 */
+  requestedQuantity?: number;
   price: number;
   ordDvsn: LimitOrdDvsn;
   status: OrderIntentStatus;

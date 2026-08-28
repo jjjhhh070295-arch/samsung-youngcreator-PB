@@ -129,9 +129,9 @@ describe("krTrendFilter risk reward", () => {
   });
 });
 
-describe("market cap floor 2조", () => {
-  it("시총 1조 9,999억 탈락, 2조 통과", () => {
-    assert.equal(passesMarketCapFloor(1_999_000_000_000).passed, false);
+describe("market cap floor 1조", () => {
+  it("시총 9,999억 탈락, 1조 통과", () => {
+    assert.equal(passesMarketCapFloor(999_999_999_999).passed, false);
     assert.equal(passesMarketCapFloor(MIN_KR_MARKET_CAP_WON).passed, true);
     assert.match(formatMarketCapWon(MIN_KR_MARKET_CAP_WON), /조/);
   });

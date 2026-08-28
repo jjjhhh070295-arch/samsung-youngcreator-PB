@@ -1,4 +1,4 @@
--- kis-regime-trader dedicated schema (do NOT mix with PB Insight tables)
+-- kis-signal-trader dedicated schema (do NOT mix with PB Insight tables)
 -- Apply on a trader-only Supabase/Postgres project.
 
 CREATE TABLE IF NOT EXISTS trading_positions (
@@ -77,7 +77,6 @@ CREATE TABLE IF NOT EXISTS trading_cycle_runs (
   ok BOOLEAN,
   dry_run BOOLEAN NOT NULL DEFAULT true,
   session TEXT,
-  regime TEXT,
   summary TEXT,
   meta JSONB NOT NULL DEFAULT '{}'::jsonb
 );

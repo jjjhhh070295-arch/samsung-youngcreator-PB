@@ -54,7 +54,13 @@ async function issueToken(appKey: string, appSecret: string): Promise<string> {
     error_description?: string;
   };
   if (!res.ok || !json.access_token) {
-    throw new Error(json.error_description ?? `KIS token failed (${res.status})`);
+    const desc = json.error_description ?? `KIS token failed (${res.status})`;
+    if (/appsecret|appkey/i.test(desc) && (!appSecret || !appKey)) {
+      throw new Error(
+        `${desc} — .env.local의 KIS_APP_KEY / KIS_APP_SECRET 확인 후 npm run dev·worker 재시작`,
+      );
+    }
+    throw new Error(desc);
   }
   const expiresInSec = Number(json.expires_in ?? 86400);
   const cached: CachedToken = {

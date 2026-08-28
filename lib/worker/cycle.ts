@@ -1,14 +1,14 @@
 /**
- * Worker cycle — DB 영속 + 국면/신호. 메모리 positionStore 사용하지 않음.
- * 실주문은 safety 통과 시에만.
+ * Independent worker cycle backed by the trader DB.
+ * The strategy uses price signals only:
+ * - buy: 3+ consecutive bullish completed bars, all KIS no-margin buying power
+ * - sell: 2+ consecutive bearish completed bars, all KIS sellable shares
  */
 
 import type { CalendarSnapshot } from "@/lib/market/calendar";
 import type { SessionSnapshot } from "@/lib/market/sessions";
 import { getTraderDb } from "@/lib/db/client";
-import { STRATEGY_ID } from "@/lib/strategy/threeBullTwoBear";
-import { detectMarketRegime, evaluateRegimeEntry, policyForRegime } from "@/lib/strategy/marketRegime";
-import { fetchKospiCompletedBars } from "@/lib/market/kospiBars";
+import { detectBuySignal, detectSellSignal, STRATEGY_ID } from "@/lib/strategy/threeBullTwoBear";
 import { fetchKoreanTopGainers, fetchKisOhlcBars, mapPool } from "@/lib/advisory/krGainers";
 import { evaluateTechnicalFilters } from "@/lib/advisory/krTrendFilter";
 import { selectTopKrStocksByMarketCap } from "@/lib/advisory/selectTopKrStocks";
@@ -17,10 +17,11 @@ import { isTradingDemoMode, demoThemePass } from "@/lib/advisory/demoScreen";
 import { buildIdempotencyKey } from "@/lib/db/locks";
 import { insertOrderIfNew, updateOrderStatus } from "@/lib/db/ordersRepo";
 import { seoulDateKey } from "@/lib/market/calendar";
-import { resolveExchangeRoute, buildExchangeOrderFields, getConfiguredExchangeMode } from "@/lib/kis/exchange";
+import { resolveExchangeRoute, getConfiguredExchangeMode } from "@/lib/kis/exchange";
+import { fetchAccountCashSummary, fetchKisHoldings, type KisHolding } from "@/lib/kis/balance";
+import { placeOrderViaKis } from "@/lib/trading/orders";
 import { evaluateLiveSafety } from "./safety";
 import { isHeartbeatFresh } from "./heartbeat";
-import { assertBuyAffordable, fetchAccountCashSummary } from "@/lib/kis/balance";
 
 export interface CycleResult {
   ok: boolean;
@@ -28,6 +29,21 @@ export interface CycleResult {
   summary: string;
   buys: number;
   sells: number;
+}
+
+interface DbPosition {
+  id: string;
+  ticker: string;
+  name: string;
+  quantity: number;
+  average_entry_price: number;
+  current_state: string;
+  dry_run: boolean;
+}
+
+function dryRunCashDefault(): number {
+  const value = Number(process.env.STRATEGY_DRY_RUN_CASH_WON ?? 1_000_000);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1_000_000;
 }
 
 async function loadAdminSettings() {
@@ -53,6 +69,10 @@ async function loadAdminSettings() {
   };
 }
 
+function orderDivision(session: SessionSnapshot["session"]): "00" | "06" {
+  return session === "NXT_AFTER" ? "06" : "00";
+}
+
 export async function runWorkerCycle(input: {
   workerId: string;
   calendar: CalendarSnapshot;
@@ -66,7 +86,7 @@ export async function runWorkerCycle(input: {
     emergencyStop: admin.emergency_stop !== false,
     heartbeatOk: hb.ok || process.env.TRADING_DEMO_MODE === "true",
     calendar: input.calendar,
-    accountSynced: true, // reconcile sets false when mismatch
+    accountSynced: true,
     reconciliationRequired: false,
     maxDailyLossWon: Number(admin.max_daily_loss_won ?? 0),
     maxOrderWon: Number(admin.max_order_won ?? 0),
@@ -82,7 +102,7 @@ export async function runWorkerCycle(input: {
       dry_run: dryRun,
       session: input.session.session,
       summary: "started",
-      meta: { workerId: input.workerId, safety },
+      meta: { workerId: input.workerId, safety, strategy: "FULL_CASH" },
     });
   }
 
@@ -96,25 +116,156 @@ export async function runWorkerCycle(input: {
     };
   }
 
-  // 신호는 KRX 공식 종가 확정 후에만 (애프터에서 계산)
   if (!input.session.krxOfficialCloseConfirmed && process.env.ALLOW_INTRADAY_SIGNALS !== "true") {
-    // 장중에는 손절/익절 감시만 (포지션 DB)
     return {
       ok: true,
       dryRun,
-      summary: `세션=${input.session.session} · 종가 미확정 — 신호 신규 보류 (손절감시 구간)`,
+      summary: `세션=${input.session.session} · 종가 미확정 — 3양봉/2음봉 신호 보류`,
       buys: 0,
       sells: 0,
     };
   }
 
-  const { bars: indexBars } = await fetchKospiCompletedBars();
-  const detected = detectMarketRegime(indexBars);
-  const policy = policyForRegime(detected.regime);
+  const tradingDay = seoulDateKey();
+  const strategyVersion = `${STRATEGY_ID}@2-FULL-CASH`;
+  const route = resolveExchangeRoute({
+    mode: (admin.exchange_mode as "KRX" | "NXT" | "SOR") || getConfiguredExchangeMode(),
+    nxtEligible: true,
+  });
+  const ordDvsn = orderDivision(input.session.session);
+
+  let positions: DbPosition[] = [];
+  if (db) {
+    const { data, error } = await db
+      .from("trading_positions")
+      .select("id,ticker,name,quantity,average_entry_price,current_state,dry_run")
+      .in("current_state", ["OPEN", "BUY_SUBMITTED", "PARTIALLY_FILLED", "SELL_SUBMITTED", "EXIT_PARTIALLY_FILLED"]);
+    if (error) {
+      return {
+        ok: false,
+        dryRun: true,
+        summary: `보유종목 조회 실패 — 주문 차단 (${error.message})`,
+        buys: 0,
+        sells: 0,
+      };
+    }
+    positions = (data ?? []) as DbPosition[];
+  }
+
+  let liveHoldings: KisHolding[] = [];
+  if (!dryRun) {
+    const holdings = await fetchKisHoldings();
+    if (!holdings.ok) {
+      return {
+        ok: false,
+        dryRun: true,
+        summary: `실제 보유수량 조회 실패 — 주문 차단 (${holdings.error})`,
+        buys: 0,
+        sells: 0,
+      };
+    }
+    liveHoldings = holdings.holdings;
+  }
+
+  let sells = 0;
+  for (const position of positions) {
+    if (["SELL_SUBMITTED", "EXIT_PARTIALLY_FILLED"].includes(position.current_state)) continue;
+    try {
+      const { bars } = await fetchKisOhlcBars(position.ticker);
+      const completed = bars.map((bar) => ({ date: bar.date, open: bar.open, close: bar.close }));
+      const signal = detectSellSignal(completed, true);
+      if (!signal.signal) continue;
+
+      const holding = liveHoldings.find((row) => row.ticker === position.ticker);
+      const quantity = dryRun ? position.quantity : holding?.sellableQty ?? 0;
+      if (quantity < 1) continue;
+      const price = completed.at(-1)?.close ?? 0;
+      if (!(price > 0)) continue;
+      const idem = buildIdempotencyKey({
+        tradingDay,
+        ticker: position.ticker,
+        strategyVersion,
+        signalKind: "TWO_BEAR_FULL_SELL",
+        side: "sell",
+      });
+
+      let dbOrderId: string | null = null;
+      if (db) {
+        const inserted = await insertOrderIfNew({
+          idempotency_key: idem,
+          trading_day: tradingDay,
+          ticker: position.ticker,
+          side: "sell",
+          signal_kind: "TWO_BEAR_FULL_SELL",
+          strategy_version: strategyVersion,
+          quantity,
+          price,
+          exchange_requested: route.requested,
+          exchange_effective: route.effective,
+          ord_dvsn: ordDvsn,
+          status: "SIGNAL_CREATED",
+        });
+        if (!inserted.created || !inserted.order) continue;
+        dbOrderId = inserted.order.id;
+      }
+
+      if (dryRun) {
+        if (db && dbOrderId) {
+          await updateOrderStatus(dbOrderId, { status: "ORDER_ACCEPTED" });
+          await db.from("trading_positions").update({
+            current_state: "CLOSED",
+            closed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).eq("id", position.id);
+        }
+        sells += 1;
+        continue;
+      }
+
+      if (db && dbOrderId) await updateOrderStatus(dbOrderId, { status: "ORDER_SUBMITTING" });
+      try {
+        const order = await placeOrderViaKis({
+          symbol: position.ticker,
+          side: "sell",
+          quantity: 1,
+          price,
+          ordDvsn,
+          excgIdDvsnCd: route.effective,
+          userId: `worker:${input.workerId}`,
+          strategyId: strategyVersion,
+          idempotencyKey: idem,
+          useAllSellableQuantity: true,
+        });
+        if (db && dbOrderId) {
+          await updateOrderStatus(dbOrderId, {
+            status: "ORDER_ACCEPTED",
+            quantity: order.quantity,
+            kis_order_no: order.kisOrderNo,
+            kis_org_order_no: order.kisOrgOrderNo,
+          });
+          await db.from("trading_positions").update({
+            current_state: "SELL_SUBMITTED",
+            quantity: order.quantity,
+            updated_at: new Date().toISOString(),
+          }).eq("id", position.id);
+        }
+        sells += 1;
+      } catch (error: unknown) {
+        if (db && dbOrderId) {
+          await updateOrderStatus(dbOrderId, {
+            status: "FAILED",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } catch {
+      // 한 종목 데이터 실패가 나머지 종목의 신호 계산을 막지 않는다.
+    }
+  }
 
   const screen = await fetchKoreanTopGainers(70);
   if (screen.status !== "ok") {
-    return { ok: false, dryRun, summary: `스크리닝 실패: ${screen.message}`, buys: 0, sells: 0 };
+    return { ok: false, dryRun, summary: `스크리닝 실패: ${screen.message}`, buys: 0, sells };
   }
 
   const okCap = screen.gainers.filter((g) => g.marketCapStatus === "ok");
@@ -123,102 +274,74 @@ export async function runWorkerCycle(input: {
     const technical = evaluateTechnicalFilters(bars);
     if (!technical.passed) return null;
     if (isTradingDemoMode()) demoThemePass(g.name);
-    return { ticker: g.ticker, name: g.name, price: g.price, changePct: g.changePct, marketCapWon: g.marketCapWon, bars };
+    return {
+      ticker: g.ticker,
+      name: g.name,
+      price: g.price,
+      changePct: g.changePct,
+      marketCapWon: g.marketCapWon,
+      bars,
+    };
   });
   const finals = evaluated.filter(Boolean) as NonNullable<(typeof evaluated)[number]>[];
   const { selected } = selectTopKrStocksByMarketCap(finals, MAX_SELECTED_KR_STOCKS);
 
-  const cash = await fetchAccountCashSummary();
-  if (!cash.ok || (cash.orderableCashWon ?? 0) <= 0) {
-    return {
-      ok: true,
-      dryRun,
-      summary: `잔고 부족/조회실패 — 매수 없음 (${cash.error || `주문가능 ${cash.orderableCashWon}원`})`,
-      buys: 0,
-      sells: 0,
-    };
+  const openTickers = new Set(positions.map((position) => position.ticker));
+  for (const holding of liveHoldings) openTickers.add(holding.ticker);
+
+  let remainingDryCash = 0;
+  if (dryRun) {
+    const cash = await fetchAccountCashSummary();
+    remainingDryCash = cash.ok && (cash.orderableCashWon ?? 0) > 0
+      ? cash.orderableCashWon!
+      : dryRunCashDefault();
   }
 
   let buys = 0;
-  const tradingDay = seoulDateKey();
-  const strategyVersion = `${STRATEGY_ID}@1`;
+  for (const candidate of selected) {
+    if (openTickers.has(candidate.ticker)) continue;
+    const completed = candidate.bars.map((bar) => ({ date: bar.date, open: bar.open, close: bar.close }));
+    const signal = detectBuySignal(completed);
+    if (!signal.signal || !(candidate.price > 0)) continue;
 
-  // open count/tickers from DB — 4일째 이후 신호도 허용하되 동일 종목 중복매수는 차단
-  let openCount = 0;
-  const openTickers = new Set<string>();
-  if (db) {
-    const { data, count, error } = await db
-      .from("trading_positions")
-      .select("ticker", { count: "exact" })
-      .in("current_state", ["OPEN", "BUY_SUBMITTED", "PARTIALLY_FILLED"]);
-    if (error) {
-      return {
-        ok: false,
-        dryRun: true,
-        summary: `보유종목 조회 실패 — 중복매수 방지를 위해 신규매수 차단 (${error.message})`,
-        buys: 0,
-        sells: 0,
-      };
-    }
-    openCount = count ?? 0;
-    for (const row of data ?? []) {
-      if (row.ticker) openTickers.add(String(row.ticker));
-    }
-  }
-
-  for (const c of selected) {
-    if (openTickers.has(c.ticker)) continue;
-    const stockBars = c.bars.map((b) => ({ date: b.date, open: b.open, close: b.close }));
-    const decision = evaluateRegimeEntry({
-      indexBars,
-      stockBars,
-      openCount,
-      allocatedWon: Number(process.env.STRATEGY_ALLOCATED_WON ?? 1_000_000),
-      closePrice: c.price,
-      dayChangePct: c.changePct,
-    });
-    if (!decision.allow) continue;
-
-    const estimated = decision.qty * c.price;
-    const afford = assertBuyAffordable(estimated, cash);
-    if (!afford.ok) continue;
-
-    const route = resolveExchangeRoute({
-      mode: (admin.exchange_mode as "KRX" | "NXT" | "SOR") || getConfiguredExchangeMode(),
-      nxtEligible: true,
-    });
-    const exch = buildExchangeOrderFields(route.effective);
+    const requestedQty = dryRun ? Math.floor(remainingDryCash / candidate.price) : 1;
+    if (requestedQty < 1) continue;
     const idem = buildIdempotencyKey({
       tradingDay,
-      ticker: c.ticker,
+      ticker: candidate.ticker,
       strategyVersion,
-      signalKind: "THREE_BULL",
+      signalKind: "THREE_BULL_FULL_CASH",
       side: "buy",
     });
 
+    let dbOrderId: string | null = null;
     if (db) {
-      const { created, order } = await insertOrderIfNew({
+      const inserted = await insertOrderIfNew({
         idempotency_key: idem,
         trading_day: tradingDay,
-        ticker: c.ticker,
+        ticker: candidate.ticker,
         side: "buy",
-        signal_kind: "THREE_BULL",
+        signal_kind: "THREE_BULL_FULL_CASH",
         strategy_version: strategyVersion,
-        quantity: decision.qty,
-        price: c.price,
+        quantity: requestedQty,
+        price: candidate.price,
         exchange_requested: route.requested,
         exchange_effective: route.effective,
-        ord_dvsn: "00",
+        ord_dvsn: ordDvsn,
         status: "SIGNAL_CREATED",
       });
-      if (!created) continue; // duplicate
-      if (dryRun) {
-        await updateOrderStatus(order!.id, { status: "ORDER_ACCEPTED" });
+      if (!inserted.created || !inserted.order) continue;
+      dbOrderId = inserted.order.id;
+    }
+
+    if (dryRun) {
+      if (db && dbOrderId) {
+        await updateOrderStatus(dbOrderId, { status: "ORDER_ACCEPTED" });
         await db.from("trading_positions").insert({
-          ticker: c.ticker,
-          name: c.name,
-          quantity: decision.qty,
-          average_entry_price: c.price,
+          ticker: candidate.ticker,
+          name: candidate.name,
+          quantity: requestedQty,
+          average_entry_price: candidate.price,
           current_state: "OPEN",
           opened_at: new Date().toISOString(),
           buy_signal_date: tradingDay,
@@ -226,21 +349,60 @@ export async function runWorkerCycle(input: {
           strategy_version: strategyVersion,
           dry_run: true,
         });
-        buys += 1;
-        openCount += 1;
-        openTickers.add(c.ticker);
-      } else {
-        // live path: submit via placeOrderViaKis then mark ACCEPTED only — fill via reconcile
-        await updateOrderStatus(order!.id, { status: "ORDER_SUBMITTING" });
-        // Actual KIS submit is wired in orders.ts; keep fail-closed if keys missing.
-        await updateOrderStatus(order!.id, { status: "FAILED", error: "live submit path requires KIS + reconcile" as unknown as undefined });
       }
-    } else if (dryRun) {
+      remainingDryCash = Math.max(0, remainingDryCash - requestedQty * candidate.price);
+      openTickers.add(candidate.ticker);
       buys += 1;
+      continue;
     }
-    void exch;
+
+    if (db && dbOrderId) await updateOrderStatus(dbOrderId, { status: "ORDER_SUBMITTING" });
+    try {
+      const order = await placeOrderViaKis({
+        symbol: candidate.ticker,
+        side: "buy",
+        quantity: 1,
+        price: candidate.price,
+        ordDvsn,
+        excgIdDvsnCd: route.effective,
+        userId: `worker:${input.workerId}`,
+        strategyId: strategyVersion,
+        idempotencyKey: idem,
+        useAllAvailableCash: true,
+      });
+      if (db && dbOrderId) {
+        await updateOrderStatus(dbOrderId, {
+          status: "ORDER_ACCEPTED",
+          quantity: order.quantity,
+          kis_order_no: order.kisOrderNo,
+          kis_org_order_no: order.kisOrgOrderNo,
+        });
+        await db.from("trading_positions").insert({
+          ticker: candidate.ticker,
+          name: candidate.name,
+          quantity: order.quantity,
+          average_entry_price: candidate.price,
+          current_state: "BUY_SUBMITTED",
+          opened_at: new Date().toISOString(),
+          buy_signal_date: tradingDay,
+          exchange: route.effective,
+          kis_order_number: order.kisOrderNo,
+          strategy_version: strategyVersion,
+          dry_run: false,
+        });
+      }
+      openTickers.add(candidate.ticker);
+      buys += 1;
+    } catch (error: unknown) {
+      if (db && dbOrderId) {
+        await updateOrderStatus(dbOrderId, {
+          status: "FAILED",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
-  const summary = `국면=${detected.regime}/${policy.labelKo} · 세션=${input.session.session} · 매수신호처리=${buys} · ${dryRun ? "DRY-RUN" : "LIVE"} · safety=${safety.allowLiveOrders ? "ok" : safety.reasons[0]}`;
-  return { ok: true, dryRun, summary, buys, sells: 0 };
+  const summary = `3양봉 전액매수/2음봉 전량매도 · 세션=${input.session.session} · 매수=${buys} · 매도=${sells} · ${dryRun ? "DRY-RUN" : "LIVE"} · safety=${safety.allowLiveOrders ? "ok" : safety.reasons[0]}`;
+  return { ok: true, dryRun, summary, buys, sells };
 }

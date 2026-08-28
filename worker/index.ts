@@ -3,6 +3,7 @@
  * Start: npm run worker
  */
 
+import "../lib/envBootstrap";
 import { getKisConfig, isLiveTradingEnabled } from "../lib/kis/config";
 import { isTraderDbConfigured, getTraderDb } from "../lib/db/client";
 import { tryAcquireWorkerLock, releaseWorkerLock } from "../lib/db/locks";

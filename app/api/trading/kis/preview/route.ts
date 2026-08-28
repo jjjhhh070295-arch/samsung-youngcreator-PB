@@ -1,50 +1,71 @@
 import { NextResponse } from "next/server";
 import { AuthError, requireTraderAuth } from "@/lib/trading/guards";
-import { previewOrder, enforceRegimeBuyGate } from "@/lib/trading/orders";
-import type { CompletedBar } from "@/lib/strategy/threeBullTwoBear";
+import { isLiveTradingEnabled } from "@/lib/kis/config";
+import { fetchKisHoldings, fetchMaxBuyQty } from "@/lib/kis/balance";
 import type { PreviewOrderInput } from "@/lib/trading/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Body = PreviewOrderInput & {
-  stockBars?: CompletedBar[];
-  openCount?: number;
-  allocatedWon?: number;
-  dayChangePct?: number | null;
-  confirmPhrase?: string;
-};
+type Body = PreviewOrderInput;
 
 export async function POST(req: Request) {
   try {
     await requireTraderAuth(req);
     const body = (await req.json()) as Body;
-
-    const gate = await enforceRegimeBuyGate({
-      side: body.side,
-      symbol: body.symbol,
-      quantity: body.quantity,
-      price: body.price,
-      stockBars: body.stockBars,
-      openCount: body.openCount,
-      allocatedWon: body.allocatedWon,
-      dayChangePct: body.dayChangePct,
-    });
-    if (!gate.ok) {
+    if (!isLiveTradingEnabled()) {
       return NextResponse.json(
-        { ok: false, error: gate.error, code: gate.code, regime: gate },
+        { ok: false, error: "KIS live trading is disabled", code: "LIVE_DISABLED" },
         { status: 403 },
       );
     }
 
-    const qty = gate.allowedQuantity ?? body.quantity;
-    const result = previewOrder({ ...body, quantity: qty });
-    if (!result.ok) {
-      const status = result.code === "LIVE_DISABLED" ? 403 : 400;
-      return NextResponse.json(result, { status });
+    if (body.side === "buy") {
+      const available = await fetchMaxBuyQty({
+        symbol: body.symbol,
+        price: body.price,
+        ordDvsn: body.ordDvsn,
+      });
+      if (!available.ok || (available.maxQty ?? 0) < 1) {
+        return NextResponse.json(
+          { ok: false, error: available.error || "한투 기준 매수가능수량이 0주입니다" },
+          { status: 400 },
+        );
+      }
+      const quantity = available.maxQty!;
+      return NextResponse.json({
+        ok: true,
+        allocationMode: "ALL_AVAILABLE_CASH",
+        preview: {
+          symbol: body.symbol,
+          side: body.side,
+          quantity,
+          price: body.price,
+          estimatedWon: quantity * body.price,
+          orderableCashWon: available.orderableCashWon ?? available.maxAmt,
+        },
+      });
     }
 
-    return NextResponse.json({ ...result, regime: gate });
+    const holdings = await fetchKisHoldings();
+    const holding = holdings.holdings.find((row) => row.ticker === body.symbol.trim());
+    if (!holdings.ok || !holding || holding.sellableQty < 1) {
+      return NextResponse.json(
+        { ok: false, error: holdings.error || "한투 기준 매도 주문가능수량이 0주입니다" },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json({
+      ok: true,
+      allocationMode: "ALL_SELLABLE_SHARES",
+      preview: {
+        symbol: body.symbol,
+        side: body.side,
+        quantity: holding.sellableQty,
+        price: body.price,
+        estimatedWon: holding.sellableQty * body.price,
+      },
+    });
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ ok: false, error: error.message }, { status: error.status });

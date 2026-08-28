@@ -6,11 +6,8 @@ import {
   MIN_KR_MARKET_CAP_WON,
 } from "@/lib/advisory/krGainers";
 import { evaluateTechnicalFilters } from "@/lib/advisory/krTrendFilter";
-import { judgeThemeFromReports, type ThemeSourceDoc } from "@/lib/advisory/themeFromResearch";
 import { selectTopKrStocksByMarketCap } from "@/lib/advisory/selectTopKrStocks";
 import { MAX_SELECTED_KR_STOCKS } from "@/lib/advisory/krConstants";
-import { demoThemePass, isTradingDemoMode } from "@/lib/advisory/demoScreen";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,7 +40,7 @@ export interface KrTrendCandidate {
     status: "pass" | "review" | "blocked";
     reportCount?: number;
     summaryLabel?: string;
-    sources?: ThemeSourceDoc[];
+    sources?: Array<{ title: string; publisher: string; publishedAt: string; url: string }>;
   } | null;
   isFinalCandidate: boolean;
   finalRank?: number | null;
@@ -72,38 +69,6 @@ function baseCandidateFields(g: Awaited<ReturnType<typeof fetchKoreanTopGainers>
   };
 }
 
-async function loadResearchSourcesForTicker(ticker: string, name: string): Promise<ThemeSourceDoc[]> {
-  if (!isSupabaseConfigured || !supabase) return [];
-  try {
-    const since = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
-    const { data } = await supabase
-      .from("research_reports")
-      .select("title, source, published_at, url, summary, tickers")
-      .gte("published_at", since)
-      .limit(40);
-    const rows = (data ?? []) as Array<{
-      title?: string;
-      source?: string;
-      published_at?: string;
-      url?: string;
-      summary?: string;
-      tickers?: string[] | null;
-    }>;
-    return rows
-      .filter((r) => {
-        const hay = `${r.title ?? ""} ${r.summary ?? ""} ${(r.tickers ?? []).join(" ")}`;
-        return hay.includes(ticker) || (name && hay.includes(name));
-      })
-      .map((r) => ({
-        title: r.title ?? "",
-        publisher: r.source ?? "research",
-        publishedAt: r.published_at ?? "",
-        url: r.url ?? "",
-      }));
-  } catch {
-    return [];
-  }
-}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -165,7 +130,7 @@ export async function GET(req: Request) {
           ...base,
           technical: null,
           technicalError:
-            g.marketCapStatus === "unverifiable" ? "시총 검증 불가" : "시가총액 2조 원 미만",
+            g.marketCapStatus === "unverifiable" ? "시총 검증 불가" : "시가총액 1조 원 미만",
           theme: null,
           isFinalCandidate: false,
         } satisfies KrTrendCandidate;
@@ -173,40 +138,15 @@ export async function GET(req: Request) {
       try {
         const { bars, asOf: barAsOf, source: barSource } = await fetchKisOhlcBars(g.ticker);
         const technical = evaluateTechnicalFilters(bars);
-        let theme: KrTrendCandidate["theme"] = null;
-        if (technical.passed) {
-          if (isTradingDemoMode()) {
-            theme = demoThemePass(g.name);
-          } else {
-            const sources = await loadResearchSourcesForTicker(g.ticker, g.name);
-            const judged = judgeThemeFromReports({
-              themeName: `${g.name} 테마`,
-              sources,
-              evidence: sources.map((s) => s.title),
-            });
-            theme = {
-              passed: judged.status === "pass",
-              themeName: judged.themeName,
-              evidence: judged.summaryLabel + (judged.evidence[0] ? ` · ${judged.evidence[0]}` : ""),
-              source: judged.sources.map((s) => s.url).join(" | ") || "research",
-              asOf: judged.asOf,
-              status: judged.status,
-              reportCount: judged.reportCount,
-              summaryLabel: judged.summaryLabel,
-              sources: judged.sources,
-            };
-          }
-        }
-        const isFinalCandidate = Boolean(
-          g.marketCapStatus === "ok" && technical.passed && theme?.status === "pass",
-        );
+        // 테마/리포트 필터 제거 — 시총 + 기술조건만
+        const isFinalCandidate = Boolean(g.marketCapStatus === "ok" && technical.passed);
         return {
           ...base,
           asOf: barAsOf || g.asOf,
           source: `${g.source} · ${barSource}`,
           technical,
           technicalError: null,
-          theme,
+          theme: null,
           isFinalCandidate,
         } satisfies KrTrendCandidate;
       } catch (e: unknown) {
@@ -270,7 +210,7 @@ export async function GET(req: Request) {
         theme: null,
         isFinalCandidate: false,
       })),
-      note: "등락률 상위 70 후 시총·기술·리포트 테마. 최종 추천은 시총 상위 3종목. 가격 지표는 완료 일봉만 사용.",
+      note: "등락률 상위 70 후 시총·기술조건. 테마/리포트 필터 없음. 최종 추천은 시총 상위 3종목.",
     });
   } catch (e: unknown) {
     return NextResponse.json(

@@ -27,6 +27,7 @@ export interface OrderRow {
   ord_dvsn: string;
   status: OrderStatus;
   kis_order_no?: string | null;
+  kis_org_order_no?: string | null;
   filled_quantity: number;
 }
 

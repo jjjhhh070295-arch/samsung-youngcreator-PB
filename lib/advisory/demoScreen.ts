@@ -1,6 +1,6 @@
 /**
  * 로컬/데모용 국장 스크리닝 데이터.
- * TRADING_DEMO_MODE=true 이거나 KIS 미설정 시 사용 — 필터·UI·국면 게이트 전체 플로우 검증용.
+ * TRADING_DEMO_MODE=true 이거나 KIS 미설정 시 사용 — 필터·UI·신호 전체 플로우 검증용.
  */
 
 import type { KrGainerRow } from "./krGainers";

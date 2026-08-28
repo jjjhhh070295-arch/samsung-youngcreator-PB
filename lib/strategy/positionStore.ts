@@ -3,7 +3,6 @@
  * 프로세스 재시작 시 초기화 — 실서비스는 DB 마이그레이션 테이블로 교체.
  */
 
-import type { MarketRegime } from "@/lib/strategy/marketRegime";
 import type { StrategyState } from "@/lib/strategy/threeBullTwoBear";
 
 export interface AutoPosition {
@@ -15,7 +14,6 @@ export interface AutoPosition {
   state: StrategyState;
   openedAt: string;
   updatedAt: string;
-  regimeAtEntry: MarketRegime;
   dryRun: boolean;
   kisOrderId?: string;
 }
@@ -33,7 +31,6 @@ export interface AutoTraderState {
   liveArmed: boolean;
   lastRunAt: string | null;
   lastCycleSummary: string | null;
-  regime: MarketRegime | null;
   positions: AutoPosition[];
   logs: AutoTradeLog[];
   running: boolean;
@@ -49,7 +46,6 @@ function freshState(): AutoTraderState {
     liveArmed: false,
     lastRunAt: null,
     lastCycleSummary: null,
-    regime: null,
     positions: [],
     logs: [],
     running: false,

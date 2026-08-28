@@ -22,12 +22,17 @@ export async function GET(req: Request) {
         ok: cash.ok,
         orderableCashWon: cash.orderableCashWon,
         depositWon: cash.depositWon,
+        totalEvaluationWon: cash.totalEvaluationWon,
+        securitiesEvaluationWon: cash.securitiesEvaluationWon,
+        evaluationPnlWon: cash.evaluationPnlWon,
+        purchaseAmountWon: cash.purchaseAmountWon,
+        netAssetWon: cash.netAssetWon,
         source: cash.source,
         asOf: cash.asOf,
         error: cash.error ?? null,
         message:
           cash.ok && (cash.orderableCashWon ?? 0) <= 0
-            ? "주문가능 현금이 0원입니다. 입금 후 매수하세요."
+            ? "현금 잔고가 0원입니다. 실제 매수가능수량은 주문 직전에 종목별로 확인합니다."
             : cash.ok
               ? null
               : cash.error || "잔고 조회 실패",

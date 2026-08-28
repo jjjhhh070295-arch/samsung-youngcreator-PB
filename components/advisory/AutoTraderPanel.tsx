@@ -12,7 +12,6 @@ type StatusPayload = {
     liveArmed: boolean;
     lastRunAt: string | null;
     lastCycleSummary: string | null;
-    regime: string | null;
     running: boolean;
     openCount: number;
     positions: Array<{
@@ -117,7 +116,7 @@ export default function AutoTraderPanel() {
           <p className="text-[10px] font-semibold tracking-[0.2em] text-emerald-400 uppercase">Auto Trader</p>
           <h2 className="mt-1 text-xl font-bold">자동매매 엔진</h2>
           <p className="mt-1 max-w-xl text-[11px] text-slate-400">
-            스크리닝 → 국면 게이트 → 3양봉 진입 / 2음봉 청산. 기본 dry-run. 실주문은 KIS_LIVE + live 무장 필요.
+            스크리닝 → 3양봉이면 주문가능현금 전액 매수 → 2음봉이면 해당 종목 전량 매도. 기본 dry-run. 실주문은 KIS_LIVE + live 무장 필요.
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">

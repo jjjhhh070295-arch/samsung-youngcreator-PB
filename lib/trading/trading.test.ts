@@ -41,6 +41,14 @@ function mockKisFetchSuccess(): typeof fetch {
     )) as typeof fetch;
 }
 
+function mockOrderDeps(fetchImpl: typeof fetch = mockKisFetchSuccess()) {
+  return {
+    fetchImpl,
+    getAccessToken: async () => "test-access-token",
+    getBuyAvailability: async () => ({ ok: true, maxQty: 1000, maxAmt: 50_000_000 }),
+  };
+}
+
 describe("trading guards and orders", () => {
   beforeEach(() => {
     resetTradingStoresForTests();
@@ -50,6 +58,11 @@ describe("trading guards and orders", () => {
       ok: true,
       orderableCashWon: 50_000_000,
       depositWon: 50_000_000,
+      totalEvaluationWon: 50_000_000,
+      securitiesEvaluationWon: 0,
+      evaluationPnlWon: 0,
+      purchaseAmountWon: 0,
+      netAssetWon: 50_000_000,
       source: "test",
       asOf: new Date().toISOString(),
     });
@@ -105,7 +118,7 @@ describe("trading guards and orders", () => {
             ordDvsn: "00",
             userId: "u1",
           },
-          { fetchImpl: mockKisFetchSuccess() },
+          mockOrderDeps(),
         ),
       /disabled/i,
     );
@@ -131,17 +144,17 @@ describe("trading guards and orders", () => {
       idempotencyKey: "dup-key-1",
     };
 
-    const first = await placeOrderViaKis(input, { fetchImpl });
+    const first = await placeOrderViaKis(input, mockOrderDeps(fetchImpl));
     assert.equal(first.status, "accepted");
 
     await assert.rejects(
-      () => placeOrderViaKis(input, { fetchImpl }),
+      () => placeOrderViaKis(input, mockOrderDeps(fetchImpl)),
       (error: unknown) => error instanceof DuplicateOrderError,
     );
   });
 
   it("rejects orders exceeding max order won", () => {
-    enableLiveTradingEnv({ KIS_MAX_ORDER_WON: "100000" });
+    enableLiveTradingEnv({ KIS_MAX_ORDER_WON: "50000" });
     const result = validateLimitCashOrder({
       symbol: "005930",
       side: "buy",
@@ -186,7 +199,7 @@ describe("trading guards and orders", () => {
         userId: "u1",
         idempotencyKey: "partial-1",
       },
-      { fetchImpl: mockKisFetchSuccess() },
+      mockOrderDeps(),
     );
 
     const updated = applyPartialFill(order.id, 4);
@@ -202,8 +215,13 @@ describe("trading guards and orders", () => {
   it("placeOrderViaKis uses mock fetch and never requires real network when enabled", async () => {
     enableLiveTradingEnv();
     let fetchCalled = false;
-    const fetchImpl = (async () => {
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
       fetchCalled = true;
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("authorization"), "Bearer test-access-token");
+      assert.equal(headers.get("appkey"), "test-app-key");
+      assert.equal(headers.get("appsecret"), "test-app-secret");
+      assert.equal(headers.get("tr_id"), "TTTC0011U");
       return new Response(JSON.stringify({ rt_cd: "0", output: { ODNO: "99" } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -220,7 +238,7 @@ describe("trading guards and orders", () => {
         userId: "u1",
         idempotencyKey: "mock-fetch-1",
       },
-      { fetchImpl },
+      mockOrderDeps(fetchImpl),
     );
 
     assert.equal(fetchCalled, true);
@@ -228,15 +246,8 @@ describe("trading guards and orders", () => {
     assert.equal(order.ordDvsn, "06");
   });
 
-  it("blocks live buy when account cash is zero", async () => {
+  it("blocks live buy when KIS says max buy quantity is zero", async () => {
     enableLiveTradingEnv();
-    setAccountCashOverrideForTests({
-      ok: true,
-      orderableCashWon: 0,
-      depositWon: 0,
-      source: "test",
-      asOf: new Date().toISOString(),
-    });
     await assert.rejects(
       () =>
         placeOrderViaKis(
@@ -249,10 +260,153 @@ describe("trading guards and orders", () => {
             userId: "u1",
             idempotencyKey: "cash-zero",
           },
-          { fetchImpl: mockKisFetchSuccess() },
+          {
+            ...mockOrderDeps(),
+            getBuyAvailability: async () => ({ ok: true, maxQty: 0, maxAmt: 0 }),
+          },
         ),
-      /0원|잔고/,
+      /0주/,
     );
+  });
+
+  it("caps buy quantity to KIS no-margin max before submitting", async () => {
+    enableLiveTradingEnv();
+    let submittedQty = "";
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      submittedQty = String(JSON.parse(String(init?.body)).ORD_QTY);
+      return new Response(
+        JSON.stringify({ rt_cd: "0", output: { ODNO: "100", KRX_FWDG_ORD_ORGNO: "001" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const order = await placeOrderViaKis(
+      {
+        symbol: "005930",
+        side: "buy",
+        quantity: 10,
+        price: 70_000,
+        ordDvsn: "00",
+        userId: "u1",
+        idempotencyKey: "cap-to-kis-max",
+      },
+      {
+        ...mockOrderDeps(fetchImpl),
+        getBuyAvailability: async () => ({ ok: true, maxQty: 3, maxAmt: 210_000 }),
+      },
+    );
+
+    assert.equal(submittedQty, "3");
+    assert.equal(order.quantity, 3);
+    assert.equal(order.requestedQuantity, 10);
+  });
+
+  it("auto max-affordable mode ignores strategy quantity and uses KIS cash max", async () => {
+    enableLiveTradingEnv();
+    let submittedQty = "";
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      submittedQty = String(JSON.parse(String(init?.body)).ORD_QTY);
+      return new Response(
+        JSON.stringify({ rt_cd: "0", output: { ODNO: "101", KRX_FWDG_ORD_ORGNO: "001" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const order = await placeOrderViaKis(
+      {
+        symbol: "005930",
+        side: "buy",
+        quantity: 2,
+        price: 70_000,
+        ordDvsn: "00",
+        userId: "auto-trader",
+        idempotencyKey: "use-kis-cash-max",
+        useMaxAffordableQuantity: true,
+      },
+      {
+        ...mockOrderDeps(fetchImpl),
+        getBuyAvailability: async () => ({ ok: true, maxQty: 5, maxAmt: 350_000 }),
+      },
+    );
+
+    assert.equal(submittedQty, "5");
+    assert.equal(order.quantity, 5);
+    assert.equal(order.requestedQuantity, 2);
+  });
+
+  it("full-cash mode uses the entire KIS no-margin quantity even above the app buy cap", async () => {
+    enableLiveTradingEnv({ KIS_MAX_ORDER_WON: "50000" });
+    let submittedQty = "";
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      submittedQty = String(JSON.parse(String(init?.body)).ORD_QTY);
+      return new Response(
+        JSON.stringify({ rt_cd: "0", output: { ODNO: "102", KRX_FWDG_ORD_ORGNO: "001" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const order = await placeOrderViaKis(
+      {
+        symbol: "005930",
+        side: "buy",
+        quantity: 1,
+        price: 70_000,
+        ordDvsn: "00",
+        userId: "auto-trader",
+        idempotencyKey: "all-cash",
+        useAllAvailableCash: true,
+      },
+      {
+        ...mockOrderDeps(fetchImpl),
+        getBuyAvailability: async () => ({ ok: true, maxQty: 5, maxAmt: 350_000 }),
+      },
+    );
+
+    assert.equal(submittedQty, "5");
+    assert.equal(order.quantity, 5);
+    assert.equal(order.requestedQuantity, undefined);
+  });
+
+  it("full-sell mode ignores memory quantity and submits the KIS sellable quantity", async () => {
+    enableLiveTradingEnv();
+    let submittedQty = "";
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+      submittedQty = String(JSON.parse(String(init?.body)).ORD_QTY);
+      return new Response(
+        JSON.stringify({ rt_cd: "0", output: { ODNO: "103", KRX_FWDG_ORD_ORGNO: "001" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const order = await placeOrderViaKis(
+      {
+        symbol: "007660",
+        side: "sell",
+        quantity: 1,
+        price: 112_800,
+        ordDvsn: "00",
+        userId: "auto-trader",
+        idempotencyKey: "all-sellable",
+        useAllSellableQuantity: true,
+      },
+      {
+        ...mockOrderDeps(fetchImpl),
+        getHoldings: async () => ({
+          ok: true,
+          holdings: [{
+            ticker: "007660",
+            name: "이수페타시스",
+            heldQty: 5,
+            sellableQty: 4,
+            averagePrice: 111_900,
+            currentPrice: 112_800,
+          }],
+        }),
+      },
+    );
+
+    assert.equal(submittedQty, "4");
+    assert.equal(order.quantity, 4);
   });
 
 });

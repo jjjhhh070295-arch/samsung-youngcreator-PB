@@ -10,9 +10,9 @@ export const KIS_DEFAULT_BASE_URL = "https://openapi.koreainvestment.com:9443";
 
 /** Real (live) account order TR IDs — not paper/VTS. */
 export const LIVE_ORDER_TR = {
-  buy: "TTTC0802U",
-  sell: "TTTC0801U",
-  cancel: "TTTC0803U",
+  buy: "TTTC0012U",
+  sell: "TTTC0011U",
+  cancel: "TTTC0013U",
 } as const;
 
 /** Limit order during regular session. */

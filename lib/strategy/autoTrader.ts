@@ -1,8 +1,8 @@
 /**
  * 자동매매 1사이클:
- * 1) 국면 판정 (KOSPI)
- * 2) 보유분 2음봉 청산 신호
- * 3) 스크리닝 최종후보에 대해 3양봉+국면 게이트 진입
+ * 1) 실제 보유분의 2음봉 전량 청산 신호
+ * 2) 스크리닝 최종후보의 3양봉 진입 신호
+ * 3) 매수는 미수 없는 주문가능현금 전액, 매도는 주문가능 보유수량 전량
  *
  * 실주문은 liveArmed && KIS_LIVE_TRADING_ENABLED 일 때만.
  * 그 외에는 dry-run으로 포지션/로그를 남긴다.
@@ -10,24 +10,17 @@
 
 import { fetchKoreanTopGainers, fetchKisOhlcBars, mapPool } from "@/lib/advisory/krGainers";
 import { evaluateTechnicalFilters } from "@/lib/advisory/krTrendFilter";
-import { demoThemePass, isTradingDemoMode } from "@/lib/advisory/demoScreen";
-import { judgeThemeFromReports } from "@/lib/advisory/themeFromResearch";
 import { selectTopKrStocksByMarketCap } from "@/lib/advisory/selectTopKrStocks";
 import { MAX_SELECTED_KR_STOCKS } from "@/lib/advisory/krConstants";
+import { fetchAccountCashSummary, fetchKisHoldings, type KisHolding } from "@/lib/kis/balance";
 import { isLiveTradingEnabled } from "@/lib/kis/config";
-import { fetchKospiCompletedBars } from "@/lib/market/kospiBars";
-import {
-  detectMarketRegime,
-  evaluateRegimeEntry,
-  policyForRegime,
-} from "@/lib/strategy/marketRegime";
 import {
   describeSchedulerReadiness,
   isAfterCloseSessionOpen,
   isRegularSessionOpen,
   sessionLabel,
 } from "@/lib/strategy/scheduler";
-import { detectSellSignal, STRATEGY_ID } from "@/lib/strategy/threeBullTwoBear";
+import { detectBuySignal, detectSellSignal, STRATEGY_ID } from "@/lib/strategy/threeBullTwoBear";
 import { placeOrderViaKis } from "@/lib/trading/orders";
 import { ORD_DVSN_AFTER_CLOSE, ORD_DVSN_LIMIT } from "@/lib/kis/config";
 import {
@@ -43,7 +36,6 @@ export interface AutoCycleResult {
   ok: boolean;
   dryRun: boolean;
   skipped?: string;
-  regime: string | null;
   session: string;
   buys: Array<{ ticker: string; qty: number; dryRun: boolean }>;
   sells: Array<{ ticker: string; qty: number; dryRun: boolean }>;
@@ -53,8 +45,8 @@ export interface AutoCycleResult {
   summary: string;
 }
 
-function allocatedWonDefault(): number {
-  const n = Number.parseInt(process.env.STRATEGY_ALLOCATED_WON ?? "1000000", 10);
+function dryRunCashDefault(): number {
+  const n = Number.parseInt(process.env.STRATEGY_DRY_RUN_CASH_WON ?? "1000000", 10);
   return Number.isFinite(n) && n > 0 ? n : 1_000_000;
 }
 
@@ -73,8 +65,7 @@ async function placeOrSimulate(input: {
   name: string;
   qty: number;
   price: number;
-  regime: ReturnType<typeof policyForRegime>["regime"];
-}): Promise<{ dryRun: boolean; orderId?: string }> {
+}): Promise<{ dryRun: boolean; submittedQty: number; orderId?: string }> {
   const dryRun = !canPlaceLive();
   const session = sessionLabel();
   const ordDvsn = session === "NXT_AFTER" ? ORD_DVSN_AFTER_CLOSE : ORD_DVSN_LIMIT;
@@ -82,9 +73,8 @@ async function placeOrSimulate(input: {
   if (dryRun) {
     appendLog("info", `[dry-run] ${input.side} ${input.name}(${input.ticker}) x${input.qty}`, {
       price: input.price,
-      regime: input.regime,
     });
-    return { dryRun: true };
+    return { dryRun: true, submittedQty: input.qty };
   }
 
   const order = await placeOrderViaKis({
@@ -96,11 +86,15 @@ async function placeOrSimulate(input: {
     userId: "auto-trader",
     strategyId: STRATEGY_ID,
     idempotencyKey: `auto-${input.side}-${input.ticker}-${Date.now()}`,
+    useAllAvailableCash: input.side === "buy",
+    useAllSellableQuantity: input.side === "sell",
   });
-  appendLog("info", `[live] ${input.side} 접수 ${input.ticker} x${input.qty}`, {
+  appendLog("info", `[live] ${input.side} 접수 ${input.ticker} x${order.quantity}`, {
     orderId: order.id,
+    requestedQty: input.qty,
+    submittedQty: order.quantity,
   });
-  return { dryRun: false, orderId: order.id };
+  return { dryRun: false, submittedQty: order.quantity, orderId: order.id };
 }
 
 async function screenFinalCandidates(): Promise<
@@ -118,16 +112,7 @@ async function screenFinalCandidates(): Promise<
       const { bars } = await fetchKisOhlcBars(g.ticker);
       const technical = evaluateTechnicalFilters(bars);
       if (!technical.passed) return null;
-      if (isTradingDemoMode()) {
-        const theme = demoThemePass(g.name);
-        if (!theme.passed) return null;
-      } else {
-        // 실전: 테마 문서 없으면 차단 — 자동매매는 기술통과만으로도 후보에 넣되 로그
-        const judged = judgeThemeFromReports({ themeName: g.name, sources: [] });
-        if (judged.status === "blocked") {
-          // 자동매매: 리포트 없으면 기술통과 종목은 review로 허용 (수동 UI와 달리 운영 가능)
-        }
-      }
+      // 테마/리포트 필터 없음 — 시총·기술조건만
       return {
         ticker: g.ticker,
         name: g.name,
@@ -168,7 +153,6 @@ export async function runAutoTradeCycle(options?: {
       ok: false,
       dryRun: true,
       skipped: "already_running",
-      regime: state.regime,
       session: sessionLabel(),
       buys: [],
       sells: [],
@@ -184,7 +168,6 @@ export async function runAutoTradeCycle(options?: {
       ok: false,
       dryRun: true,
       skipped: "not_armed",
-      regime: state.regime,
       session: sessionLabel(),
       buys: [],
       sells: [],
@@ -203,7 +186,6 @@ export async function runAutoTradeCycle(options?: {
       ok: true,
       dryRun: !canPlaceLive(),
       skipped: "session_closed",
-      regime: state.regime,
       session,
       buys: [],
       sells: [],
@@ -220,14 +202,29 @@ export async function runAutoTradeCycle(options?: {
   let finalCandidates = 0;
 
   try {
-    const { bars: indexBars, source } = await fetchKospiCompletedBars();
-    const detected = detectMarketRegime(indexBars);
-    const policy = policyForRegime(detected.regime);
-    state.regime = detected.regime;
-    appendLog("info", `국면 ${policy.labelKo}`, { source, reason: detected.reason });
-
     // ── 청산 ──
-    for (const pos of listOpenPositions()) {
+    let liveHoldings: KisHolding[] = [];
+    if (canPlaceLive()) {
+      const holdingsResult = await fetchKisHoldings();
+      if (!holdingsResult.ok) {
+        throw new Error(`실제 보유수량 조회 실패 — ${holdingsResult.error || "한투 응답 없음"}`);
+      }
+    }
+
+    // 자동매매가 만든 포지션만 관리한다. 계좌의 다른 수동 보유종목은 건드리지 않는다.
+    const sellTargets = listOpenPositions().map((position) => ({
+      holding: canPlaceLive()
+        ? liveHoldings.find((holding) => holding.ticker === position.ticker) ?? null
+        : null,
+      position,
+    }));
+
+    for (const target of sellTargets) {
+      const pos = target.position;
+      if (!pos || pos.state === "SELL_SUBMITTED" || pos.state === "EXIT_PARTIALLY_FILLED") continue;
+      if (canPlaceLive() && !target.holding) continue;
+      const sellableQty = target.holding?.sellableQty ?? pos.qty;
+      if (sellableQty < 1) continue;
       try {
         const { bars } = await fetchKisOhlcBars(pos.ticker);
         const completed = bars.map((b) => ({ date: b.date, open: b.open, close: b.close }));
@@ -239,14 +236,14 @@ export async function runAutoTradeCycle(options?: {
           side: "sell",
           ticker: pos.ticker,
           name: pos.name,
-          qty: pos.qty,
+          qty: sellableQty,
           price: last.close,
-          regime: detected.regime,
         });
-        pos.state = "CLOSED";
+        pos.qty = placed.submittedQty;
+        pos.state = placed.dryRun ? "CLOSED" : "SELL_SUBMITTED";
         pos.updatedAt = new Date().toISOString();
         upsertPosition(pos);
-        sells.push({ ticker: pos.ticker, qty: pos.qty, dryRun: placed.dryRun });
+        sells.push({ ticker: pos.ticker, qty: placed.submittedQty, dryRun: placed.dryRun });
       } catch (e: unknown) {
         appendLog("error", `청산 평가 실패 ${pos.ticker}`, {
           error: e instanceof Error ? e.message : String(e),
@@ -257,53 +254,71 @@ export async function runAutoTradeCycle(options?: {
     // ── 신규 ──
     const candidates = await screenFinalCandidates();
     finalCandidates = candidates.length;
+    let dryRunCash = 0;
+    if (!canPlaceLive()) {
+      const cash = await fetchAccountCashSummary();
+      dryRunCash = cash.ok && (cash.orderableCashWon ?? 0) > 0
+        ? cash.orderableCashWon!
+        : dryRunCashDefault();
+    }
 
     for (const c of candidates) {
       if (findPositionByTicker(c.ticker)) continue;
+      if (liveHoldings.some((holding) => holding.ticker === c.ticker)) continue;
 
       const { bars } = await fetchKisOhlcBars(c.ticker);
       const stockBars = bars.map((b) => ({ date: b.date, open: b.open, close: b.close }));
-      const decision = evaluateRegimeEntry({
-        indexBars,
-        stockBars,
-        openCount: listOpenPositions().length,
-        allocatedWon: allocatedWonDefault(),
-        closePrice: c.price > 0 ? c.price : stockBars.at(-1)?.close ?? 0,
-        dayChangePct: c.changePct,
-      });
+      const signal = detectBuySignal(stockBars);
+      const price = c.price > 0 ? c.price : stockBars.at(-1)?.close ?? 0;
+      const requestedQty = canPlaceLive() ? 1 : price > 0 ? Math.floor(dryRunCash / price) : 0;
 
-      if (!decision.allow || decision.qty < 1) {
-        appendLog("info", `진입 스킵 ${c.name}(${c.ticker})`, { reasons: decision.reasons });
+      if (!signal.signal || requestedQty < 1) {
+        appendLog("info", `진입 스킵 ${c.name}(${c.ticker})`, {
+          reason: signal.reason || "주문가능 현금으로 1주 미만",
+          bullStreak: signal.bullStreak,
+        });
         continue;
       }
 
-      const placed = await placeOrSimulate({
-        side: "buy",
-        ticker: c.ticker,
-        name: c.name,
-        qty: decision.qty,
-        price: c.price,
-        regime: decision.regime,
-      });
+      let placed: Awaited<ReturnType<typeof placeOrSimulate>>;
+      try {
+        placed = await placeOrSimulate({
+          side: "buy",
+          ticker: c.ticker,
+          name: c.name,
+          qty: requestedQty,
+          price,
+        });
+      } catch (e: unknown) {
+        appendLog("warn", `매수 스킵 ${c.name}(${c.ticker})`, {
+          error: e instanceof Error ? e.message : String(e),
+          requestedQty,
+          price,
+        });
+        continue;
+      }
+
+      if (placed.dryRun) {
+        dryRunCash = Math.max(0, dryRunCash - placed.submittedQty * price);
+      }
 
       const pos: AutoPosition = {
         id: newPosId(),
         ticker: c.ticker,
         name: c.name,
-        qty: decision.qty,
-        entryPrice: c.price,
+        qty: placed.submittedQty,
+        entryPrice: price,
         state: placed.dryRun ? "OPEN" : "BUY_SUBMITTED",
         openedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        regimeAtEntry: decision.regime,
         dryRun: placed.dryRun,
         kisOrderId: placed.orderId,
       };
       upsertPosition(pos);
-      buys.push({ ticker: c.ticker, qty: decision.qty, dryRun: placed.dryRun });
+      buys.push({ ticker: c.ticker, qty: placed.submittedQty, dryRun: placed.dryRun });
     }
 
-    const summary = `국면=${detected.regime} · 후보=${finalCandidates} · 매수=${buys.length} · 매도=${sells.length} · 보유=${listOpenPositions().length} · ${canPlaceLive() ? "LIVE" : "DRY-RUN"} · scheduler=${readiness.ready ? "on" : "off"}`;
+    const summary = `3양봉/2음봉 · 전액매수/전량매도 · 후보=${finalCandidates} · 매수=${buys.length} · 매도=${sells.length} · 보유=${listOpenPositions().length} · ${canPlaceLive() ? "LIVE" : "DRY-RUN"} · scheduler=${readiness.ready ? "on" : "off"}`;
     state.lastRunAt = new Date().toISOString();
     state.lastCycleSummary = summary;
     appendLog("info", summary);
@@ -311,7 +326,6 @@ export async function runAutoTradeCycle(options?: {
     return {
       ok: true,
       dryRun: !canPlaceLive(),
-      regime: detected.regime,
       session,
       buys,
       sells,
@@ -326,7 +340,6 @@ export async function runAutoTradeCycle(options?: {
     return {
       ok: false,
       dryRun: !canPlaceLive(),
-      regime: state.regime,
       session,
       buys,
       sells,

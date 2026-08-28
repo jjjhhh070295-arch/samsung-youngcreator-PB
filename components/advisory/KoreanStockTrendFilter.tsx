@@ -255,7 +255,7 @@ export default function KoreanStockTrendFilter({
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8B6914]">국내 주식 추세 필터</p>
           <h3 className="text-base font-bold text-fg">국장 추세 후보 (체크 → 후보 확정 → 주식형 반영)</h3>
           <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-fg-muted">
-            조건검색식이 있으면 등락률 상위 70, Mac에서 조건검색 번호가 없으면 KIS 공식 순위를 합쳐 최대 70 → 시총 2조·완료일봉 기술조건·리포트 테마 pass → 시총 상위 최대 3종목만 추천.
+            조건검색식이 있으면 등락률 상위 70, Mac에서 조건검색 번호가 없으면 KIS 공식 순위를 합쳐 최대 70 → 시총 1조·완료일봉 기술조건 → 시총 상위 최대 3종목만 추천. (테마/리포트 필터 없음)
             체크만으로는 반영되지 않으며, 「후보 확정」한 종목만 주식형 {equityWeightPct.toFixed(0)}%에 배분됩니다.
           </p>
         </div>
@@ -274,7 +274,7 @@ export default function KoreanStockTrendFilter({
           as-of {meta.asOf.slice(0, 19)} · source {meta.source} · KRW · 시총하한{" "}
           {meta.marketCapFloorWon
             ? `${(meta.marketCapFloorWon / 1e12).toFixed(0)}조원`
-            : "2조원"}{" "}
+            : "1조원"}{" "}
           · 조회 후보 {meta.universeSize ?? "—"}종 · 최종 후보 {meta.finalCount}종
         </p>
       )}
