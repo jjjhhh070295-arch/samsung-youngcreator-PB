@@ -16,7 +16,7 @@ import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfol
 import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
 import ConsultationHub from "./advisory/ConsultationHub";
 import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
-import HeritagePanel from "./HeritagePanel";
+import HeritageSignalBadge from "./HeritageSignalBadge";
 
 interface Props {
   client: Client;
@@ -43,7 +43,6 @@ export type Tab =
   | "portfolio"
   | "recommend"
   | "taxProjection"
-  | "heritage"
   | "stress"
   | "ips";
 
@@ -313,6 +312,7 @@ export default function IPSResultTabs({
       {/* 7요인 */}
       {tab === "factors" && (
         <div>
+          <HeritageSignalBadge client={client} allClients={allClients} />
           <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
             <ScoreRubricButton
               label="요인 점수 기준표 확인"
@@ -523,11 +523,6 @@ export default function IPSResultTabs({
           principalWon={stressInvestableKrw}
           assetBaseEstimated={stressAssetBaseEstimated}
         />
-      )}
-
-      {/* 헤리티지 — 상속·증여 상담 수요/긴급도/세액구간/납부재원 갭 + 전문가 핸드오프 */}
-      {tab === "heritage" && (
-        <HeritagePanel client={client} allClients={allClients} pbId={pbId} />
       )}
 
       {/* 스트레스 — 포트폴리오 최종 확정 후 진행 */}

@@ -32,7 +32,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab = (searchParams?.get("tab") ?? "factors") as Tab;
+  const activeTab: Tab = (["basic", "factors", "flags", "questions", "cashflow", "portfolio", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "factors"; // 유효하지 않은 tab(삭제된 heritage 등)은 factors로 폴백
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
