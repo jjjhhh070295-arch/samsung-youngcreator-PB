@@ -226,7 +226,7 @@ export default function ClientDetailPage() {
         </section>
 
         {/* 보유종목 / 부동산 자산 — 좌우 2단(45:55), 1280px 이하에서는 세로로 쌓임 */}
-        <div className="grid grid-cols-[45%_55%] items-start gap-[18px] max-[1280px]:grid-cols-1">
+        <div className="grid grid-cols-[60%_40%] items-start gap-[18px] max-[1280px]:grid-cols-1">
           {/* MTS 보유종목 추출 */}
           <section className="min-w-0">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
