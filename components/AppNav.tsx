@@ -15,6 +15,7 @@ const ANALYSIS_TABS = [
   { id: "cashflow", label: "현금흐름" },
   { id: "portfolio", label: "포트폴리오" },
   { id: "recommend", label: "상품추천" },
+  { id: "portfolio2", label: "포트폴리오 2" },
   { id: "taxProjection", label: "세전·세후" },
   { id: "stress", label: "스트레스" },
   { id: "ips", label: "IPS" },

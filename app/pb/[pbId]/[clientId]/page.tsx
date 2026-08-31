@@ -32,7 +32,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "cashflow", "portfolio", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "cashflow"; // 유효하지 않은 tab(삭제된 heritage/flags/questions/factors 등)은 cashflow로 폴백 — factors는 기본 정보로 이동했으므로 더 이상 analysis 탭이 아님
+  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "cashflow"; // 유효하지 않은 tab(삭제된 heritage/flags/questions/factors 등)은 cashflow로 폴백 — factors는 기본 정보로 이동했으므로 더 이상 analysis 탭이 아님
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);

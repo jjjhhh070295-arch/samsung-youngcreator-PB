@@ -10,6 +10,10 @@ import PortfolioPanel from "./PortfolioPanel";
 import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
 import TaxProjectionPanel from "./TaxProjectionPanel";
+import ManualPortfolioBuilder from "./ManualPortfolioBuilder";
+import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
+import ScoreRubricButton from "./ScoreRubricButton";
+import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
@@ -36,6 +40,7 @@ export type Tab =
   | "basic"
   | "cashflow"
   | "portfolio"
+  | "portfolio2"
   | "recommend"
   | "taxProjection"
   | "stress"
@@ -217,7 +222,7 @@ export default function IPSResultTabs({
 
   return (
     <div className="space-y-5">
-      <ConsultationHub key={`consultation-${client.id}`} client={client} />
+      {tab !== "portfolio2" && <ConsultationHub key={`consultation-${client.id}`} client={client} />}
 
       {/* 기본정보 */}
       {tab === "basic" && (
@@ -430,6 +435,17 @@ export default function IPSResultTabs({
 
       {tab === "recommend" && (
         <ProductRecommendPanel key={`recommend-${client.id}`} client={client} />
+      )}
+
+      {tab === "portfolio2" && (
+        <div className="space-y-4">
+          <ManualPortfolioBuilder clientId={clientId} totalAssetWon={client.assetSize} />
+          <KoreanStockTrendFilter
+            clientId={clientId}
+            equityWeightPct={portfolioWeights[0].etf}
+            onSelectionChange={() => {}}
+          />
+        </div>
       )}
 
       {/* 세전·세후 — 포트폴리오 비중별 세금/비용/세후 금액 비교 */}
