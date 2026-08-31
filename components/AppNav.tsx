@@ -172,8 +172,8 @@ export default function AppNav() {
                 📈 티커 분석
               </Link>
             )}
-            <Link href="/research" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
-              📊 리서치
+            <Link href={`/pb/${pbId}/research?clientId=${encodeURIComponent(clientId ?? "")}`} onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
+              📊 리서치 코파일럿
             </Link>
           </div>
           </nav>
@@ -223,7 +223,7 @@ export default function AppNav() {
         {navItem("/", "🏠", "홈")}
         {pbId && navItem(`/pb/${pbId}`, "📒", "다고객 북")}
         {pbId && navItem(`/pb/${pbId}/ticker`, "📈", "티커 분석")}
-        {navItem("/research", "📊", "리서치")}
+        {pbId ? navItem(`/pb/${pbId}/research`, "📊", "리서치 코파일럿") : navItem("/research", "📊", "리서치 코파일럿")}
 
         <p className="px-4 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">바로가기</p>
         {EXTERNAL_LINKS.map((l) => (

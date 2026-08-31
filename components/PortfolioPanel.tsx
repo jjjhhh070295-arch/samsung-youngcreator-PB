@@ -28,7 +28,6 @@ import { DEFAULT_EQUITY_REGION_SPLIT, setToMacroApiParams } from '@/lib/assetMap
 import type { HistoricalStressRangeResponse } from '@/lib/macroStress/types';
 import { supabase } from '@/lib/supabase';
 import {
-  FALLBACK_MARKET_RESEARCH,
   type MarketResearchItem,
   type ResearchSignal,
 } from '@/lib/portfolioResearch';
@@ -953,24 +952,16 @@ function ObjectiveMetricsTable({
 }
 
 export default function PortfolioPanel({ client, pbId, clientId, onSelectionChange, onHeldAssetsChange, onDetailModeChange, onPlanSummaryChange, onPlanRowsChange, initialPlanRows }: PortfolioPanelProps) {
-  const [researchItems, setResearchItems] = useState<MarketResearchItem[]>(FALLBACK_MARKET_RESEARCH);
-  const [researchStatus, setResearchStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
-  const [fallbackUsed, setFallbackUsed] = useState(false);
-  // 리포트별 LLM 분석(요약·신호) — id로 매칭해 리서치 카드에 인라인 표시
-  const [analyzedById, setAnalyzedById] = useState<Record<string, AnalyzedReport>>({});
+  // 승인 manifest가 없는 레거시 크롤러·LLM·키워드 신호는 fail-closed 한다.
+  const [researchItems] = useState<MarketResearchItem[]>([]);
+  const [researchStatus] = useState<'loading' | 'ready' | 'fallback' | 'blocked'>('blocked');
+  const [fallbackUsed] = useState(false);
+  const [analyzedById] = useState<Record<string, AnalyzedReport>>({});
   const [openReportId, setOpenReportId] = useState<string | null>(null);
   // 담당 PB 이름 (헤더에 UUID 대신 이름 표시)
   const [pbName, setPbName] = useState<string>('');
   const [selectedBase, setSelectedBase] = useState<PortfolioOption['id']>('balanced');
-  const [weights, setWeights] = useState<PortfolioOption['weights']>(FALLBACK_MARKET_RESEARCH.length ? {
-    etf: 35,
-    bond: 35,
-    els: 0,
-    mmf: 10,
-    gold: 5,
-    dollar: 5,
-    raw: 0,
-  } : {
+  const [weights, setWeights] = useState<PortfolioOption['weights']>({
     etf: 35,
     bond: 35,
     els: 0,
@@ -1135,34 +1126,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
   useEffect(() => {
     let cancelled = false;
 
-    async function loadResearch() {
-      try {
-        const res = await fetch('/api/research', { cache: 'no-store' });
-        if (!res.ok) throw new Error('research api failed');
-        const data = await res.json();
-        if (!cancelled && Array.isArray(data.items) && data.items.length > 0) {
-          setResearchItems(data.items);
-          setFallbackUsed(Boolean(data.fallbackUsed));
-          setResearchStatus('ready');
-        }
-      } catch {
-        if (!cancelled) {
-          setResearchItems(FALLBACK_MARKET_RESEARCH);
-          setFallbackUsed(true);
-          setResearchStatus('fallback');
-        }
-      }
-    }
-
-    loadResearch();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
     async function loadBenchmarks() {
       try {
         const res = await fetch('/api/benchmarks', { cache: 'no-store' });
@@ -1192,29 +1155,6 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     }
 
     loadBenchmarks();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 리포트별 분석(요약·신호) 캐시 로드 — 제목만 보이던 리스트에 요약을 붙인다.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/research/signals', { cache: 'no-store' });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled || !Array.isArray(data.reports)) return;
-        const map: Record<string, AnalyzedReport> = {};
-        for (const r of data.reports) {
-          map[r.id] = { summary: r.summary ?? '', signals: r.signals ?? [], model: r.model };
-        }
-        setAnalyzedById(map);
-      } catch {
-        /* 분석 캐시 없으면 제목만 표시(기존 동작) */
-      }
-    })();
     return () => {
       cancelled = true;
     };
@@ -1494,11 +1434,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     const focused = model.researchSignals.filter((signal) => selectedProfile.signals.includes(signal.signal));
     return focused.length > 0 ? focused : model.researchSignals.slice(0, 4);
   }, [model.researchSignals, selectedProfile.signals]);
-  const selectedSourceSummary = selectedResearchItems
-    .slice(0, 3)
-    .map((item) => `${item.source} '${item.title}'`)
-    .join(', ');
-  const selectedMarketRationale = `${currentPortfolioName}은 ${selectedProfile.emphasis} ${selectedSourceSummary || '최신 리서치'}를 근거로 ${selectedProfile.allocationLogic}`;
+  const selectedMarketRationale = model.rationale.market;
   // 시장 리포트 근거를 리포트별로 분리 (요약/근거를 불릿으로 표시)
   const marketReportReasons = useMemo(
     () =>
@@ -1508,18 +1444,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           (a?.summary && a.summary.trim()) ||
           a?.signals?.[0]?.evidence ||
           item.excerpt ||
-          '최신 리서치를 반영했습니다.';
+          'PB 승인 근거 연결이 필요합니다.';
         return { id: item.id, title: item.title, source: item.source, reason };
       }),
     [selectedResearchItems, analyzedById],
   );
-  const selectedExecutiveConclusion = `${currentPortfolioName}입니다. 7요인, 현금흐름, 최신 리서치를 반영해 현재 비중을 산출했습니다. ${
-    model.preferenceProfile.hasRequirement && !selectedFeasibility.feasible
-      ? '고유 요구조건의 공격적 수익·위험 가정은 실제 비중으로 달성 불가해 KPI에서 제외했습니다.'
-      : model.preferenceProfile.hasRequirement
-        ? '고유 요구조건은 달성 가능 범위에서 반영했습니다.'
-        : '고객 입력 조건 기준으로 산출했습니다.'
-  } ${selectedProfile.clientMessage}`;
+  const selectedExecutiveConclusion = `${model.executiveConclusion} ${selectedProfile.clientMessage}`;
 
   useEffect(() => {
     if (!onSelectionChange) return;
@@ -1885,9 +1815,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </div>
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <div className="rounded-xl border border-border bg-surface-2 p-3 lg:col-span-2">
-                  <p className="text-xs font-bold text-fg">시장 리포트 근거</p>
+                  <p className="text-xs font-bold text-fg">리서치 승인 상태</p>
                   <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                    {currentPortfolioName}은 {selectedProfile.emphasis} 아래 리포트들을 근거로 {selectedProfile.allocationLogic}
+                    {model.rationale.market}
                   </p>
                   <ul className="mt-2 space-y-2">
                     {marketReportReasons.map((r) => (
@@ -1924,10 +1854,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full bg-indigo-600"></span>
-                  <h3 className="text-base font-bold text-fg">선택안별 리서치 반영 상태</h3>
+                  <h3 className="text-base font-bold text-fg">선택안별 승인 근거 상태</h3>
                 </div>
                 <span className="text-[11px] font-medium text-fg-muted">
-                  {researchStatus === 'loading'
+                  {researchStatus === 'blocked'
+                    ? 'PB 승인 Evidence 미연결'
+                    : researchStatus === 'loading'
                     ? '업데이트 확인 중'
                     : fallbackUsed
                       ? '일부 출처 fallback 포함'
@@ -1936,17 +1868,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               </div>
 
               <p className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs leading-relaxed text-indigo-900">
-                {currentPortfolioName} 기준: {selectedProfile.emphasis}
+                미승인 LLM·키워드 신호는 {currentPortfolioName} 비중과 상품 판단에서 제외했습니다.
               </p>
 
-              <div className="grid grid-cols-2 gap-2">
+              {researchStatus !== 'blocked' && <div className="grid grid-cols-2 gap-2">
                 {selectedSignalScores.slice(0, 4).map((signal) => (
                   <div key={signal.signal} className="rounded-xl border border-border bg-surface-2 p-3">
                     <span className="block text-[11px] font-semibold text-fg-muted">{signal.label}</span>
                     <span className="mt-1 block text-lg font-black text-fg">{signal.score}</span>
                   </div>
                 ))}
-              </div>
+              </div>}
 
               <div className="mt-4 space-y-2">
                 {selectedResearchItems.map((item) => {
@@ -2018,7 +1950,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <span className="text-xs font-bold uppercase tracking-wider text-blue-300">Portfolio Decision Summary</span>
           <h1 className="mt-1 text-xl font-bold tracking-tight">현재 선택: {currentPortfolioName}</h1>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-300">
-            7요인 분석 → 현금흐름 분석 → 리포트 및 리서치 분석 → 포트폴리오 산출 순서로 추천합니다.
+            7요인 분석 → 현금흐름 분석 → 고객 제약 확인 → 포트폴리오 산출 순서이며, PB 승인 리서치는 연결된 경우에만 별도 근거로 표시합니다.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-slate-300">
@@ -2799,9 +2731,9 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="rounded-xl border border-border bg-surface-2 p-3 lg:col-span-2">
-            <p className="text-xs font-bold text-fg">시장 리포트 근거</p>
+            <p className="text-xs font-bold text-fg">리서치 승인 상태</p>
             <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-              {currentPortfolioName}은 {selectedProfile.emphasis} 아래 리포트들을 근거로 {selectedProfile.allocationLogic}
+              {model.rationale.market}
             </p>
             <ul className="mt-2 space-y-2">
               {marketReportReasons.map((r) => (
@@ -2841,10 +2773,12 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <div className="mb-4 flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-indigo-600"></span>
-              <h3 className="text-base font-bold text-fg">선택안별 리서치 반영 상태</h3>
+              <h3 className="text-base font-bold text-fg">선택안별 승인 근거 상태</h3>
             </div>
             <span className="text-[11px] font-medium text-fg-muted">
-              {researchStatus === 'loading'
+              {researchStatus === 'blocked'
+                ? 'PB 승인 Evidence 미연결'
+                : researchStatus === 'loading'
                 ? '업데이트 확인 중'
                 : fallbackUsed
                   ? '일부 출처 fallback 포함'
@@ -2853,17 +2787,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           </div>
 
           <p className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs leading-relaxed text-indigo-900">
-            {currentPortfolioName} 기준: {selectedProfile.emphasis}
+            미승인 LLM·키워드 신호는 {currentPortfolioName} 비중과 상품 판단에서 제외했습니다.
           </p>
 
-          <div className="grid grid-cols-2 gap-2">
+          {researchStatus !== 'blocked' && <div className="grid grid-cols-2 gap-2">
             {selectedSignalScores.slice(0, 4).map((signal) => (
               <div key={signal.signal} className="rounded-xl border border-border bg-surface-2 p-3">
                 <span className="block text-[11px] font-semibold text-fg-muted">{signal.label}</span>
                 <span className="mt-1 block text-lg font-black text-fg">{signal.score}</span>
               </div>
             ))}
-          </div>
+          </div>}
 
           <div className="mt-4 space-y-2">
             {selectedResearchItems.map((item) => {
@@ -3086,7 +3020,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
             <h3 className="text-sm font-bold text-fg">상품군 투자 적합성 필터</h3>
-            <span className="text-xs text-fg-muted">리서치·세금·현금흐름 기준</span>
+            <span className="text-xs text-fg-muted">고객·세금·현금흐름 기준</span>
           </div>
           <span className="text-xs font-bold text-blue-600">{isSuitabilityOpen ? '접기' : '펼쳐보기'}</span>
         </button>

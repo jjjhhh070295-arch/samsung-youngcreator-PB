@@ -4,7 +4,6 @@
 
 import { CLIENT_TYPE_LABEL, FACTOR_META, type Client, type Portfolio, type AssetAllocation, type CashFlow, type FactorKey } from "./types";
 import {
-  FALLBACK_MARKET_RESEARCH,
   scoreResearchSignals,
   type MarketResearchItem,
   type ResearchSignal,
@@ -1539,10 +1538,6 @@ function buildCalculationSteps(
     cashflow.scheduledOutflow + Math.max(0, -cashflow.monthlyNet) * 12,
     client,
   );
-  const topSignals = signals
-    .slice(0, 3)
-    .map((signal) => `${signal.label} ${signal.score > 0 ? "+" : ""}${signal.score}`)
-    .join(" · ");
   const requirementText = preference.hasRequirement
     ? `${preference.tags.join(" · ")}${preferenceFeasibility && !preferenceFeasibility.feasible ? " (공격적 수익·위험 KPI 미반영)" : ""}`
     : "별도 강한 요구조건 없음";
@@ -1575,9 +1570,9 @@ function buildCalculationSteps(
     },
     {
       order: 3,
-      title: "리포트 및 리서치 분석",
-      detail: topSignals || "리서치 신호 중립",
-      impact: "최신 리서치 신호는 주식·채권·달러·금/원자재의 상대 점수에만 반영하고, 현금흐름 제약을 넘지 않게 제한했습니다.",
+      title: "리서치 승인 상태",
+      detail: "PB 승인 Research Evidence 미연결",
+      impact: "미승인 LLM·키워드·dummy 신호는 비중·상품·고객 출력 계산에서 제외했습니다.",
     },
     {
       order: 4,
@@ -1638,31 +1633,30 @@ function clientSummaryFrom(client: Client, cashflow: CashflowPortfolioSummary): 
   };
 }
 
-function macroReportFrom(items: MarketResearchItem[], signals: ReturnType<typeof scoreResearchSignals>): MacroReport {
-  const topItems = items.slice(0, 3).map((item) => item.title).join(" / ");
+function macroReportFrom(_items: MarketResearchItem[], _signals: ReturnType<typeof scoreResearchSignals>): MacroReport {
   return {
-    title: `최신 리서치 ${items.length}개 자동 반영`,
+    title: "PB 승인 Research Evidence 미연결",
     date: new Date().toISOString().slice(0, 10),
     factors: {
       interestRate: {
         label: "금리 (Interest Rate)",
-        outlook: topSignalScore(signals, "bond") > 0 ? "금리·국채 관련 이슈가 최신 리포트에 반복 등장" : "금리 신호는 중립",
-        implication: "세금 납부일 이전까지는 단기채·RP·MMF 중심, 잉여자금은 채권 래더로 분산",
+        outlook: "승인 근거 없음 · 계산 제외",
+        implication: "PB 승인 근거가 연결되기 전에는 고객 입력과 현금흐름만 사용",
       },
       exchangeRate: {
         label: "환율 (FX)",
-        outlook: topSignalScore(signals, "dollar") > 0 ? "환율·달러 관련 리포트 신호 확인" : "환율 신호는 보조 변수",
-        implication: "대규모 달러 일괄 매수보다 달러 MMF와 환헤지 ETF로 분할 접근",
+        outlook: "승인 근거 없음 · 계산 제외",
+        implication: "PB 승인 근거가 연결되기 전에는 환율 View를 생성하지 않음",
       },
       inflation: {
         label: "인플레이션/원자재",
-        outlook: topSignalScore(signals, "gold") > 0 ? "유가·금·원자재 키워드가 헤지 필요성을 보강" : "실물자산은 제한 편입",
-        implication: "금·원자재는 핵심 수익원이 아니라 변동성 완충용 3~8% 범위로 제한",
+        outlook: "승인 근거 없음 · 계산 제외",
+        implication: "PB 승인 근거가 연결되기 전에는 물가 View를 생성하지 않음",
       },
       stockMarket: {
         label: "주식시장 (Equity Market)",
-        outlook: topSignalScore(signals, "equity") > 0 ? `주식·AI·반도체 신호 확인: ${topItems}` : "주식 신호는 중립",
-        implication: "성장 테마는 ETF 바스켓으로 접근하되 세금·현금화 일정 전에는 비중을 과도하게 높이지 않음",
+        outlook: "승인 근거 없음 · 계산 제외",
+        implication: "PB 승인 근거가 연결되기 전에는 주식 View를 생성하지 않음",
       },
     },
   };
@@ -1678,8 +1672,8 @@ function suitabilityFrom(client: Client, cashflow: CashflowPortfolioSummary, sig
       category: "ETF",
       status: highRiskSignal ? "주의" : "적합",
       reason: highRiskSignal
-        ? "최신 리포트에 변동성·조정 신호가 있어 테마 ETF는 분산 바스켓과 단계적 진입이 필요"
-        : "시장 리포트의 주식·AI·실적 모멘텀을 반영하기 좋은 핵심 성장 자산",
+        ? "PB 승인 위험 근거가 연결된 경우 분산 바스켓과 단계적 진입 여부를 별도 검토"
+        : "고객 위험성향·투자기간·현금흐름 기준으로 적합성을 검토할 성장 자산",
     },
     {
       category: "채권",
@@ -1923,12 +1917,16 @@ function computeAssetLayer(heldAssets?: HeldAssets): AssetLayerSummary | null {
 
 export function buildPortfolioViewModel(
   client: Client,
-  researchItems: MarketResearchItem[] = FALLBACK_MARKET_RESEARCH,
+  researchItems: MarketResearchItem[] = [],
   heldAssets?: HeldAssets,
   proxyReturns?: ProxyReturnEstimate[],
 ): PortfolioViewModel {
-  const items = researchItems.length > 0 ? researchItems : FALLBACK_MARKET_RESEARCH;
-  const researchSignals = scoreResearchSignals(items);
+  // Fail-closed: 기존 크롤러·키워드·LLM 결과에는 PB 승인 manifest가 없으므로
+  // 비중·상품 후보·고객 출력 계산에 절대 사용하지 않는다. 향후 승인된 ResearchDraft
+  // 소비 어댑터가 생기기 전까지 이 입력은 표시용 레거시 데이터로만 취급한다.
+  void researchItems;
+  const items: MarketResearchItem[] = [];
+  const researchSignals = scoreResearchSignals([]);
   const cashflowSummary = summarizeCashflows(client.cashFlows);
   const preferenceProfile = parsePreferenceProfile(client);
   const investableKrw = heldAssets && heldAssets.totalKrw > 0
@@ -1965,8 +1963,6 @@ export function buildPortfolioViewModel(
     investableKrw,
     proxyReturns,
   });
-  const topResearch = items.slice(0, 4).map((item) => `${item.source} '${item.title}'`).join(", ");
-  const highSignal = researchSignals[0] ?? { label: "중립", score: 0, signal: "risk" as ResearchSignal };
   const clientSummary = clientSummaryFrom(client, cashflowSummary);
   const macroReport = macroReportFrom(items, researchSignals);
   const taxSavingPlan = buildKodexTaxSavingPlan(client, cashflowSummary, preferenceProfile);
@@ -1978,7 +1974,7 @@ export function buildPortfolioViewModel(
     : "고유상황에 별도 상품 제약이나 목표수익률 요구가 없어 표준 고액자산가 유동성 버킷을 적용했습니다.";
 
   const rationale: PortfolioRationale = {
-    market: `${topResearch} 등 최신 ${items.length}개 리포트/기사에서 ${highSignal.label} 신호가 가장 강하게 관찰되어 해당 자산군을 기준 비중보다 보강했습니다.`,
+    market: "PB 승인된 Research Evidence가 연결되지 않아 리서치 신호는 비중·상품 판단에서 제외했습니다.",
     client: `${client.name} 고객은 ${clientSummary.clientType}이며 위험성향은 ${clientSummary.riskPropensity}, 투자기간은 ${clientSummary.investmentPeriod}로 반영했습니다.`,
     cashflow: `현금흐름 입력값 기준 월 유입 ${formatKRWShortLocal(cashflowSummary.monthlyIncome)}, 월 유출 ${formatKRWShortLocal(cashflowSummary.monthlyOutflow)}, 월 순현금흐름 ${formatKRWShortLocal(cashflowSummary.monthlyNet)}입니다.`,
     tax: client.clientType === "sole_proprietor" && client.accountSeparation !== "separated"
@@ -1989,7 +1985,7 @@ export function buildPortfolioViewModel(
       ? preferenceProfile.taxPriority
         ? `세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 커버하는 동시에, 브라질 국채 비과세 검토·국내 상장주식 장내거래·개별채권 직접투자·연금계좌 과세이연처럼 세후 효율이 높은 후보를 우선 배치했습니다.`
         : `법인세·증여세·양도세 등 세금성 예정 유출 ${formatKRWShortLocal(cashflowSummary.taxOutflow)}을 우선 커버하도록 MMF/RP와 채권 비중을 높였습니다.`
-      : "명시된 대형 세금 납부 이벤트가 없어 시장 신호와 위험성향 중심으로 배분했습니다.",
+      : "명시된 대형 세금 납부 이벤트가 없어 위험성향과 투자기간 중심으로 배분했습니다.",
     unique: factorValue(client, "unique", "고유상황 입력값이 없어 표준 고액자산가 유동성 버킷을 적용했습니다."),
     preference: preferenceText,
   };
@@ -2034,7 +2030,7 @@ export function buildPortfolioViewModel(
     preferenceFeasibility,
     taxSavingPlan,
     taxPainPoints,
-    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 7요인 분석, 현금흐름 분석, 최신 리서치의 ${highSignal.label} 신호를 반영해 비중을 산출했습니다. ${preferenceProfile.hasRequirement && !preferenceFeasibility.feasible ? "고객 고유 요구조건의 공격적 수익·위험 가정은 실제 비중으로 달성 불가해 KPI에서 제외했습니다." : preferenceProfile.hasRequirement ? "고객 고유 요구조건은 달성 가능 범위에서 반영했습니다." : "고객 입력 조건 기준으로 산출했습니다."}`,
+    executiveConclusion: `${recommendedOption.name}을 기본안으로 제안합니다. 7요인 분석과 현금흐름 입력값으로 비중을 산출했으며, 미승인 리서치 신호는 제외했습니다. ${preferenceProfile.hasRequirement && !preferenceFeasibility.feasible ? "고객 고유 요구조건의 공격적 수익·위험 가정은 실제 비중으로 달성 불가해 KPI에서 제외했습니다." : preferenceProfile.hasRequirement ? "고객 고유 요구조건은 달성 가능 범위에서 반영했습니다." : "고객 입력 조건 기준으로 산출했습니다."}`,
     recommendedId,
     liquidityReserveManwon,
     calculationSteps,
