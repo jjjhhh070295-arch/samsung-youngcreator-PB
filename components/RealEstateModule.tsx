@@ -534,29 +534,8 @@ export default function RealEstateModule({ clientId }: Props) {
 
             {showDetail && (
             <>
-            {/* 좌: 요약 패널 / 우: 카드 격자 — 900px 이하에서는 1열(요약 위, 카드 아래) */}
-            <div className="grid grid-cols-[210px_1fr] gap-[18px] max-[900px]:grid-cols-1">
-              {/* 왼쪽 요약 패널 */}
-              <div className="self-start sticky top-[18px] max-[900px]:static rounded-xl border border-border bg-surface-2 px-4 py-4">
-                <p className="text-xs font-semibold text-fg-muted mb-2 uppercase tracking-wide">부동산 전체 요약</p>
-                <div className="divide-y divide-border">
-                  {[
-                    ["총 자산 가치", formatW(totals.totalValue), "text-fg"],
-                    ["총 부채", formatW(totals.totalDebt), totals.totalDebt > 0 ? "text-red-500" : "text-fg-muted"],
-                    ["순자산 기여", formatW(totals.totalEquity), totals.totalEquity >= 0 ? "text-green-600" : "text-red-500"],
-                    ["투자가능 자산", formatW(totals.investable), "text-[#1428A0]"],
-                  ].map(([label, val, cls]) => (
-                    <div key={label as string} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
-                      <span className="text-xs text-fg-muted">{label as string}</span>
-                      <span className={`text-sm font-bold ${cls}`}>{val as string}</span>
-                    </div>
-                  ))}
-                </div>
-                <button className="w-full btn-primary text-sm py-2 mt-3" onClick={() => setTab("add")}>+ 부동산 추가</button>
-              </div>
-
-              {/* 오른쪽 카드 격자 — 고객 상세 화면 우측 컬럼(55%)에 들어가 폭이 좁으므로 1열 고정 */}
-              <div className="grid grid-cols-1 gap-[14px]">
+            {/* 카드 목록 — 섹션 전체 폭 사용, 세로 나열(상단 압축 요약 바가 총계 역할을 대신하므로 별도 요약 패널 없음) */}
+            <div className="grid grid-cols-1 gap-[14px]">
                 {properties.map((p) => {
                   const pDebts = debts.filter((d) => d.property_id === p.id);
                   const m = deriveMetrics(p, pDebts);
@@ -771,7 +750,6 @@ export default function RealEstateModule({ clientId }: Props) {
                   );
                 })}
               </div>
-            </div>
 
             <p className="text-[10px] text-fg-muted/70 text-center pt-2">
               ※ 추정시세는 실거래 기반 참고값입니다. 중요한 의사결정 전 감정평가·KB시세로 보정하세요.
