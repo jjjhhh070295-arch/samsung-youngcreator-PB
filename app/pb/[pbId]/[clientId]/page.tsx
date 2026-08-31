@@ -233,19 +233,6 @@ export default function ClientDetailPage() {
           </div>
         </section>
 
-        {/* 7요인 */}
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>🎯</span> 7요인
-          </h2>
-          <FactorsSummary
-            client={client}
-            allClients={allClients}
-            onEdit={() => setModalOpen(true)}
-            onToggleStage={toggleStage}
-          />
-        </section>
-
         {/* 보유종목 / 부동산 자산 — 좌우 2단(45:55), 1280px 이하에서는 세로로 쌓임 */}
         <div className="grid grid-cols-[60%_40%] items-start gap-[18px] max-[1280px]:grid-cols-1">
           {/* MTS 보유종목 추출 */}
@@ -268,6 +255,19 @@ export default function ClientDetailPage() {
             </div>
           </section>
         </div>
+
+        {/* 7요인 */}
+        <section>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+            <span>🎯</span> 7요인
+          </h2>
+          <FactorsSummary
+            client={client}
+            allClients={allClients}
+            onEdit={() => setModalOpen(true)}
+            onToggleStage={toggleStage}
+          />
+        </section>
 
         {/* 관계 네트워크 */}
         <section>
