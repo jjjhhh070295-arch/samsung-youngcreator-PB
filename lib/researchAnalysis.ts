@@ -26,7 +26,7 @@ export interface ReportAnalysis {
   id: string;
   summary: string;
   signals: AnalyzedSignal[];
-  model: string; // 분석에 쓴 모델 ("dummy"=키 없음)
+  model: string; // 분석 모델. "approved:" 접두사가 없으면 의사결정 소비 금지.
 }
 
 const MODEL = "claude-sonnet-4-6";
@@ -167,7 +167,7 @@ export async function analyzeReport(
 ): Promise<ReportAnalysis> {
   const hasGemini = !!process.env.GEMINI_API_KEY?.trim();
   const hasClaude = !!process.env.ANTHROPIC_API_KEY?.trim();
-  if (!hasGemini && !hasClaude) return dummyAnalysis(item);
+  if (!hasGemini && !hasClaude) return unverifiedFallback(item);
 
   const userText = buildUserText(item, content);
   const geminiModel = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash-lite";
@@ -196,21 +196,17 @@ export async function analyzeReport(
   }
 
   // 3) 최종 더미(키워드 추정)
-  return dummyAnalysis(item);
+  return unverifiedFallback(item);
 }
 
-// 키 없음/실패 시: 기존 키워드 신호를 direction +1, strength 2 로 변환 (보수적)
-function dummyAnalysis(item: MarketResearchItem): ReportAnalysis {
-  const signals: AnalyzedSignal[] = (item.signals ?? [])
-    .filter((s) => SIGNAL_LIST.includes(s))
-    .map((signal) => ({
-      signal,
-      direction: signal === "risk" ? 1 : (1 as -1 | 0 | 1),
-      strength: 2,
-      evidence: "(키워드 기반 추정 — LLM 미적용)",
-    }));
-  // 더미는 요약을 비워둠(제목 반복 방지). 본문 요약은 LLM 분석(재분석) 후 채워짐.
-  return { id: item.id, summary: "", signals, model: "dummy" };
+export function isApprovedResearchModel(model: unknown): model is string {
+  return typeof model === "string" && model.startsWith("approved:") && model.length > "approved:".length;
+}
+
+// 키 없음/실패 시에는 숫자 신호를 만들지 않는다. 제목 키워드를 양수 신호로
+// 바꾸던 과거 dummy fallback은 포트폴리오를 편향시킬 수 있어 fail-closed 한다.
+function unverifiedFallback(item: MarketResearchItem): ReportAnalysis {
+  return { id: item.id, summary: "", signals: [], model: "unverified-no-model" };
 }
 
 // 여러 리포트 분석을 신호별 점수로 집계 (방향×강도, 최신 가중)
@@ -222,7 +218,9 @@ export interface AggregatedSignal {
 
 export function aggregateAnalyses(analyses: ReportAnalysis[]): AggregatedSignal[] {
   const map = new Map<ResearchSignal, { score: number; abs: number }>();
-  analyses.forEach((a, idx) => {
+  // PB 승인 manifest와 연결된 분석만 집계한다. 기존 Gemini/Claude 캐시와
+  // dummy 캐시는 화면 요약 후보일 뿐 자산배분 신호가 아니다.
+  analyses.filter((analysis) => isApprovedResearchModel(analysis.model)).forEach((a, idx) => {
     const recency = Math.max(1, 4 - Math.floor(idx / 5)); // 상위(최신)일수록 가중↑
     for (const s of a.signals) {
       const cur = map.get(s.signal) ?? { score: 0, abs: 0 };

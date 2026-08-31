@@ -203,11 +203,15 @@ export default function AppNav() {
     router.push(`/pb/${pbId}/${clientId}?${next.toString()}`);
   };
 
+  const researchHref = pbId
+    ? `/pb/${pbId}/research${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
+    : "/research";
+
   const utilityItems: MoreMenuItem[] = [
     { key: "home", label: "홈", icon: "🏠", href: "/" },
     ...(pbId ? [{ key: "book", label: "다고객 북", icon: "📒", href: `/pb/${pbId}` }] : []),
     ...(pbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${pbId}/ticker` }] : []),
-    { key: "research", label: "리서치", icon: "📊", href: "/research" },
+    { key: "research", label: "리서치 코파일럿", icon: "📊", href: researchHref },
   ];
   const externalItems: MoreMenuItem[] = EXTERNAL_LINKS.map((l) => ({
     key: l.href,

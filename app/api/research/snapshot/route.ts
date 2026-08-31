@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { isAuthorizedCronRequest } from "@/lib/cronAuth";
-import { SIGNAL_LIST } from "@/lib/researchAnalysis";
+import { isApprovedResearchModel, SIGNAL_LIST } from "@/lib/researchAnalysis";
 import type { AnalyzedSignal } from "@/lib/researchAnalysis";
 import {
   SCORING_VERSION,
@@ -46,7 +46,7 @@ async function runSnapshot(): Promise<NextResponse> {
 
     const { data, error } = await supabase
       .from("research_signals")
-      .select("report_id, title, source, url, date, signals")
+      .select("report_id, title, source, url, date, signals, model")
       .gte("date", cutoff) // WINDOW_DAYS 이내만 — 화면 withinAgeFloor와 동일 기준
       .order("date", { ascending: false })
       .limit(500); // 시간 윈도우로 이미 필터링되므로 넉넉히
@@ -55,8 +55,15 @@ async function runSnapshot(): Promise<NextResponse> {
 
     // 신호가 없는 리포트(표·차트 only 등)는 제외
     const validRows = (data ?? []).filter(
-      (r: any) => Array.isArray(r.signals) && r.signals.length > 0,
+      (r: any) => isApprovedResearchModel(r.model) && Array.isArray(r.signals) && r.signals.length > 0,
     );
+
+    if (validRows.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "PB 승인 Evidence가 없어 신호 스냅샷 생성을 차단했습니다." },
+        { status: 409 },
+      );
+    }
 
     // ─ 2. MarketResearchItem[] 변환 ─
     //      analysis 필드에 LLM 분석 결과 주입 → scoreResearchSignals가 direction×strength 반영
