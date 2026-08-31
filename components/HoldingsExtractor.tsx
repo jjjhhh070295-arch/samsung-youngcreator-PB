@@ -81,6 +81,9 @@ export default function HoldingsExtractor({ clientId }: Props) {
   const [form, setForm] = useState(emptyForm());
   const [manualSaving, setManualSaving] = useState(false);
   const [manualMsg, setManualMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // 종목명 → 코드 자동 조회 상태(직접 추가 폼). idle=아직 조회 안 함, checking=조회 중,
+  // found=코드 찾음(코드·시장·통화 입력란 숨김), not_found=매핑에 없음(입력란 펼침).
+  const [nameResolve, setNameResolve] = useState<"idle" | "checking" | "found" | "not_found">("idle");
 
   // ── 저장된 종목 ──
   const [saved, setSaved] = useState<SavedHolding[]>([]);
@@ -343,8 +346,37 @@ export default function HoldingsExtractor({ clientId }: Props) {
     setError(null);
   };
 
+  // 종목명 입력란에서 포커스를 벗어나면 /api/resolve-tickers 로 코드 자동 조회.
+  // 찾으면 코드·통화(KRW)를 채우고 확인 문구만 보여준다. 못 찾으면 코드·시장·통화 입력란을 펼친다.
+  const resolveNameOnBlur = async () => {
+    const name = form.name.trim();
+    if (!name) { setNameResolve("idle"); return; }
+    setNameResolve("checking");
+    try {
+      const res = await fetch("/api/resolve-tickers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names: [name] }),
+      });
+      const json = await res.json();
+      const code: string | null = json?.tickers?.[name] ?? null;
+      if (code) {
+        setForm((p) => ({ ...p, ticker: code, currency: "KRW" }));
+        setNameResolve("found");
+      } else {
+        setNameResolve("not_found");
+      }
+    } catch {
+      setNameResolve("not_found");
+    }
+  };
+
   const handleManualSave = async () => {
     if (!form.name.trim() || !form.quantity) return;
+    if (!form.ticker.trim()) {
+      setManualMsg({ ok: false, text: "종목코드가 필요합니다. 자동으로 안 채워졌다면 코드를 직접 입력해주세요." });
+      return;
+    }
     if (!supabase) { setManualMsg({ ok: false, text: "Supabase 연결 없음" }); return; }
     setManualSaving(true);
     setManualMsg(null);
@@ -365,6 +397,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
     } else {
       setManualMsg({ ok: true, text: "저장 완료" });
       setForm(emptyForm());
+      setNameResolve("idle");
       await loadSaved();
       setTimeout(() => { setManualMsg(null); setTab("saved"); }, 800);
     }
@@ -554,18 +587,46 @@ export default function HoldingsExtractor({ clientId }: Props) {
         {tabBar}
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            {field("name", "종목명 *", "text", "예: 삼성전자")}
-            {field("ticker", "종목코드", "text", "예: 005930")}
-            {field("market", "시장", "text", "KOSPI / KOSDAQ / NASDAQ")}
             <div>
-              <label className="label">통화</label>
-              <select className="input" value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))}>
-                <option value="KRW">KRW</option>
-                <option value="USD">USD</option>
-              </select>
+              <label className="label">종목명 *</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="예: 삼성전자"
+                value={form.name}
+                onChange={(e) => {
+                  setForm((p) => ({ ...p, name: e.target.value }));
+                  setNameResolve("idle");
+                }}
+                onBlur={resolveNameOnBlur}
+              />
+              {nameResolve === "checking" && (
+                <p className="mt-1 text-xs text-fg-muted">조회 중…</p>
+              )}
+              {nameResolve === "found" && (
+                <p className="mt-1 text-xs text-fg-muted">
+                  {form.name.trim()} · {form.ticker} · {form.currency}
+                </p>
+              )}
+              {nameResolve === "not_found" && (
+                <p className="mt-1 text-xs text-amber-600">매핑에 없는 종목입니다. 종목코드를 직접 입력해주세요</p>
+              )}
             </div>
             {field("quantity", "수량 *", "number", "0")}
             {field("avg_price", "평균단가", "number", "0")}
+            {nameResolve === "not_found" && (
+              <>
+                {field("ticker", "종목코드 *", "text", "예: 005930 / NVDA")}
+                {field("market", "시장", "text", "KOSPI / KOSDAQ / NASDAQ")}
+                <div>
+                  <label className="label">통화</label>
+                  <select className="input" value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))}>
+                    <option value="KRW">KRW</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
           <p className="text-xs text-fg-muted/70">※ 현재가 · 평가금액 · 손익은 저장 시 생략되며, 조회 시 KIS API로 실시간 계산됩니다.</p>
 
@@ -576,7 +637,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
           )}
           <button
             className="w-full btn-primary py-3 text-sm font-bold disabled:opacity-50"
-            disabled={!form.name.trim() || !form.quantity || manualSaving}
+            disabled={!form.name.trim() || !form.quantity || !form.ticker.trim() || manualSaving}
             onClick={handleManualSave}
           >
             {manualSaving ? "저장 중…" : "저장"}
