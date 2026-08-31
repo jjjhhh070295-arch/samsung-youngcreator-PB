@@ -207,6 +207,27 @@ export default function HoldingsExtractor({ clientId }: Props) {
     };
   });
 
+  // 비중(%) = 평가금액 / 전체 평가금액 합계 × 100. 평가금액 못 구한 종목은 분모·분자 모두 제외(— 표시).
+  // 반올림 오차는 비중이 가장 큰 종목에서 흡수해 합계가 정확히 100.0%가 되게 한다.
+  const totalEval = savedWithPrices.reduce((sum, h) => sum + (h.eval_amount ?? 0), 0);
+  const rawWeights = savedWithPrices.map((h) =>
+    h.eval_amount != null && totalEval > 0 ? (h.eval_amount / totalEval) * 100 : null,
+  );
+  const roundedWeights = rawWeights.map((w) => (w == null ? null : Math.round(w * 10) / 10));
+  const weightSum = roundedWeights.reduce((s: number, w) => s + (w ?? 0), 0);
+  const diff = Math.round((100 - weightSum) * 10) / 10;
+  if (Math.abs(diff) >= 0.05) {
+    let maxIdx = -1;
+    let maxW = -Infinity;
+    roundedWeights.forEach((w, i) => {
+      if (w != null && w > maxW) { maxW = w; maxIdx = i; }
+    });
+    if (maxIdx >= 0) roundedWeights[maxIdx] = Math.round(((roundedWeights[maxIdx] ?? 0) + diff) * 10) / 10;
+  }
+  const savedWithWeights = savedWithPrices
+    .map((h, i) => ({ ...h, weightPct: roundedWeights[i] }))
+    .sort((a, b) => (b.weightPct ?? -1) - (a.weightPct ?? -1));
+
   const deleteHolding = async (id: string) => {
     if (!supabase) return;
     setDeleting(id);
@@ -505,13 +526,14 @@ export default function HoldingsExtractor({ clientId }: Props) {
                     <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">평균단가</th>
                     <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">현재가</th>
                     <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">평가금액</th>
+                    <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">비중</th>
                     <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">평가손익</th>
                     <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">신뢰도</th>
                     <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {savedWithPrices.map((h) => (
+                  {savedWithWeights.map((h) => (
                     <tr key={h.id} className="border-t border-border hover:bg-surface-2 transition-colors">
                       {/* 종목: 이름+시장 배지 / 코드·통화 — 표시만 합침, 데이터는 그대로 */}
                       <td className="px-3 py-2 whitespace-nowrap min-w-[100px]">
@@ -530,6 +552,9 @@ export default function HoldingsExtractor({ clientId }: Props) {
                       </td>
                       <td className="px-3 py-2 text-right text-fg tabular-nums">
                         {h.priced && h.eval_amount != null ? formatKRWShort(h.eval_amount) : <span className="text-fg-muted/50">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right text-fg tabular-nums">
+                        {h.weightPct != null ? `${h.weightPct.toFixed(1)}%` : <span className="text-fg-muted/50">—</span>}
                       </td>
                       {/* 평가손익: 금액(굵게) / 수익률%(작게) — 표시만 합침 */}
                       <td className="px-3 py-2 text-right tabular-nums">

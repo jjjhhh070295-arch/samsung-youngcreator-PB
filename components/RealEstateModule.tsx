@@ -458,10 +458,12 @@ export default function RealEstateModule({ clientId }: Props) {
       };
     }, { totalValue: 0, totalDebt: 0, totalEquity: 0, investable: 0 });
 
-    // 압축 요약 바용 물건명 한 줄 — 3건까지는 전부, 4건 이상이면 앞 2개 + "외 N건"
+    // 압축 요약 바용 물건명 한 줄. 1~2건은 전부 보여준다. 3건부터는 항상 앞 2개 + "외 N건"으로
+    // 줄인다 — 이름 3개를 다 넣으면 한 줄 폭에서 자주 모자라 글자가 중간에 잘리므로(예: "은..."),
+    // 아예 짧은 형태로 고정해 잘림 없이 통째로 보이게 한다(그래도 넘치면 truncate가 "…"로 안전망).
     const propertyNames = properties.map((p) => p.complex_name || p.address || "주소 미입력");
     const propertyNameSummary =
-      propertyNames.length <= 3
+      propertyNames.length <= 2
         ? propertyNames.join(" · ")
         : `${propertyNames.slice(0, 2).join(" · ")} 외 ${propertyNames.length - 2}건`;
 
@@ -525,8 +527,7 @@ export default function RealEstateModule({ clientId }: Props) {
               </div>
               <p className="min-w-0 flex-1 truncate text-xs text-fg-muted">{propertyNameSummary}</p>
               <div className="flex shrink-0 gap-2">
-                <button className="btn-primary text-sm py-1.5 px-4" onClick={() => setTab("add")}>+ 부동산 추가</button>
-                <button className="btn-outline text-sm py-1.5 px-4" onClick={() => setShowDetail((v) => !v)}>
+                <button className="btn-primary text-sm py-1.5 px-4" onClick={() => setShowDetail((v) => !v)}>
                   {showDetail ? "접기" : `상세보기 (${properties.length}건)`}
                 </button>
               </div>
