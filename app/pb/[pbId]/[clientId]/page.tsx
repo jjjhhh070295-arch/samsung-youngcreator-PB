@@ -17,7 +17,6 @@ import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import IPSResultTabs, { type Tab } from "@/components/IPSResultTabs";
-import IPSRadar from "@/components/IPSRadar";
 import TrendChart from "@/components/TrendChart";
 import ConsultationHistory from "@/components/ConsultationHistory";
 import { LoadingView, ErrorView } from "@/components/StateViews";
@@ -32,7 +31,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "factors", "flags", "questions", "cashflow", "portfolio", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "factors"; // 유효하지 않은 tab(삭제된 heritage 등)은 factors로 폴백
+  const activeTab: Tab = (["basic", "factors", "cashflow", "portfolio", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "factors"; // 유효하지 않은 tab(삭제된 heritage/flags/questions 등)은 factors로 폴백
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
@@ -325,25 +324,6 @@ export default function ClientDetailPage() {
           onToggleStage={toggleStage}
           linkedClient={linkedClient}
         />
-      )}
-
-      {/* 성향 시각화 */}
-      {activeView === "visualization" && (
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>📈</span> 성향 시각화
-          </h2>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div>
-              <p className="text-xs text-fg-muted mb-2">현재 성향 (레이더)</p>
-              <div className="card p-4"><IPSRadar ips={client.ips} /></div>
-            </div>
-            <div>
-              <p className="text-xs text-fg-muted mb-2">성향 변화 추세</p>
-              <div className="card p-4"><TrendChart consultations={consultations} /></div>
-            </div>
-          </div>
-        </section>
       )}
 
       {/* 모달들 */}

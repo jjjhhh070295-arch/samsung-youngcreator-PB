@@ -37,8 +37,6 @@ interface Props {
 export type Tab =
   | "basic"
   | "factors"
-  | "flags"
-  | "questions"
   | "cashflow"
   | "portfolio"
   | "recommend"
@@ -205,19 +203,6 @@ export default function IPSResultTabs({
     return list;
   }, [ips]);
 
-  const questions = useMemo(() => {
-    const list: { factor: string; text: string }[] = [];
-    for (const m of FACTOR_META) {
-      const f = ips[m.key];
-      if (f.status === "empty") {
-        list.push({ factor: m.label, text: `‘${m.label}’ 관련 정보가 없습니다. 고객께 확인이 필요합니다.` });
-      } else if (f.status === "inferred") {
-        list.push({ factor: m.label, text: `‘${m.label}’은(는) 추론 단서만 있습니다. 직접 확인해 점수를 확정하세요.` });
-      }
-    }
-    return list;
-  }, [ips]);
-
   // SET 6자산 비중: 확정된 안의 weights만 추출해 세후/StressTestPanel에 전달.
   // PortfolioPanel과 동일하게 heldAssets(보유자산)+researchItems를 사용해
   // 화면 표시와 스트레스 입력 weights를 일치시킨다.
@@ -361,52 +346,6 @@ export default function IPSResultTabs({
             );
           })}
           </div>
-        </div>
-      )}
-
-      {/* 플래그 */}
-      {tab === "flags" && (
-        <div className="card p-5">
-          {flags.length === 0 ? (
-            <p className="py-6 text-center text-sm text-fg-muted">
-              감지된 플래그가 없습니다. (추론 단서가 있는 요인이 여기에 모입니다)
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {flags.map((fl) => (
-                <li
-                  key={fl.code}
-                  className="flex items-start gap-3 rounded-lg border border-gold-300 bg-gold-50 p-3 text-sm dark:border-gold-700 dark:bg-gold-900/20"
-                >
-                  <span className="badge-gold shrink-0">{fl.code}</span>
-                  <span>
-                    <b className="text-fg">{fl.factor}</b>
-                    <span className="text-fg-muted"> — {fl.text}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {/* 추가질문 */}
-      {tab === "questions" && (
-        <div className="card p-5">
-          {questions.length === 0 ? (
-            <p className="py-6 text-center text-sm text-fg-muted">
-              추가로 확인할 질문이 없습니다. 모든 요인에 직접 근거가 있습니다. 👍
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {questions.map((q, i) => (
-                <li key={i} className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
-                  <span className="text-gold-500">Q{i + 1}.</span>
-                  <span className="text-fg-muted">{q.text}</span>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
 
