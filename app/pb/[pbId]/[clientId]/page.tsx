@@ -225,25 +225,28 @@ export default function ClientDetailPage() {
           </div>
         </section>
 
-        {/* MTS 보유종목 추출 */}
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>📊</span> 보유종목 (MTS 캡쳐 추출)
-          </h2>
-          <div className="card p-5">
-            <HoldingsExtractor clientId={clientId} />
-          </div>
-        </section>
+        {/* 보유종목 / 부동산 자산 — 좌우 2단(45:55), 1280px 이하에서는 세로로 쌓임 */}
+        <div className="grid grid-cols-[45%_55%] items-start gap-[18px] max-[1280px]:grid-cols-1">
+          {/* MTS 보유종목 추출 */}
+          <section className="min-w-0">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+              <span>📊</span> 보유종목 (MTS 캡쳐 추출)
+            </h2>
+            <div className="card p-5">
+              <HoldingsExtractor clientId={clientId} />
+            </div>
+          </section>
 
-        {/* 부동산 자산 */}
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>🏠</span> 부동산 자산
-          </h2>
-          <div className="card p-5">
-            <RealEstateModule clientId={clientId} />
-          </div>
-        </section>
+          {/* 부동산 자산 */}
+          <section className="min-w-0">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+              <span>🏠</span> 부동산 자산
+            </h2>
+            <div className="card p-5">
+              <RealEstateModule clientId={clientId} />
+            </div>
+          </section>
+        </div>
 
         {/* 관계 네트워크 */}
         <section>

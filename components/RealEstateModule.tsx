@@ -505,7 +505,7 @@ export default function RealEstateModule({ clientId }: Props) {
         ) : (
           <div className="space-y-4">
             {/* 좌: 요약 패널 / 우: 카드 격자 — 900px 이하에서는 1열(요약 위, 카드 아래) */}
-            <div className="grid grid-cols-[290px_1fr] gap-[18px] max-[900px]:grid-cols-1">
+            <div className="grid grid-cols-[210px_1fr] gap-[18px] max-[900px]:grid-cols-1">
               {/* 왼쪽 요약 패널 */}
               <div className="self-start sticky top-[18px] max-[900px]:static rounded-xl border border-border bg-surface-2 px-4 py-4">
                 <p className="text-xs font-semibold text-fg-muted mb-2 uppercase tracking-wide">부동산 전체 요약</p>
@@ -525,8 +525,8 @@ export default function RealEstateModule({ clientId }: Props) {
                 <button className="w-full btn-primary text-sm py-2 mt-3" onClick={() => setTab("add")}>+ 부동산 추가</button>
               </div>
 
-              {/* 오른쪽 카드 격자 — 넓으면 2열, 좁으면 1열로 자동 */}
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(330px,1fr))] gap-[14px]">
+              {/* 오른쪽 카드 격자 — 고객 상세 화면 우측 컬럼(55%)에 들어가 폭이 좁으므로 1열 고정 */}
+              <div className="grid grid-cols-1 gap-[14px]">
                 {properties.map((p) => {
                   const pDebts = debts.filter((d) => d.property_id === p.id);
                   const m = deriveMetrics(p, pDebts);
