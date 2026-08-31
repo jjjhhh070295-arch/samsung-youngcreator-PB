@@ -528,7 +528,7 @@ export default function RealEstateModule({ clientId }: Props) {
               <p className="min-w-0 flex-1 truncate text-xs text-fg-muted">{propertyNameSummary}</p>
               <div className="flex shrink-0 gap-2">
                 <button className="btn-primary text-sm py-1.5 px-4" onClick={() => setShowDetail((v) => !v)}>
-                  {showDetail ? "접기" : `상세보기 (${properties.length}건)`}
+                  {showDetail ? "접기" : "상세보기"}
                 </button>
               </div>
             </div>
