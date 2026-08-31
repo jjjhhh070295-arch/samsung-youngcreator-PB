@@ -25,13 +25,14 @@ import RealEstateModule from "@/components/RealEstateModule";
 import AssetAllocationBar from "@/components/AssetAllocationBar";
 import PartyRelationshipModule from "@/components/PartyRelationshipModule";
 import ClientAvatar from "@/components/ClientAvatar";
+import FactorsSummary from "@/components/FactorsSummary";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "factors", "cashflow", "portfolio", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "factors"; // 유효하지 않은 tab(삭제된 heritage/flags/questions 등)은 factors로 폴백
+  const activeTab: Tab = (["basic", "cashflow", "portfolio", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "cashflow"; // 유효하지 않은 tab(삭제된 heritage/flags/questions/factors 등)은 cashflow로 폴백 — factors는 기본 정보로 이동했으므로 더 이상 analysis 탭이 아님
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
@@ -71,6 +72,14 @@ export default function ClientDetailPage() {
     const el = document.getElementById(hash.replace("#", ""));
     if (el) el.scrollIntoView({ behavior: "smooth" });
   }, [activeView]);
+
+  // 예전 "?view=analysis&tab=factors" 딥링크(7요인이 analysis 탭이던 시절) → 기본 정보로 이동.
+  // 그냥 두면 cashflow 탭으로 조용히 폴백돼버려 사용자가 원했던 7요인 화면을 못 찾는다.
+  useEffect(() => {
+    if (activeView === "analysis" && searchParams?.get("tab") === "factors") {
+      router.replace(`/pb/${pbId}/${clientId}?view=home`);
+    }
+  }, [activeView, searchParams, router, pbId, clientId]);
 
   const handleSetTab = (t: Tab) => {
     router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=${t}`, { scroll: false });
@@ -222,6 +231,19 @@ export default function ClientDetailPage() {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* 7요인 */}
+        <section>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+            <span>🎯</span> 7요인
+          </h2>
+          <FactorsSummary
+            client={client}
+            allClients={allClients}
+            onEdit={() => setModalOpen(true)}
+            onToggleStage={toggleStage}
+          />
         </section>
 
         {/* 보유종목 / 부동산 자산 — 좌우 2단(45:55), 1280px 이하에서는 세로로 쌓임 */}

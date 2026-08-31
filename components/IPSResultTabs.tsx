@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Client, IPSFactor, CashFlow, Portfolio, StageKey } from "@/lib/types";
+import type { Client, CashFlow, Portfolio, StageKey } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
 import { formatKRW } from "@/lib/format";
 import CashFlowEditor from "./CashFlowEditor";
@@ -10,14 +10,11 @@ import PortfolioPanel from "./PortfolioPanel";
 import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
 import TaxProjectionPanel from "./TaxProjectionPanel";
-import ScoreRubricButton from "./ScoreRubricButton";
-import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
 import ConsultationHub from "./advisory/ConsultationHub";
 import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
-import HeritageSignalBadge from "./HeritageSignalBadge";
 
 interface Props {
   client: Client;
@@ -37,7 +34,6 @@ interface Props {
 
 export type Tab =
   | "basic"
-  | "factors"
   | "cashflow"
   | "portfolio"
   | "recommend"
@@ -45,21 +41,8 @@ export type Tab =
   | "stress"
   | "ips";
 
-function scoreBand(score: number | null): { label: string; cls: string } | null {
-  if (score == null) return null;
-  if (score >= 4) return { label: "상", cls: "bg-gold-200 text-gold-900 dark:bg-gold-700/60 dark:text-gold-100" };
-  if (score === 3) return { label: "중", cls: "bg-navy-100 text-navy-800 dark:bg-navy-700 dark:text-navy-100" };
-  return { label: "하", cls: "bg-surface-2 text-fg-muted" };
-}
-
-function StatusBadge({ f }: { f: IPSFactor }) {
-  if (f.status === "explicit") return <span className="badge-gold">명시</span>;
-  if (f.status === "inferred")
-    return <span className="badge-navy">추론 🔍</span>;
-  return <span className="badge-muted">미언급</span>;
-}
-
-// 상담 전 과정을 하나의 탭 바로 — 7요인/플래그/추가질문/현금흐름/포트폴리오/스트레스/IPS
+// 상담 전 과정을 하나의 탭 바로 — 현금흐름/포트폴리오/상품추천/세전세후/스트레스/IPS
+// (7요인은 기본 정보 화면으로 이동 — components/FactorsSummary.tsx)
 export default function IPSResultTabs({
   client,
   allClients,
@@ -192,18 +175,6 @@ export default function IPSResultTabs({
     await onUnfinalizePortfolio();
   };
 
-  const flags = useMemo(() => {
-    const list: { code: string; factor: string; text: string }[] = [];
-    let i = 1;
-    for (const m of FACTOR_META) {
-      const f = ips[m.key];
-      if (f.status === "inferred" && f.inferenceHint) {
-        list.push({ code: `A-${i++}`, factor: m.label, text: f.inferenceHint });
-      }
-    }
-    return list;
-  }, [ips]);
-
   // 포트폴리오 탭 상단 "산출 입력 요약"용 — 검토 확정된 7요인만
   const confirmedFactors = useMemo(
     () => FACTOR_META.filter((m) => {
@@ -300,61 +271,6 @@ export default function IPSResultTabs({
                     : "미입력"}
               </p>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7요인 */}
-      {tab === "factors" && (
-        <div>
-          <HeritageSignalBadge client={client} allClients={allClients} />
-          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-            <ScoreRubricButton
-              label="요인 점수 기준표 확인"
-              className="shrink-0 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700"
-            />
-            <button className="btn-outline text-xs" onClick={onEdit}>
-              상담으로 7요인 수정
-            </button>
-            <StageToggle k="factors" />
-          </div>
-          <section className="mb-4 grid gap-4 lg:grid-cols-[360px_1fr]">
-            <div className="console-panel p-4"><p className="decision-kicker">RRTTLLU profile</p><h2 className="mt-1 text-lg font-black text-fg">고객 투자성향 요약</h2><IPSRadar ips={ips} height={230} /></div>
-            <div className="console-panel p-4"><div className="flex items-center justify-between"><div><p className="console-label">최종 투자성향</p><p className="mt-1 text-2xl font-black text-[#1428A0]">{ips.risk.value || "검토 필요"}</p></div><span className="badge-navy">7요인 분석</span></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="console-metric"><p className="console-label">목표수익률</p><p className="mt-1 text-sm font-bold text-fg">{ips.return.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">위험허용도</p><p className="mt-1 text-sm font-bold text-fg">{ips.risk.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">투자기간</p><p className="mt-1 text-sm font-bold text-fg">{ips.timeHorizon.value || "미입력"}</p></div></div><p className="mt-4 text-xs leading-relaxed text-fg-muted">세부 근거와 추론 단서는 아래 요인 카드에서 확인하고 상담으로 수정할 수 있습니다.</p></div>
-          </section>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {FACTOR_META.map((m) => {
-            const f = ips[m.key];
-            const band = scoreBand(f.score);
-            const flag = flags.find((fl) => fl.factor === m.label);
-            return (
-              <div key={m.key} className="card p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-base font-bold text-fg">{m.label}</p>
-                    <p className="text-[11px] text-fg-muted">{m.desc}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {band && <span className={`badge ${band.cls}`}>{band.label}</span>}
-                    <StatusBadge f={f} />
-                  </div>
-                </div>
-                <p className="mt-3 text-xl font-bold text-navy-700 dark:text-gold-200">
-                  {f.value || (
-                    <span className="text-base font-normal text-fg-muted">
-                      {f.status === "inferred" ? "추론 단서만 있음" : "미언급"}
-                    </span>
-                  )}
-                </p>
-                {(f.evidence || f.inferenceHint) && <details className="mt-3 border-t border-border pt-2"><summary className="cursor-pointer text-[11px] font-bold text-[#1428A0]">근거 상세 보기</summary><p className="mt-2 text-xs leading-relaxed text-fg-muted">{f.evidence || `참고: ${f.inferenceHint}`}</p></details>}
-                {flag && (
-                  <div className="mt-3 rounded-md bg-gold-50 px-3 py-2 text-xs text-gold-800 dark:bg-gold-900/30 dark:text-gold-200">
-                    <b>[{flag.code}]</b> {flag.text}
-                  </div>
-                )}
-              </div>
-            );
-          })}
           </div>
         </div>
       )}

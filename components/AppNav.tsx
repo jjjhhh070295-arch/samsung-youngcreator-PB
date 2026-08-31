@@ -12,7 +12,6 @@ const MAIN_SECTIONS = [
 ];
 
 const ANALYSIS_TABS = [
-  { id: "factors", label: "7요인" },
   { id: "cashflow", label: "현금흐름" },
   { id: "portfolio", label: "포트폴리오" },
   { id: "recommend", label: "상품추천" },
@@ -40,7 +39,7 @@ export default function AppNav() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab = searchParams?.get("tab") ?? "factors";
+  const activeTab = searchParams?.get("tab") ?? "cashflow";
 
   useEffect(() => {
     if (!clientId) { setClient(null); return; }
