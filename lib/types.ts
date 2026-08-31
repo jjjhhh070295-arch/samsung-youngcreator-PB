@@ -165,6 +165,10 @@ export interface PB {
   employeeId: string; // 사원번호
   password: string;   // 비밀번호 (프로토타입: plaintext)
   createdAt: string;
+  // 모닝 브리핑 1단계 — pbs.email/title/phone 마이그레이션 실행 전에는 항상 undefined.
+  email?: string; // 고객 브리핑 메일의 Reply-To로 쓰인다
+  title?: string; // 직함(메일 서명용)
+  phone?: string; // 연락처(메일 서명용)
 }
 
 export type ClientType = "individual" | "corporate" | "sole_proprietor";
@@ -247,6 +251,11 @@ export interface Client {
   portfolios: Portfolio[]; // 7요인·현금흐름·리서치 기반 포트폴리오 후보
   stages: Stages; // 단계별 PB 확정 상태
   createdAt: string;
+  // 모닝 브리핑 1단계 — parties.email/email_opt_in/email_opt_out_at 마이그레이션
+  // 실행 전에는 email은 항상 undefined, emailOptIn은 항상 false로 읽힌다.
+  email?: string;
+  emailOptIn?: boolean; // 모닝 브리핑 수신 동의 — 기본 false, 명시적으로 켜야 발송 대상
+  emailOptOutAt?: string | null; // 수신거부 시각. null/undefined면 거부한 적 없음
 }
 
 // ── 상담 단계 (PB가 단계별로 확정) ──

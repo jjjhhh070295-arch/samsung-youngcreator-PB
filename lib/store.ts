@@ -41,6 +41,10 @@ function rowToPb(r: any): PB {
     employeeId: r.employee_id ?? "",
     password: r.password ?? "",
     createdAt: r.created_at,
+    // 모닝 브리핑 1단계 컬럼 — 마이그레이션 전이면 r.email 등이 아예 없어 undefined로 빠진다.
+    email: r.email ?? undefined,
+    title: r.title ?? undefined,
+    phone: r.phone ?? undefined,
   };
 }
 
@@ -76,6 +80,10 @@ function rowToClient(r: any): Client {
     portfolios: (r.portfolios ?? []) as Portfolio[],
     stages: (r.stages ?? {}) as Client["stages"],
     createdAt: r.created_at,
+    // 모닝 브리핑 1단계 컬럼 — 마이그레이션 전이면 r.email 등이 아예 없어 undefined/false로 빠진다.
+    email: r.email ?? undefined,
+    emailOptIn: r.email_opt_in ?? false,
+    emailOptOutAt: r.email_opt_out_at ?? null,
   };
 }
 
@@ -91,6 +99,10 @@ function clientToPartyRow(c: Partial<Client>): any {
   if (c.cashFlows !== undefined) row.cash_flows = c.cashFlows;
   if (c.portfolios !== undefined) row.portfolios = c.portfolios;
   if (c.stages !== undefined) row.stages = c.stages;
+  // 모닝 브리핑 1단계 — 마이그레이션 미실행 시 withMissingColumnFallback이 이 키들을 뺀다.
+  if (c.email !== undefined) row.email = c.email || null;
+  if (c.emailOptIn !== undefined) row.email_opt_in = c.emailOptIn;
+  if (c.emailOptOutAt !== undefined) row.email_opt_out_at = c.emailOptOutAt || null;
   return row;
 }
 
@@ -149,6 +161,43 @@ function uid(): string {
   return (
     Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
   );
+}
+
+// 모닝 브리핑 1단계(parties.email/email_opt_in/email_opt_out_at, pbs.email/title/phone)
+// 마이그레이션이 아직 실행되지 않은 환경에서도 고객/PB 추가·수정이 깨지지 않게 하는 헬퍼.
+// optionalKeys를 포함해 낙관적으로 insert/update를 시도하고, "컬럼 없음" 오류가 나면 그
+// 키들만 빼고 한 번 더 시도한다. 마이그레이션을 실행하고 나면 재시도 없이 첫 시도에서 바로
+// 성공하므로, 코드를 다시 배포하지 않아도 새 필드가 저장되기 시작한다.
+//
+// 에러 코드가 두 갈래로 갈린다 — 실제로 겪어보고 알았다: SELECT에서 없는 컬럼을 필터
+// 조건으로 쓰면 PostgREST가 Postgres 원본 코드(42703)를 그대로 넘기지만, INSERT/UPDATE의
+// payload에 없는 컬럼이 섞여 있으면 PostgREST가 Postgres에 보내기도 전에 자체 스키마
+// 캐시에서 걸러내 PGRST204("Could not find the 'x' column ... in the schema cache")를
+// 낸다. 하나만 체크하면 절반의 케이스에서 이 함수가 무력해지므로 둘 다 잡는다.
+const MISSING_COLUMN_ERROR_CODES = new Set(["42703", "PGRST204"]);
+
+async function withMissingColumnFallback<T = any>(
+  attempt: (row: Record<string, any>) => PromiseLike<{ data: T; error: any }>,
+  row: Record<string, any>,
+  optionalKeys: string[],
+): Promise<{ data: T; error: any }> {
+  const first = await attempt(row);
+  if (!first.error || !MISSING_COLUMN_ERROR_CODES.has(first.error.code) || optionalKeys.length === 0) return first;
+
+  const stripped = { ...row };
+  let removedAny = false;
+  for (const key of optionalKeys) {
+    if (key in stripped) {
+      delete stripped[key];
+      removedAny = true;
+    }
+  }
+  if (!removedAny) return first;
+
+  console.warn(
+    `[store] "${first.error.message}" — 마이그레이션 미실행으로 보고 [${optionalKeys.join(", ")}] 없이 재시도`,
+  );
+  return attempt(stripped);
 }
 
 // ───────────────────────── 로컬 폴백 저장소 ─────────────────────────
@@ -485,7 +534,7 @@ export async function listPbs(): Promise<PB[]> {
   return mergeById(remote, localOrSampleDb().pbs).sort((a, b) => a.code.localeCompare(b.code));
 }
 
-export async function createPb(data: { name: string; employeeId: string; password: string }): Promise<PB> {
+export async function createPb(data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }): Promise<PB> {
   if (usingLocalFallback) {
     const db = loadLocal();
     const pb: PB = {
@@ -495,6 +544,9 @@ export async function createPb(data: { name: string; employeeId: string; passwor
       employeeId: data.employeeId,
       password: data.password,
       createdAt: new Date().toISOString(),
+      email: data.email || undefined,
+      title: data.title || undefined,
+      phone: data.phone || undefined,
     };
     db.pbs.push(pb);
     saveLocal(db);
@@ -502,16 +554,25 @@ export async function createPb(data: { name: string; employeeId: string; passwor
   }
   const existing = await listPbs();
   const code = nextPbCode(existing);
-  const { data: row, error } = await supabase!
-    .from("pbs")
-    .insert({ code, name: data.name, employee_id: data.employeeId, password: data.password })
-    .select()
-    .single();
+  // email/title/phone은 마이그레이션 미실행 시 withMissingColumnFallback이 자동으로 빼고 재시도한다.
+  const { data: row, error } = await withMissingColumnFallback(
+    (row) => supabase!.from("pbs").insert(row).select().single(),
+    {
+      code,
+      name: data.name,
+      employee_id: data.employeeId,
+      password: data.password,
+      email: data.email || null,
+      title: data.title || null,
+      phone: data.phone || null,
+    },
+    ["email", "title", "phone"],
+  );
   if (error) throw error;
   return rowToPb(row);
 }
 
-export async function updatePb(id: string, data: { name?: string; employeeId?: string; password?: string }): Promise<void> {
+export async function updatePb(id: string, data: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string }): Promise<void> {
   if (isDemoPbId(id)) {
     const db = loadLocal();
     const pb = db.pbs.find((p) => p.id === id);
@@ -519,6 +580,9 @@ export async function updatePb(id: string, data: { name?: string; employeeId?: s
       if (data.name !== undefined) pb.name = data.name;
       if (data.employeeId !== undefined) pb.employeeId = data.employeeId;
       if (data.password !== undefined) pb.password = data.password;
+      if (data.email !== undefined) pb.email = data.email || undefined;
+      if (data.title !== undefined) pb.title = data.title || undefined;
+      if (data.phone !== undefined) pb.phone = data.phone || undefined;
       saveLocal(db);
     }
     return;
@@ -530,6 +594,9 @@ export async function updatePb(id: string, data: { name?: string; employeeId?: s
       if (data.name !== undefined) pb.name = data.name;
       if (data.employeeId !== undefined) pb.employeeId = data.employeeId;
       if (data.password !== undefined) pb.password = data.password;
+      if (data.email !== undefined) pb.email = data.email || undefined;
+      if (data.title !== undefined) pb.title = data.title || undefined;
+      if (data.phone !== undefined) pb.phone = data.phone || undefined;
     }
     saveLocal(db);
     return;
@@ -538,7 +605,14 @@ export async function updatePb(id: string, data: { name?: string; employeeId?: s
   if (data.name !== undefined) row.name = data.name;
   if (data.employeeId !== undefined) row.employee_id = data.employeeId;
   if (data.password !== undefined) row.password = data.password;
-  const { error } = await supabase!.from("pbs").update(row).eq("id", id);
+  if (data.email !== undefined) row.email = data.email || null;
+  if (data.title !== undefined) row.title = data.title || null;
+  if (data.phone !== undefined) row.phone = data.phone || null;
+  const { error } = await withMissingColumnFallback(
+    (r) => supabase!.from("pbs").update(r).eq("id", id).then((res) => ({ data: null, error: res.error })),
+    row,
+    ["email", "title", "phone"],
+  );
   if (error) throw error;
 }
 
@@ -593,6 +667,46 @@ export async function listClientsByPb(pbId: string): Promise<Client[]> {
   return all.filter((c) => c.assignedPbId === pbId);
 }
 
+// ───────────────────────── 모닝 브리핑 1단계 — 발송 대상 조회 ─────────────────────────
+// 발송 코드는 아직 없다(2단계). 이건 "누구에게 보내도 되는지"만 고정 쿼리 1번으로 낸다 —
+// 고객 수가 몇 명이든 쿼리 횟수는 늘지 않는다. PB별로 묶는 건 assignedPbId로 호출부에서
+// reduce/groupBy 하면 된다(별도 PB별 쿼리 불필요 — listClientsByPb와 같은 이유).
+
+export interface EmailBriefingTarget {
+  clientId: string;
+  email: string;
+  assignedPbId: string;
+}
+
+/** email이 있고, email_opt_in=true이고, email_opt_out_at이 null인 고객만 — 조건 전부 DB에서
+ *  거른다. 모닝 브리핑 마이그레이션이 아직 안 돌았으면(email_opt_in 컬럼 없음, 42703) 발송
+ *  대상이 하나도 없는 게 안전하므로 빈 배열을 반환한다(에러를 던지지 않는다). */
+export async function listEmailBriefingTargets(): Promise<EmailBriefingTarget[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("parties")
+    .select("id, email, pb_id, assigned_pb_id")
+    .eq("email_opt_in", true)
+    .is("email_opt_out_at", null)
+    .not("email", "is", null);
+
+  if (error) {
+    if (MISSING_COLUMN_ERROR_CODES.has(error.code)) {
+      console.warn("[store] listEmailBriefingTargets: 모닝 브리핑 마이그레이션 미실행 — 발송 대상 0명으로 처리");
+      return [];
+    }
+    throw error;
+  }
+
+  return (data ?? [])
+    .filter((r: any) => typeof r.email === "string" && r.email.trim() !== "")
+    .map((r: any) => ({
+      clientId: r.id,
+      email: r.email,
+      assignedPbId: r.pb_id ?? r.assigned_pb_id ?? "",
+    }));
+}
+
 export async function getClient(id: string): Promise<Client | null> {
   if (usingLocalFallback) {
     return loadLocal().clients.find((c) => c.id === id) ?? null;
@@ -622,6 +736,8 @@ export interface NewClientInput {
   ownershipPct?: number | null;
   isMajorityShareholder?: boolean | null;
   accountSeparation?: Client["accountSeparation"];
+  email?: string;
+  emailOptIn?: boolean;
 }
 
 export async function createClient(input: NewClientInput): Promise<Client> {
@@ -645,6 +761,8 @@ export async function createClient(input: NewClientInput): Promise<Client> {
       portfolios: [],
       stages: {},
       createdAt: new Date().toISOString(),
+      email: input.email || undefined,
+      emailOptIn: input.emailOptIn ?? false,
     };
     db.clients.push(client);
     saveLocal(db);
@@ -653,10 +771,11 @@ export async function createClient(input: NewClientInput): Promise<Client> {
   const existing = await listClients();
   const code = input.code || nextClientCode(existing);
 
-  // 1. parties 테이블 INSERT
-  const { data: partyData, error: pe } = await supabase!
-    .from("parties")
-    .insert({
+  // 1. parties 테이블 INSERT — email/email_opt_in은 마이그레이션 미실행 시
+  // withMissingColumnFallback이 자동으로 빼고 재시도한다.
+  const { data: partyData, error: pe } = await withMissingColumnFallback(
+    (row) => supabase!.from("parties").insert(row).select().single(),
+    {
       party_type: input.clientType === "corporate" ? "corporate" : "individual",
       display_name: input.name,
       pb_id: input.assignedPbId || null,
@@ -667,9 +786,11 @@ export async function createClient(input: NewClientInput): Promise<Client> {
       cash_flows: [],
       portfolios: [],
       stages: {},
-    })
-    .select()
-    .single();
+      email: input.email || null,
+      email_opt_in: input.emailOptIn ?? false,
+    },
+    ["email", "email_opt_in"],
+  );
   if (pe) throw pe;
 
   // 2. 서브테이블 INSERT
@@ -716,10 +837,15 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
     return;
   }
 
-  // parties 업데이트
+  // parties 업데이트 — email/email_opt_in/email_opt_out_at은 마이그레이션 미실행 시
+  // withMissingColumnFallback이 자동으로 빼고 재시도한다.
   const partyRow = clientToPartyRow(patch);
   if (Object.keys(partyRow).length > 0) {
-    const { error } = await supabase!.from("parties").update(partyRow).eq("id", id);
+    const { error } = await withMissingColumnFallback(
+      (row) => supabase!.from("parties").update(row).eq("id", id).then((res) => ({ data: null, error: res.error })),
+      partyRow,
+      ["email", "email_opt_in", "email_opt_out_at"],
+    );
     if (error) throw error;
   }
 

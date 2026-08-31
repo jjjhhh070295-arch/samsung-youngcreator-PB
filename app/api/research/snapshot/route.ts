@@ -2,13 +2,15 @@
 // GET  /api/research/snapshot  — Vercel Cron 자동 호출용 (동일 로직)
 //
 // 같은 날 이미 스냅샷이 있으면 skip (append-only, 덮어쓰기 없음).
-// CRON_SECRET 환경변수가 있으면 Authorization: Bearer {secret} 헤더로 보호.
+// Authorization: Bearer {CRON_SECRET} 헤더로 보호(lib/cronAuth.ts) — fail-closed:
+// 시크릿이 없으면 프로덕션에서는 무조건 거부한다(개발 환경 예외만 있음).
 //
 // 점수 계산: scoreResearchSignals(capFactor 방식) — 화면 신호와 동일 알고리즘.
 // "화면에서 본 신호 = 백테스트에서 검증하는 신호" 일치 보장.
 
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { isAuthorizedCronRequest } from "@/lib/cronAuth";
 import { SIGNAL_LIST } from "@/lib/researchAnalysis";
 import type { AnalyzedSignal } from "@/lib/researchAnalysis";
 import {
@@ -143,17 +145,9 @@ async function runSnapshot(): Promise<NextResponse> {
   }
 }
 
-// ── 인증 헬퍼 ──
-function isAuthorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // 시크릿 미설정 시 개방 (개발 편의)
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${secret}`;
-}
-
 // Vercel Cron은 GET으로 호출
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!isAuthorizedCronRequest(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return runSnapshot();
@@ -161,7 +155,7 @@ export async function GET(req: Request) {
 
 // 수동 트리거 (curl -X POST 또는 버튼)
 export async function POST(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!isAuthorizedCronRequest(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return runSnapshot();

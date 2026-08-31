@@ -171,13 +171,13 @@ export default function HomePage() {
     }
   };
 
-  const handleCreatePb = async (data: { name: string; employeeId: string; password: string }) => {
+  const handleCreatePb = async (data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }) => {
     const pb = await createPb(data);
     await load();
     return pb;
   };
 
-  const handleUpdatePb = async (id: string, data: { name?: string; employeeId?: string; password?: string }) => {
+  const handleUpdatePb = async (id: string, data: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string }) => {
     await updatePb(id, data);
     await load();
   };

@@ -132,6 +132,9 @@ export default function PBPage() {
           </div>
           <div className="flex gap-2">
             <button className="btn-primary text-sm" onClick={() => setClientFormOpen(true)}>+ 고객 추가</button>
+            <Link className="btn-outline text-sm" href={`/pb/${pbId}/briefing`}>
+              모닝 브리핑
+            </Link>
             <button className="btn-outline text-sm" onClick={() => setPbFormOpen(true)}>
               PB 정보 수정
             </button>

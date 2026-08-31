@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import type { PB } from "@/lib/types";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 interface Props {
   open: boolean;
   pbs: PB[];
   clientCountOf: (pbId: string) => number;
-  onCreate: (data: { name: string; employeeId: string; password: string }) => Promise<PB>;
-  onUpdate: (id: string, data: { name?: string; employeeId?: string; password?: string }) => Promise<void>;
+  onCreate: (data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }) => Promise<PB>;
+  onUpdate: (id: string, data: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
 }
@@ -25,17 +27,26 @@ export default function PBManageModal({
   const [newName, setNewName] = useState("");
   const [newEmployeeId, setNewEmployeeId] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newTitle, setNewTitle] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newEmailError, setNewEmailError] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmployeeId, setEditEmployeeId] = useState("");
   const [editPassword, setEditPassword] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editEmailError, setEditEmailError] = useState("");
 
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
       setNewName(""); setNewEmployeeId(""); setNewPassword("");
+      setNewEmail(""); setNewTitle(""); setNewPhone(""); setNewEmailError("");
       setEditingId(null);
     }
   }, [open]);
@@ -51,10 +62,24 @@ export default function PBManageModal({
 
   const add = async () => {
     if (!newName.trim() || !newEmployeeId.trim() || !newPassword.trim()) return;
+    const trimmedEmail = newEmail.trim();
+    if (trimmedEmail && !EMAIL_RE.test(trimmedEmail)) {
+      setNewEmailError("이메일 형식이 올바르지 않습니다.");
+      return;
+    }
+    setNewEmailError("");
     setBusy(true);
     try {
-      await onCreate({ name: newName.trim(), employeeId: newEmployeeId.trim(), password: newPassword.trim() });
+      await onCreate({
+        name: newName.trim(),
+        employeeId: newEmployeeId.trim(),
+        password: newPassword.trim(),
+        email: trimmedEmail || undefined,
+        title: newTitle.trim() || undefined,
+        phone: newPhone.trim() || undefined,
+      });
       setNewName(""); setNewEmployeeId(""); setNewPassword("");
+      setNewEmail(""); setNewTitle(""); setNewPhone("");
     } finally {
       setBusy(false);
     }
@@ -62,9 +87,20 @@ export default function PBManageModal({
 
   const saveEdit = async (id: string) => {
     if (!editName.trim()) return;
+    const trimmedEmail = editEmail.trim();
+    if (trimmedEmail && !EMAIL_RE.test(trimmedEmail)) {
+      setEditEmailError("이메일 형식이 올바르지 않습니다.");
+      return;
+    }
+    setEditEmailError("");
     setBusy(true);
     try {
-      const patch: { name?: string; employeeId?: string; password?: string } = { name: editName.trim() };
+      const patch: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string } = {
+        name: editName.trim(),
+        email: trimmedEmail,
+        title: editTitle.trim(),
+        phone: editPhone.trim(),
+      };
       if (editEmployeeId.trim()) patch.employeeId = editEmployeeId.trim();
       if (editPassword.trim()) patch.password = editPassword.trim();
       await onUpdate(id, patch);
@@ -79,6 +115,10 @@ export default function PBManageModal({
     setEditName(pb.name);
     setEditEmployeeId(pb.employeeId ?? "");
     setEditPassword("");
+    setEditEmail(pb.email ?? "");
+    setEditTitle(pb.title ?? "");
+    setEditPhone(pb.phone ?? "");
+    setEditEmailError("");
   };
 
   const remove = async (pb: PB) => {
@@ -134,6 +174,26 @@ export default function PBManageModal({
             value={newPassword}
             placeholder="비밀번호"
             onChange={(e) => setNewPassword(e.target.value)}
+          />
+          <input
+            className="input"
+            type="email"
+            value={newEmail}
+            placeholder="이메일 (예: pb@example.com)"
+            onChange={(e) => { setNewEmail(e.target.value); setNewEmailError(""); }}
+          />
+          {newEmailError && <p className="text-[11px] text-red-500">{newEmailError}</p>}
+          <input
+            className="input"
+            value={newTitle}
+            placeholder="직함 (예: 수석 PB)"
+            onChange={(e) => setNewTitle(e.target.value)}
+          />
+          <input
+            className="input"
+            value={newPhone}
+            placeholder="연락처 (예: 010-1234-5678)"
+            onChange={(e) => setNewPhone(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && add()}
           />
           <button
@@ -144,6 +204,7 @@ export default function PBManageModal({
             + PB 추가
           </button>
           <p className="text-[11px] text-fg-muted">식별코드(PB-00X)는 자동 부여됩니다.</p>
+          <p className="text-[11px] text-fg-muted">이메일은 고객 브리핑 메일의 회신(Reply-To) 주소로 쓰입니다.</p>
         </div>
 
         {/* 목록 */}
@@ -177,6 +238,27 @@ export default function PBManageModal({
                         placeholder="새 비밀번호 (변경 시만 입력)"
                         onChange={(e) => setEditPassword(e.target.value)}
                       />
+                      <input
+                        className="input"
+                        type="email"
+                        value={editEmail}
+                        placeholder="이메일 (예: pb@example.com)"
+                        onChange={(e) => { setEditEmail(e.target.value); setEditEmailError(""); }}
+                      />
+                      {editEmailError && <p className="text-[11px] text-red-500">{editEmailError}</p>}
+                      <input
+                        className="input"
+                        value={editTitle}
+                        placeholder="직함 (예: 수석 PB)"
+                        onChange={(e) => setEditTitle(e.target.value)}
+                      />
+                      <input
+                        className="input"
+                        value={editPhone}
+                        placeholder="연락처 (예: 010-1234-5678)"
+                        onChange={(e) => setEditPhone(e.target.value)}
+                      />
+                      <p className="text-[11px] text-fg-muted">이메일은 고객 브리핑 메일의 회신(Reply-To) 주소로 쓰입니다.</p>
                       <div className="flex gap-2">
                         <button
                           className="btn-primary flex-1 text-xs"

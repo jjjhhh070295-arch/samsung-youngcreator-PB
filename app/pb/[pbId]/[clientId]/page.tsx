@@ -123,6 +123,8 @@ export default function ClientDetailPage() {
       ownershipPct: v.ownershipPct,
       isMajorityShareholder: v.isMajorityShareholder,
       accountSeparation: v.accountSeparation,
+      email: v.email,
+      emailOptIn: v.emailOptIn,
     });
     await load();
     if (v.assignedPbId && v.assignedPbId !== pbId) {

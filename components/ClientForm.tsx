@@ -34,7 +34,11 @@ export interface ClientFormValue {
   ownershipPct: number | null;
   isMajorityShareholder: boolean | null;
   accountSeparation: AccountSeparation | null;
+  email: string;
+  emailOptIn: boolean;
 }
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Props {
   open: boolean;
@@ -68,8 +72,11 @@ export default function ClientForm({
   const [ownershipText, setOwnershipText] = useState("");
   const [isMajorityShareholder, setIsMajorityShareholder] = useState(false);
   const [accountSeparation, setAccountSeparation] = useState<AccountSeparation>("unknown");
+  const [email, setEmail] = useState("");
+  const [emailOptIn, setEmailOptIn] = useState(false);
   const [saving, setSaving] = useState(false);
   const [birthError, setBirthError] = useState("");
+  const [emailError, setEmailError] = useState("");
 
   // 오늘(로컬) — 생년월일/설립일이 미래가 되지 않도록 max 로 사용
   const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
@@ -87,6 +94,8 @@ export default function ClientForm({
       setOwnershipText(initial.ownershipPct == null ? "" : String(initial.ownershipPct));
       setIsMajorityShareholder(Boolean(initial.isMajorityShareholder));
       setAccountSeparation(initial.accountSeparation ?? "unknown");
+      setEmail(initial.email ?? "");
+      setEmailOptIn(Boolean(initial.emailOptIn));
     } else {
       setClientType("individual");
       setName("");
@@ -98,7 +107,10 @@ export default function ClientForm({
       setOwnershipText("");
       setIsMajorityShareholder(false);
       setAccountSeparation("unknown");
+      setEmail("");
+      setEmailOptIn(false);
     }
+    setEmailError("");
   }, [open, initial, suggestedCode, defaultPbId, pbs]);
 
   if (!open) return null;
@@ -127,6 +139,12 @@ export default function ClientForm({
       setBirthError("지분율은 숫자로 입력해주세요.");
       return;
     }
+    const trimmedEmail = email.trim();
+    if (trimmedEmail && !EMAIL_RE.test(trimmedEmail)) {
+      setEmailError("이메일 형식이 올바르지 않습니다.");
+      return;
+    }
+    setEmailError("");
     setSaving(true);
     try {
       await onSubmit({
@@ -140,6 +158,9 @@ export default function ClientForm({
         ownershipPct: clientType === "sole_proprietor" ? null : ownershipPct,
         isMajorityShareholder: clientType === "sole_proprietor" ? null : isMajorityShareholder,
         accountSeparation: clientType === "sole_proprietor" ? accountSeparation : null,
+        email: trimmedEmail,
+        // 이메일이 없는데 동의만 켜져 있는 상태로 저장되지 않게 방어.
+        emailOptIn: trimmedEmail ? emailOptIn : false,
       });
       onClose();
     } finally {
@@ -252,6 +273,34 @@ export default function ClientForm({
             </div>
             <p className="mt-1 text-right text-xs text-gold-600 dark:text-gold-300">
               {assetSize ? formatKRW(assetSize) : "—"}
+            </p>
+          </div>
+
+          <div className="col-span-2 rounded-xl border border-border bg-surface-2 p-3">
+            <label className="label">이메일</label>
+            <input
+              className="input"
+              type="email"
+              value={email}
+              placeholder="예: client@example.com"
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setEmailError("");
+              }}
+            />
+            {emailError && <p className="mt-1 text-[11px] text-red-500">{emailError}</p>}
+            <label className="mt-3 flex items-center gap-2 text-xs text-fg-muted">
+              <input
+                type="checkbox"
+                className="accent-gold-500"
+                checked={emailOptIn}
+                disabled={!email.trim()}
+                onChange={(e) => setEmailOptIn(e.target.checked)}
+              />
+              모닝 브리핑 수신 동의
+            </label>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+              동의한 고객에게만 발송됩니다.
             </p>
           </div>
 
