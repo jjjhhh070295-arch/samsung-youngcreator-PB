@@ -115,6 +115,7 @@ export default function RealEstateModule({ clientId }: Props) {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedDebt, setExpandedDebt] = useState<string | null>(null);
+  const [showDetail, setShowDetail] = useState(false); // 저장된 부동산 상세보기 — 화면 상태만, DB 저장 안 함
   const [deletingProp, setDeletingProp] = useState<string | null>(null);
   const [deletingDebt, setDeletingDebt] = useState<string | null>(null);
   const [lookingUp, setLookingUp] = useState<string | null>(null);
@@ -457,6 +458,13 @@ export default function RealEstateModule({ clientId }: Props) {
       };
     }, { totalValue: 0, totalDebt: 0, totalEquity: 0, investable: 0 });
 
+    // 압축 요약 바용 물건명 한 줄 — 3건까지는 전부, 4건 이상이면 앞 2개 + "외 N건"
+    const propertyNames = properties.map((p) => p.complex_name || p.address || "주소 미입력");
+    const propertyNameSummary =
+      propertyNames.length <= 3
+        ? propertyNames.join(" · ")
+        : `${propertyNames.slice(0, 2).join(" · ")} 외 ${propertyNames.length - 2}건`;
+
     // 대출 추가/수정 폼 — "연결 대출 N건" 아코디언 안에서도, 대출이 하나도 없을 때도 재사용한다.
     const debtAddForm = (propertyId: string) => (
       <div className="rounded-lg border border-dashed border-border p-2.5 space-y-2">
@@ -504,6 +512,28 @@ export default function RealEstateModule({ clientId }: Props) {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* 압축 요약 바 — 평소엔 이것만 보임. 좌: 금액·건수 / 가운데: 물건명 / 우: 버튼 */}
+            <div className="rounded-xl border border-border bg-surface-2 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="shrink-0">
+                <span className="text-lg font-bold text-fg">{formatW(totals.totalValue)}</span>
+                <span className="ml-1.5 text-sm text-fg-muted">· {properties.length}채</span>
+                {totals.totalDebt > 0 && (
+                  <p className="mt-0.5 text-[11px] text-fg-muted">
+                    부채 {formatW(totals.totalDebt)} · 순자산 {formatW(totals.totalEquity)}
+                  </p>
+                )}
+              </div>
+              <p className="min-w-0 flex-1 truncate text-xs text-fg-muted">{propertyNameSummary}</p>
+              <div className="flex shrink-0 gap-2">
+                <button className="btn-primary text-sm py-1.5 px-4" onClick={() => setTab("add")}>+ 부동산 추가</button>
+                <button className="btn-outline text-sm py-1.5 px-4" onClick={() => setShowDetail((v) => !v)}>
+                  {showDetail ? "접기" : `상세보기 (${properties.length}건)`}
+                </button>
+              </div>
+            </div>
+
+            {showDetail && (
+            <>
             {/* 좌: 요약 패널 / 우: 카드 격자 — 900px 이하에서는 1열(요약 위, 카드 아래) */}
             <div className="grid grid-cols-[210px_1fr] gap-[18px] max-[900px]:grid-cols-1">
               {/* 왼쪽 요약 패널 */}
@@ -746,6 +776,8 @@ export default function RealEstateModule({ clientId }: Props) {
             <p className="text-[10px] text-fg-muted/70 text-center pt-2">
               ※ 추정시세는 실거래 기반 참고값입니다. 중요한 의사결정 전 감정평가·KB시세로 보정하세요.
             </p>
+            </>
+            )}
           </div>
         )}
       </div>
