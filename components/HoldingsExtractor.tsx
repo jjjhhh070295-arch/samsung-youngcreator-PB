@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Holding, ExtractResult, Confidence } from "@/lib/validate-holdings";
 import { computeRow } from "@/lib/pricing/types";
+import { formatKRWShort } from "@/lib/format";
 
 interface Props {
   clientId: string;
@@ -466,33 +467,55 @@ export default function HoldingsExtractor({ clientId }: Props) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-surface-2 text-fg-muted">
-                    {["종목명", "코드", "시장", "통화", "수량", "평균단가", "현재가", "평가금액", "평가손익", "수익률%", "신뢰도", ""].map((h) => (
-                      <th key={h} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{h}</th>
-                    ))}
+                    <th className="px-3 py-2 text-left font-semibold whitespace-nowrap min-w-[100px]">종목</th>
+                    <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">수량</th>
+                    <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">평균단가</th>
+                    <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">현재가</th>
+                    <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">평가금액</th>
+                    <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">평가손익</th>
+                    <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">신뢰도</th>
+                    <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {savedWithPrices.map((h) => (
                     <tr key={h.id} className="border-t border-border hover:bg-surface-2 transition-colors">
-                      <td className="px-3 py-2 font-medium text-fg">{h.name}</td>
-                      <td className="px-3 py-2 text-fg-muted font-mono">{h.ticker ?? "—"}</td>
-                      <td className="px-3 py-2 text-fg-muted">{h.market ?? "—"}</td>
-                      <td className="px-3 py-2 text-fg-muted">{h.currency}</td>
-                      <td className="px-3 py-2 text-right text-fg">{fmt(h.quantity)}</td>
-                      <td className="px-3 py-2 text-right text-fg">{fmt(h.avg_price)}</td>
-                      <td className="px-3 py-2 text-right text-fg">
+                      {/* 종목: 이름+시장 배지 / 코드·통화 — 표시만 합침, 데이터는 그대로 */}
+                      <td className="px-3 py-2 whitespace-nowrap min-w-[100px]">
+                        <div className="flex items-center gap-1.5 font-medium text-fg">
+                          <span>{h.name}</span>
+                          {h.market && <span className="badge-muted text-[10px]">{h.market}</span>}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-fg-muted">
+                          {h.ticker ?? "—"} · {h.currency}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right text-fg tabular-nums">{fmt(h.quantity)}</td>
+                      <td className="px-3 py-2 text-right text-fg tabular-nums">{fmt(h.avg_price)}</td>
+                      <td className="px-3 py-2 text-right text-fg tabular-nums">
                         {h.live_price != null ? fmt(h.live_price) : <span className="text-fg-muted/50">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-right text-fg">
-                        {h.priced ? fmt(h.eval_amount) : <span className="text-fg-muted/50">—</span>}
+                      <td className="px-3 py-2 text-right text-fg tabular-nums">
+                        {h.priced && h.eval_amount != null ? formatKRWShort(h.eval_amount) : <span className="text-fg-muted/50">—</span>}
                       </td>
-                      <td className={`px-3 py-2 text-right font-medium ${!h.priced ? "text-fg-muted/50" : (h.pnl ?? 0) >= 0 ? "text-green-600" : "text-red-500"}`}>
-                        {h.priced && h.pnl != null ? ((h.pnl >= 0 ? "+" : "") + fmt(h.pnl)) : "—"}
+                      {/* 평가손익: 금액(굵게) / 수익률%(작게) — 표시만 합침 */}
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {h.priced && h.pnl != null ? (
+                          <>
+                            <div className={`font-medium ${(h.pnl ?? 0) >= 0 ? "text-green-600" : "text-red-500"}`}>
+                              {(h.pnl >= 0 ? "+" : "") + formatKRWShort(h.pnl)}
+                            </div>
+                            {h.return_pct != null && (
+                              <div className={(h.return_pct ?? 0) >= 0 ? "text-green-600" : "text-red-500"}>
+                                {(h.return_pct >= 0 ? "+" : "") + h.return_pct.toFixed(2) + "%"}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-fg-muted/50">—</span>
+                        )}
                       </td>
-                      <td className={`px-3 py-2 text-right font-medium ${!h.priced ? "text-fg-muted/50" : (h.return_pct ?? 0) >= 0 ? "text-green-600" : "text-red-500"}`}>
-                        {h.priced && h.return_pct != null ? ((h.return_pct >= 0 ? "+" : "") + h.return_pct.toFixed(2) + "%") : "—"}
-                      </td>
-                      <td className={`px-3 py-2 text-xs font-medium ${h.confidence === "low" ? "text-amber-600" : h.confidence === "high" ? "text-green-600" : "text-fg-muted"}`}>
+                      <td className={`px-3 py-2 text-xs font-medium whitespace-nowrap ${h.confidence === "low" ? "text-amber-600" : h.confidence === "high" ? "text-green-600" : "text-fg-muted"}`}>
                         {h.confidence === "high" ? "높음" : h.confidence === "low" ? "낮음" : "보통"}
                       </td>
                       <td className="px-3 py-2">
