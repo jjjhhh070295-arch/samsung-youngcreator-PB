@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, IPSFactor, CashFlow, Portfolio, StageKey } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
+import { formatKRW } from "@/lib/format";
 import CashFlowEditor from "./CashFlowEditor";
 import PortfolioPanel from "./PortfolioPanel";
 import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
@@ -203,6 +204,15 @@ export default function IPSResultTabs({
     return list;
   }, [ips]);
 
+  // 포트폴리오 탭 상단 "산출 입력 요약"용 — 검토 확정된 7요인만
+  const confirmedFactors = useMemo(
+    () => FACTOR_META.filter((m) => {
+      const f = ips[m.key];
+      return f.reviewed && (f.status === "explicit" || f.value);
+    }),
+    [ips],
+  );
+
   // SET 6자산 비중: 확정된 안의 weights만 추출해 세후/StressTestPanel에 전달.
   // PortfolioPanel과 동일하게 heldAssets(보유자산)+researchItems를 사용해
   // 화면 표시와 스트레스 입력 weights를 일치시킨다.
@@ -368,6 +378,58 @@ export default function IPSResultTabs({
       {/* 포트폴리오 — 패널 편집 + 최종 확정 */}
       {tab === "portfolio" && (
         <div>
+          {/* 산출 입력 요약 (읽기 전용) — 포트폴리오를 짤 때 근거를 옆에 두고 보는 용도 */}
+          <section className="card mb-4 p-4">
+            <h2 className="mb-3 text-sm font-semibold text-fg-muted">
+              산출 입력 요약 (확정 7요인 · 현금흐름 · 특이사항)
+            </h2>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <p className="mb-1 text-xs font-medium text-fg">확정 7요인</p>
+                {confirmedFactors.length === 0 ? (
+                  <p className="text-xs text-fg-muted">검토 확정된 요인이 없습니다.</p>
+                ) : (
+                  <ul className="space-y-1 text-xs text-fg-muted">
+                    {confirmedFactors.map((m) => (
+                      <li key={m.key}>
+                        <b className="text-fg">{m.label}</b>: {ips[m.key].value || "—"}
+                        {ips[m.key].score != null && (
+                          <span className="text-gold-600 dark:text-gold-300">
+                            {" "}
+                            ({ips[m.key].score}점)
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-medium text-fg">현금흐름</p>
+                {client.cashFlows.length === 0 ? (
+                  <p className="text-xs text-fg-muted">등록된 현금흐름이 없습니다.</p>
+                ) : (
+                  <ul className="space-y-1 text-xs text-fg-muted">
+                    {client.cashFlows.map((cf) => (
+                      <li key={cf.id}>
+                        {cf.label || "(무제목)"} · {formatKRW(cf.amount)} · {cf.date || "시점 미정"}
+                        {cf.recurring && " · 정기"}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-medium text-fg">특이사항 (Unique)</p>
+                <p className="text-xs text-fg-muted">
+                  {ips.unique.value ||
+                    ips.unique.inferenceHint ||
+                    "특이사항 없음"}
+                </p>
+              </div>
+            </div>
+          </section>
+
           <PortfolioPanel
             client={client}
             pbId={pbId}

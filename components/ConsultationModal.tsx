@@ -183,7 +183,7 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
   const saveAndGoPortfolio = async () => {
     if (await doSave()) {
       onSaved();
-      router.push(`/pb/${pbId}/${client.id}/portfolio`);
+      router.push(`/pb/${pbId}/${client.id}?view=analysis&tab=portfolio`);
     }
   };
 
