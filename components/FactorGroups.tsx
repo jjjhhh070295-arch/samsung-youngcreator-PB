@@ -93,60 +93,63 @@ export default function FactorGroups({ ips, flags }: Props) {
       {GROUPS.map((g) => {
         const missing = missingByGroup[g.id] ?? 0;
         return (
-          <section key={g.id} className="min-w-0">
-            {/* 열 제목 + 구분선 */}
-            <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 border-b border-border pb-2">
+          // 그룹 박스 — 박스 경계가 분명히 보이게 기존 border-border보다 진한
+          // 남색(#1428A0, ControlStatusBar 등 다른 강조 박스와 동일 톤)을 쓴다.
+          <section key={g.id} className="min-w-0 overflow-hidden rounded-xl border-[1.5px] border-[#1428A0] bg-white">
+            {/* 헤더 띠 — 박스 안에 꽉 채운 남색 바 */}
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-[#1428A0] px-4 py-2.5">
               <div className="flex items-baseline gap-1.5">
-                <h3 className="text-sm font-black text-fg">{g.label}</h3>
-                <span className="text-[10px] text-fg-muted/70">{g.keys.length}</span>
+                <h3 className="text-sm font-black text-white">{g.label}</h3>
+                <span className="text-[10px] text-white/60">{g.keys.length}</span>
               </div>
               {missing > 0 && (
-                <span
-                  title={`미언급 ${missing}개 — 상담으로 채울 수 있습니다`}
-                  className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                >
+                <span title={`미언급 ${missing}개 — 상담으로 채울 수 있습니다`} className="badge-warning">
                   미언급 {missing}
                 </span>
               )}
             </div>
-            <p className="mt-1.5 text-[11px] text-fg-muted">{g.hint}</p>
+            {/* 그룹 설명 + 구분선 */}
+            <div className="border-b border-border px-4 pb-2.5 pt-2">
+              <p className="text-[11px] text-fg-muted">{g.hint}</p>
+            </div>
 
-            {/* 카드 세로 스택 — 높이를 강제하지 않는다 */}
-            <div className="mt-3 flex flex-col gap-3">
+            {/* 요인 줄 — 카드 테두리 없이 얇은 구분선으로만 나눈다(divide-y라 마지막 줄엔 안 붙는다) */}
+            <div className="divide-y divide-border px-4">
               {g.keys.map((key) => {
                 const m = FACTOR_META.find((meta) => meta.key === key)!;
                 const f = ips[key];
                 const band = scoreBand(f.score);
                 const flag = flags.find((fl) => fl.factor === m.label);
+                const valueTone =
+                  f.status === "explicit"
+                    ? "text-lg font-bold text-navy-700 dark:text-gold-200"
+                    : f.status === "inferred"
+                      ? "text-base font-semibold text-fg"
+                      : "text-base font-normal text-fg-muted";
+                const valueText = f.value || (f.status === "inferred" ? "추론 단서만 있음" : "미언급");
                 return (
-                  <div key={key} className="card p-4">
+                  <div key={key} className="py-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-base font-bold text-fg">{m.label}</p>
-                        <p className="text-[11px] text-fg-muted">{m.desc}</p>
-                      </div>
+                      <p className="text-base font-bold text-fg">{m.label}</p>
                       <div className="flex shrink-0 items-center gap-1.5">
                         {band && <span className={`badge ${band.cls}`}>{band.label}</span>}
                         <StatusBadge f={f} />
                       </div>
                     </div>
-                    <p className="mt-3 text-xl font-bold text-navy-700 dark:text-gold-200">
-                      {f.value || (
-                        <span className="text-base font-normal text-fg-muted">
-                          {f.status === "inferred" ? "추론 단서만 있음" : "미언급"}
-                        </span>
-                      )}
-                    </p>
+                    <p className="mt-1 text-[11px] text-fg-muted">{m.desc}</p>
+                    <p className={`mt-2 ${valueTone}`}>{valueText}</p>
                     {(f.evidence || f.inferenceHint) && (
-                      <details className="mt-3 border-t border-border pt-2">
-                        <summary className="cursor-pointer text-[11px] font-bold text-[#1428A0]">근거 상세 보기</summary>
-                        <p className="mt-2 text-xs leading-relaxed text-fg-muted">
-                          {f.evidence || `참고: ${f.inferenceHint}`}
-                        </p>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[11px] font-bold text-[#1428A0]">▸ 근거 상세 보기</summary>
+                        <div className="mt-2 border-l-2 border-[#1428A0] pl-3">
+                          <p className="text-xs leading-relaxed text-fg-muted">
+                            {f.evidence || `참고: ${f.inferenceHint}`}
+                          </p>
+                        </div>
                       </details>
                     )}
                     {flag && (
-                      <div className="mt-3 rounded-md bg-gold-50 px-3 py-2 text-xs text-gold-800 dark:bg-gold-900/30 dark:text-gold-200">
+                      <div className="mt-2 rounded-md bg-gold-50 px-3 py-2 text-xs text-gold-800 dark:bg-gold-900/30 dark:text-gold-200">
                         <b>[{flag.code}]</b> {flag.text}
                       </div>
                     )}
