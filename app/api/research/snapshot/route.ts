@@ -2,13 +2,14 @@
 // GET  /api/research/snapshot  — Vercel Cron 자동 호출용 (동일 로직)
 //
 // 같은 날 이미 스냅샷이 있으면 skip (append-only, 덮어쓰기 없음).
-// CRON_SECRET 환경변수가 있으면 Authorization: Bearer {secret} 헤더로 보호.
+// CRON_SECRET 환경변수와 Authorization: Bearer {secret} 헤더로 보호.
+// 인증 설정이 없으면 개발 환경에서도 요청을 열지 않고 503으로 차단.
 //
 // 점수 계산: scoreResearchSignals(capFactor 방식) — 화면 신호와 동일 알고리즘.
 // "화면에서 본 신호 = 백테스트에서 검증하는 신호" 일치 보장.
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
 import { isApprovedResearchModel, SIGNAL_LIST } from "@/lib/researchAnalysis";
 import type { AnalyzedSignal } from "@/lib/researchAnalysis";
 import {
@@ -29,6 +30,9 @@ function stddev(values: number[]): number | null {
 }
 
 async function runSnapshot(): Promise<NextResponse> {
+  // 인증을 통과한 뒤에만 Supabase 모듈을 불러온다. 인증 설정 누락/실패 요청은
+  // client 초기화나 데이터 조회 코드에 도달하지 않는다.
+  const { supabase } = await import("@/lib/supabase");
   if (!supabase) {
     return NextResponse.json({ ok: false, error: "Supabase 미설정" }, { status: 500 });
   }
@@ -150,26 +154,70 @@ async function runSnapshot(): Promise<NextResponse> {
   }
 }
 
-// ── 인증 헬퍼 ──
-function isAuthorized(req: Request): boolean {
+type SnapshotAuthorization =
+  | { ok: true; principal: "cron-secret" }
+  | { ok: false; status: 401 | 503; code: "AUTH_NOT_CONFIGURED" | "UNAUTHORIZED" };
+
+type SnapshotExecutor = () => Promise<Response>;
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftDigest = createHash("sha256").update(left, "utf8").digest();
+  const rightDigest = createHash("sha256").update(right, "utf8").digest();
+  return timingSafeEqual(leftDigest, rightDigest);
+}
+
+function bearerToken(req: Request): string | null {
+  const authorization = req.headers.get("authorization");
+  if (!authorization) return null;
+  const match = /^Bearer ([^\s]+)$/.exec(authorization);
+  return match?.[1] ?? null;
+}
+
+// 현재 이 Route Handler에 연결된 신뢰 가능한 서버-principal adapter는 없다.
+// x-vercel-cron 같은 호출자 제어 헤더를 승인 근거로 사용하지 않는다.
+// 향후 서버 세션/서비스 계정을 연결할 때도 검증이 끝난 principal만 별도 adapter로
+// 전달해야 하며, 이 외부 HTTP 요청 자체가 주장하는 principal은 신뢰하지 않는다.
+function authorizeSnapshotRequest(req: Request): SnapshotAuthorization {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // 시크릿 미설정 시 개방 (개발 편의)
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${secret}`;
+  if (!secret || secret.trim().length === 0) {
+    return { ok: false, status: 503, code: "AUTH_NOT_CONFIGURED" };
+  }
+
+  const token = bearerToken(req);
+  if (!token || !constantTimeEqual(token, secret)) {
+    return { ok: false, status: 401, code: "UNAUTHORIZED" };
+  }
+
+  return { ok: true, principal: "cron-secret" };
+}
+
+async function handleSnapshotRequest(
+  req: Request,
+  execute: SnapshotExecutor = runSnapshot,
+): Promise<Response> {
+  const authorization = authorizeSnapshotRequest(req);
+  if (!authorization.ok) {
+    const message = authorization.status === 503
+      ? "Snapshot authorization is not configured."
+      : "Unauthorized";
+    return NextResponse.json(
+      { ok: false, error: message, code: authorization.code },
+      {
+        status: authorization.status,
+        headers: { "Cache-Control": "private, no-store" },
+      },
+    );
+  }
+
+  return execute();
 }
 
 // Vercel Cron은 GET으로 호출
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  return runSnapshot();
+  return handleSnapshotRequest(req);
 }
 
 // 수동 트리거 (curl -X POST 또는 버튼)
 export async function POST(req: Request) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  return runSnapshot();
+  return handleSnapshotRequest(req);
 }

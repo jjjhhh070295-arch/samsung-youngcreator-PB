@@ -588,8 +588,30 @@ export async function listClients(): Promise<Client[]> {
 }
 
 export async function listClientsByPb(pbId: string): Promise<Client[]> {
-  const all = await listClients();
-  return all.filter((c) => c.assignedPbId === pbId);
+  const normalizedPbId = pbId.trim();
+  if (!normalizedPbId) return [];
+  if (usingLocalFallback) {
+    const source = typeof window === "undefined" ? sampleDb() : loadLocal();
+    return source.clients.filter((client) => client.assignedPbId === normalizedPbId);
+  }
+  const { data, error } = await supabase!
+    .from("parties")
+    .select("*, individuals(*), corporates!party_id(*)")
+    .eq("pb_id", normalizedPbId)
+    .order("created_at", { ascending: true });
+  const fallback = localOrSampleDb().clients.filter(
+    (client) => client.assignedPbId === normalizedPbId,
+  );
+  if (error) {
+    console.warn("[store] 담당 PB 고객 조회 실패 — 해당 PB의 데모 고객만 사용:", error.message);
+    return fallback;
+  }
+  const remote = (data ?? []).map(rowToClient).filter(
+    (client) => client.assignedPbId === normalizedPbId,
+  );
+  return mergeById(remote, fallback).filter(
+    (client) => client.assignedPbId === normalizedPbId,
+  );
 }
 
 export async function getClient(id: string): Promise<Client | null> {
@@ -788,6 +810,34 @@ export async function listAllConsultations(): Promise<Consultation[]> {
     return localOrSampleDb().consultations.slice();
   }
   return mergeById((data ?? []).map(rowToConsultation), localOrSampleDb().consultations);
+}
+
+export async function listConsultationsByAuthorizedClientIds(
+  clientIds: string[],
+): Promise<Consultation[]> {
+  const ids = Array.from(new Set(clientIds.map((id) => id.trim()).filter(Boolean)));
+  if (ids.length === 0) return [];
+  const allowed = new Set(ids);
+  const fallback = (typeof window === "undefined" ? sampleDb() : loadLocal()).consultations
+    .filter((consultation) => allowed.has(consultation.clientId));
+  if (usingLocalFallback) {
+    return fallback.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  }
+  const { data, error } = await supabase!
+    .from("consultations")
+    .select("*")
+    .in("client_id", ids)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.warn("[store] 허용 고객 상담 조회 실패 — 해당 고객의 데모 상담만 사용:", error.message);
+    return fallback.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  }
+  const remote = (data ?? [])
+    .map(rowToConsultation)
+    .filter((consultation) => allowed.has(consultation.clientId));
+  return mergeById(remote, fallback)
+    .filter((consultation) => allowed.has(consultation.clientId))
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 }
 
 export interface NewConsultationInput {

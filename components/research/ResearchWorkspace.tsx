@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client } from "@/lib/types";
-import { listClients } from "@/lib/store";
 import { RESEARCH_COPILOT_AS_OF, RESEARCH_COPILOT_FIXTURE } from "@/lib/researchCopilot/fixture";
 import {
   approveResearchDraft,
@@ -19,7 +18,6 @@ import {
   validateSnapshots,
 } from "@/lib/researchCopilot/logic";
 import {
-  isCurrentWorkspaceGeneration,
   normalizeWorkspaceClientId,
   parseResearchWorkspaceState,
   researchWorkspaceStorageKey,
@@ -31,6 +29,7 @@ import type {
   ResearchWorkspaceState,
   ViewChange,
 } from "@/lib/researchCopilot/types";
+import MacroEvidencePanel from "@/components/research/MacroEvidencePanel";
 
 type WorkspaceView = "briefing" | "compare" | "client";
 
@@ -266,18 +265,25 @@ function EvidenceDialog({
   );
 }
 
-export default function ResearchWorkspace({ pbId, initialClientId }: { pbId: string; initialClientId?: string }) {
+export default function ResearchWorkspace({
+  pbId,
+  initialClientId,
+  authorizedClients,
+}: {
+  pbId: string;
+  initialClientId?: string;
+  authorizedClients: Client[];
+}) {
   const router = useRouter();
   const initialIdentity = normalizeWorkspaceClientId(initialClientId);
   const [view, setView] = useState<WorkspaceView>("briefing");
-  const [clients, setClients] = useState<Client[]>([]);
+  const clients = authorizedClients;
   const [selectedClientId, setSelectedClientId] = useState(initialIdentity);
   const [workspace, setWorkspace] = useState<ResearchWorkspaceState>(() => createInitialState(pbId, initialIdentity));
   const [evidenceChecked, setEvidenceChecked] = useState(false);
   const [message, setMessage] = useState("");
   const [activeClaimId, setActiveClaimId] = useState<string | null>(null);
   const lastEvidenceTrigger = useRef<HTMLButtonElement | null>(null);
-  const generationRef = useRef(0);
 
   const identity = `${pbId}:${selectedClientId}`;
   const selectedClient = clients.find((client) => client.id === selectedClientId) ?? null;
@@ -287,21 +293,6 @@ export default function ResearchWorkspace({ pbId, initialClientId }: { pbId: str
     const nextClientId = normalizeWorkspaceClientId(initialClientId);
     if (nextClientId !== selectedClientId) setSelectedClientId(nextClientId);
   }, [initialClientId, selectedClientId]);
-
-  useEffect(() => {
-    const generation = ++generationRef.current;
-    const expectedIdentity = identity;
-    listClients()
-      .then((items) => {
-        if (!isCurrentWorkspaceGeneration(generation, generationRef.current, expectedIdentity, `${pbId}:${selectedClientId}`)) return;
-        setClients(items.filter((client) => client.assignedPbId === pbId));
-      })
-      .catch(() => {
-        if (isCurrentWorkspaceGeneration(generation, generationRef.current, expectedIdentity, `${pbId}:${selectedClientId}`)) {
-          setClients([]);
-        }
-      });
-  }, [identity, pbId, selectedClientId]);
 
   useEffect(() => {
     const expected = { pbId, clientId: selectedClientId };
@@ -511,6 +502,7 @@ export default function ResearchWorkspace({ pbId, initialClientId }: { pbId: str
                 <p className="mt-3 text-xs leading-relaxed text-[#64748B]">발행일·기준일·페이지가 없거나 stale·충돌이면 해당 결과는 정상 카드로 표시하지 않고 출력도 차단합니다.</p>
               </article>
             </div>
+            <MacroEvidencePanel identity={identity} />
             <article className="rounded-2xl border border-[#DCE4F5] bg-white p-5">
               <div><p className="text-[11px] font-black text-[#2C3EE8]">DETERMINISTIC DIFF</p><h2 className="mt-1 text-lg font-black">전월 대비 무엇이 바뀌었나</h2></div>
               {comparison.issues.length > 0 ? (

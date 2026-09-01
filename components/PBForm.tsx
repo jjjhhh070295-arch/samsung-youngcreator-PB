@@ -5,7 +5,7 @@ import type { PB } from "@/lib/types";
 
 interface Props {
   open: boolean;
-  initial?: PB | null; // 있으면 수정, 없으면 추가
+  initial?: Pick<PB, "id" | "name"> | null; // 있으면 수정, 없으면 추가
   onSubmit: (name: string) => Promise<void> | void;
   onClose: () => void;
 }

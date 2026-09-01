@@ -30,6 +30,16 @@ export interface ResearchClaim {
   reviewedAt: string | null;
   staleAt: string;
   conflictGroupId?: string;
+  /**
+   * 철회 후보 메타데이터다. 보존 원문 bytes와 페이지/섹션을 대조하는
+   * 서버 검증기가 도입되기 전에는 이 값만으로 종료·철회를 판정하지 않는다.
+   */
+  withdrawalEvidence?: {
+    sourceId: string;
+    withdrawnClaimIds: string[];
+    exactQuote: string;
+    locator: string;
+  };
 }
 
 export interface ResearchViewSnapshot {

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getClient } from "@/lib/store";
 import type { Client } from "@/lib/types";
 
 const MAIN_SECTIONS = [
@@ -43,9 +42,20 @@ export default function AppNav() {
   const activeTab = searchParams?.get("tab") ?? "factors";
 
   useEffect(() => {
-    if (!clientId) { setClient(null); return; }
-    getClient(clientId).then(setClient).catch(() => {});
-  }, [clientId]);
+    if (!pbId || !clientId) { setClient(null); return; }
+    let cancelled = false;
+    fetch(`/api/pb/context?pbId=${encodeURIComponent(pbId)}&clientId=${encodeURIComponent(clientId)}`, {
+      cache: "no-store",
+      credentials: "same-origin",
+    }).then(async (response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!cancelled) setClient(data?.client ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setClient(null);
+      });
+    return () => { cancelled = true; };
+  }, [clientId, pbId]);
 
   useEffect(() => {
     if (!mobileOpen) return;

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getLoggedInPbId } from "@/lib/auth";
+import { getLoggedInPbSession } from "@/lib/auth";
 
 /**
  * 과거 공개 경로는 PB 세션 문맥을 잃기 때문에 내용 자체를 렌더링하지 않는다.
@@ -12,8 +12,13 @@ export default function LegacyResearchRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    const pbId = getLoggedInPbId();
-    router.replace(pbId ? `/pb/${pbId}/research` : "/");
+    let cancelled = false;
+    void getLoggedInPbSession().then((session) => {
+      if (!cancelled) router.replace(session ? `/pb/${session.pbId}/research` : "/");
+    }).catch(() => {
+      if (!cancelled) router.replace("/");
+    });
+    return () => { cancelled = true; };
   }, [router]);
 
   return (
