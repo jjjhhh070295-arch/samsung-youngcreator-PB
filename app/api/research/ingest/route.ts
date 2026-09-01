@@ -58,7 +58,7 @@ export async function GET(req: Request) {
     const cached = new Map(allCached);
     if (retryFailed) {
       allCached.forEach((a, id) => {
-        if (a.model === "dummy") cached.delete(id); // 더미는 다시 분석 대상으로
+        if (a.model === "dummy" || a.model.startsWith("unverified")) cached.delete(id);
       });
     }
     const newItems = items.filter((it) => !cached.has(it.id));
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
       .filter(Boolean) as ReportAnalysis[];
 
     const aggregated = aggregateAnalyses(analyses);
-    const usedLLM = freshAnalyses.some((a) => a.model !== "dummy");
+    const usedLLM = freshAnalyses.some((a) => a.model !== "dummy" && !a.model.startsWith("unverified"));
 
     return NextResponse.json({
       ok: true,

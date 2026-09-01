@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { Client, Portfolio } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
-import { getClient, updateClient } from "@/lib/store";
+import { updateClient } from "@/lib/store";
 import { formatKRW } from "@/lib/format";
 import PortfolioPanel from "@/components/PortfolioPanel";
 import { LoadingView, ErrorView } from "@/components/StateViews";
@@ -25,7 +25,13 @@ export default function PortfolioPage() {
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      const c = await getClient(clientId);
+      const response = await fetch(
+        `/api/pb/context?pbId=${encodeURIComponent(pbId)}&clientId=${encodeURIComponent(clientId)}`,
+        { cache: "no-store", credentials: "same-origin" },
+      );
+      if (!response.ok) return setStatus("error");
+      const data = await response.json() as { client: Client | null };
+      const c = data.client;
       if (!c) return setStatus("error");
       setClient(c);
       setStatus("ready");
@@ -33,7 +39,7 @@ export default function PortfolioPage() {
       console.error(e);
       setStatus("error");
     }
-  }, [clientId]);
+  }, [clientId, pbId]);
 
   useEffect(() => {
     load();
