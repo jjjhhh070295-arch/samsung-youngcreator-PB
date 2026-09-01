@@ -285,7 +285,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-blue-200">PB manual allocation workspace</p>
             <h2 className="mt-1 text-2xl font-black tracking-tight">Portfolio Customizing</h2>
-            <p className="mt-2 max-w-2xl text-xs leading-relaxed text-blue-100">AI 추천 없이 PB가 고객의 기존 보유자산을 확인하고 자산군 비중과 편입 종목을 직접 설계합니다.</p>
+            <p className="mt-2 max-w-2xl text-xs leading-relaxed text-blue-100">PB가 고객의 기존 보유자산을 확인하고 자산군 비중과 편입 종목을 직접 설계합니다.</p>
           </div>
           <div className={`min-w-[210px] rounded-xl border px-4 py-3 ${isComplete ? "border-emerald-300/50 bg-emerald-400/15" : "border-amber-300/50 bg-amber-300/10"}`}>
             <div className="flex items-end justify-between gap-4">

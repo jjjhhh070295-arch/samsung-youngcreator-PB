@@ -273,7 +273,13 @@ export interface GoldCase {
 
 export interface TickerBar {
   time: string;
+  open?: number;
+  high?: number;
+  low?: number;
   close: number;
+  volume?: number;
+  /** @deprecated use close */
+  closeLegacy?: number;
   sma5: number | null;
   sma20: number | null;
   sma60: number | null;
@@ -282,6 +288,9 @@ export interface TickerBar {
   macd: number | null;
   macdSignal: number | null;
   macdHistogram: number | null;
+  bbUpper?: number | null;
+  bbMiddle?: number | null;
+  bbLower?: number | null;
 }
 
 export interface TickerProfile {
