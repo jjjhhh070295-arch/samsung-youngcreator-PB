@@ -12,7 +12,7 @@ const TOOLS: Array<{ id: DrawingTool; icon: string; label: string; tip: string }
   { id: "vline", icon: "│", label: "수직선", tip: "날짜 기준 수직선" },
   { id: "long", icon: "▲", label: "매수 포지션", tip: "진입·목표·손절 (매수)" },
   { id: "short", icon: "▼", label: "매도 포지션", tip: "진입·목표·손절 (매도)" },
-  { id: "erase", icon: "⌫", label: "삭제", tip: "선택한 도형 삭제" },
+  { id: "erase", icon: "⌫", label: "삭제", tip: "선택된 도형 삭제 또는 클릭한 도형 삭제" },
 ];
 
 function ToolButton({
