@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { canApplyMacroResponse } from "@/lib/researchCopilot/macroEvidence/requestIsolation";
 import { isMacroDashboardResult } from "@/lib/researchCopilot/macroEvidence/publicValidation";
@@ -12,6 +13,18 @@ import type {
   MacroSeriesEvidence,
   MacroSeriesResult,
 } from "@/lib/researchCopilot/macroEvidence/types";
+
+const MacroSeriesTrendExplorer = dynamic(
+  () => import("@/components/research/MacroSeriesTrendExplorer"),
+  {
+    ssr: false,
+    loading: () => (
+      <p role="status" className="rounded-xl border border-[#DCE4F5] bg-white p-4 text-xs font-semibold text-[#475569]">
+        추이 화면을 준비하고 있습니다.
+      </p>
+    ),
+  },
+);
 
 export const MACRO_EVIDENCE_ENDPOINT = "/api/research/macro-evidence";
 
@@ -50,7 +63,15 @@ function displayAvailability(item: ReadyMacroSeries) {
   ];
 }
 
-function ReadyCard({ item }: { item: ReadyMacroSeries }) {
+function ReadyCard({
+  item,
+  trendOpen,
+  onOpenTrend,
+}: {
+  item: ReadyMacroSeries;
+  trendOpen: boolean;
+  onOpenTrend: (trigger: HTMLButtonElement) => void;
+}) {
   const derived = item.mode === "deterministic-derived";
   const koreaDefinition = !derived && item.seriesId in KOREA_MACRO_ALLOWLIST
     ? KOREA_MACRO_ALLOWLIST[item.seriesId as keyof typeof KOREA_MACRO_ALLOWLIST]
@@ -91,14 +112,25 @@ function ReadyCard({ item }: { item: ReadyMacroSeries }) {
         {usDefinition && <p className="mt-1 break-words">공식 필드 {usDefinition.sourceField} · 주기 {usDefinition.frequency}</p>}
         {derived && <p className="mt-1 break-words">산식 {item.formula}</p>}
         <p className="mt-1 break-all">수집 {item.retrievedAt}</p>
-        <a
-          href={item.sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 inline-flex min-h-9 items-center font-black text-[#1428A0] underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
-        >
-          공식 원천 열기 ↗
-        </a>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            aria-expanded={trendOpen}
+            aria-controls={trendOpen ? "macro-series-trend-explorer" : undefined}
+            onClick={(event) => onOpenTrend(event.currentTarget)}
+            className="min-h-10 rounded-lg bg-[#2C3EE8] px-3 text-[10px] font-black text-white hover:bg-[#1428A0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8] focus-visible:ring-offset-2"
+          >
+            {trendOpen ? "현재 추이 열림" : "추이 보기"}
+          </button>
+          <a
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-10 items-center font-black text-[#1428A0] underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+          >
+            공식 원천 열기 ↗
+          </a>
+        </div>
       </div>
     </article>
   );
@@ -126,16 +158,33 @@ function BlockedCard({ item }: { item: Extract<MacroSeriesResult, { status: "blo
   );
 }
 
-function SeriesCard({ item }: { item: MacroSeriesResult }) {
-  return item.status === "ready" ? <ReadyCard item={item} /> : <BlockedCard item={item} />;
+function SeriesCard({
+  item,
+  selectedSeriesId,
+  onOpenTrend,
+}: {
+  item: MacroSeriesResult;
+  selectedSeriesId: string | null;
+  onOpenTrend: (seriesId: string, trigger: HTMLButtonElement) => void;
+}) {
+  return item.status === "ready"
+    ? <ReadyCard item={item} trendOpen={selectedSeriesId === item.seriesId} onOpenTrend={(trigger) => onOpenTrend(item.seriesId, trigger)} />
+    : <BlockedCard item={item} />;
 }
 
 export default function MacroEvidencePanel({ identity }: { identity: string }) {
   const [state, setState] = useState<LoadState>({ status: "loading", identity });
   const [reloadGeneration, setReloadGeneration] = useState(0);
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
   const identityRef = useRef(identity);
+  const trendTriggerRef = useRef<HTMLButtonElement | null>(null);
   identityRef.current = identity;
+
+  useEffect(() => {
+    setSelectedSeriesId(null);
+    trendTriggerRef.current = null;
+  }, [identity]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -177,6 +226,23 @@ export default function MacroEvidencePanel({ identity }: { identity: string }) {
   }, [identity, reloadGeneration]);
 
   const visibleState: LoadState = state.identity === identity ? state : { status: "loading", identity };
+  const selectedSeries = visibleState.status === "ready" && selectedSeriesId
+    ? Object.values(visibleState.result.sections)
+      .flat()
+      .find((item): item is ReadyMacroSeries => item.status === "ready" && item.seriesId === selectedSeriesId) ?? null
+    : null;
+  const openTrend = (seriesId: string, trigger: HTMLButtonElement) => {
+    trendTriggerRef.current = trigger;
+    setSelectedSeriesId(seriesId);
+  };
+  const closeTrend = () => {
+    const trigger = trendTriggerRef.current;
+    setSelectedSeriesId(null);
+    trendTriggerRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (trigger?.isConnected) trigger.focus();
+    });
+  };
 
   return (
     <section aria-labelledby="macro-evidence-heading" className="space-y-4 rounded-2xl border border-[#C9D1FF] bg-[#EEF1FF] p-4 sm:p-5">
@@ -193,7 +259,11 @@ export default function MacroEvidencePanel({ identity }: { identity: string }) {
         </div>
         <button
           type="button"
-          onClick={() => setReloadGeneration((current) => current + 1)}
+          onClick={() => {
+            setSelectedSeriesId(null);
+            trendTriggerRef.current = null;
+            setReloadGeneration((current) => current + 1);
+          }}
           className="min-h-11 shrink-0 rounded-lg border border-[#1428A0] bg-white px-4 text-xs font-black text-[#1428A0] hover:bg-[#F5F7FC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8] focus-visible:ring-offset-2"
         >
           공식 데이터 다시 확인
@@ -215,6 +285,14 @@ export default function MacroEvidencePanel({ identity }: { identity: string }) {
 
       {visibleState.status === "ready" && (
         <div className="space-y-4">
+          {selectedSeries && (
+            <MacroSeriesTrendExplorer
+              key={`${identity}:${selectedSeries.seriesId}`}
+              identity={identity}
+              series={selectedSeries}
+              onClose={closeTrend}
+            />
+          )}
           {(["korea-macro", "us-rates", "credit-volatility"] as const).map((sectionId) => {
             const copy = SECTION_COPY[sectionId];
             const items = visibleState.result.sections[sectionId];
@@ -227,7 +305,14 @@ export default function MacroEvidencePanel({ identity }: { identity: string }) {
                   <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">검증된 계열이 없어 이 구역을 표시하지 않습니다.</p>
                 ) : (
                   <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {items.map((item) => <SeriesCard key={item.seriesId} item={item} />)}
+                    {items.map((item) => (
+                      <SeriesCard
+                        key={item.seriesId}
+                        item={item}
+                        selectedSeriesId={selectedSeries?.seriesId ?? null}
+                        onOpenTrend={openTrend}
+                      />
+                    ))}
                   </div>
                 )}
               </section>
