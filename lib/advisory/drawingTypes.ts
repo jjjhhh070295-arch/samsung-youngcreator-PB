@@ -89,6 +89,15 @@ export interface DrawingDocument {
 
 export const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] as const;
 
+/** Minimum pointer travel (px) before a two-point drawing is committed. */
+export const MIN_DRAWING_DRAG_PX = 8;
+
+/** Minimum pen path length (px) before commit. */
+export const MIN_PEN_PATH_PX = 12;
+
+export const DRAFT_DASH = "6 4";
+export const DRAFT_OPACITY = 0.55;
+
 export function positionRiskReward(entry: number, target: number, stop: number) {
   const reward = Math.abs(target - entry);
   const risk = Math.abs(entry - stop);

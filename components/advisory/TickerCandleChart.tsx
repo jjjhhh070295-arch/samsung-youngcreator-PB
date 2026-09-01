@@ -12,7 +12,11 @@ import {
   type ChartLayout,
 } from "@/lib/advisory/chartCoords";
 import {
+  DRAFT_DASH,
+  DRAFT_OPACITY,
   FIB_LEVELS,
+  MIN_DRAWING_DRAG_PX,
+  MIN_PEN_PATH_PX,
   positionRiskReward,
   type DrawingDocument,
   type DrawingObject,
@@ -26,6 +30,15 @@ function uid() {
 }
 
 type ChartScales = ReturnType<typeof scalesFromBars>;
+
+type DrawingDraft = {
+  tool: DrawingTool;
+  start: PointTP;
+  current: PointTP;
+  points: PointTP[];
+  pointerId: number;
+  startPx: { x: number; y: number };
+};
 
 function pointToXY(point: PointTP, scales: ChartScales, layout: ChartLayout) {
   return {
@@ -145,29 +158,75 @@ function hitDrawing(obj: DrawingObject, x: number, y: number, scales: ChartScale
   }
 }
 
+function penPathLengthPx(points: PointTP[], scales: ChartScales, layout: ChartLayout) {
+  let len = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = pointToXY(points[i - 1], scales, layout);
+    const b = pointToXY(points[i], scales, layout);
+    len += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return len;
+}
+
+function dragDistancePx(draft: DrawingDraft, currentPx: { x: number; y: number }) {
+  return Math.hypot(currentPx.x - draft.startPx.x, currentPx.y - draft.startPx.y);
+}
+
+function positionFromDrag(tool: "long" | "short", start: PointTP, current: PointTP) {
+  const entry = start.price;
+  const target = current.price;
+  const risk = Math.abs(target - entry) || Math.max(entry * 0.01, 1);
+  const stop = tool === "long" ? entry - risk : entry + risk;
+  return { entry, target, stop, entryTime: start.time };
+}
+
 function renderDrawing(
   obj: DrawingObject,
   scales: ChartScales,
   layout: ChartLayout,
   selected: boolean,
+  preview = false,
 ) {
-  const stroke = obj.color;
+  const stroke = preview ? obj.color : obj.color;
   const sw = obj.strokeWidth;
-  const dash = selected ? "4 3" : undefined;
+  const dash = preview ? DRAFT_DASH : selected ? "4 3" : undefined;
+  const opacity = preview ? DRAFT_OPACITY : 1;
 
   switch (obj.tool) {
     case "pen": {
       const pts = obj.points
         .map((p) => `${timeToX(p.time, scales, layout)},${priceToY(p.price, scales, layout)}`)
         .join(" ");
-      return <polyline key={obj.id} points={pts} fill="none" stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />;
+      return (
+        <polyline
+          key={obj.id}
+          points={pts}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={sw}
+          strokeDasharray={dash}
+          opacity={opacity}
+        />
+      );
     }
     case "trendline": {
       const x1 = timeToX(obj.a.time, scales, layout);
       const y1 = priceToY(obj.a.price, scales, layout);
       const x2 = timeToX(obj.b.time, scales, layout);
       const y2 = priceToY(obj.b.price, scales, layout);
-      return <line key={obj.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />;
+      return (
+        <line
+          key={obj.id}
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke={stroke}
+          strokeWidth={sw}
+          strokeDasharray={dash}
+          opacity={opacity}
+        />
+      );
     }
     case "parallel_channel": {
       const x1 = timeToX(obj.a.time, scales, layout);
@@ -176,9 +235,9 @@ function renderDrawing(
       const y2 = priceToY(obj.b.price, scales, layout);
       const yOff = priceToY(obj.a.price + obj.offsetPrice, scales, layout) - y1;
       return (
-        <g key={obj.id}>
+        <g key={obj.id} opacity={opacity}>
           <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
-          <line x1={x1} y1={y1 + yOff} x2={x2} y2={y2 + yOff} stroke={stroke} strokeWidth={sw} opacity={0.7} strokeDasharray={dash} />
+          <line x1={x1} y1={y1 + yOff} x2={x2} y2={y2 + yOff} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} opacity={0.75} />
         </g>
       );
     }
@@ -190,15 +249,15 @@ function renderDrawing(
       const left = Math.min(x1, x2);
       const right = Math.max(x1, x2);
       return (
-        <g key={obj.id}>
+        <g key={obj.id} opacity={opacity}>
           {FIB_LEVELS.map((lv) => {
             const price = bottom + (top - bottom) * (1 - lv);
             const y = priceToY(price, scales, layout);
             return (
               <g key={lv}>
-                <line x1={left} y1={y} x2={right} y2={y} stroke={stroke} strokeWidth={1} opacity={0.85} strokeDasharray={dash} />
-                {obj.showLabels && (
-                  <text x={right + 4} y={y + 3} fontSize={9} fill={stroke}>
+                <line x1={left} y1={y} x2={right} y2={y} stroke={stroke} strokeWidth={1} strokeDasharray={dash} />
+                {(obj.showLabels || preview) && (
+                  <text x={right + 4} y={y + 3} fontSize={9} fill={stroke} opacity={0.9}>
                     {(lv * 100).toFixed(1)}%
                   </text>
                 )}
@@ -211,9 +270,17 @@ function renderDrawing(
     case "hline": {
       const y = priceToY(obj.price, scales, layout);
       return (
-        <g key={obj.id}>
-          <line x1={layout.paddingLeft} y1={y} x2={layout.width - layout.paddingRight} y2={y} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
-          {obj.showLabels && (
+        <g key={obj.id} opacity={opacity}>
+          <line
+            x1={layout.paddingLeft}
+            y1={y}
+            x2={layout.width - layout.paddingRight}
+            y2={y}
+            stroke={stroke}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+          />
+          {obj.showLabels && !preview && (
             <text x={layout.width - layout.paddingRight + 2} y={y + 3} fontSize={9} fill={stroke}>
               {obj.price.toLocaleString("ko-KR")}
             </text>
@@ -224,9 +291,17 @@ function renderDrawing(
     case "vline": {
       const x = timeToX(obj.time, scales, layout);
       return (
-        <g key={obj.id}>
-          <line x1={x} y1={layout.paddingTop} x2={x} y2={layout.height - layout.paddingBottom} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
-          {obj.showLabels && (
+        <g key={obj.id} opacity={opacity}>
+          <line
+            x1={x}
+            y1={layout.paddingTop}
+            x2={x}
+            y2={layout.height - layout.paddingBottom}
+            stroke={stroke}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+          />
+          {obj.showLabels && !preview && (
             <text x={x + 2} y={layout.paddingTop + 10} fontSize={9} fill={stroke}>
               {obj.time.slice(5)}
             </text>
@@ -243,12 +318,12 @@ function renderDrawing(
       const rr = positionRiskReward(obj.entry, obj.target, obj.stop);
       const fill = obj.tool === "long" ? "#ef444433" : "#2563eb33";
       return (
-        <g key={obj.id}>
+        <g key={obj.id} opacity={opacity}>
           <rect x={x - 20} y={Math.min(entryY, targetY)} width={40} height={Math.abs(targetY - entryY) || 1} fill={fill} />
-          <line x1={x - 30} y1={entryY} x2={x + 30} y2={entryY} stroke={stroke} strokeWidth={sw} />
+          <line x1={x - 30} y1={entryY} x2={x + 30} y2={entryY} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
           <line x1={x - 30} y1={targetY} x2={x + 30} y2={targetY} stroke="#16a34a" strokeWidth={1.5} strokeDasharray="3 2" />
           <line x1={x - 30} y1={stopY} x2={x + 30} y2={stopY} stroke="#dc2626" strokeWidth={1.5} strokeDasharray="3 2" />
-          {obj.showLabels && rr.ratio != null && (
+          {(obj.showLabels || preview) && rr.ratio != null && (
             <text x={x + 34} y={entryY} fontSize={9} fill={stroke}>
               R:R {rr.ratio.toFixed(2)}
             </text>
@@ -259,6 +334,52 @@ function renderDrawing(
     default:
       return null;
   }
+}
+
+function draftToPreviewObject(draft: DrawingDraft, style: DrawingDocument["style"]): DrawingObject | null {
+  const base = {
+    id: "draft-preview",
+    color: style.color,
+    strokeWidth: style.strokeWidth,
+    showLabels: style.showLabels,
+  };
+
+  switch (draft.tool) {
+    case "pen":
+      return { ...base, tool: "pen", points: draft.points };
+    case "trendline":
+      return { ...base, tool: "trendline", a: draft.start, b: draft.current };
+    case "parallel_channel":
+      return {
+        ...base,
+        tool: "parallel_channel",
+        a: draft.start,
+        b: draft.current,
+        offsetPrice: (draft.current.price - draft.start.price) * 0.35,
+      };
+    case "fibonacci": {
+      const high = draft.start.price > draft.current.price ? draft.start : draft.current;
+      const low = draft.start.price > draft.current.price ? draft.current : draft.start;
+      return { ...base, tool: "fibonacci", high, low };
+    }
+    case "hline":
+      return { ...base, tool: "hline", price: draft.current.price };
+    case "vline":
+      return { ...base, tool: "vline", time: draft.current.time };
+    case "long":
+    case "short": {
+      const pos = positionFromDrag(draft.tool, draft.start, draft.current);
+      return { ...base, tool: draft.tool, ...pos };
+    }
+    default:
+      return null;
+  }
+}
+
+function commitDraft(draft: DrawingDraft, style: DrawingDocument["style"]): DrawingObject | null {
+  const preview = draftToPreviewObject(draft, style);
+  if (!preview) return null;
+  return { ...preview, id: uid() };
 }
 
 export function TickerCandleChart({
@@ -279,10 +400,11 @@ export function TickerCandleChart({
   currency: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 720, h: 360 });
   const [tool, setTool] = useState<DrawingTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ tool: DrawingTool; points: PointTP[] } | null>(null);
+  const [draft, setDraft] = useState<DrawingDraft | null>(null);
   const [drag, setDrag] = useState<{ id: string; start: PointTP; orig: DrawingObject } | null>(null);
 
   useEffect(() => {
@@ -293,6 +415,14 @@ export function TickerCandleChart({
     });
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDraft(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const layout = useMemo(() => defaultLayout(size.w, size.h), [size]);
@@ -317,12 +447,15 @@ export function TickerCandleChart({
     [drawingDoc, onDrawingChange],
   );
 
-  const handlePointer = (e: React.PointerEvent<SVGSVGElement>) => {
+  const pointerTp = (e: React.PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const tp = pointerToTP(e.clientX, e.clientY, rect, scales, layout);
+    return pointerToTP(e.clientX, e.clientY, rect, scales, layout);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    const tp = pointerTp(e);
 
     if (tool === "erase") {
-      if (e.type !== "pointerdown") return;
       const hit = [...drawingDoc.objects].reverse().find((obj) => hitDrawing(obj, tp.x, tp.y, scales, layout));
       if (!hit) return;
       onDrawingChange({
@@ -335,145 +468,144 @@ export function TickerCandleChart({
     }
 
     if (tool === "select") {
-      if (e.type === "pointerdown") {
-        const hit = [...drawingDoc.objects].reverse().find((obj) => hitDrawing(obj, tp.x, tp.y, scales, layout));
-        setSelectedId(hit?.id ?? null);
-        if (!hit) {
-          setDrag(null);
-          return;
-        }
-        setDrag({ id: hit.id, start: { time: tp.time, price: tp.price }, orig: hit });
-        e.currentTarget.setPointerCapture(e.pointerId);
-        return;
-      }
-      if (e.type === "pointermove" && drag) {
-        onDrawingChange({
-          ...drawingDoc,
-          objects: drawingDoc.objects.map((obj) => (obj.id === drag.id ? moveDrawing(drag.orig, drag.start, tp, scales) : obj)),
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-      if (e.type === "pointerup") {
+      const hit = [...drawingDoc.objects].reverse().find((obj) => hitDrawing(obj, tp.x, tp.y, scales, layout));
+      setSelectedId(hit?.id ?? null);
+      if (!hit) {
         setDrag(null);
+        return;
       }
+      setDrag({ id: hit.id, start: { time: tp.time, price: tp.price }, orig: hit });
+      e.currentTarget.setPointerCapture(e.pointerId);
       return;
     }
 
-    if (e.type === "pointerdown") {
-      if (tool === "pen") {
-        setDraft({ tool, points: [{ time: tp.time, price: tp.price }] });
-      } else if (tool === "hline") {
-        commitObject({
-          id: uid(),
-          tool: "hline",
-          price: tp.price,
-          color: styleBase.color,
-          strokeWidth: styleBase.strokeWidth,
-          showLabels: styleBase.showLabels,
-        });
-      } else if (tool === "vline") {
-        commitObject({
-          id: uid(),
-          tool: "vline",
-          time: tp.time,
-          color: styleBase.color,
-          strokeWidth: styleBase.strokeWidth,
-          showLabels: styleBase.showLabels,
-        });
-      } else {
-        setDraft({ tool, points: [{ time: tp.time, price: tp.price }] });
-      }
-    }
-
-    if (e.type === "pointermove" && draft?.tool === "pen") {
-      setDraft({ tool: "pen", points: [...draft.points, { time: tp.time, price: tp.price }] });
-    }
-
-    if (e.type === "pointerup" && draft && draft.tool !== "pen") {
-      const [a, b] = draft.points.length >= 2 ? draft.points : [draft.points[0], { time: tp.time, price: tp.price }];
-      if (draft.tool === "trendline") {
-        commitObject({ id: uid(), tool: "trendline", a, b, ...styleBase });
-      } else if (draft.tool === "parallel_channel") {
-        commitObject({
-          id: uid(),
-          tool: "parallel_channel",
-          a,
-          b,
-          offsetPrice: (b.price - a.price) * 0.35,
-          ...styleBase,
-        });
-      } else if (draft.tool === "fibonacci") {
-        commitObject({ id: uid(), tool: "fibonacci", high: a.price > b.price ? a : b, low: a.price > b.price ? b : a, ...styleBase });
-      } else if (draft.tool === "long" || draft.tool === "short") {
-        const entry = a.price;
-        const target = draft.tool === "long" ? b.price * 1.03 : b.price * 0.97;
-        const stop = draft.tool === "long" ? b.price * 0.98 : b.price * 1.02;
-        commitObject({
-          id: uid(),
-          tool: draft.tool,
-          entry,
-          target,
-          stop,
-          entryTime: a.time,
-          ...styleBase,
-        });
-      }
-      setDraft(null);
-    }
-
-    if (e.type === "pointerup" && draft?.tool === "pen") {
-      commitObject({ id: uid(), tool: "pen", points: draft.points, ...styleBase });
-      setDraft(null);
-    }
+    const startPoint: PointTP = { time: tp.time, price: tp.price };
+    setDraft({
+      tool,
+      start: startPoint,
+      current: startPoint,
+      points: [startPoint],
+      pointerId: e.pointerId,
+      startPx: { x: tp.x, y: tp.y },
+    });
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  useEffect(() => {
-    if (!drag) return;
-    const onUp = () => setDrag(null);
-    window.addEventListener("pointerup", onUp);
-    return () => window.removeEventListener("pointerup", onUp);
-  }, [drag]);
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const tp = pointerTp(e);
 
+    if (tool === "select" && drag) {
+      onDrawingChange({
+        ...drawingDoc,
+        objects: drawingDoc.objects.map((obj) =>
+          obj.id === drag.id ? moveDrawing(drag.orig, drag.start, { time: tp.time, price: tp.price }, scales) : obj,
+        ),
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (!draft || draft.pointerId !== e.pointerId) return;
+
+    if (draft.tool === "pen") {
+      setDraft((d) =>
+        d
+          ? {
+              ...d,
+              current: { time: tp.time, price: tp.price },
+              points: [...d.points, { time: tp.time, price: tp.price }],
+            }
+          : d,
+      );
+      return;
+    }
+
+    setDraft((d) => (d ? { ...d, current: { time: tp.time, price: tp.price } } : d));
+  };
+
+  const finishDraft = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!draft || draft.pointerId !== e.pointerId) return;
+    const tp = pointerTp(e);
+
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
+
+    if (draft.tool === "pen") {
+      if (penPathLengthPx(draft.points, scales, layout) >= MIN_PEN_PATH_PX) {
+        const obj = commitDraft({ ...draft, current: { time: tp.time, price: tp.price } }, styleBase);
+        if (obj) commitObject(obj);
+      }
+      setDraft(null);
+      return;
+    }
+
+    const dist = dragDistancePx(draft, { x: tp.x, y: tp.y });
+    if (dist >= MIN_DRAWING_DRAG_PX) {
+      const finalDraft = { ...draft, current: { time: tp.time, price: tp.price } };
+      const obj = commitDraft(finalDraft, styleBase);
+      if (obj) commitObject(obj);
+    }
+    setDraft(null);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (tool === "select") {
+      if (drag) {
+        try {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setDrag(null);
+      return;
+    }
+    finishDraft(e);
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (draft?.pointerId === e.pointerId) setDraft(null);
+    if (drag) setDrag(null);
+  };
+
+  const draftPreview = draft ? draftToPreviewObject(draft, styleBase) : null;
   const vpMax = Math.max(...volumeProfile.map((v) => v.weightPct), 1);
 
   return (
     <div ref={wrapRef} className="flex flex-col md:flex-row">
       <div className="relative min-w-0 flex-1">
         <svg
+          ref={svgRef}
           width="100%"
           height={layout.height}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
           className="touch-none bg-surface"
-          onPointerDown={handlePointer}
-          onPointerMove={handlePointer}
-          onPointerUp={handlePointer}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
         >
-          {/* grid */}
           {[0.25, 0.5, 0.75].map((r) => {
             const y = layout.paddingTop + plotH(layout) * r;
             return <line key={r} x1={layout.paddingLeft} x2={layout.width - layout.paddingRight} y1={y} y2={y} stroke="#e2e8f0" />;
           })}
 
-          {/* volume profile overlay */}
           {showVp &&
             volumeProfile.map((lvl, i) => {
               const y = priceToY(lvl.price, scales, layout);
               const w = (lvl.weightPct / vpMax) * 48;
               return (
-                <rect
-                  key={i}
-                  x={layout.paddingLeft - w - 4}
-                  y={y - 2}
-                  width={w}
-                  height={4}
-                  fill="#1428A0"
-                  opacity={0.25}
-                />
+                <rect key={i} x={layout.paddingLeft - w - 4} y={y - 2} width={w} height={4} fill="#1428A0" opacity={0.25} />
               );
             })}
 
-          {/* bollinger */}
           {showBb &&
             bars.map((bar, i) => {
               if (bar.bbUpper == null || bar.bbLower == null) return null;
@@ -483,7 +615,6 @@ export function TickerCandleChart({
               return <line key={i} x1={x} x2={x} y1={yU} y2={yL} stroke="#94a3b8" strokeWidth={1} opacity={0.35} />;
             })}
 
-          {/* candles */}
           {bars.map((bar) => {
             const x = timeToX(bar.time, scales, layout);
             const yO = priceToY(bar.open, scales, layout);
@@ -500,28 +631,27 @@ export function TickerCandleChart({
                   y={Math.min(yO, yC)}
                   width={candleW}
                   height={Math.max(1, Math.abs(yC - yO))}
-                  fill={up ? color : color}
+                  fill={color}
                   stroke={color}
                 />
               </g>
             );
           })}
 
-          {/* SMA overlay */}
-          {showSma && ["sma5", "sma20", "sma60", "sma120"].map((key, idx) => {
-            const colors = ["#f97316", "#2563eb", "#8b5cf6", "#059669"];
-            const pts = bars
-              .map((bar) => {
-                const v = bar[key as keyof EnrichedBar] as number | null;
-                if (v == null) return null;
-                return `${timeToX(bar.time, scales, layout)},${priceToY(v, scales, layout)}`;
-              })
-              .filter(Boolean)
-              .join(" ");
-            return <polyline key={key} points={pts} fill="none" stroke={colors[idx]} strokeWidth={1.2} />;
-          })}
+          {showSma &&
+            ["sma5", "sma20", "sma60", "sma120"].map((key, idx) => {
+              const colors = ["#f97316", "#2563eb", "#8b5cf6", "#059669"];
+              const pts = bars
+                .map((bar) => {
+                  const v = bar[key as keyof EnrichedBar] as number | null;
+                  if (v == null) return null;
+                  return `${timeToX(bar.time, scales, layout)},${priceToY(v, scales, layout)}`;
+                })
+                .filter(Boolean)
+                .join(" ");
+              return <polyline key={key} points={pts} fill="none" stroke={colors[idx]} strokeWidth={1.2} />;
+            })}
 
-          {/* streak markers */}
           {showStreak &&
             streakMarkers.map((m) => {
               const x = timeToX(m.time, scales, layout);
@@ -535,11 +665,12 @@ export function TickerCandleChart({
               );
             })}
 
-          {/* drawings */}
           {drawingDoc.objects.map((obj) => renderDrawing(obj, scales, layout, obj.id === selectedId))}
+
+          {draftPreview && renderDrawing(draftPreview, scales, layout, false, true)}
         </svg>
         <p className="border-t border-border px-3 py-1 text-[10px] text-fg-muted">
-          {currency} · OHLC 캔들 · as-of 차트 데이터 기준
+          {currency} · OHLC 캔들 · Esc 드로잉 취소
           {showVp && " · 매물대: 최근 구간 거래량 binning(참고용)"}
         </p>
       </div>
@@ -547,7 +678,10 @@ export function TickerCandleChart({
       <TickerDrawingToolbar
         vertical
         tool={tool}
-        onToolChange={setTool}
+        onToolChange={(t) => {
+          setDraft(null);
+          setTool(t);
+        }}
         color={styleBase.color}
         strokeWidth={styleBase.strokeWidth}
         showLabels={styleBase.showLabels}
@@ -560,7 +694,10 @@ export function TickerCandleChart({
       <TickerDrawingToolbar
         vertical={false}
         tool={tool}
-        onToolChange={setTool}
+        onToolChange={(t) => {
+          setDraft(null);
+          setTool(t);
+        }}
         color={styleBase.color}
         strokeWidth={styleBase.strokeWidth}
         showLabels={styleBase.showLabels}

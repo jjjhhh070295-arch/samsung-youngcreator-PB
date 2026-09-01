@@ -74,7 +74,7 @@ export function TickerDrawingToolbar({
 }) {
   if (vertical) {
     return (
-      <div className="hidden w-[88px] shrink-0 flex-col gap-1.5 border-l border-border bg-surface p-2 md:flex">
+      <div className="hidden w-[96px] shrink-0 flex-col gap-1.5 border-l border-border bg-surface p-2 md:flex">
         {TOOLS.map((t) => (
           <ToolButton
             key={t.id}
