@@ -1,13 +1,18 @@
 import {
-  DEFAULT_INDICATOR_PREFS,
-  MAX_INDICATOR_SLOTS,
+  createDefaultPresets,
+  DEFAULT_ANALYSIS_PRESETS,
+  emptyIndicatorFlags,
+  MAX_ANALYSIS_PRESETS,
+  type AnalysisPreset,
+  type IndicatorFlags,
   type IndicatorKind,
-  type IndicatorSlot,
-  type TickerIndicatorPrefs,
-} from "./tickerIndicatorConfig";
+  type TickerAnalysisPresets,
+} from "./tickerAnalysisPresets";
 import type { DrawingDocument } from "./drawingTypes";
 
-const INDICATOR_KEY = (pbId: string) => `ticker-indicators:${pbId || "default"}`;
+const PRESETS_KEY = (pbId: string) => `ticker-analysis-presets:${pbId || "default"}`;
+const ACTIVE_PRESET_KEY = (pbId: string) => `ticker-active-analysis-preset:${pbId || "default"}`;
+const LEGACY_INDICATOR_KEY = (pbId: string) => `ticker-indicators:${pbId || "default"}`;
 const DRAWING_KEY = (pbId: string, ticker: string) =>
   `ticker-drawings:${pbId || "default"}:${ticker.toUpperCase()}`;
 
@@ -20,33 +25,82 @@ function safeParse<T>(raw: string | null): T | null {
   }
 }
 
-export function loadIndicatorPrefs(pbId: string): TickerIndicatorPrefs {
-  if (typeof window === "undefined") return DEFAULT_INDICATOR_PREFS;
-  const parsed = safeParse<TickerIndicatorPrefs>(
-    window.localStorage.getItem(INDICATOR_KEY(pbId)),
-  );
-  if (!parsed?.slots?.length) return DEFAULT_INDICATOR_PREFS;
-  return {
-    version: 1,
-    updatedAt: parsed.updatedAt ?? new Date().toISOString(),
-    slots: parsed.slots.slice(0, MAX_INDICATOR_SLOTS),
+/** Migrate legacy 5-slot indicator prefs → first preset if new key absent. */
+function migrateLegacyIndicatorPrefs(pbId: string): TickerAnalysisPresets | null {
+  if (typeof window === "undefined") return null;
+  const legacy = safeParse<{
+    version: 1;
+    slots: Array<{ id: string; kind: IndicatorKind; displayName: string }>;
+  }>(window.localStorage.getItem(LEGACY_INDICATOR_KEY(pbId)));
+  if (!legacy?.slots?.length) return null;
+
+  const presets = createDefaultPresets();
+  const flags = emptyIndicatorFlags();
+  for (const slot of legacy.slots.slice(0, MAX_ANALYSIS_PRESETS)) {
+    flags[slot.kind] = true;
+  }
+  presets[0] = {
+    id: presets[0].id,
+    name: legacy.slots[0]?.displayName || presets[0].name,
+    indicators: flags,
   };
+
+  const migrated: TickerAnalysisPresets = {
+    version: 2,
+    updatedAt: new Date().toISOString(),
+    presets,
+  };
+  saveAnalysisPresets(pbId, migrated);
+  window.localStorage.removeItem(LEGACY_INDICATOR_KEY(pbId));
+  return migrated;
 }
 
-export function saveIndicatorPrefs(pbId: string, prefs: TickerIndicatorPrefs): void {
+export function loadAnalysisPresets(pbId: string): TickerAnalysisPresets {
+  if (typeof window === "undefined") return DEFAULT_ANALYSIS_PRESETS;
+
+  const parsed = safeParse<TickerAnalysisPresets>(
+    window.localStorage.getItem(PRESETS_KEY(pbId)),
+  );
+  if (parsed?.presets?.length) {
+    return {
+      version: 2,
+      updatedAt: parsed.updatedAt ?? new Date().toISOString(),
+      presets: parsed.presets.slice(0, MAX_ANALYSIS_PRESETS).map(normalizePreset),
+    };
+  }
+
+  const migrated = migrateLegacyIndicatorPrefs(pbId);
+  if (migrated) return migrated;
+
+  return DEFAULT_ANALYSIS_PRESETS;
+}
+
+function normalizePreset(p: AnalysisPreset): AnalysisPreset {
+  const flags = emptyIndicatorFlags();
+  for (const k of Object.keys(flags) as IndicatorKind[]) {
+    flags[k] = Boolean(p.indicators?.[k]);
+  }
+  return { id: p.id, name: p.name || "사용자", indicators: flags };
+}
+
+export function saveAnalysisPresets(pbId: string, prefs: TickerAnalysisPresets): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(
-    INDICATOR_KEY(pbId),
-    JSON.stringify({ ...prefs, updatedAt: new Date().toISOString() }),
+    PRESETS_KEY(pbId),
+    JSON.stringify({ ...prefs, version: 2, updatedAt: new Date().toISOString() }),
   );
 }
 
-export function createSlot(kind: IndicatorKind, displayName: string): IndicatorSlot {
-  return {
-    id: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    kind,
-    displayName,
-  };
+export function loadActivePresetId(pbId: string): string {
+  if (typeof window === "undefined") return "preset-1";
+  const id = window.localStorage.getItem(ACTIVE_PRESET_KEY(pbId));
+  if (id) return id;
+  return "preset-1";
+}
+
+export function saveActivePresetId(pbId: string, presetId: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ACTIVE_PRESET_KEY(pbId), presetId);
 }
 
 export function loadDrawings(pbId: string, ticker: string): DrawingDocument {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EnrichedBar } from "@/lib/advisory/tickerIndicatorsExtended";
-import type { IndicatorKind } from "@/lib/advisory/tickerIndicatorConfig";
+import type { IndicatorKind } from "@/lib/advisory/tickerAnalysisPresets";
 import {
   defaultLayout,
   pointerToTP,

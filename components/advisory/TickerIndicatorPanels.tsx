@@ -16,7 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import type { EnrichedBar } from "@/lib/advisory/tickerIndicatorsExtended";
-import type { IndicatorSlot } from "@/lib/advisory/tickerIndicatorConfig";
+import { catalogLabel, type IndicatorKind } from "@/lib/advisory/tickerAnalysisPresets";
 import type { FinancialSnapshot } from "@/lib/advisory/ohlcTypes";
 
 const COLORS = {
@@ -33,14 +33,14 @@ function fmt(v: unknown) {
 }
 
 export function TickerIndicatorPanels({
-  slots,
+  enabledKinds,
   bars,
   syncId,
   financial,
   investorNote,
   investorBars,
 }: {
-  slots: IndicatorSlot[];
+  enabledKinds: IndicatorKind[];
   bars: EnrichedBar[];
   syncId: string;
   financial: FinancialSnapshot | null;
@@ -49,12 +49,24 @@ export function TickerIndicatorPanels({
 }) {
   const chartData = bars.map((b) => ({ ...b, t: b.time.slice(5) }));
 
+  if (enabledKinds.length === 0) {
+    return (
+      <div className="border-t border-border bg-surface-2 px-4 py-6 text-center">
+        <p className="text-sm font-semibold text-fg">선택된 지표가 없습니다</p>
+        <p className="mt-1 text-xs text-fg-muted">
+          상단의「사용자 지정 분석」에서 프리셋을 편집하고 RSI, MACD 등 표시할 지표를 체크해 주세요.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-0 border-t border-border">
-      {slots.map((slot) => {
-        if (slot.kind === "rsi") {
+      {enabledKinds.map((kind) => {
+        const title = catalogLabel(kind);
+        if (kind === "rsi") {
           return (
-            <Panel key={slot.id} title={slot.displayName} subtitle="RSI(14) · 70/30">
+            <Panel key={kind} title={title} subtitle="RSI(14) · 70/30">
               <ResponsiveContainer width="100%" height={140}>
                 <LineChart data={chartData} syncId={syncId}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -69,9 +81,9 @@ export function TickerIndicatorPanels({
             </Panel>
           );
         }
-        if (slot.kind === "macd") {
+        if (kind === "macd") {
           return (
-            <Panel key={slot.id} title={slot.displayName} subtitle="MACD(12,26,9)">
+            <Panel key={kind} title={title} subtitle="MACD(12,26,9)">
               <ResponsiveContainer width="100%" height={140}>
                 <ComposedChart data={chartData} syncId={syncId}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -91,9 +103,9 @@ export function TickerIndicatorPanels({
             </Panel>
           );
         }
-        if (slot.kind === "volume") {
+        if (kind === "volume") {
           return (
-            <Panel key={slot.id} title={slot.displayName} subtitle="일별 거래량">
+            <Panel key={kind} title={title} subtitle="일별 거래량">
               <ResponsiveContainer width="100%" height={120}>
                 <BarChart data={chartData} syncId={syncId}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -106,10 +118,10 @@ export function TickerIndicatorPanels({
             </Panel>
           );
         }
-        if (slot.kind === "supply_demand") {
+        if (kind === "supply_demand") {
           const invData = investorBars.map((b) => ({ ...b, t: b.time.slice(5) }));
           return (
-            <Panel key={slot.id} title={slot.displayName} subtitle="투자자별 순매수">
+            <Panel key={kind} title={title} subtitle="투자자별 순매수">
               {invData.length ? (
                 <ResponsiveContainer width="100%" height={140}>
                   <BarChart data={invData}>
@@ -128,19 +140,16 @@ export function TickerIndicatorPanels({
             </Panel>
           );
         }
-        if (slot.kind === "net_income" || slot.kind === "revenue_growth") {
-          const val =
-            slot.kind === "net_income"
-              ? financial?.netIncome
-              : financial?.revenueGrowthPct;
-          const label = slot.kind === "net_income" ? "당기순이익" : "매출증가량(YoY)";
+        if (kind === "net_income" || kind === "revenue_growth") {
+          const val = kind === "net_income" ? financial?.netIncome : financial?.revenueGrowthPct;
+          const label = kind === "net_income" ? "당기순이익" : "매출증가량(YoY)";
           return (
-            <Panel key={slot.id} title={slot.displayName} subtitle={label}>
+            <Panel key={kind} title={title} subtitle={label}>
               <div className="px-3 py-3">
                 <p className="text-2xl font-bold text-fg">
                   {val == null
                     ? "—"
-                    : slot.kind === "revenue_growth"
+                    : kind === "revenue_growth"
                       ? `${val.toFixed(2)}%`
                       : val.toLocaleString("ko-KR")}
                 </p>

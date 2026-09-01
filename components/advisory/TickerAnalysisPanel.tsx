@@ -13,20 +13,24 @@ import type { FinancialSnapshot, InvestorFlowSeries } from "@/lib/advisory/ohlcT
 import type { VolumeProfileLevel, StreakMarker } from "@/lib/advisory/tickerIndicatorsExtended";
 import { appendRun, loadBundle, saveBundle } from "@/lib/advisory/control";
 import {
-  DEFAULT_INDICATOR_PREFS,
-  isOverlayKind,
-  type TickerIndicatorPrefs,
-} from "@/lib/advisory/tickerIndicatorConfig";
+  DEFAULT_ANALYSIS_PRESETS,
+  enabledIndicators,
+  overlayIndicators,
+  panelIndicators,
+  type TickerAnalysisPresets,
+} from "@/lib/advisory/tickerAnalysisPresets";
 import {
+  loadActivePresetId,
+  loadAnalysisPresets,
   loadDrawings,
-  loadIndicatorPrefs,
+  saveActivePresetId,
+  saveAnalysisPresets,
   saveDrawings,
-  saveIndicatorPrefs,
 } from "@/lib/advisory/tickerPrefsStorage";
 import type { DrawingDocument } from "@/lib/advisory/drawingTypes";
 import { TickerCandleChart } from "./TickerCandleChart";
 import { TickerIndicatorPanels } from "./TickerIndicatorPanels";
-import { TickerIndicatorSettingsDrawer } from "./TickerIndicatorSettingsDrawer";
+import { TickerAnalysisPresetsDrawer } from "./TickerAnalysisPresetsDrawer";
 
 function formatAsOf(iso: string) {
   const d = new Date(iso);
@@ -83,12 +87,14 @@ export default function TickerAnalysisPanel({
   const [brief, setBrief] = useState("");
   const [explanation, setExplanation] = useState("");
   const [explainBusy, setExplainBusy] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [indicatorPrefs, setIndicatorPrefs] = useState<TickerIndicatorPrefs>(DEFAULT_INDICATOR_PREFS);
+  const [presetsOpen, setPresetsOpen] = useState(false);
+  const [presetsDoc, setPresetsDoc] = useState<TickerAnalysisPresets>(DEFAULT_ANALYSIS_PRESETS);
+  const [activePresetId, setActivePresetId] = useState("preset-1");
   const [drawings, setDrawings] = useState<DrawingDocument>(() => loadDrawings(pbId, initialSymbol || ""));
 
   useEffect(() => {
-    setIndicatorPrefs(loadIndicatorPrefs(pbId));
+    setPresetsDoc(loadAnalysisPresets(pbId));
+    setActivePresetId(loadActivePresetId(pbId));
   }, [pbId]);
 
   useEffect(() => {
@@ -101,14 +107,20 @@ export default function TickerAnalysisPanel({
     }
   }, [pbId, snapshot?.resolvedSymbol]);
 
+  const activePreset = useMemo(
+    () => presetsDoc.presets.find((p) => p.id === activePresetId) ?? presetsDoc.presets[0],
+    [presetsDoc, activePresetId],
+  );
+
   const overlayKinds = useMemo(
-    () => indicatorPrefs.slots.map((s) => s.kind).filter(isOverlayKind),
-    [indicatorPrefs],
+    () => (activePreset ? overlayIndicators(activePreset) : []),
+    [activePreset],
   );
-  const panelSlots = useMemo(
-    () => indicatorPrefs.slots.filter((s) => !isOverlayKind(s.kind) && s.kind !== "streak"),
-    [indicatorPrefs],
+  const panelKinds = useMemo(
+    () => (activePreset ? panelIndicators(activePreset) : []),
+    [activePreset],
   );
+  const enabledCount = activePreset ? enabledIndicators(activePreset).length : 0;
 
   const recordRun = (client: string | undefined, kind: "ticker" | "explain", evidence: any, notes: string) => {
     if (!client || !evidence) return;
@@ -214,9 +226,14 @@ export default function TickerAnalysisPanel({
     if (snapshot?.resolvedSymbol) saveDrawings(pbId, snapshot.resolvedSymbol, doc);
   };
 
-  const handlePrefsSave = (prefs: TickerIndicatorPrefs) => {
-    setIndicatorPrefs(prefs);
-    saveIndicatorPrefs(pbId, prefs);
+  const handlePresetsSave = (next: TickerAnalysisPresets) => {
+    setPresetsDoc(next);
+    saveAnalysisPresets(pbId, next);
+  };
+
+  const selectPreset = (id: string) => {
+    setActivePresetId(id);
+    saveActivePresetId(pbId, id);
   };
 
   const d1 = snapshot?.periodReturns.d1;
@@ -225,7 +242,7 @@ export default function TickerAnalysisPanel({
   const syncId = snapshot ? `ticker-${snapshot.resolvedSymbol}` : "ticker";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-20 md:pb-0">
       <form
         className="flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
@@ -244,21 +261,55 @@ export default function TickerAnalysisPanel({
         </button>
         <button
           type="button"
-          className="btn-outline inline-flex items-center gap-1"
-          onClick={() => setSettingsOpen(true)}
-          title="지표 설정"
+          className="btn-outline inline-flex items-center gap-1.5"
+          onClick={() => setPresetsOpen(true)}
+          title="사용자 지정 분석 프리셋 편집"
         >
           <span aria-hidden>⚙</span>
-          <span className="hidden sm:inline">지표 설정</span>
+          <span>사용자 지정 분석</span>
         </button>
       </form>
+
+      <div className="rounded-xl border border-border bg-surface px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-[#1428A0]">사용자 지정 분석</p>
+          <button
+            type="button"
+            className="text-[10px] text-fg-muted underline"
+            onClick={() => setPresetsOpen(true)}
+          >
+            편집
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {presetsDoc.presets.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => selectPreset(p.id)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                p.id === activePresetId
+                  ? "bg-[#1428A0] text-white shadow-sm"
+                  : "border border-border bg-surface text-fg hover:border-[#1428A0]"
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+        {activePreset && (
+          <p className="mt-2 text-[10px] text-fg-muted">
+            {activePreset.name}: {enabledCount}개 지표 표시
+            {enabledCount === 0 && " · 차트만 표시됩니다"}
+          </p>
+        )}
+      </div>
 
       {!kisConfigured && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           KIS API 미연결 — 국내 주식은 Naver/Yahoo fallback 사용. 서버 env:{" "}
           <code className="text-[10px]">KIS_APP_KEY</code>,{" "}
-          <code className="text-[10px]">KIS_APP_SECRET</code>,{" "}
-          <code className="text-[10px]">KIS_BASE_URL</code> (선택)
+          <code className="text-[10px]">KIS_APP_SECRET</code>
         </p>
       )}
 
@@ -295,7 +346,7 @@ export default function TickerAnalysisPanel({
                 </p>
                 <p className="mt-1 text-sm">1일 {formatMetric(d1)}</p>
                 <p className="mt-1 text-[11px] text-fg-muted">
-                  as-of {formatAsOf(snapshot.lastPrice.asOf)} · 출처 {snapshot.lastPrice.source} · {snapshot.currency}
+                  as-of {formatAsOf(snapshot.lastPrice.asOf)} · 출처 {snapshot.lastPrice.source}
                 </p>
               </div>
               <button className="btn-outline text-xs" onClick={() => explain(snapshot, profile, "full")} disabled={explainBusy}>
@@ -308,9 +359,9 @@ export default function TickerAnalysisPanel({
 
             <div className="mt-5 overflow-hidden rounded-xl border border-border">
               <div className="border-b border-border bg-surface px-3 py-2">
-                <p className="text-xs font-bold text-fg">일봉 캔들차트</p>
+                <p className="text-xs font-bold text-fg">일봉 캔들차트 · {activePreset?.name}</p>
                 <p className="text-[10px] text-fg-muted">
-                  overlay: {overlayKinds.join(", ") || "없음"} · 패널 {panelSlots.length}개
+                  overlay {overlayKinds.length} · 패널 {panelKinds.length}
                 </p>
               </div>
               <TickerCandleChart
@@ -323,7 +374,7 @@ export default function TickerAnalysisPanel({
                 currency={snapshot.currency}
               />
               <TickerIndicatorPanels
-                slots={panelSlots}
+                enabledKinds={panelKinds}
                 bars={bars}
                 syncId={syncId}
                 financial={financial}
@@ -349,11 +400,12 @@ export default function TickerAnalysisPanel({
         </>
       )}
 
-      <TickerIndicatorSettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        prefs={indicatorPrefs}
-        onSave={handlePrefsSave}
+      <TickerAnalysisPresetsDrawer
+        open={presetsOpen}
+        onClose={() => setPresetsOpen(false)}
+        presetsDoc={presetsDoc}
+        editingPresetId={activePresetId}
+        onSave={handlePresetsSave}
       />
     </div>
   );
