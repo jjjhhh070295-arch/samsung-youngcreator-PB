@@ -16,7 +16,6 @@ import ScoreRubricButton from "./ScoreRubricButton";
 import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
-import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
 import ConsultationHub from "./advisory/ConsultationHub";
 import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
 
@@ -41,12 +40,11 @@ export type Tab =
   | "cashflow"
   | "portfolio"
   | "portfolio2"
-  | "recommend"
   | "taxProjection"
   | "stress"
   | "ips";
 
-// 상담 전 과정을 하나의 탭 바로 — 현금흐름/포트폴리오/상품추천/세전세후/스트레스/IPS
+// 상담 전 과정을 하나의 탭 바로 — 현금흐름/포트폴리오/세전세후/스트레스/IPS
 // (7요인은 기본 정보 화면으로 이동 — components/FactorsSummary.tsx)
 export default function IPSResultTabs({
   client,
@@ -431,10 +429,6 @@ export default function IPSResultTabs({
           </div>
           )}
         </div>
-      )}
-
-      {tab === "recommend" && (
-        <ProductRecommendPanel key={`recommend-${client.id}`} client={client} />
       )}
 
       {tab === "portfolio2" && (
