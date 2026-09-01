@@ -28,8 +28,6 @@ import ConsultationScheduleModal from "@/components/advisory/ConsultationSchedul
 import ExtraEventModal from "@/components/advisory/ExtraEventModal";
 import ClientAvatar from "@/components/ClientAvatar";
 import { buildClientBookRow } from "@/lib/advisory/book";
-import { listTodayTodos } from "@/lib/advisory/pbScheduleStorage";
-import type { PbScheduleItem } from "@/lib/advisory/pbScheduleStorage";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
 import { resolveHeritageInputsBulk } from "@/lib/heritage";
 
@@ -48,14 +46,13 @@ export default function PBPage() {
   const [pbFormOpen, setPbFormOpen] = useState(false);
   const [pbDeleteOpen, setPbDeleteOpen] = useState(false);
   const [bookRows, setBookRows] = useState<ReturnType<typeof buildClientBookRow>[]>([]);
-  const [todayTodos, setTodayTodos] = useState<PbScheduleItem[]>([]);
+  const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
   const [consultScheduleOpen, setConsultScheduleOpen] = useState(false);
   const [extraEventOpen, setExtraEventOpen] = useState(false);
 
-  const refreshTodayTodos = useCallback(() => {
-    if (!pbId) return;
-    setTodayTodos(listTodayTodos(pbId));
-  }, [pbId]);
+  const refreshSchedules = useCallback(() => {
+    setScheduleRefreshKey((key) => key + 1);
+  }, []);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -106,8 +103,8 @@ export default function PBPage() {
   }, [load]);
 
   useEffect(() => {
-    refreshTodayTodos();
-  }, [refreshTodayTodos]);
+    refreshSchedules();
+  }, [refreshSchedules]);
 
   const myClients = allClients.filter((c) => c.assignedPbId === pbId);
   const myClientIds = new Set(myClients.map((c) => c.id));
@@ -119,7 +116,7 @@ export default function PBPage() {
   };
 
   const handleScheduleSaved = async () => {
-    refreshTodayTodos();
+    refreshSchedules();
     await load();
   };
 
@@ -174,7 +171,7 @@ export default function PBPage() {
 
       <div className="grid items-start gap-4 xl:grid-cols-12">
         <div className="min-w-0 xl:col-span-9">
-          <BookDashboard pbId={pbId} rows={bookRows} todayTodos={todayTodos} />
+          <BookDashboard pbId={pbId} rows={bookRows} scheduleRefreshKey={scheduleRefreshKey} />
         </div>
         {/* sticky 오프셋 = 상단 네비 1행(h-11 = 2.75rem) + 여백(1rem). 헤더 줄은 제거됨 */}
         <aside className="space-y-4 xl:col-span-3 xl:sticky xl:top-[3.75rem]">
@@ -248,7 +245,7 @@ export default function PBPage() {
         open={extraEventOpen}
         pbId={pbId}
         onClose={() => setExtraEventOpen(false)}
-        onSaved={refreshTodayTodos}
+        onSaved={refreshSchedules}
       />
     </div>
   );
