@@ -157,5 +157,22 @@ body {
     left: 0;
     top: 0;
     width: 100%;
+    page: heritage-handoff;
+  }
+
+  /* 인계 요약 전용 여백. 이름 있는 페이지(page: heritage-handoff)로 한정해서 같은
+     @media print 안의 IPS 인쇄 레이아웃에는 영향을 주지 않는다. page 속성을 모르는
+     브라우저에서는 브라우저 기본 여백으로 떨어질 뿐 깨지지 않는다. */
+  @page heritage-handoff {
+    margin: 15mm;
+  }
+
+  /* 섹션·카드가 페이지 경계에서 잘리지 않게. 세무사가 표 한 덩어리를 두 장에 걸쳐
+     읽지 않아도 되게 하는 게 목적이다. */
+  body.heritage-print-mode .heritage-print-area header,
+  body.heritage-print-mode .heritage-print-area section,
+  body.heritage-print-mode .heritage-print-area .decision-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

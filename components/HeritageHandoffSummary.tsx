@@ -33,11 +33,33 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
 
   if (!open) return null;
 
+  // 브라우저는 "PDF로 저장" 시 파일명을 document.title 에서 가져온다. 인쇄 직전에만
+  // 바꿨다가 되돌려서, 기본값("삼성증권 PB센터 · 상담 지원")이 파일명이 되지 않게 한다.
   const handlePrint = () => {
+    const previousTitle = document.title;
+    const now = new Date();
+    const stamp =
+      `${now.getFullYear()}` +
+      `${String(now.getMonth() + 1).padStart(2, "0")}` +
+      `${String(now.getDate()).padStart(2, "0")}`;
+    document.title = `세무사인계요약_${client.name}_${stamp}`;
     document.body.classList.add("heritage-print-mode");
+
+    // afterprint 가 정식 복구 신호다. 이 이벤트를 쏘지 않거나 print() 가 즉시 반환하는
+    // 브라우저를 위해 타이머로 한 번 더 시도한다(restored 플래그로 중복 복구를 막는다).
+    // heritage-print-mode 는 @media print 안에서만 쓰이므로 복구가 늦어도 화면에는 영향이 없고,
+    // 파일명은 미리보기가 열리는 시점에 확정되므로 그 뒤에 되돌려도 안전하다.
+    let restored = false;
+    const restore = () => {
+      if (restored) return;
+      restored = true;
+      document.body.classList.remove("heritage-print-mode");
+      document.title = previousTitle;
+      window.removeEventListener("afterprint", restore);
+    };
+    window.addEventListener("afterprint", restore);
     window.print();
-    // 인쇄 다이얼로그는 동기적으로 막지 않으므로 다음 tick에 해제한다.
-    setTimeout(() => document.body.classList.remove("heritage-print-mode"), 0);
+    setTimeout(restore, 2000);
   };
 
   const realEstateValueWon =
@@ -58,9 +80,16 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
             <p className="decision-kicker">세무사 인계 요약</p>
             <h2 className="decision-title mt-1">{client.name} 고객 헤리티지 요약</h2>
           </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={handlePrint} className="btn-primary text-sm">인쇄</button>
-            <button type="button" onClick={onClose} className="btn-outline text-sm">닫기</button>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <div className="flex gap-2">
+              <button type="button" onClick={handlePrint} className="btn-primary text-sm">
+                PDF로 저장 · 인쇄
+              </button>
+              <button type="button" onClick={onClose} className="btn-outline text-sm">닫기</button>
+            </div>
+            <p className="text-right text-[11px] leading-relaxed text-fg-muted">
+              인쇄 대화상자에서 &lsquo;대상&rsquo;을 &lsquo;PDF로 저장&rsquo;으로 선택하세요.
+            </p>
           </div>
         </div>
 
