@@ -116,6 +116,98 @@ test("same institution, asset class and horizon produce deterministic changes", 
     first.changes.map((item) => item.field),
     ["stance", "driver-added", "driver-removed", "risk-added", "risk-removed"],
   );
+  assert.deepEqual(
+    first.changes.filter((item) => item.field.endsWith("-removed")).map((item) => item.label),
+    ["이전 투자전제 · 현 문서에서 미언급", "이전 위험요인 · 현 문서에서 미언급"],
+  );
+});
+
+test("a missing current claim is not called withdrawn without exact withdrawal evidence", () => {
+  const dataset = structuredClone(RESEARCH_COPILOT_FIXTURE);
+  const previous = findSnapshot(dataset, "snapshot-samsung-2026-07");
+  const current = findSnapshot(dataset, "snapshot-samsung-2026-08");
+  assert.ok(previous && current);
+
+  const result = compareViewSnapshots(dataset, previous, current, RESEARCH_COPILOT_AS_OF);
+  const removedDriver = result.changes.find((item) => item.field === "driver-removed");
+  const removedRisk = result.changes.find((item) => item.field === "risk-removed");
+  assert.equal(removedDriver?.label, "이전 투자전제 · 현 문서에서 미언급");
+  assert.equal(removedRisk?.label, "이전 위험요인 · 현 문서에서 미언급");
+  assert.equal(removedDriver?.after, null);
+  assert.deepEqual(removedDriver?.evidenceClaimIds, ["samsung-2026-07-driver"]);
+});
+
+test("self-asserted withdrawal metadata cannot mark a claim withdrawn without preserved raw-source verification", () => {
+  const dataset = structuredClone(RESEARCH_COPILOT_FIXTURE);
+  const previous = findSnapshot(dataset, "snapshot-samsung-2026-07");
+  const current = findSnapshot(dataset, "snapshot-samsung-2026-08");
+  assert.ok(previous && current);
+  const exactQuote = "이전의 경기회복 전제는 더 이상 유지하지 않는다.";
+  dataset.claims.push({
+    claimId: "samsung-2026-08-driver-withdrawal",
+    sourceId: current.sourceId,
+    kind: "driver",
+    assetClass: current.assetClass,
+    statement: "이전 경기회복 전제를 철회했다.",
+    locator: "8쪽, 투자전제 문단 2",
+    reviewStatus: "verified",
+    reviewedAt: RESEARCH_COPILOT_AS_OF,
+    staleAt: "2026-09-30T23:59:59+09:00",
+    withdrawalEvidence: {
+      sourceId: current.sourceId,
+      withdrawnClaimIds: ["samsung-2026-07-driver"],
+      exactQuote,
+      locator: "8쪽, 투자전제 문단 2",
+    },
+  });
+  current.driverClaimIds.push("samsung-2026-08-driver-withdrawal");
+
+  const result = compareViewSnapshots(dataset, previous, current, RESEARCH_COPILOT_AS_OF);
+  const removedDriver = result.changes.find((item) => item.field === "driver-removed");
+  assert.deepEqual(result.issues, []);
+  assert.equal(removedDriver?.label, "이전 투자전제 · 현 문서에서 미언급");
+  assert.equal(removedDriver?.after, null);
+  assert.deepEqual(removedDriver?.evidenceClaimIds, ["samsung-2026-07-driver"]);
+  assert.equal(
+    result.changes.some((item) => item.field === "driver-added" && item.evidenceClaimIds.includes("samsung-2026-08-driver-withdrawal")),
+    false,
+  );
+});
+
+test("incomplete or mismatched withdrawal metadata fails closed as current-document omission", () => {
+  const invalidCases = [
+    { name: "empty quote", sourceId: "demo-samsung-2026-08", withdrawnClaimIds: ["samsung-2026-07-risk"], exactQuote: "   ", locator: "9쪽" },
+    { name: "empty locator", sourceId: "demo-samsung-2026-08", withdrawnClaimIds: ["samsung-2026-07-risk"], exactQuote: "위험을 철회한다.", locator: "   " },
+    { name: "missing source", sourceId: "missing-source", withdrawnClaimIds: ["samsung-2026-07-risk"], exactQuote: "위험을 철회한다.", locator: "9쪽" },
+    { name: "different target", sourceId: "demo-samsung-2026-08", withdrawnClaimIds: ["some-other-risk"], exactQuote: "위험을 철회한다.", locator: "9쪽" },
+  ];
+
+  for (const invalid of invalidCases) {
+    const dataset = structuredClone(RESEARCH_COPILOT_FIXTURE);
+    const previous = findSnapshot(dataset, "snapshot-samsung-2026-07");
+    const current = findSnapshot(dataset, "snapshot-samsung-2026-08");
+    assert.ok(previous && current);
+    const claimId = `samsung-2026-08-risk-unsubstantiated-withdrawal:${invalid.name}`;
+    dataset.claims.push({
+      claimId,
+      sourceId: current.sourceId,
+      kind: "risk",
+      assetClass: current.assetClass,
+      statement: "이전 위험은 종료됐다.",
+      locator: "9쪽",
+      reviewStatus: "verified",
+      reviewedAt: RESEARCH_COPILOT_AS_OF,
+      staleAt: "2026-09-30T23:59:59+09:00",
+      withdrawalEvidence: invalid,
+    });
+    current.riskClaimIds.push(claimId);
+
+    const result = compareViewSnapshots(dataset, previous, current, RESEARCH_COPILOT_AS_OF);
+    const removedRisk = result.changes.find((item) => item.field === "risk-removed");
+    assert.equal(removedRisk?.label, "이전 위험요인 · 현 문서에서 미언급", invalid.name);
+    assert.equal(removedRisk?.after, null, invalid.name);
+    assert.deepEqual(removedRisk?.evidenceClaimIds, ["samsung-2026-07-risk"], invalid.name);
+  }
 });
 
 test("different institutions cannot be compared as a time-series change", () => {

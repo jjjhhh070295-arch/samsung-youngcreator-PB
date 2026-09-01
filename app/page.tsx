@@ -1,20 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PB, Client } from "@/lib/types";
 import {
-  listPbs,
-  listClients,
-  createPb,
-  updatePb,
-  deletePb,
-  usingLocalFallback,
-  DEMO_PB_ID,
-  DEMO_PB_CREDENTIALS,
-} from "@/lib/store";
-import { AUTH_SESSION_CHANGED_EVENT, getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
-import PBManageModal from "@/components/PBManageModal";
+  AUTH_SESSION_CHANGED_EVENT,
+  getLoggedInPbSession,
+  loginPb,
+  type PublicPbSession,
+} from "@/lib/auth";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import MarketMiniChart from "@/components/MarketMiniChart";
 
@@ -32,10 +25,7 @@ const DUMMY_MARKET: MarketTicker[] = [
 export default function HomePage() {
   const router = useRouter();
 
-  const [pbs, setPbs] = useState<PB[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
-  const [pbManageOpen, setPbManageOpen] = useState(false);
   const [loadError, setLoadError] = useState("");
 
   // 로그인 폼 상태
@@ -43,7 +33,7 @@ export default function HomePage() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
-  const [loggedInPbId, setLoggedInPbIdState] = useState<string | null>(null);
+  const [session, setSession] = useState<PublicPbSession | null>(null);
 
   // 시세
   const [market, setMarket] = useState<MarketTicker[]>(DUMMY_MARKET);
@@ -61,10 +51,27 @@ export default function HomePage() {
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
-    const syncSession = () => setLoggedInPbIdState(getLoggedInPbId());
-    syncSession();
+    let cancelled = false;
+    const syncSession = async () => {
+      try {
+        const current = await getLoggedInPbSession();
+        if (!cancelled) {
+          setSession(current);
+          setStatus("ready");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : "세션 확인에 실패했습니다.");
+          setStatus("error");
+        }
+      }
+    };
+    void syncSession();
     window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
-    return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    };
   }, []);
 
   useEffect(() => {
@@ -115,57 +122,15 @@ export default function HomePage() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  const load = useCallback(async () => {
-    setStatus("loading");
-    try {
-      const [p, c] = await Promise.all([listPbs(), listClients()]);
-      setPbs(p);
-      setClients(c);
-      setStatus("ready");
-    } catch (e: any) {
-      console.error(e);
-      setLoadError(e?.message ?? String(e));
-      setStatus("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const clientCount = (pbId: string) => clients.filter((c) => c.assignedPbId === pbId).length;
-
   const handleLogin = async () => {
     setLoginError("");
     setLoginBusy(true);
     try {
-      const employeeId = loginEmpId.trim().toUpperCase();
-      const normalizedPassword = password.trim();
-
-      // 최신 PB 목록을 다시 읽어 데모 PB 보장 후 매칭 (stale state / 구 localStorage 대비)
-      const latestPbs = await listPbs();
-      setPbs(latestPbs);
-
-      const demoLogin =
-        employeeId === DEMO_PB_CREDENTIALS.employeeId &&
-        normalizedPassword === DEMO_PB_CREDENTIALS.password;
-
-      const found =
-        latestPbs.find(
-          (pb) =>
-            pb.employeeId.trim().toUpperCase() === employeeId && pb.password === normalizedPassword,
-        ) ??
-        (demoLogin
-          ? latestPbs.find((pb) => pb.id === DEMO_PB_ID) ??
-            latestPbs.find((pb) => pb.code.trim().toUpperCase() === "PB-001")
-          : undefined);
-
-      if (!found) {
-        setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다.");
-        return;
-      }
-      setLoggedInPbId(found.id);
-      router.push(`/pb/${found.id}`);
+      const nextSession = await loginPb(loginEmpId.trim().toUpperCase(), password);
+      setSession(nextSession);
+      router.push(`/pb/${nextSession.pbId}`);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "로그인에 실패했습니다.");
     } finally {
       setLoginBusy(false);
     }
@@ -310,14 +275,14 @@ export default function HomePage() {
       {status === "error" && (
         <ErrorView
           message={loadError || "불러오기에 실패했습니다."}
-          onRetry={load}
+          onRetry={() => window.location.reload()}
         />
       )}
 
       {status === "ready" && (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1fr]">
           {/* 로그인 상태 / 로그인 폼 */}
-          {loggedInPbId ? (
+          {session ? (
             <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
               <div className="mb-6">
                 <div className="mb-1 flex items-center gap-2">
@@ -332,12 +297,12 @@ export default function HomePage() {
                 <div className="rounded-lg bg-surface-2 px-4 py-4">
                   <p className="text-xs text-fg-muted">현재 로그인</p>
                   <p className="mt-1 text-base font-bold text-fg">
-                    {pbs.find((pb) => pb.id === loggedInPbId)?.name ?? "PB 사용자"}
+                    {session.pbName}
                   </p>
                 </div>
                 <button
                   className="w-full rounded-lg bg-[#1428A0] py-3 text-sm font-bold text-white transition-colors hover:bg-[#1020c0]"
-                  onClick={() => router.push(`/pb/${loggedInPbId}`)}
+                  onClick={() => router.push(`/pb/${session.pbId}`)}
                 >
                   PB 고객관리로 돌아가기
                 </button>
@@ -391,49 +356,29 @@ export default function HomePage() {
               </button>
 
               <p className="text-center text-[11px] text-fg-muted">
-                시연 계정: {DEMO_PB_CREDENTIALS.employeeId} / {DEMO_PB_CREDENTIALS.password}
+                시연 사원번호: PB-001 · 비밀번호는 시연 담당자에게 확인
               </p>
             </div>
           </div>
           )}
 
-          {/* 관리자 패널 */}
+          {/* 인증 안내 — PB·고객 전체 목록을 로그인 전 브라우저로 보내지 않는다. */}
           <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
             <div className="mb-6">
-              <p className="text-base font-bold text-fg">관리자</p>
-              <p className="text-xs text-fg-muted">PB 계정 등록 및 관리</p>
+              <p className="text-base font-bold text-fg">서버 세션 보호</p>
+              <p className="text-xs text-fg-muted">로그인 전에는 PB·고객 원본을 브라우저로 전송하지 않습니다.</p>
             </div>
             <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3">
-                <span className="text-sm text-fg">등록된 PB</span>
-                <span className="text-lg font-black text-[#1428A0]">{pbs.length}명</span>
+              <div className="rounded-lg bg-surface-2 px-4 py-3">
+                <p className="text-sm font-bold text-fg">HttpOnly 서명 세션</p>
+                <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                  서버가 로그인 정보를 검증하고, URL의 PB와 세션의 PB가 같을 때만 보호 화면을 렌더링합니다.
+                </p>
               </div>
-              <button
-                className="w-full rounded-lg border border-[#1428A0] py-3 text-sm font-bold text-[#1428A0] hover:bg-[#1428A0] hover:text-white transition-colors"
-                onClick={() => setPbManageOpen(true)}
-              >
-                PB 계정 관리
-              </button>
             </div>
-
-            {usingLocalFallback && (
-              <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700 border border-amber-200">
-                ⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.
-              </p>
-            )}
           </div>
         </div>
       )}
-
-      <PBManageModal
-        open={pbManageOpen}
-        pbs={pbs}
-        clientCountOf={clientCount}
-        onCreate={handleCreatePb}
-        onUpdate={handleUpdatePb}
-        onDelete={handleDeletePb}
-        onClose={() => setPbManageOpen(false)}
-      />
     </div>
   );
 }

@@ -43,7 +43,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 interface Props {
   open: boolean;
   initial?: Client | null; // 있으면 수정
-  pbs: PB[];
+  pbs: Array<Pick<PB, "id" | "name">>;
   clients?: Client[];
   defaultPbId?: string; // PB 페이지에서 추가 시 자동 지정
   suggestedCode: string; // 신규일 때 자동 식별코드

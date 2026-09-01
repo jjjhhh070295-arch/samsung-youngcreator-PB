@@ -19,8 +19,11 @@
 import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getClient, listPbs } from "@/lib/store";
-import { getLoggedInPbId, clearLoggedInPbId } from "@/lib/auth";
+import {
+  AUTH_SESSION_CHANGED_EVENT,
+  getLoggedInPbSession,
+  logoutPb,
+} from "@/lib/auth";
 import type { Client } from "@/lib/types";
 
 const MAIN_SECTIONS = [
@@ -173,26 +176,42 @@ export default function AppNav() {
   const activeTab = searchParams?.get("tab") ?? "cashflow";
 
   useEffect(() => {
-    if (!clientId) { setClient(null); return; }
-    getClient(clientId).then(setClient).catch(() => {});
-  }, [clientId]);
+    if (!pbId || !clientId) { setClient(null); return; }
+    let cancelled = false;
+    fetch(`/api/pb/context?pbId=${encodeURIComponent(pbId)}&clientId=${encodeURIComponent(clientId)}`, {
+      cache: "no-store",
+      credentials: "same-origin",
+    }).then(async (response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!cancelled) setClient(data?.client ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setClient(null);
+      });
+    return () => { cancelled = true; };
+  }, [clientId, pbId]);
 
-  // 로그인한 PB 이름 — 세션만 사용한다(URL pbId로 세션을 만들지 않는다, 인증 우회 차단).
   useEffect(() => {
     let cancelled = false;
-    const sessionPbId = getLoggedInPbId();
-    if (!sessionPbId) { setPbName(null); return; }
-    listPbs()
-      .then((pbs) => {
-        if (cancelled) return;
-        setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? null);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const syncSession = () => {
+      void getLoggedInPbSession()
+        .then((session) => {
+          if (!cancelled) setPbName(session?.pbName ?? null);
+        })
+        .catch(() => {
+          if (!cancelled) setPbName(null);
+        });
+    };
+    syncSession();
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    };
   }, [pathname]);
 
-  const handleLogout = () => {
-    clearLoggedInPbId();
+  const handleLogout = async () => {
+    await logoutPb();
     setPbName(null);
     router.push("/");
   };

@@ -21,7 +21,7 @@ import {
   type MarketResearchItem,
   type ResearchSignal,
 } from '@/lib/portfolioResearch';
-import { listPbs } from '@/lib/store';
+import { getLoggedInPbSession } from '@/lib/auth';
 import TaxPainRubricButton from '@/components/TaxPainRubricButton';
 import WmExpertPanel from '@/components/WmExpertPanel';
 import StockSectorPanel, { type ExistingHolding, type PlanSummaryItem, type PlanRowOrigin } from '@/components/StockSectorPanel';
@@ -569,11 +569,11 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     const id = client.assignedPbId || pbId;
     if (!id) return;
     let cancelled = false;
-    listPbs()
-      .then((pbs) => {
+    getLoggedInPbSession()
+      .then((session) => {
         if (cancelled) return;
-        const pb = pbs.find((p) => p.id === id);
-        if (pb) setPbName(pb.name);
+        if (session?.pbId === id) setPbName(session.pbName);
+        else setPbName('-');
       })
       .catch(() => {
         /* 조회 실패 시 헤더는 '-'로 폴백 */
