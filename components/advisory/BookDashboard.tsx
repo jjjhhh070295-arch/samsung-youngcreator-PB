@@ -8,9 +8,13 @@ import { CLIENT_TYPE_LABEL, type ClientType } from "@/lib/types";
 import { formatKRW, formatKRWShort, formatDate } from "@/lib/format";
 import ClientAvatar from "@/components/ClientAvatar";
 
+import type { PbScheduleItem } from "@/lib/advisory/pbScheduleStorage";
+import { PbTodayTodos } from "./PbTodayTodos";
+
 interface Props {
   pbId: string;
   rows: ClientBookRow[];
+  todayTodos: PbScheduleItem[];
 }
 
 type View = "table" | "card";
@@ -101,7 +105,7 @@ function SortTh({
   );
 }
 
-export default function BookDashboard({ pbId, rows }: Props) {
+export default function BookDashboard({ pbId, rows, todayTodos }: Props) {
   const router = useRouter();
   const [view, setView] = useState<View>("table");
   const [q, setQ] = useState("");
@@ -174,6 +178,8 @@ export default function BookDashboard({ pbId, rows }: Props) {
 
   return (
     <div className="space-y-4">
+      <PbTodayTodos items={todayTodos} />
+
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-black text-fg">고객 리스트</h2><p className="text-[10px] text-fg-muted">검색·필터·정렬 후 고객을 선택하세요.</p></div><span className="badge-navy">{filtered.length}명</span></div>
         <div className="relative mb-2">
