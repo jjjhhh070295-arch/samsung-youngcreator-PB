@@ -1907,7 +1907,7 @@ function buildKodexTaxSavingPlan(
   };
 }
 
-function computeAssetLayer(heldAssets?: HeldAssets): AssetLayerSummary | null {
+export function computeAssetLayer(heldAssets?: HeldAssets): AssetLayerSummary | null {
   if (!heldAssets || heldAssets.totalKrw <= 0) return null;
   const { stocksKrw, realEstateKrw, cashKrw, totalKrw } = heldAssets;
   const investableKrw = totalKrw - realEstateKrw;
