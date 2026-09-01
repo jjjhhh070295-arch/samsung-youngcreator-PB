@@ -1,6 +1,6 @@
 import type { Client, Consultation } from "@/lib/types";
 import { classifyProduct } from "./classify";
-import { assessHeritage } from "@/lib/heritage";
+import { assessHeritage, URGENCY_RANK } from "@/lib/heritage";
 import type { HeritageAssessmentInput } from "@/lib/heritage";
 import type {
   BookAnalysis,
@@ -300,4 +300,16 @@ export function analyzeBook(
       heritage: rows.filter((r) => r.flags.some((f) => f.kind === "heritage")),
     },
   };
+}
+
+/** Heritage-aware priority sort for flagged client rows (used in tests / future list sorting). */
+export function comparePriorityRows(a: ClientBookRow, b: ClientBookRow): number {
+  const aRank = a.heritagePriority ? URGENCY_RANK[a.heritagePriority.urgencyLevel] : -1;
+  const bRank = b.heritagePriority ? URGENCY_RANK[b.heritagePriority.urgencyLevel] : -1;
+  if (aRank !== bRank) return bRank - aRank;
+  if (aRank >= 0) {
+    const scoreDiff = (b.heritagePriority?.score ?? 0) - (a.heritagePriority?.score ?? 0);
+    if (scoreDiff !== 0) return scoreDiff;
+  }
+  return b.flags.length - a.flags.length;
 }

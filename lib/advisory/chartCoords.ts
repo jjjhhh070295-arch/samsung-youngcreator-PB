@@ -87,3 +87,33 @@ export function pointerToTP(
     price: yToPrice(y, scales, layout),
   };
 }
+
+/** Map screen coordinates to SVG viewBox space (handles width="100%" scaling). */
+export function clientToSvgXY(svg: SVGSVGElement, clientX: number, clientY: number): { x: number; y: number } {
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) {
+    const rect = svg.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+  const mapped = pt.matrixTransform(ctm.inverse());
+  return { x: mapped.x, y: mapped.y };
+}
+
+export function pointerToTPFromSvg(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+  scales: ChartScales,
+  layout: ChartLayout,
+): { time: string; price: number; x: number; y: number } {
+  const { x, y } = clientToSvgXY(svg, clientX, clientY);
+  return {
+    x,
+    y,
+    time: xToTime(x, scales, layout),
+    price: yToPrice(y, scales, layout),
+  };
+}

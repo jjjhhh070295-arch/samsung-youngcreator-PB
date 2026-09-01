@@ -89,6 +89,24 @@ export interface DrawingDocument {
 
 export const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] as const;
 
+/** Minimum pointer travel (px) before a two-point drawing is committed. */
+export const MIN_DRAWING_DRAG_PX = 8;
+
+/** Minimum pen path length (px) before commit. */
+export const MIN_PEN_PATH_PX = 12;
+
+export const DRAFT_DASH = "6 4";
+export const DRAFT_OPACITY = 0.55;
+
+/** Pixel distance for line/path hit testing in selection mode. */
+export const HIT_TEST_THRESHOLD_PX = 10;
+
+/** Minimum drag travel before a move is committed (smaller drags = select only). */
+export const MIN_SELECT_MOVE_PX = 4;
+
+/** Highlight color for selected drawings. */
+export const SELECTED_STROKE = "#1428A0";
+
 export function positionRiskReward(entry: number, target: number, stop: number) {
   const reward = Math.abs(target - entry);
   const risk = Math.abs(entry - stop);

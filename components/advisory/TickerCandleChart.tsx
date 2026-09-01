@@ -6,14 +6,23 @@ import type { IndicatorKind } from "@/lib/advisory/tickerAnalysisPresets";
 import {
   defaultLayout,
   pointerToTP,
+  pointerToTPFromSvg,
+  plotWidth,
   priceToY,
   scalesFromBars,
   timeToX,
   type ChartLayout,
 } from "@/lib/advisory/chartCoords";
 import {
+  DRAFT_DASH,
+  DRAFT_OPACITY,
   FIB_LEVELS,
+  HIT_TEST_THRESHOLD_PX,
+  MIN_DRAWING_DRAG_PX,
+  MIN_PEN_PATH_PX,
+  MIN_SELECT_MOVE_PX,
   positionRiskReward,
+  SELECTED_STROKE,
   type DrawingDocument,
   type DrawingObject,
   type DrawingTool,
@@ -26,6 +35,15 @@ function uid() {
 }
 
 type ChartScales = ReturnType<typeof scalesFromBars>;
+
+type DrawingDraft = {
+  tool: DrawingTool;
+  start: PointTP;
+  current: PointTP;
+  points: PointTP[];
+  pointerId: number;
+  startPx: { x: number; y: number };
+};
 
 function pointToXY(point: PointTP, scales: ChartScales, layout: ChartLayout) {
   return {
@@ -90,10 +108,32 @@ function moveDrawing(obj: DrawingObject, start: PointTP, current: PointTP, scale
   }
 }
 
+function hitThreshold(obj: DrawingObject) {
+  return Math.max(HIT_TEST_THRESHOLD_PX, obj.strokeWidth + 8);
+}
+
+function inPlotX(x: number, layout: ChartLayout, pad = 0) {
+  return x >= layout.paddingLeft - pad && x <= layout.width - layout.paddingRight + pad;
+}
+
+function findHitDrawing(
+  objects: DrawingObject[],
+  x: number,
+  y: number,
+  scales: ChartScales,
+  layout: ChartLayout,
+) {
+  return [...objects].reverse().find((obj) => hitDrawing(obj, x, y, scales, layout)) ?? null;
+}
+
 function hitDrawing(obj: DrawingObject, x: number, y: number, scales: ChartScales, layout: ChartLayout) {
-  const threshold = Math.max(8, obj.strokeWidth + 6);
+  const threshold = hitThreshold(obj);
   switch (obj.tool) {
     case "pen": {
+      for (const point of obj.points) {
+        const p = pointToXY(point, scales, layout);
+        if (Math.hypot(x - p.x, y - p.y) <= threshold) return true;
+      }
       for (let i = 1; i < obj.points.length; i++) {
         const a = pointToXY(obj.points[i - 1], scales, layout);
         const b = pointToXY(obj.points[i], scales, layout);
@@ -123,26 +163,103 @@ function hitDrawing(obj: DrawingObject, x: number, y: number, scales: ChartScale
       if (x < left || x > right) return false;
       const top = Math.max(obj.high.price, obj.low.price);
       const bottom = Math.min(obj.high.price, obj.low.price);
+      const topY = priceToY(top, scales, layout);
+      const bottomY = priceToY(bottom, scales, layout);
+      if (y >= topY - threshold && y <= bottomY + threshold) return true;
       return FIB_LEVELS.some((lv) => {
         const price = bottom + (top - bottom) * (1 - lv);
         return Math.abs(priceToY(price, scales, layout) - y) <= threshold;
       });
     }
-    case "hline":
+    case "hline": {
+      if (!inPlotX(x, layout, threshold)) return false;
       return Math.abs(priceToY(obj.price, scales, layout) - y) <= threshold;
-    case "vline":
-      return Math.abs(timeToX(obj.time, scales, layout) - x) <= threshold;
+    }
+    case "vline": {
+      const vx = timeToX(obj.time, scales, layout);
+      if (Math.abs(vx - x) > threshold) return false;
+      return y >= layout.paddingTop - threshold && y <= layout.height - layout.paddingBottom + threshold;
+    }
     case "long":
     case "short": {
       const entryX = timeToX(obj.entryTime, scales, layout);
-      const ys = [priceToY(obj.entry, scales, layout), priceToY(obj.target, scales, layout), priceToY(obj.stop, scales, layout)];
-      const top = Math.min(...ys) - threshold;
-      const bottom = Math.max(...ys) + threshold;
-      return x >= entryX - 34 && x <= entryX + 64 && y >= top && y <= bottom;
+      const entryY = priceToY(obj.entry, scales, layout);
+      const targetY = priceToY(obj.target, scales, layout);
+      const stopY = priceToY(obj.stop, scales, layout);
+      const left = entryX - 40;
+      const right = entryX + 72;
+      const top = Math.min(entryY, targetY, stopY) - threshold;
+      const bottom = Math.max(entryY, targetY, stopY) + threshold;
+      if (x >= left && x <= right && y >= top && y <= bottom) return true;
+      return (
+        distanceToSegment(x, y, entryX - 30, entryY, entryX + 30, entryY) <= threshold ||
+        distanceToSegment(x, y, entryX - 30, targetY, entryX + 30, targetY) <= threshold ||
+        distanceToSegment(x, y, entryX - 30, stopY, entryX + 30, stopY) <= threshold
+      );
     }
     default:
       return false;
   }
+}
+
+function penPathLengthPx(points: PointTP[], scales: ChartScales, layout: ChartLayout) {
+  let len = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = pointToXY(points[i - 1], scales, layout);
+    const b = pointToXY(points[i], scales, layout);
+    len += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return len;
+}
+
+function dragDistancePx(draft: DrawingDraft, currentPx: { x: number; y: number }) {
+  return Math.hypot(currentPx.x - draft.startPx.x, currentPx.y - draft.startPx.y);
+}
+
+function positionFromDrag(tool: "long" | "short", start: PointTP, current: PointTP) {
+  const entry = start.price;
+  const target = current.price;
+  const risk = Math.abs(target - entry) || Math.max(entry * 0.01, 1);
+  const stop = tool === "long" ? entry - risk : entry + risk;
+  return { entry, target, stop, entryTime: start.time };
+}
+
+function selectionAnchors(obj: DrawingObject, scales: ChartScales, layout: ChartLayout) {
+  const r = 4;
+  const fill = SELECTED_STROKE;
+  const anchors: Array<{ x: number; y: number }> = [];
+  switch (obj.tool) {
+    case "pen":
+      if (obj.points.length > 0) {
+        anchors.push(pointToXY(obj.points[0], scales, layout));
+        if (obj.points.length > 1) anchors.push(pointToXY(obj.points[obj.points.length - 1], scales, layout));
+      }
+      break;
+    case "trendline":
+      anchors.push(pointToXY(obj.a, scales, layout), pointToXY(obj.b, scales, layout));
+      break;
+    case "parallel_channel":
+      anchors.push(pointToXY(obj.a, scales, layout), pointToXY(obj.b, scales, layout));
+      break;
+    case "fibonacci":
+      anchors.push(pointToXY(obj.high, scales, layout), pointToXY(obj.low, scales, layout));
+      break;
+    case "hline":
+      anchors.push({ x: layout.paddingLeft + plotWidth(layout) / 2, y: priceToY(obj.price, scales, layout) });
+      break;
+    case "vline":
+      anchors.push({ x: timeToX(obj.time, scales, layout), y: layout.paddingTop + (layout.height - layout.paddingTop - layout.paddingBottom) / 2 });
+      break;
+    case "long":
+    case "short":
+      anchors.push({ x: timeToX(obj.entryTime, scales, layout), y: priceToY(obj.entry, scales, layout) });
+      break;
+    default:
+      break;
+  }
+  return anchors.map((a, i) => (
+    <circle key={`${obj.id}-anchor-${i}`} cx={a.x} cy={a.y} r={r} fill={fill} stroke="#fff" strokeWidth={1.5} />
+  ));
 }
 
 function renderDrawing(
@@ -150,24 +267,54 @@ function renderDrawing(
   scales: ChartScales,
   layout: ChartLayout,
   selected: boolean,
+  preview = false,
 ) {
-  const stroke = obj.color;
-  const sw = obj.strokeWidth;
-  const dash = selected ? "4 3" : undefined;
+  const stroke = selected && !preview ? SELECTED_STROKE : obj.color;
+  const sw = selected && !preview ? obj.strokeWidth + 0.5 : obj.strokeWidth;
+  const dash = preview ? DRAFT_DASH : selected ? "6 3" : undefined;
+  const opacity = preview ? DRAFT_OPACITY : 1;
 
   switch (obj.tool) {
     case "pen": {
       const pts = obj.points
         .map((p) => `${timeToX(p.time, scales, layout)},${priceToY(p.price, scales, layout)}`)
         .join(" ");
-      return <polyline key={obj.id} points={pts} fill="none" stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />;
+      return (
+        <g key={obj.id}>
+          <polyline
+            points={pts}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+            opacity={opacity}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+          {selected && !preview && selectionAnchors(obj, scales, layout)}
+        </g>
+      );
     }
     case "trendline": {
       const x1 = timeToX(obj.a.time, scales, layout);
       const y1 = priceToY(obj.a.price, scales, layout);
       const x2 = timeToX(obj.b.time, scales, layout);
       const y2 = priceToY(obj.b.price, scales, layout);
-      return <line key={obj.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />;
+      return (
+        <g key={obj.id}>
+          <line
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke={stroke}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+            opacity={opacity}
+          />
+          {selected && !preview && selectionAnchors(obj, scales, layout)}
+        </g>
+      );
     }
     case "parallel_channel": {
       const x1 = timeToX(obj.a.time, scales, layout);
@@ -176,9 +323,10 @@ function renderDrawing(
       const y2 = priceToY(obj.b.price, scales, layout);
       const yOff = priceToY(obj.a.price + obj.offsetPrice, scales, layout) - y1;
       return (
-        <g key={obj.id}>
+        <g key={obj.id} opacity={opacity}>
           <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
-          <line x1={x1} y1={y1 + yOff} x2={x2} y2={y2 + yOff} stroke={stroke} strokeWidth={sw} opacity={0.7} strokeDasharray={dash} />
+          <line x1={x1} y1={y1 + yOff} x2={x2} y2={y2 + yOff} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} opacity={0.75} />
+          {selected && !preview && selectionAnchors(obj, scales, layout)}
         </g>
       );
     }
@@ -190,47 +338,66 @@ function renderDrawing(
       const left = Math.min(x1, x2);
       const right = Math.max(x1, x2);
       return (
-        <g key={obj.id}>
+        <g key={obj.id} opacity={opacity}>
           {FIB_LEVELS.map((lv) => {
             const price = bottom + (top - bottom) * (1 - lv);
             const y = priceToY(price, scales, layout);
             return (
               <g key={lv}>
-                <line x1={left} y1={y} x2={right} y2={y} stroke={stroke} strokeWidth={1} opacity={0.85} strokeDasharray={dash} />
-                {obj.showLabels && (
-                  <text x={right + 4} y={y + 3} fontSize={9} fill={stroke}>
+                <line x1={left} y1={y} x2={right} y2={y} stroke={stroke} strokeWidth={selected ? 1.5 : 1} strokeDasharray={dash} />
+                {(obj.showLabels || preview) && (
+                  <text x={right + 4} y={y + 3} fontSize={9} fill={stroke} opacity={0.9}>
                     {(lv * 100).toFixed(1)}%
                   </text>
                 )}
               </g>
             );
           })}
+          {selected && !preview && selectionAnchors(obj, scales, layout)}
         </g>
       );
     }
     case "hline": {
       const y = priceToY(obj.price, scales, layout);
       return (
-        <g key={obj.id}>
-          <line x1={layout.paddingLeft} y1={y} x2={layout.width - layout.paddingRight} y2={y} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
-          {obj.showLabels && (
+        <g key={obj.id} opacity={opacity}>
+          <line
+            x1={layout.paddingLeft}
+            y1={y}
+            x2={layout.width - layout.paddingRight}
+            y2={y}
+            stroke={stroke}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+          />
+          {obj.showLabels && !preview && (
             <text x={layout.width - layout.paddingRight + 2} y={y + 3} fontSize={9} fill={stroke}>
               {obj.price.toLocaleString("ko-KR")}
             </text>
           )}
+          {selected && !preview && selectionAnchors(obj, scales, layout)}
         </g>
       );
     }
     case "vline": {
       const x = timeToX(obj.time, scales, layout);
       return (
-        <g key={obj.id}>
-          <line x1={x} y1={layout.paddingTop} x2={x} y2={layout.height - layout.paddingBottom} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
-          {obj.showLabels && (
+        <g key={obj.id} opacity={opacity}>
+          <line
+            x1={x}
+            y1={layout.paddingTop}
+            x2={x}
+            y2={layout.height - layout.paddingBottom}
+            stroke={stroke}
+            strokeWidth={sw}
+            strokeDasharray={dash}
+          />
+          {obj.showLabels && !preview && (
             <text x={x + 2} y={layout.paddingTop + 10} fontSize={9} fill={stroke}>
               {obj.time.slice(5)}
             </text>
           )}
+          {selected && !preview && selectionAnchors(obj, scales, layout)}
         </g>
       );
     }
@@ -243,22 +410,69 @@ function renderDrawing(
       const rr = positionRiskReward(obj.entry, obj.target, obj.stop);
       const fill = obj.tool === "long" ? "#ef444433" : "#2563eb33";
       return (
-        <g key={obj.id}>
+        <g key={obj.id} opacity={opacity}>
           <rect x={x - 20} y={Math.min(entryY, targetY)} width={40} height={Math.abs(targetY - entryY) || 1} fill={fill} />
-          <line x1={x - 30} y1={entryY} x2={x + 30} y2={entryY} stroke={stroke} strokeWidth={sw} />
-          <line x1={x - 30} y1={targetY} x2={x + 30} y2={targetY} stroke="#16a34a" strokeWidth={1.5} strokeDasharray="3 2" />
-          <line x1={x - 30} y1={stopY} x2={x + 30} y2={stopY} stroke="#dc2626" strokeWidth={1.5} strokeDasharray="3 2" />
-          {obj.showLabels && rr.ratio != null && (
+          <line x1={x - 30} y1={entryY} x2={x + 30} y2={entryY} stroke={stroke} strokeWidth={sw} strokeDasharray={dash} />
+          <line x1={x - 30} y1={targetY} x2={x + 30} y2={targetY} stroke="#16a34a" strokeWidth={1.5} strokeDasharray={selected ? "6 3" : "3 2"} />
+          <line x1={x - 30} y1={stopY} x2={x + 30} y2={stopY} stroke="#dc2626" strokeWidth={1.5} strokeDasharray={selected ? "6 3" : "3 2"} />
+          {(obj.showLabels || preview) && rr.ratio != null && (
             <text x={x + 34} y={entryY} fontSize={9} fill={stroke}>
               R:R {rr.ratio.toFixed(2)}
             </text>
           )}
+          {selected && !preview && selectionAnchors(obj, scales, layout)}
         </g>
       );
     }
     default:
       return null;
   }
+}
+
+function draftToPreviewObject(draft: DrawingDraft, style: DrawingDocument["style"]): DrawingObject | null {
+  const base = {
+    id: "draft-preview",
+    color: style.color,
+    strokeWidth: style.strokeWidth,
+    showLabels: style.showLabels,
+  };
+
+  switch (draft.tool) {
+    case "pen":
+      return { ...base, tool: "pen", points: draft.points };
+    case "trendline":
+      return { ...base, tool: "trendline", a: draft.start, b: draft.current };
+    case "parallel_channel":
+      return {
+        ...base,
+        tool: "parallel_channel",
+        a: draft.start,
+        b: draft.current,
+        offsetPrice: (draft.current.price - draft.start.price) * 0.35,
+      };
+    case "fibonacci": {
+      const high = draft.start.price > draft.current.price ? draft.start : draft.current;
+      const low = draft.start.price > draft.current.price ? draft.current : draft.start;
+      return { ...base, tool: "fibonacci", high, low };
+    }
+    case "hline":
+      return { ...base, tool: "hline", price: draft.current.price };
+    case "vline":
+      return { ...base, tool: "vline", time: draft.current.time };
+    case "long":
+    case "short": {
+      const pos = positionFromDrag(draft.tool, draft.start, draft.current);
+      return { ...base, tool: draft.tool, ...pos };
+    }
+    default:
+      return null;
+  }
+}
+
+function commitDraft(draft: DrawingDraft, style: DrawingDocument["style"]): DrawingObject | null {
+  const preview = draftToPreviewObject(draft, style);
+  if (!preview) return null;
+  return { ...preview, id: uid() };
 }
 
 export function TickerCandleChart({
@@ -279,11 +493,18 @@ export function TickerCandleChart({
   currency: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 720, h: 360 });
   const [tool, setTool] = useState<DrawingTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ tool: DrawingTool; points: PointTP[] } | null>(null);
-  const [drag, setDrag] = useState<{ id: string; start: PointTP; orig: DrawingObject } | null>(null);
+  const [draft, setDraft] = useState<DrawingDraft | null>(null);
+  const [drag, setDrag] = useState<{
+    id: string;
+    start: PointTP;
+    startPx: { x: number; y: number };
+    orig: DrawingObject;
+  } | null>(null);
+  const [hoverHitId, setHoverHitId] = useState<string | null>(null);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -293,6 +514,18 @@ export function TickerCandleChart({
     });
     ro.observe(el);
     return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDraft(null);
+        setDrag(null);
+        setSelectedId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const layout = useMemo(() => defaultLayout(size.w, size.h), [size]);
@@ -317,163 +550,225 @@ export function TickerCandleChart({
     [drawingDoc, onDrawingChange],
   );
 
-  const handlePointer = (e: React.PointerEvent<SVGSVGElement>) => {
+  const pointerTp = (e: React.PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (svg) return pointerToTPFromSvg(svg, e.clientX, e.clientY, scales, layout);
     const rect = e.currentTarget.getBoundingClientRect();
-    const tp = pointerToTP(e.clientX, e.clientY, rect, scales, layout);
+    return pointerToTP(e.clientX, e.clientY, rect, scales, layout);
+  };
 
-    if (tool === "erase") {
-      if (e.type !== "pointerdown") return;
-      const hit = [...drawingDoc.objects].reverse().find((obj) => hitDrawing(obj, tp.x, tp.y, scales, layout));
-      if (!hit) return;
+  const replaceObject = useCallback(
+    (id: string, next: DrawingObject) => {
       onDrawingChange({
         ...drawingDoc,
-        objects: drawingDoc.objects.filter((obj) => obj.id !== hit.id),
+        objects: drawingDoc.objects.map((obj) => (obj.id === id ? next : obj)),
         updatedAt: new Date().toISOString(),
       });
-      if (selectedId === hit.id) setSelectedId(null);
+    },
+    [drawingDoc, onDrawingChange],
+  );
+
+  const removeObject = useCallback(
+    (id: string) => {
+      onDrawingChange({
+        ...drawingDoc,
+        objects: drawingDoc.objects.filter((obj) => obj.id !== id),
+        updatedAt: new Date().toISOString(),
+      });
+      if (selectedId === id) setSelectedId(null);
+    },
+    [drawingDoc, onDrawingChange, selectedId],
+  );
+
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    const tp = pointerTp(e);
+
+    if (tool === "erase") {
+      if (selectedId) {
+        removeObject(selectedId);
+        return;
+      }
+      const hit = findHitDrawing(drawingDoc.objects, tp.x, tp.y, scales, layout);
+      if (!hit) return;
+      removeObject(hit.id);
       return;
     }
 
     if (tool === "select") {
-      if (e.type === "pointerdown") {
-        const hit = [...drawingDoc.objects].reverse().find((obj) => hitDrawing(obj, tp.x, tp.y, scales, layout));
-        setSelectedId(hit?.id ?? null);
-        if (!hit) {
-          setDrag(null);
-          return;
-        }
-        setDrag({ id: hit.id, start: { time: tp.time, price: tp.price }, orig: hit });
-        e.currentTarget.setPointerCapture(e.pointerId);
-        return;
-      }
-      if (e.type === "pointermove" && drag) {
-        onDrawingChange({
-          ...drawingDoc,
-          objects: drawingDoc.objects.map((obj) => (obj.id === drag.id ? moveDrawing(drag.orig, drag.start, tp, scales) : obj)),
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-      if (e.type === "pointerup") {
+      const hit = findHitDrawing(drawingDoc.objects, tp.x, tp.y, scales, layout);
+      setSelectedId(hit?.id ?? null);
+      setHoverHitId(hit?.id ?? null);
+      if (!hit) {
         setDrag(null);
+        return;
       }
+      setDrag({ id: hit.id, start: { time: tp.time, price: tp.price }, startPx: { x: tp.x, y: tp.y }, orig: hit });
+      e.currentTarget.setPointerCapture(e.pointerId);
       return;
     }
 
-    if (e.type === "pointerdown") {
-      if (tool === "pen") {
-        setDraft({ tool, points: [{ time: tp.time, price: tp.price }] });
-      } else if (tool === "hline") {
-        commitObject({
-          id: uid(),
-          tool: "hline",
-          price: tp.price,
-          color: styleBase.color,
-          strokeWidth: styleBase.strokeWidth,
-          showLabels: styleBase.showLabels,
-        });
-      } else if (tool === "vline") {
-        commitObject({
-          id: uid(),
-          tool: "vline",
-          time: tp.time,
-          color: styleBase.color,
-          strokeWidth: styleBase.strokeWidth,
-          showLabels: styleBase.showLabels,
-        });
-      } else {
-        setDraft({ tool, points: [{ time: tp.time, price: tp.price }] });
+    const startPoint: PointTP = { time: tp.time, price: tp.price };
+    setDraft({
+      tool,
+      start: startPoint,
+      current: startPoint,
+      points: [startPoint],
+      pointerId: e.pointerId,
+      startPx: { x: tp.x, y: tp.y },
+    });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const tp = pointerTp(e);
+
+    if (tool === "select") {
+      if (drag) {
+        replaceObject(
+          drag.id,
+          moveDrawing(drag.orig, drag.start, { time: tp.time, price: tp.price }, scales),
+        );
+        return;
       }
+      const hit = findHitDrawing(drawingDoc.objects, tp.x, tp.y, scales, layout);
+      setHoverHitId(hit?.id ?? null);
+      return;
     }
 
-    if (e.type === "pointermove" && draft?.tool === "pen") {
-      setDraft({ tool: "pen", points: [...draft.points, { time: tp.time, price: tp.price }] });
+    if (tool === "erase") {
+      const hit = findHitDrawing(drawingDoc.objects, tp.x, tp.y, scales, layout);
+      setHoverHitId(hit?.id ?? null);
+      return;
     }
 
-    if (e.type === "pointerup" && draft && draft.tool !== "pen") {
-      const [a, b] = draft.points.length >= 2 ? draft.points : [draft.points[0], { time: tp.time, price: tp.price }];
-      if (draft.tool === "trendline") {
-        commitObject({ id: uid(), tool: "trendline", a, b, ...styleBase });
-      } else if (draft.tool === "parallel_channel") {
-        commitObject({
-          id: uid(),
-          tool: "parallel_channel",
-          a,
-          b,
-          offsetPrice: (b.price - a.price) * 0.35,
-          ...styleBase,
-        });
-      } else if (draft.tool === "fibonacci") {
-        commitObject({ id: uid(), tool: "fibonacci", high: a.price > b.price ? a : b, low: a.price > b.price ? b : a, ...styleBase });
-      } else if (draft.tool === "long" || draft.tool === "short") {
-        const entry = a.price;
-        const target = draft.tool === "long" ? b.price * 1.03 : b.price * 0.97;
-        const stop = draft.tool === "long" ? b.price * 0.98 : b.price * 1.02;
-        commitObject({
-          id: uid(),
-          tool: draft.tool,
-          entry,
-          target,
-          stop,
-          entryTime: a.time,
-          ...styleBase,
-        });
+    setHoverHitId(null);
+
+    if (!draft || draft.pointerId !== e.pointerId) return;
+
+    if (draft.tool === "pen") {
+      setDraft((d) =>
+        d
+          ? {
+              ...d,
+              current: { time: tp.time, price: tp.price },
+              points: [...d.points, { time: tp.time, price: tp.price }],
+            }
+          : d,
+      );
+      return;
+    }
+
+    setDraft((d) => (d ? { ...d, current: { time: tp.time, price: tp.price } } : d));
+  };
+
+  const finishDraft = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!draft || draft.pointerId !== e.pointerId) return;
+    const tp = pointerTp(e);
+
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
+
+    if (draft.tool === "pen") {
+      if (penPathLengthPx(draft.points, scales, layout) >= MIN_PEN_PATH_PX) {
+        const obj = commitDraft({ ...draft, current: { time: tp.time, price: tp.price } }, styleBase);
+        if (obj) commitObject(obj);
       }
       setDraft(null);
+      return;
     }
 
-    if (e.type === "pointerup" && draft?.tool === "pen") {
-      commitObject({ id: uid(), tool: "pen", points: draft.points, ...styleBase });
-      setDraft(null);
+    const dist = dragDistancePx(draft, { x: tp.x, y: tp.y });
+    if (dist >= MIN_DRAWING_DRAG_PX) {
+      const finalDraft = { ...draft, current: { time: tp.time, price: tp.price } };
+      const obj = commitDraft(finalDraft, styleBase);
+      if (obj) commitObject(obj);
+    }
+    setDraft(null);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (tool === "select") {
+      if (drag) {
+        const tp = pointerTp(e);
+        const movedPx = Math.hypot(tp.x - drag.startPx.x, tp.y - drag.startPx.y);
+        if (movedPx < MIN_SELECT_MOVE_PX) {
+          replaceObject(drag.id, drag.orig);
+        }
+        try {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      setDrag(null);
+      return;
+    }
+    finishDraft(e);
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (draft?.pointerId === e.pointerId) setDraft(null);
+    if (drag) {
+      replaceObject(drag.id, drag.orig);
+      setDrag(null);
     }
   };
 
-  useEffect(() => {
-    if (!drag) return;
-    const onUp = () => setDrag(null);
-    window.addEventListener("pointerup", onUp);
-    return () => window.removeEventListener("pointerup", onUp);
-  }, [drag]);
-
+  const draftPreview = draft ? draftToPreviewObject(draft, styleBase) : null;
   const vpMax = Math.max(...volumeProfile.map((v) => v.weightPct), 1);
+  const chartCursor =
+    tool === "select"
+      ? drag
+        ? "grabbing"
+        : hoverHitId
+          ? "grab"
+          : "default"
+      : tool === "erase"
+        ? hoverHitId
+          ? "pointer"
+          : "default"
+        : "crosshair";
 
   return (
     <div ref={wrapRef} className="flex flex-col md:flex-row">
       <div className="relative min-w-0 flex-1">
         <svg
+          ref={svgRef}
           width="100%"
           height={layout.height}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
           className="touch-none bg-surface"
-          onPointerDown={handlePointer}
-          onPointerMove={handlePointer}
-          onPointerUp={handlePointer}
+          style={{ cursor: chartCursor }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onPointerLeave={() => {
+            if (!drag) setHoverHitId(null);
+          }}
         >
-          {/* grid */}
+          <g pointerEvents="none">
           {[0.25, 0.5, 0.75].map((r) => {
             const y = layout.paddingTop + plotH(layout) * r;
             return <line key={r} x1={layout.paddingLeft} x2={layout.width - layout.paddingRight} y1={y} y2={y} stroke="#e2e8f0" />;
           })}
 
-          {/* volume profile overlay */}
           {showVp &&
             volumeProfile.map((lvl, i) => {
               const y = priceToY(lvl.price, scales, layout);
               const w = (lvl.weightPct / vpMax) * 48;
               return (
-                <rect
-                  key={i}
-                  x={layout.paddingLeft - w - 4}
-                  y={y - 2}
-                  width={w}
-                  height={4}
-                  fill="#1428A0"
-                  opacity={0.25}
-                />
+                <rect key={i} x={layout.paddingLeft - w - 4} y={y - 2} width={w} height={4} fill="#1428A0" opacity={0.25} />
               );
             })}
 
-          {/* bollinger */}
           {showBb &&
             bars.map((bar, i) => {
               if (bar.bbUpper == null || bar.bbLower == null) return null;
@@ -483,7 +778,6 @@ export function TickerCandleChart({
               return <line key={i} x1={x} x2={x} y1={yU} y2={yL} stroke="#94a3b8" strokeWidth={1} opacity={0.35} />;
             })}
 
-          {/* candles */}
           {bars.map((bar) => {
             const x = timeToX(bar.time, scales, layout);
             const yO = priceToY(bar.open, scales, layout);
@@ -500,28 +794,27 @@ export function TickerCandleChart({
                   y={Math.min(yO, yC)}
                   width={candleW}
                   height={Math.max(1, Math.abs(yC - yO))}
-                  fill={up ? color : color}
+                  fill={color}
                   stroke={color}
                 />
               </g>
             );
           })}
 
-          {/* SMA overlay */}
-          {showSma && ["sma5", "sma20", "sma60", "sma120"].map((key, idx) => {
-            const colors = ["#f97316", "#2563eb", "#8b5cf6", "#059669"];
-            const pts = bars
-              .map((bar) => {
-                const v = bar[key as keyof EnrichedBar] as number | null;
-                if (v == null) return null;
-                return `${timeToX(bar.time, scales, layout)},${priceToY(v, scales, layout)}`;
-              })
-              .filter(Boolean)
-              .join(" ");
-            return <polyline key={key} points={pts} fill="none" stroke={colors[idx]} strokeWidth={1.2} />;
-          })}
+          {showSma &&
+            ["sma5", "sma20", "sma60", "sma120"].map((key, idx) => {
+              const colors = ["#f97316", "#2563eb", "#8b5cf6", "#059669"];
+              const pts = bars
+                .map((bar) => {
+                  const v = bar[key as keyof EnrichedBar] as number | null;
+                  if (v == null) return null;
+                  return `${timeToX(bar.time, scales, layout)},${priceToY(v, scales, layout)}`;
+                })
+                .filter(Boolean)
+                .join(" ");
+              return <polyline key={key} points={pts} fill="none" stroke={colors[idx]} strokeWidth={1.2} />;
+            })}
 
-          {/* streak markers */}
           {showStreak &&
             streakMarkers.map((m) => {
               const x = timeToX(m.time, scales, layout);
@@ -534,12 +827,15 @@ export function TickerCandleChart({
                 </text>
               );
             })}
+          </g>
 
-          {/* drawings */}
           {drawingDoc.objects.map((obj) => renderDrawing(obj, scales, layout, obj.id === selectedId))}
+
+          {draftPreview && renderDrawing(draftPreview, scales, layout, false, true)}
         </svg>
         <p className="border-t border-border px-3 py-1 text-[10px] text-fg-muted">
-          {currency} · OHLC 캔들 · as-of 차트 데이터 기준
+          {currency} · OHLC 캔들 · Esc 드로잉/선택 취소
+          {tool === "select" && " · 선택/이동: 도형 클릭 후 드래그"}
           {showVp && " · 매물대: 최근 구간 거래량 binning(참고용)"}
         </p>
       </div>
@@ -547,27 +843,49 @@ export function TickerCandleChart({
       <TickerDrawingToolbar
         vertical
         tool={tool}
-        onToolChange={setTool}
+        onToolChange={(t) => {
+          setDraft(null);
+          setDrag(null);
+          if (t !== "select" && t !== "erase") setSelectedId(null);
+          setHoverHitId(null);
+          setTool(t);
+        }}
         color={styleBase.color}
         strokeWidth={styleBase.strokeWidth}
         showLabels={styleBase.showLabels}
         onStyleChange={(patch) =>
           onDrawingChange({ ...drawingDoc, style: { ...styleBase, ...patch }, updatedAt: new Date().toISOString() })
         }
-        onClear={() => onDrawingChange({ ...drawingDoc, objects: [], updatedAt: new Date().toISOString() })}
+        onClear={() => {
+          onDrawingChange({ ...drawingDoc, objects: [], updatedAt: new Date().toISOString() });
+          setSelectedId(null);
+          setHoverHitId(null);
+          setDrag(null);
+        }}
       />
 
       <TickerDrawingToolbar
         vertical={false}
         tool={tool}
-        onToolChange={setTool}
+        onToolChange={(t) => {
+          setDraft(null);
+          setDrag(null);
+          if (t !== "select" && t !== "erase") setSelectedId(null);
+          setHoverHitId(null);
+          setTool(t);
+        }}
         color={styleBase.color}
         strokeWidth={styleBase.strokeWidth}
         showLabels={styleBase.showLabels}
         onStyleChange={(patch) =>
           onDrawingChange({ ...drawingDoc, style: { ...styleBase, ...patch }, updatedAt: new Date().toISOString() })
         }
-        onClear={() => onDrawingChange({ ...drawingDoc, objects: [], updatedAt: new Date().toISOString() })}
+        onClear={() => {
+          onDrawingChange({ ...drawingDoc, objects: [], updatedAt: new Date().toISOString() });
+          setSelectedId(null);
+          setHoverHitId(null);
+          setDrag(null);
+        }}
       />
     </div>
   );
