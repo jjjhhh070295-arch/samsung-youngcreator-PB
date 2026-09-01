@@ -10,7 +10,7 @@ import { FACTOR_META } from "@/lib/types";
 import IPSRadar from "./IPSRadar";
 import ScoreRubricButton from "./ScoreRubricButton";
 import HeritageSignalBadge from "./HeritageSignalBadge";
-import FactorTabs from "./FactorTabs";
+import FactorGroups from "./FactorGroups";
 
 interface Props {
   client: Client;
@@ -19,7 +19,7 @@ interface Props {
   onToggleStage: (key: StageKey) => Promise<void> | void;
 }
 
-// scoreBand / StatusBadge 는 카드와 함께 FactorTabs 로 옮겼다.
+// scoreBand / StatusBadge 는 카드와 함께 FactorGroups 로 옮겼다.
 
 export default function FactorsSummary({ client, allClients, onEdit, onToggleStage }: Props) {
   const ips = client.ips;
@@ -58,8 +58,8 @@ export default function FactorsSummary({ client, allClients, onEdit, onToggleSta
         <div className="console-panel p-4"><p className="decision-kicker">RRTTLLU profile</p><h2 className="mt-1 text-lg font-black text-fg">고객 투자성향 요약</h2><IPSRadar ips={ips} height={230} /></div>
         <div className="console-panel p-4"><div className="flex items-center justify-between"><div><p className="console-label">최종 투자성향</p><p className="mt-1 text-2xl font-black text-[#1428A0]">{ips.risk.value || "검토 필요"}</p></div><span className="badge-navy">7요인 분석</span></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="console-metric"><p className="console-label">목표수익률</p><p className="mt-1 text-sm font-bold text-fg">{ips.return.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">위험허용도</p><p className="mt-1 text-sm font-bold text-fg">{ips.risk.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">투자기간</p><p className="mt-1 text-sm font-bold text-fg">{ips.timeHorizon.value || "미입력"}</p></div></div><p className="mt-4 text-xs leading-relaxed text-fg-muted">세부 근거와 추론 단서는 아래 요인 카드에서 확인하고 상담으로 수정할 수 있습니다.</p></div>
       </section>
-      {/* 7요인 카드 — 성격별 3개 안쪽 탭. 카드 내용(배지·근거 상세·추론 단서)은 그대로다. */}
-      <FactorTabs ips={ips} flags={flags} />
+      {/* 7요인 카드 — 성격별 3열 나란히. 카드 내용(배지·근거 상세·추론 단서)은 그대로다. */}
+      <FactorGroups ips={ips} flags={flags} />
     </div>
   );
 }
