@@ -25,7 +25,7 @@ import { LoadingView, ErrorView } from "@/components/StateViews";
 import HouseholdModule from "@/components/HouseholdModule";
 import BookDashboard from "@/components/advisory/BookDashboard";
 import ClientAvatar from "@/components/ClientAvatar";
-import { analyzeBook, buildClientBookRow } from "@/lib/advisory/book";
+import { buildClientBookRow } from "@/lib/advisory/book";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
 import { resolveHeritageInputsBulk } from "@/lib/heritage";
 
@@ -44,7 +44,6 @@ export default function PBPage() {
   const [pbFormOpen, setPbFormOpen] = useState(false);
   const [pbDeleteOpen, setPbDeleteOpen] = useState(false);
   const [bookRows, setBookRows] = useState<ReturnType<typeof buildClientBookRow>[]>([]);
-  const [bookAnalysis, setBookAnalysis] = useState<ReturnType<typeof analyzeBook> | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -83,7 +82,6 @@ export default function PBPage() {
 
       const rows = mine.map((c) => buildClientBookRow(c, holdings, cons, asOf, heritageInputs.get(c.id)));
       setBookRows(rows);
-      setBookAnalysis(analyzeBook(rows, holdings.filter((h) => mine.some((c) => c.id === h.clientId)), asOf, holdings[0]?.source ?? "local-book"));
       setStatus("ready");
     } catch (e) {
       console.error(e);
@@ -127,8 +125,8 @@ export default function PBPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
           <div>
             <Link href="/" className="text-[11px] font-semibold text-[#1428A0] hover:underline">PB Home</Link>
-            <h1 className="mt-1 text-xl font-black tracking-tight text-fg">다고객 Book Dashboard</h1>
-            <p className="mt-0.5 text-xs text-fg-muted">{pb.name} PB · 고객 현황과 우선 업무를 한 화면에서 확인합니다.</p>
+            <h1 className="mt-1 text-xl font-black tracking-tight text-fg">다고객 북</h1>
+            <p className="mt-0.5 text-xs text-fg-muted">{pb.name} PB · 담당 고객을 검색·필터·정렬하여 관리합니다.</p>
           </div>
           <div className="flex gap-2">
             <button className="btn-primary text-sm" onClick={() => setClientFormOpen(true)}>+ 고객 추가</button>
@@ -148,7 +146,7 @@ export default function PBPage() {
       </div>
 
       <div className="grid items-start gap-4 xl:grid-cols-12">
-        <div className="min-w-0 xl:col-span-9"><BookDashboard pbId={pbId} rows={bookRows} analysis={bookAnalysis} /></div>
+        <div className="min-w-0 xl:col-span-9"><BookDashboard pbId={pbId} rows={bookRows} /></div>
         {/* sticky 오프셋 = 상단 네비 1행(h-11 = 2.75rem) + 여백(1rem). 헤더 줄은 제거됨 */}
         <aside className="space-y-4 xl:col-span-3 xl:sticky xl:top-[3.75rem]">
           <section className="card p-3">

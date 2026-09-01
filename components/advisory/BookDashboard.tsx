@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { BookAnalysis, ClientBookRow, ClientFlagKind } from "@/lib/advisory/types";
-import { CLIENT_FLAG_LABEL, PRODUCT_CATEGORY_LABEL } from "@/lib/advisory/types";
-import { URGENCY_RANK } from "@/lib/heritage";
+import type { ClientBookRow, ClientFlagKind } from "@/lib/advisory/types";
+import { CLIENT_FLAG_LABEL } from "@/lib/advisory/types";
 import { CLIENT_TYPE_LABEL, type ClientType } from "@/lib/types";
 import { formatKRW, formatKRWShort, formatDate } from "@/lib/format";
 import ClientAvatar from "@/components/ClientAvatar";
@@ -13,7 +11,6 @@ import ClientAvatar from "@/components/ClientAvatar";
 interface Props {
   pbId: string;
   rows: ClientBookRow[];
-  analysis: BookAnalysis | null;
 }
 
 type View = "table" | "card";
@@ -39,20 +36,6 @@ const SORT_OPTIONS: { id: SortKey; label: string }[] = [
   { id: "consult-desc", label: "최근 상담일 최신순" },
   { id: "consult-asc", label: "최근 상담일 오래된 순" },
 ];
-
-// "우선 확인 고객" 정렬 — 헤리티지 긴급도가 있는 고객은 1순위 긴급도(즉시>3개월>6개월>1년),
-// 2순위 score로 우선한다(compareHeritagePriority와 동일 기준). 긴급도가 없는 고객끼리는
-// 기존처럼 플래그 개수로 비교한다. export는 시뮬레이션/테스트에서 재사용하기 위함.
-export function comparePriorityRows(a: ClientBookRow, b: ClientBookRow): number {
-  const aRank = a.heritagePriority ? URGENCY_RANK[a.heritagePriority.urgencyLevel] : -1;
-  const bRank = b.heritagePriority ? URGENCY_RANK[b.heritagePriority.urgencyLevel] : -1;
-  if (aRank !== bRank) return bRank - aRank;
-  if (aRank >= 0) {
-    const scoreDiff = (b.heritagePriority?.score ?? 0) - (a.heritagePriority?.score ?? 0);
-    if (scoreDiff !== 0) return scoreDiff;
-  }
-  return b.flags.length - a.flags.length;
-}
 
 function cmpNullableNumber(a: number | null, b: number | null, dir: 1 | -1) {
   if (a == null && b == null) return 0;
@@ -118,28 +101,7 @@ function SortTh({
   );
 }
 
-function MeasuredHint({ asOf, source, currency }: { asOf: string; source: string; currency?: string }) {
-  return (
-    <p className="text-[10px] text-fg-muted">
-      as-of {asOf.slice(0, 10)} · {source}
-      {currency ? ` · ${currency}` : ""}
-    </p>
-  );
-}
-
-const PRODUCT_MIX_COLORS = ["#1428A0", "#315DEB", "#16A34A", "#F59E0B", "#64748B"];
-
-function productMixGradient(weights: number[]) {
-  let cursor = 0;
-  const stops = weights.map((weight, index) => {
-    const start = cursor;
-    cursor += Math.max(0, weight);
-    return `${PRODUCT_MIX_COLORS[index % PRODUCT_MIX_COLORS.length]} ${start}% ${cursor}%`;
-  });
-  return `conic-gradient(${stops.join(", ")})`;
-}
-
-export default function BookDashboard({ pbId, rows, analysis }: Props) {
+export default function BookDashboard({ pbId, rows }: Props) {
   const router = useRouter();
   const [view, setView] = useState<View>("table");
   const [q, setQ] = useState("");
@@ -147,12 +109,6 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
   const [flag, setFlag] = useState<FlagFilter>("all");
   const [sortKey, setSortKey] = useState<SortKey>("name-asc");
   const sortLabel = SORT_OPTIONS.find((o) => o.id === sortKey)?.label ?? "고객명 ㄱㄴㄷ 순";
-  const priorityRows = useMemo(
-    () => rows.filter((row) => row.flags.length > 0).slice().sort(comparePriorityRows).slice(0, 3),
-    [rows],
-  );
-  const immediateCount = rows.filter((row) => row.flags.length > 0).length;
-  const reviewCount = rows.filter((row) => row.flags.some((item) => item.kind === "high_risk" || item.kind === "low_return")).length;
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -218,126 +174,6 @@ export default function BookDashboard({ pbId, rows, analysis }: Props) {
 
   return (
     <div className="space-y-4">
-      <section className="grid overflow-hidden rounded-xl border border-[#1428A0]/20 bg-white lg:grid-cols-12">
-        <div className="border-b border-border bg-gradient-to-br from-[#F8FAFF] to-white p-4 lg:col-span-4 lg:border-b-0 lg:border-r">
-          <p className="decision-kicker">오늘의 PB 브리핑</p>
-          <h2 className="mt-1 text-base font-black text-fg">지금 확인할 업무</h2>
-          <p className="mt-1 text-[11px] text-fg-muted">현재 고객 플래그를 기준으로 집계했습니다.</p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-red-100 bg-red-50 p-3"><p className="text-[10px] font-semibold text-red-700">즉시 확인</p><p className="mt-1 text-2xl font-black text-red-600">{immediateCount}<span className="ml-1 text-xs">건</span></p></div>
-            <div className="rounded-lg border border-amber-100 bg-amber-50 p-3"><p className="text-[10px] font-semibold text-amber-700">포트폴리오 검토</p><p className="mt-1 text-2xl font-black text-amber-600">{reviewCount}<span className="ml-1 text-xs">건</span></p></div>
-            {analysis && <><div className="rounded-lg border border-border bg-white p-3"><p className="text-[10px] text-fg-muted">평균 수익률</p><p className="mt-1 text-lg font-black"><ReturnText value={analysis.avgReturnPct?.value ?? null} /></p></div><div className="rounded-lg border border-border bg-white p-3"><p className="text-[10px] text-fg-muted">주시 플래그</p><p className="mt-1 text-lg font-black text-fg">{analysis.flagged.highRisk.length + analysis.flagged.lowReturn.length + analysis.flagged.lowLiquidity.length}<span className="ml-1 text-xs">건</span></p></div></>}
-          </div>
-        </div>
-        <div className="p-4 lg:col-span-8">
-          <div className="flex items-center justify-between"><div><p className="decision-kicker">Priority clients</p><h2 className="mt-1 text-base font-black text-fg">우선 확인 고객</h2></div><span className="text-[11px] text-fg-muted">최대 3명</span></div>
-        {priorityRows.length > 0 ? (
-          <div className="mt-3 divide-y divide-border">
-            {priorityRows.map((row) => (
-              <article key={row.clientId} className="flex flex-wrap items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <div className="flex min-w-[180px] items-center gap-2.5"><ClientAvatar name={row.name} type={row.clientType} size="sm" /><div><p className="font-bold text-fg">{row.name}</p><p className="mt-0.5 text-[11px] text-fg-muted">{CLIENT_TYPE_LABEL[row.clientType as ClientType]} · {formatKRWShort(row.totalAssets)}</p></div></div>
-                <div className="flex-1"><FlagChips kinds={row.flags.map((item) => item.kind)} /></div>
-                <button type="button" className="btn-outline px-3 py-1.5 text-[11px]" onClick={() => goClient(row.clientId)}>
-                  {row.flags.some((item) => item.kind === "high_risk" || item.kind === "low_return") ? "포트폴리오 점검" : "상담 준비"}
-                </button>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-4 rounded-xl border border-dashed border-border px-4 py-5 text-sm text-fg-muted">
-            현재 플래그 기준으로 즉시 확인할 고객이 없습니다.
-          </div>
-        )}
-        </div>
-      </section>
-
-      {analysis && analysis.productMix.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="card p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-fg">상품군 편입 비중</h3>
-              <MeasuredHint asOf={analysis.asOf} source={analysis.source} currency="KRW" />
-            </div>
-            <div className="grid items-center gap-5 sm:grid-cols-[148px_1fr]">
-              <div className="relative mx-auto h-36 w-36 rounded-full" style={{ background: productMixGradient(analysis.productMix.map((slice) => slice.weightPct)) }}>
-                <div className="absolute inset-[22px] flex flex-col items-center justify-center rounded-full bg-white shadow-inner">
-                  <strong className="text-lg font-black text-[#1428A0]">{formatKRWShort(rows.reduce((sum, row) => sum + row.totalAssets, 0))}</strong>
-                  <span className="mt-0.5 text-[10px] font-semibold text-fg-muted">총 AUM</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {analysis.productMix.map((s, index) => (
-                  <div key={s.category} className="flex items-center justify-between gap-3 text-xs">
-                    <span className="flex min-w-0 items-center gap-2 font-medium text-fg">
-                      <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: PRODUCT_MIX_COLORS[index % PRODUCT_MIX_COLORS.length] }} />
-                      {PRODUCT_CATEGORY_LABEL[s.category]}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-fg-muted">{s.weightPct.toFixed(1)}% · {formatKRWShort(s.amount)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="card p-4">
-            <h3 className="mb-3 text-sm font-bold text-fg">고객 편입 상품 랭킹</h3>
-            <ol className="space-y-2">
-              {analysis.productRanking.slice(0, 5).map((p, i) => (
-                <li key={`${p.category}-${p.ticker ?? p.name}`} className="flex items-center justify-between gap-2 text-sm">
-                  <div className="min-w-0">
-                    <span className="mr-2 font-mono text-[11px] text-fg-muted">{i + 1}</span>
-                    {p.ticker ? (
-                      <Link href={`/pb/${pbId}/ticker?symbol=${encodeURIComponent(p.ticker)}`} className="font-medium text-[#1428A0] hover:underline">
-                        {p.name}
-                      </Link>
-                    ) : (
-                      <span className="font-medium text-fg">{p.name}</span>
-                    )}
-                    <span className="ml-2 text-[11px] text-fg-muted">{PRODUCT_CATEGORY_LABEL[p.category]}</span>
-                  </div>
-                  <span className="shrink-0 text-xs text-fg-muted">{p.clientCount}명 · {formatKRWShort(p.totalAmount)}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-      )}
-
-      {analysis && (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {([
-            ["high_risk", analysis.flagged.highRisk],
-            ["low_return", analysis.flagged.lowReturn],
-            ["low_liquidity", analysis.flagged.lowLiquidity],
-          ] as const).map(([kind, list]) => (
-            <div key={kind} className="card p-3.5">
-              <p className="text-xs font-semibold text-[#1428A0]">{CLIENT_FLAG_LABEL[kind]}</p>
-              {list.length === 0 ? (
-                <p className="mt-2 text-xs text-fg-muted">해당 없음</p>
-              ) : (
-                <ul className="mt-2 space-y-1">
-                  {list.slice(0, 3).map((c) => (
-                    <li key={c.clientId}>
-                      <Link href={`/pb/${pbId}/${c.clientId}`} className="text-sm font-medium text-fg hover:text-[#1428A0]">
-                        {c.name}
-                      </Link>
-                      <p className="text-[10px] text-fg-muted">{c.flags.find((f) => f.kind === kind)?.reason}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-          <div className="card border-[#1428A0]/20 p-3.5">
-            <div className="flex items-center justify-between"><p className="text-xs font-semibold text-[#1428A0]">액션이 필요한 고객</p><span className="badge-navy">{priorityRows.length}명</span></div>
-            {priorityRows.length === 0 ? <p className="mt-2 text-xs text-fg-muted">해당 없음</p> : (
-              <ul className="mt-2 space-y-1.5">
-                {priorityRows.map((client) => <li key={client.clientId} className="flex items-center justify-between gap-2"><Link href={`/pb/${pbId}/${client.clientId}`} className="truncate text-sm font-semibold text-fg hover:text-[#1428A0]">{client.name}</Link><span className="shrink-0 text-[10px] text-fg-muted">상세 보기 →</span></li>)}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-black text-fg">고객 리스트</h2><p className="text-[10px] text-fg-muted">검색·필터·정렬 후 고객을 선택하세요.</p></div><span className="badge-navy">{filtered.length}명</span></div>
         <div className="relative mb-2">

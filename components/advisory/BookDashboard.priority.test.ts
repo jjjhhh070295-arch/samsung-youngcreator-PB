@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { comparePriorityRows } from "./BookDashboard";
+import { comparePriorityRows } from "../../lib/advisory/book";
 import type { ClientBookRow } from "../../lib/advisory/types";
 
 function row(overrides: Partial<ClientBookRow>): ClientBookRow {
