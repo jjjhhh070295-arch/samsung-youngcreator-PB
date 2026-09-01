@@ -15,6 +15,7 @@ import {
   type TaxProjectionResult,
 } from "@/lib/taxProjection";
 import QuickScrollButtons from "@/components/QuickScrollButtons";
+import HeritageHandoffBlock from "@/components/HeritageHandoffBlock";
 
 type WeightKey = keyof PortfolioOption["weights"];
 
@@ -911,6 +912,10 @@ export default function TaxProjectionPanel({ client, baseWeights, principalWon, 
           ))}
         </div>
       </section>
+
+      {/* 세금 계산을 다 본 뒤 "그래서 전문가에게" 로 이어지는 마지막 블록 */}
+      <HeritageHandoffBlock client={client} />
+
       <div ref={taxProjectionBottomRef} aria-hidden="true" />
     </div>
   );

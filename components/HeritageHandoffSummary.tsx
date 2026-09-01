@@ -69,7 +69,17 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
             <p className="text-xs font-bold uppercase tracking-wide text-[#1428A0]">세무사 인계 요약 · 개략 추정치</p>
             <h1 className="mt-1 text-xl font-black text-fg">{client.name} 고객 헤리티지(상속·증여) 상담 요약</h1>
             <p className="mt-1 text-xs text-fg-muted">작성일 {formatDate(new Date().toISOString())}</p>
+            {/* 취급 등급 — 인쇄물만 보고도 고객에게 건네면 안 되는 문서임을 알 수 있어야 한다. */}
+            <p className="mt-2 border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-black tracking-wide text-red-700">
+              내부 참고용 · 개략 추정치 · 고객 전달 금지
+            </p>
           </header>
+
+          {/* 문서 최상단 고지 — 화면·인쇄 양쪽에 항상 보인다. 세액 구간에 붙은 disclaimer 와
+              달리 이건 문서 전체의 성격을 규정하므로 맨 위에 둔다. */}
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-900">
+            이 자료는 세무 신고·자문의 근거가 아니며 모든 수치는 세무사가 원자료로 재확인해야 합니다.
+          </p>
 
           {/* 1. 고객 기본정보 */}
           <section>
