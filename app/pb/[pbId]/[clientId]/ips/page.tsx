@@ -19,6 +19,7 @@ import {
 import type { Client, PB } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META } from "@/lib/types";
 import { getClient, listPbs } from "@/lib/store";
+import { resolveAssetBreakdown } from "@/lib/assets";
 import { formatKRW, formatDate } from "@/lib/format";
 import {
   buildPortfolioViewModel,
@@ -243,6 +244,8 @@ export default function IPSDocumentPage() {
   const [printPermit, setPrintPermit] = useState<VerifiedPrintPermit | null>(null);
   const [printBusy, setPrintBusy] = useState(false);
   const [evidenceRevision, setEvidenceRevision] = useState(0);
+  // 세금 추정 원금용 투자가능자산(부동산 제외). 조회 전/실패 시 null → 총자산 폴백.
+  const [investableWon, setInvestableWon] = useState<number | null>(null);
   const routeKey = `${pbId}\u0000${clientId}`;
   const routeKeyRef = useRef(routeKey);
   routeKeyRef.current = routeKey;
@@ -287,6 +290,17 @@ export default function IPSDocumentPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 투자가능자산(총자산 − 부동산) 조회 — projectTax 원금에 쓴다. 실패해도 문서는 그대로
+  // 뜨고 총자산 폴백으로 계산된다.
+  useEffect(() => {
+    if (!clientId) return;
+    let cancelled = false;
+    resolveAssetBreakdown(clientId)
+      .then((b) => { if (!cancelled) setInvestableWon(b?.investableKrw ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [clientId]);
 
   const assignedPb = client ? pbs.find((pb) => pb.id === client.assignedPbId) : undefined;
   const pbDisplay = client ? assignedPb?.name ?? "미지정" : "";
@@ -804,7 +818,8 @@ export default function IPSDocumentPage() {
   };
   const mergedTax = mergeTaxProfile(documentClient);
   const taxWaterfall = projectTax({
-    principalWon: documentClient.assetSize,
+    // 부동산 제외 투자가능자산 기준. 조회 전/실패 시 총자산으로 폴백.
+    principalWon: investableWon ?? documentClient.assetSize,
     horizonYears: DEFAULT_HORIZON_YEARS,
     weights: vmWeights,
     expectedReturnPct: pf?.expectedReturn ?? 6,

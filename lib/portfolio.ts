@@ -548,9 +548,13 @@ const factorScore = (client: Client, key: FactorKey, fallback = 3) =>
 
 const clampNumber = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-function percentOfAssets(amountWon: number, client: Client): number {
-  if (!client.assetSize || client.assetSize <= 0) return 0;
-  return (Math.abs(amountWon) / client.assetSize) * 100;
+// investableWon(부동산 제외 투자가능자산)이 넘어오면 그걸 분모로 쓴다. 부동산은 세금·현금
+// 압력을 흡수하지 못하는 자산이라, 총자산을 분모로 두면 부동산 비중이 큰 고객일수록 압력이
+// 실제보다 희석된다. 값이 없으면 기존대로 총자산으로 폴백한다.
+function percentOfAssets(amountWon: number, client: Client, investableWon?: number): number {
+  const base = investableWon && investableWon > 0 ? investableWon : client.assetSize;
+  if (!base || base <= 0) return 0;
+  return (Math.abs(amountWon) / base) * 100;
 }
 
 // 현금흐름 압력을 투자가능자산 기준으로 환산 (부동산 제외 실배분 대상)
@@ -1532,12 +1536,15 @@ function buildCalculationSteps(
   preference: ClientPreferenceProfile,
   recommendedOption: PortfolioOption,
   preferenceFeasibility?: PreferenceFeasibilityReport,
+  investableWon?: number,
 ): PortfolioCalculationStep[] {
   const scores = factorScoreSummary(client);
   const factorSummary = FACTOR_META.map((factor) => `${factor.label} ${scores[factor.key]}점`).join(" · ");
+  // 추천안 판정에 쓰인 분모와 같은 값을 써야 화면에 표시되는 근거와 실제 판정이 어긋나지 않는다.
   const cashPressurePct = percentOfAssets(
     cashflow.scheduledOutflow + Math.max(0, -cashflow.monthlyNet) * 12,
     client,
+    investableWon,
   );
   const topSignals = signals
     .slice(0, 3)
@@ -1938,10 +1945,11 @@ export function buildPortfolioViewModel(
     optionFromAnalysis(meta, client, cashflowSummary, researchSignals, preferenceProfile, investableKrw, proxyReturns),
   );
   const scores = factorScoreSummary(client);
-  const taxPressurePct = percentOfAssets(cashflowSummary.taxOutflow, client);
+  const taxPressurePct = percentOfAssets(cashflowSummary.taxOutflow, client, investableKrw);
   const cashPressurePct = percentOfAssets(
     cashflowSummary.scheduledOutflow + Math.max(0, -cashflowSummary.monthlyNet) * 12,
     client,
+    investableKrw,
   );
   const recommendedId =
     client.clientType === "sole_proprietor" && client.accountSeparation !== "separated"
@@ -2017,6 +2025,7 @@ export function buildPortfolioViewModel(
     preferenceProfile,
     recommendedOption,
     preferenceFeasibility,
+    investableKrw,
   );
 
   const assetLayer = computeAssetLayer(heldAssets);

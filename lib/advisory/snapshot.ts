@@ -39,6 +39,8 @@ export function buildEngineSnapshot(
   client: Client,
   inputContext: AdvisoryInputContext = {},
   asOf = asOfNow(),
+  /** 부동산 제외 투자가능자산. 없으면 총자산으로 폴백(기존 동작). */
+  investableWon?: number,
 ) {
   const vm = buildPortfolioViewModel(client);
   const confirmedId = client.portfolios[0]?.id;
@@ -59,7 +61,9 @@ export function buildEngineSnapshot(
   const expectedReturnPct = pf?.expectedReturn ?? metrics.expectedReturn;
   const volatilityPct = pf?.expectedRisk ?? metrics.volatility;
   const mddPct = metrics.mdd;
-  const principalWon = client.assetSize || 0;
+  // 스트레스·세금 원금은 실제로 운용되는 자산이어야 한다 — 부동산은 시나리오 하락률을
+  // 그대로 맞지도, 금융소득세를 내지도 않는다. 값이 없으면 기존대로 총자산으로 폴백.
+  const principalWon = investableWon ?? (client.assetSize || 0);
 
   const risk = buildRiskMetrics({
     expectedReturnPct,
