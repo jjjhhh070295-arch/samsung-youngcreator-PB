@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL } from "@/lib/types";
-import type { Client, Consultation, CashFlow, PB, Portfolio, StageKey } from "@/lib/types";
+import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey } from "@/lib/types";
 import {
   getClient,
   listClients,
@@ -26,6 +26,7 @@ import AssetAllocationBar from "@/components/AssetAllocationBar";
 import PartyRelationshipModule from "@/components/PartyRelationshipModule";
 import ClientAvatar from "@/components/ClientAvatar";
 import FactorsSummary from "@/components/FactorsSummary";
+import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
@@ -116,6 +117,12 @@ export default function ClientDetailPage() {
     const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
     await updateClient(client.id, { stages });
     setClient({ ...client, stages });
+  };
+
+  const applySurvey = async (ips: IPS, _result: InvestmentSurveyResult) => {
+    if (!client) return;
+    await updateClient(client.id, { ips });
+    setClient({ ...client, ips });
   };
 
   const submitEdit = async (v: ClientFormValue) => {
@@ -264,7 +271,8 @@ export default function ClientDetailPage() {
           <FactorsSummary
             client={client}
             allClients={allClients}
-            onEdit={() => setModalOpen(true)}
+            pbId={pbId}
+            onSurveyApplied={applySurvey}
             onToggleStage={toggleStage}
           />
         </section>

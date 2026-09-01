@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FACTOR_META } from "@/lib/types";
-import { SCORE_RUBRIC } from "@/lib/scoring";
+import {
+  SURVEY_FACTOR_MAPPING,
+  SURVEY_MAX_SCORE,
+  SURVEY_QUESTIONS,
+} from "@/lib/investmentSurvey";
 
 interface Props {
   label?: string;
@@ -35,7 +38,7 @@ export default function ScoreRubricButton({
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="7요인 점수 기준표"
+          aria-label="투자성향 설문 점수 기준표"
           onMouseDown={() => setOpen(false)}
         >
           <div
@@ -44,9 +47,9 @@ export default function ScoreRubricButton({
           >
             <div className="flex items-start justify-between gap-4 border-b border-border bg-surface-2 px-5 py-4">
               <div>
-                <p className="text-base font-black text-fg">RRTTLLU 7요인 점수 기준표</p>
+                <p className="text-base font-black text-fg">고객 투자성향 설문 내용 및 점수기준</p>
                 <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-                  자동 분석과 수동 입력 모두 아래 1~5점 기준을 사용합니다. 점수가 높을수록 해당 요인의 강도나 제약 수준이 큽니다.
+                  설문조사 결과로 7 RRTTLLU 요인을 산출합니다. 총점 {SURVEY_MAX_SCORE}점, 환산점수 = 원점수 × 100 ÷ {SURVEY_MAX_SCORE}.
                 </p>
               </div>
               <button
@@ -57,36 +60,72 @@ export default function ScoreRubricButton({
                 닫기
               </button>
             </div>
-            <div className="max-h-[72vh] overflow-auto p-5">
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {FACTOR_META.map((factor) => (
-                  <section key={factor.key} className="rounded-xl border border-border bg-surface-2 p-4">
-                    <div className="mb-3 flex items-center gap-2">
-                      <span className="flex h-7 w-7 items-center justify-center rounded bg-navy-800 text-xs font-black text-gold-300">
-                        {factor.letter}
-                      </span>
-                      <div>
-                        <h3 className="text-sm font-black text-fg">{factor.label}</h3>
-                        <p className="text-[11px] text-fg-muted">{factor.labelEn}</p>
-                      </div>
+
+            <div className="max-h-[72vh] overflow-auto p-5 space-y-5">
+              <section className="rounded-xl border border-border bg-surface-2 p-4">
+                <h3 className="text-sm font-black text-fg">설문 문항 및 배점</h3>
+                <div className="mt-3 space-y-4">
+                  {SURVEY_QUESTIONS.map((question) => (
+                    <div key={question.id} className="rounded-lg border border-border bg-white p-3">
+                      <p className="text-sm font-bold text-fg">
+                        {question.number}. {question.title}
+                        {question.referenceOnly ? (
+                          <span className="ml-2 text-[11px] font-semibold text-[#1428A0]">참고용</span>
+                        ) : null}
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {question.options.map((option) => (
+                          <li key={option.id} className="flex items-start justify-between gap-3 text-xs text-fg-muted">
+                            <span>{option.label}</span>
+                            {!question.referenceOnly ? (
+                              <span className="shrink-0 font-bold text-[#1428A0]">{option.score}점</span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <div className="overflow-hidden rounded-lg border border-border bg-surface">
-                      <table className="w-full border-collapse text-left text-xs">
-                        <tbody className="divide-y divide-border">
-                          {SCORE_RUBRIC[factor.key].map((criterion, index) => (
-                            <tr key={`${factor.key}-${index}`}>
-                              <td className="w-14 bg-surface-2 px-3 py-2 text-center font-black text-gold-700">
-                                {index + 1}점
-                              </td>
-                              <td className="px-3 py-2 leading-relaxed text-fg-muted">{criterion}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </section>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-border bg-surface-2 p-4">
+                <h3 className="text-sm font-black text-fg">환산점수 · 최종 투자성향</h3>
+                <ul className="mt-2 space-y-1 text-xs text-fg-muted">
+                  <li>환산점수 = 원점수 × 100 ÷ {SURVEY_MAX_SCORE}</li>
+                  <li>0~20점: 안정형</li>
+                  <li>21~40점: 안정추구형</li>
+                  <li>41~60점: 위험중립형</li>
+                  <li>61~80점: 적극투자형</li>
+                  <li>81~100점: 공격투자형</li>
+                </ul>
+                <div className="mt-3 rounded-lg border border-[#1428A0]/20 bg-[#1428A0]/5 p-3 text-xs text-fg-muted">
+                  <p className="font-bold text-fg">적합성 제한</p>
+                  <p className="mt-1">원금 보전 응답 → 최종 투자성향 안정형으로 제한</p>
+                  <p>최소 손실 응답 → 최종 투자성향 위험중립형 이하로 제한</p>
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-border bg-surface-2 p-4">
+                <h3 className="text-sm font-black text-fg">7 RRTTLLU 요인 매핑</h3>
+                <div className="mt-3 overflow-hidden rounded-lg border border-border bg-white">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead className="bg-surface-2 text-fg">
+                      <tr>
+                        <th className="px-3 py-2 font-bold">요인</th>
+                        <th className="px-3 py-2 font-bold">주요 근거</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border text-fg-muted">
+                      {SURVEY_FACTOR_MAPPING.map((row) => (
+                        <tr key={row.factor}>
+                          <td className="px-3 py-2 font-semibold text-fg">{row.factor}</td>
+                          <td className="px-3 py-2">{row.source}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </div>
           </div>
         </div>
