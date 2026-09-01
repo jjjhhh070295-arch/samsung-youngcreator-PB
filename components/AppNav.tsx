@@ -1,9 +1,26 @@
 "use client";
 
+// 상단 가로 네비게이션 — 기존 Header(로고·PB명·로그아웃)를 이 안으로 통합했다.
+//
+// 이전 구조: [헤더 h-14] + [네비 1행 h-11] (+ 고객 상세는 [탭 행] 추가) = 최대 3줄.
+// 현재 구조: [통합 1행 h-11] (+ 고객 상세는 [탭 행] 추가) = 최대 2줄.
+// 헤더 한 줄(3.5rem)을 통째로 없애고 로고를 1줄짜리로 줄여 세로를 압축했다.
+//
+// 1행 배치: 왼쪽 끝 컨텍스트(뒤로가기·고객 식별 / 또는 유틸 링크)
+//           → 오른쪽 끝 PB명 · 로그아웃 · 메뉴 드롭다운.
+// 로고 블록은 뺐다 — 세로뿐 아니라 가로도 아껴서 컨텍스트를 왼쪽 끝에 붙인다.
+// 고객 상세의 "← PB 페이지 / 코드 / 이름"은 별도 줄을 쓰지 않고 1행에 합쳤다 —
+// 한 줄을 통째로 아끼는 게 이번 변경의 목적이고, 좁아지면 고객 코드부터 숨긴다.
+//
+// 항목이 가로로 다 안 들어가는 문제는 계층별로 다르게 처리한다:
+//   · 분석 탭 → 2행에 두고 가로 스크롤(overflow-x-auto). 화면 전환의 주 동선이라 숨기지 않는다.
+//   · 유틸 링크·외부 바로가기 → 우측 "메뉴" 드롭다운. 이동 빈도가 낮아 한 단계 숨겨도 된다.
+
 import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getClient } from "@/lib/store";
+import { useEffect, useRef, useState } from "react";
+import { getClient, listPbs } from "@/lib/store";
+import { getLoggedInPbId, clearLoggedInPbId } from "@/lib/auth";
 import type { Client } from "@/lib/types";
 
 const MAIN_SECTIONS = [
@@ -24,6 +41,121 @@ const EXTERNAL_LINKS = [
   { label: "KODEX ETF", href: "https://www.samsungfund.com" },
 ];
 
+// 가로 네비 항목 공통 스타일 — shrink-0 + whitespace-nowrap 이 가로 스크롤의 전제다.
+function pillClass(active: boolean): string {
+  return [
+    "shrink-0 whitespace-nowrap rounded-md px-3.5 py-1.5 text-[15px] transition-colors",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]",
+    active ? "bg-[#1428A0] font-semibold text-white" : "text-fg hover:bg-white",
+  ].join(" ");
+}
+
+interface MoreMenuItem {
+  key: string;
+  label: string;
+  icon: string;
+  href: string;
+  external?: boolean;
+}
+
+interface MoreMenuGroup {
+  title: string;
+  items: MoreMenuItem[];
+}
+
+/** 우측 "메뉴" 드롭다운 — 유틸 링크와 외부 바로가기를 담는다. */
+function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onPointer = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-label="메뉴 및 바로가기"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-fg transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+      >
+        <span aria-hidden="true">☰</span>
+        <span aria-hidden="true" className="text-[10px] text-fg-muted">{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        // 상단 네비(z-40)보다 위에 떠야 아래 행 탭에 가리지 않는다.
+        <div className="absolute right-0 z-50 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg">
+          {groups.map((g, gi) => (
+            <div key={g.title} className={gi > 0 ? "mt-1 border-t border-border pt-1" : ""}>
+              <p className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                {g.title}
+              </p>
+              {g.items.map((item) =>
+                item.external ? (
+                  <a
+                    key={item.key}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-surface-2"
+                  >
+                    <span aria-hidden="true">{item.icon}</span>
+                    <span>{item.label}</span>
+                  </a>
+                ) : (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-surface-2"
+                  >
+                    <span aria-hidden="true">{item.icon}</span>
+                    <span>{item.label}</span>
+                  </Link>
+                ),
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 오른쪽 끝 계정 영역 — 기존 Header의 PB명 + 로그아웃. */
+function AccountArea({ pbName, onLogout }: { pbName: string | null; onLogout: () => void }) {
+  if (!pbName) return null;
+  return (
+    <>
+      <span className="hidden whitespace-nowrap text-xs text-fg-muted md:inline">{pbName} PB</span>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="shrink-0 whitespace-nowrap rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+      >
+        로그아웃
+      </button>
+    </>
+  );
+}
+
 export default function AppNav() {
   const pathname = usePathname();
   const params = useParams();
@@ -35,7 +167,7 @@ export default function AppNav() {
   const isClientPage = !!(pbId && clientId && !pathname.includes("/ips") && !pathname.includes("/portfolio"));
 
   const [client, setClient] = useState<Client | null>(null);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [pbName, setPbName] = useState<string | null>(null);
 
   const activeView = searchParams?.get("view") ?? "home";
   const activeTab = searchParams?.get("tab") ?? "cashflow";
@@ -45,204 +177,149 @@ export default function AppNav() {
     getClient(clientId).then(setClient).catch(() => {});
   }, [clientId]);
 
+  // 로그인한 PB 이름 — 세션만 사용한다(URL pbId로 세션을 만들지 않는다, 인증 우회 차단).
   useEffect(() => {
-    if (!mobileOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileOpen(false);
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [mobileOpen]);
+    let cancelled = false;
+    const sessionPbId = getLoggedInPbId();
+    if (!sessionPbId) { setPbName(null); return; }
+    listPbs()
+      .then((pbs) => {
+        if (cancelled) return;
+        setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [pathname]);
 
-  const goTo = (view: string, tab?: string) => {
-    const params = new URLSearchParams({ view });
-    if (tab) params.set("tab", tab);
-    setMobileOpen(false);
-    router.push(`/pb/${pbId}/${clientId}?${params.toString()}`);
+  const handleLogout = () => {
+    clearLoggedInPbId();
+    setPbName(null);
+    router.push("/");
   };
 
-  // ── 고객 상세 페이지용 사이드바 ──
+  const goTo = (view: string, tab?: string) => {
+    const next = new URLSearchParams({ view });
+    if (tab) next.set("tab", tab);
+    router.push(`/pb/${pbId}/${clientId}?${next.toString()}`);
+  };
+
+  const utilityItems: MoreMenuItem[] = [
+    { key: "home", label: "홈", icon: "🏠", href: "/" },
+    ...(pbId ? [{ key: "book", label: "다고객 북", icon: "📒", href: `/pb/${pbId}` }] : []),
+    ...(pbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${pbId}/ticker` }] : []),
+    { key: "research", label: "리서치", icon: "📊", href: "/research" },
+  ];
+  const externalItems: MoreMenuItem[] = EXTERNAL_LINKS.map((l) => ({
+    key: l.href,
+    label: l.label,
+    icon: "↗",
+    href: l.href,
+    external: true,
+  }));
+
+  // 헤더가 사라졌으므로 네비가 최상단(top-0)에 붙는다. 헤더의 z-40을 그대로 물려받는다.
+  const shell = "sticky top-0 z-40 border-b border-border bg-[#f0f4fa]";
+
+  // ── 고객 상세 페이지: 2행 (통합 1행 + 탭 행) ──
   if (isClientPage) {
-    const activeLabel =
-      activeView === "home"
-        ? "기본 정보"
-        : activeView === "consultation"
-          ? "상담 진행"
-          : ANALYSIS_TABS.find((tab) => tab.id === activeTab)?.label ?? "분석";
-
     return (
-      <aside className="sticky top-14 z-30 flex w-full shrink-0 flex-col border-b border-border bg-[#f0f4fa] md:h-[calc(100vh-3.5rem)] md:w-44 md:self-start md:overflow-y-auto md:border-b-0 md:border-r">
-        <button
-          type="button"
-          className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2C3EE8] md:hidden"
-          aria-expanded={mobileOpen}
-          aria-controls="client-mobile-navigation"
-          onClick={() => setMobileOpen((open) => !open)}
-        >
-          <span>
-            <span className="block text-[10px] font-semibold uppercase tracking-wide text-fg-muted">현재 메뉴</span>
-            <span className="font-bold">{activeLabel}</span>
-          </span>
-          <span aria-hidden="true">{mobileOpen ? "▲" : "▼"}</span>
-        </button>
-
-        <div
-          id="client-mobile-navigation"
-          className={`${mobileOpen ? "flex" : "hidden"} max-h-[calc(100vh-7rem)] flex-col overflow-y-auto border-t border-border md:flex md:max-h-none md:flex-1 md:border-t-0`}
-        >
-          <button
-            type="button"
-            className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3 text-xs text-fg-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2C3EE8]"
-            onClick={() => {
-              setMobileOpen(false);
-              router.push(`/pb/${pbId}`);
-            }}
-          >
-            ← PB 페이지
-          </button>
-
-          {client && (
-            <div className="shrink-0 border-b border-border px-4 py-3">
-              <p className="text-[10px] text-fg-muted">{client.code}</p>
-              <p className="truncate text-sm font-bold text-fg">{client.name}</p>
+      <nav className={shell} aria-label="고객 상세 메뉴">
+        <div className="mx-auto flex max-w-[1800px] flex-col">
+          {/* 1행 — 로고 · 뒤로가기 · 고객 식별 · 계정 · 메뉴 */}
+          <div className="flex h-11 items-center gap-2 px-4 lg:px-6">
+            <button
+              type="button"
+              onClick={() => router.push(`/pb/${pbId}`)}
+              className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-1 text-xs text-fg-muted transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+            >
+              ← PB 페이지
+            </button>
+            {client && (
+              <div className="flex min-w-0 items-baseline gap-1.5">
+                <span className="hidden shrink-0 text-[10px] text-fg-muted sm:inline">{client.code}</span>
+                <span className="truncate text-sm font-bold text-fg">{client.name}</span>
+              </div>
+            )}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <AccountArea pbName={pbName} onLogout={handleLogout} />
+              <MoreMenu
+                groups={[
+                  { title: "메뉴", items: utilityItems },
+                  { title: "바로가기", items: externalItems },
+                ]}
+              />
             </div>
-          )}
-
-          <nav className="flex-1 py-1" aria-label="고객 상세 메뉴">
-          {/* 기본정보 · 상담진행 */}
-          {MAIN_SECTIONS.map((s) => {
-            const isActive = (s.id === "basic" && activeView === "home") || (s.id === "consultation" && activeView === "consultation");
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => goTo(s.id === "consultation" ? "consultation" : "home")}
-                aria-current={isActive ? "page" : undefined}
-                className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                  isActive ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-white"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <span>{s.icon}</span>
-                  <span>{s.label}</span>
-                </span>
-                <span className={isActive ? "text-white/60" : "text-fg-muted"}>›</span>
-              </button>
-            );
-          })}
-
-          {/* 분석 탭 */}
-          <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
-            분석
-          </p>
-          {ANALYSIS_TABS.map((t) => {
-            const isActive = activeView === "analysis" && activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => goTo("analysis", t.id)}
-                aria-current={isActive ? "page" : undefined}
-                className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors ${
-                  isActive
-                    ? "bg-[#1428A0] text-white font-semibold"
-                    : "text-fg hover:bg-white"
-                }`}
-              >
-                <span>{t.label}</span>
-                <span className={isActive ? "text-white/60" : "text-fg-muted"}>›</span>
-              </button>
-            );
-          })}
-
-          <div className="border-t border-border mt-2 pt-2">
-            <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
-            <Link href="/" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
-              🏠 홈
-            </Link>
-            {pbId && (
-              <Link href={`/pb/${pbId}`} onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
-                📒 다고객 북
-              </Link>
-            )}
-            {pbId && (
-              <Link href={`/pb/${pbId}/ticker`} onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
-                📈 티커 분석
-              </Link>
-            )}
-            <Link href="/research" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-2">
-              📊 리서치
-            </Link>
           </div>
-          </nav>
+
+          {/* 2행 — 메인 섹션 + 분석 탭. 좁으면 가로 스크롤 */}
+          <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
+            {MAIN_SECTIONS.map((s) => {
+              const isActive =
+                (s.id === "basic" && activeView === "home") ||
+                (s.id === "consultation" && activeView === "consultation");
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => goTo(s.id === "consultation" ? "consultation" : "home")}
+                  aria-current={isActive ? "page" : undefined}
+                  className={pillClass(isActive)}
+                >
+                  <span className="mr-1" aria-hidden="true">{s.icon}</span>
+                  {s.label}
+                </button>
+              );
+            })}
+
+            {/* 계층 구분 — 세로선 + 그룹 라벨 */}
+            <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+              분석
+            </span>
+
+            {ANALYSIS_TABS.map((t) => {
+              const isActive = activeView === "analysis" && activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => goTo("analysis", t.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  className={pillClass(isActive)}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </aside>
+      </nav>
     );
   }
 
-  // ── 일반 페이지용 사이드바 ──
-  const navItem = (href: string, icon: string, label: string) => {
-    const active = pathname === href;
-    return (
-      <Link
-        href={href}
-        onClick={() => setMobileOpen(false)}
-        className={`flex items-center justify-between px-4 py-3 text-sm transition-colors ${
-          active ? "bg-[#1428A0] text-white font-semibold" : "text-fg hover:bg-white"
-        }`}
-      >
-        <span className="flex items-center gap-2">
-          <span>{icon}</span>
-          <span>{label}</span>
-        </span>
-        <span className={active ? "text-white/60" : "text-fg-muted"}>›</span>
-      </Link>
-    );
-  };
-
+  // ── 일반 페이지: 1행 ──
   return (
-    <aside className="sticky top-14 z-30 flex w-full shrink-0 flex-col border-b border-border bg-[#f0f4fa] md:h-[calc(100vh-3.5rem)] md:w-44 md:self-start md:overflow-y-auto md:border-b-0 md:border-r">
-      <button
-        type="button"
-        className="flex min-h-12 w-full items-center justify-between px-4 py-2 text-sm font-bold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#2C3EE8] md:hidden"
-        aria-expanded={mobileOpen}
-        aria-controls="general-mobile-navigation"
-        onClick={() => setMobileOpen((open) => !open)}
-      >
-        <span>메뉴</span>
-        <span aria-hidden="true">{mobileOpen ? "▲" : "▼"}</span>
-      </button>
-      <nav
-        id="general-mobile-navigation"
-        className={`${mobileOpen ? "block" : "hidden"} max-h-[calc(100vh-7rem)] flex-1 overflow-y-auto border-t border-border py-1 md:block md:max-h-none md:border-t-0`}
-        aria-label="주요 메뉴"
-      >
-        <p className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">메뉴</p>
-        {navItem("/", "🏠", "홈")}
-        {pbId && navItem(`/pb/${pbId}`, "📒", "다고객 북")}
-        {pbId && navItem(`/pb/${pbId}/ticker`, "📈", "티커 분석")}
-        {navItem("/research", "📊", "리서치")}
+    <nav className={shell} aria-label="주요 메뉴">
+      <div className="mx-auto flex h-11 max-w-[1800px] items-center gap-2 px-4 lg:px-6">
+        <div className="flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:thin]">
+          {utilityItems.map((item) => (
+            <Link
+              key={item.key}
+              href={item.href}
+              aria-current={pathname === item.href ? "page" : undefined}
+              className={pillClass(pathname === item.href)}
+            >
+              <span className="mr-1" aria-hidden="true">{item.icon}</span>
+              {item.label}
+            </Link>
+          ))}
+        </div>
 
-        <p className="px-4 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">바로가기</p>
-        {EXTERNAL_LINKS.map((l) => (
-          <a
-            key={l.href}
-            href={l.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => setMobileOpen(false)}
-            className="flex items-center justify-between px-4 py-3 text-sm text-fg hover:bg-surface-2 transition-colors"
-          >
-            <span className="flex items-center gap-2">
-              <span>↗</span>
-              <span>{l.label}</span>
-            </span>
-          </a>
-        ))}
-      </nav>
-      <p className="hidden border-t border-border px-4 py-3 text-center text-[10px] text-fg-muted md:block">
-        참고용 · 투자권유 아님
-      </p>
-    </aside>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <AccountArea pbName={pbName} onLogout={handleLogout} />
+          <MoreMenu groups={[{ title: "바로가기", items: externalItems }]} />
+        </div>
+      </div>
+    </nav>
   );
 }
