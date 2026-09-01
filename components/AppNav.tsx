@@ -1,20 +1,26 @@
 "use client";
 
-// 상단 가로 네비게이션.
+// 상단 가로 네비게이션 — 기존 Header(로고·PB명·로그아웃)를 이 안으로 통합했다.
 //
-// 이전에는 좌측 사이드바(md:w-44)였고 app/layout.tsx가 flex-row로 본문과 나란히 놓았다.
-// 가로로 바꾸면 항목이 한 줄에 다 들어가지 않는데, 계층별로 다르게 처리한다:
-//   · 메인 섹션(기본정보·상담진행) + 분석 탭 → 2행 중 아래 행에 두고 가로 스크롤(overflow-x-auto).
-//     탭은 화면 전환의 주 동선이라 항상 눈에 보여야 하므로 접거나 숨기지 않는다.
-//   · 유틸 링크(홈·다고객 북·티커 분석·리서치)와 외부 바로가기 → 우측 "메뉴" 드롭다운.
-//     이동 빈도가 낮아 한 단계 숨겨도 손해가 적고, 그만큼 탭이 쓸 가로폭이 늘어난다.
-// 계층은 시각적으로도 구분한다 — 메인 섹션과 분석 탭 사이에 세로 구분선 + "분석" 라벨,
-// 드롭다운 안에서는 "메뉴"/"바로가기" 그룹 헤더로 나눈다.
+// 이전 구조: [헤더 h-14] + [네비 1행 h-11] (+ 고객 상세는 [탭 행] 추가) = 최대 3줄.
+// 현재 구조: [통합 1행 h-11] (+ 고객 상세는 [탭 행] 추가) = 최대 2줄.
+// 헤더 한 줄(3.5rem)을 통째로 없애고 로고를 1줄짜리로 줄여 세로를 압축했다.
+//
+// 1행 배치: 왼쪽 끝 컨텍스트(뒤로가기·고객 식별 / 또는 유틸 링크)
+//           → 오른쪽 끝 PB명 · 로그아웃 · 메뉴 드롭다운.
+// 로고 블록은 뺐다 — 세로뿐 아니라 가로도 아껴서 컨텍스트를 왼쪽 끝에 붙인다.
+// 고객 상세의 "← PB 페이지 / 코드 / 이름"은 별도 줄을 쓰지 않고 1행에 합쳤다 —
+// 한 줄을 통째로 아끼는 게 이번 변경의 목적이고, 좁아지면 고객 코드부터 숨긴다.
+//
+// 항목이 가로로 다 안 들어가는 문제는 계층별로 다르게 처리한다:
+//   · 분석 탭 → 2행에 두고 가로 스크롤(overflow-x-auto). 화면 전환의 주 동선이라 숨기지 않는다.
+//   · 유틸 링크·외부 바로가기 → 우측 "메뉴" 드롭다운. 이동 빈도가 낮아 한 단계 숨겨도 된다.
 
 import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getClient } from "@/lib/store";
+import { getClient, listPbs } from "@/lib/store";
+import { getLoggedInPbId, clearLoggedInPbId } from "@/lib/auth";
 import type { Client } from "@/lib/types";
 
 const MAIN_SECTIONS = [
@@ -38,7 +44,7 @@ const EXTERNAL_LINKS = [
 // 가로 네비 항목 공통 스타일 — shrink-0 + whitespace-nowrap 이 가로 스크롤의 전제다.
 function pillClass(active: boolean): string {
   return [
-    "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm transition-colors",
+    "shrink-0 whitespace-nowrap rounded-md px-3.5 py-1.5 text-[15px] transition-colors",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]",
     active ? "bg-[#1428A0] font-semibold text-white" : "text-fg hover:bg-white",
   ].join(" ");
@@ -86,16 +92,15 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
         aria-haspopup="true"
         aria-label="메뉴 및 바로가기"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-sm text-fg transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+        className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-fg transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
       >
         <span aria-hidden="true">☰</span>
-        <span className="hidden sm:inline">메뉴</span>
         <span aria-hidden="true" className="text-[10px] text-fg-muted">{open ? "▲" : "▼"}</span>
       </button>
 
       {open && (
-        // 상단 네비(z-30)보다 위에 떠야 아래 행 탭에 가리지 않는다.
-        <div className="absolute right-0 z-40 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg">
+        // 상단 네비(z-40)보다 위에 떠야 아래 행 탭에 가리지 않는다.
+        <div className="absolute right-0 z-50 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg">
           {groups.map((g, gi) => (
             <div key={g.title} className={gi > 0 ? "mt-1 border-t border-border pt-1" : ""}>
               <p className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
@@ -134,6 +139,23 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
   );
 }
 
+/** 오른쪽 끝 계정 영역 — 기존 Header의 PB명 + 로그아웃. */
+function AccountArea({ pbName, onLogout }: { pbName: string | null; onLogout: () => void }) {
+  if (!pbName) return null;
+  return (
+    <>
+      <span className="hidden whitespace-nowrap text-xs text-fg-muted md:inline">{pbName} PB</span>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="shrink-0 whitespace-nowrap rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+      >
+        로그아웃
+      </button>
+    </>
+  );
+}
+
 export default function AppNav() {
   const pathname = usePathname();
   const params = useParams();
@@ -145,6 +167,7 @@ export default function AppNav() {
   const isClientPage = !!(pbId && clientId && !pathname.includes("/ips") && !pathname.includes("/portfolio"));
 
   const [client, setClient] = useState<Client | null>(null);
+  const [pbName, setPbName] = useState<string | null>(null);
 
   const activeView = searchParams?.get("view") ?? "home";
   const activeTab = searchParams?.get("tab") ?? "cashflow";
@@ -153,6 +176,26 @@ export default function AppNav() {
     if (!clientId) { setClient(null); return; }
     getClient(clientId).then(setClient).catch(() => {});
   }, [clientId]);
+
+  // 로그인한 PB 이름 — 세션만 사용한다(URL pbId로 세션을 만들지 않는다, 인증 우회 차단).
+  useEffect(() => {
+    let cancelled = false;
+    const sessionPbId = getLoggedInPbId();
+    if (!sessionPbId) { setPbName(null); return; }
+    listPbs()
+      .then((pbs) => {
+        if (cancelled) return;
+        setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [pathname]);
+
+  const handleLogout = () => {
+    clearLoggedInPbId();
+    setPbName(null);
+    router.push("/");
+  };
 
   const goTo = (view: string, tab?: string) => {
     const next = new URLSearchParams({ view });
@@ -174,30 +217,31 @@ export default function AppNav() {
     external: true,
   }));
 
-  // ── 고객 상세 페이지: 2행 (컨텍스트 행 + 탭 행) ──
+  // 헤더가 사라졌으므로 네비가 최상단(top-0)에 붙는다. 헤더의 z-40을 그대로 물려받는다.
+  const shell = "sticky top-0 z-40 border-b border-border bg-[#f0f4fa]";
+
+  // ── 고객 상세 페이지: 2행 (통합 1행 + 탭 행) ──
   if (isClientPage) {
     return (
-      <nav
-        className="sticky top-14 z-30 border-b border-border bg-[#f0f4fa]"
-        aria-label="고객 상세 메뉴"
-      >
+      <nav className={shell} aria-label="고객 상세 메뉴">
         <div className="mx-auto flex max-w-[1800px] flex-col">
-          {/* 1행 — 뒤로가기 · 고객 식별 · 메뉴 드롭다운 */}
+          {/* 1행 — 로고 · 뒤로가기 · 고객 식별 · 계정 · 메뉴 */}
           <div className="flex h-11 items-center gap-2 px-4 lg:px-6">
             <button
               type="button"
               onClick={() => router.push(`/pb/${pbId}`)}
-              className="shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+              className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-1 text-xs text-fg-muted transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
             >
               ← PB 페이지
             </button>
             {client && (
-              <div className="flex min-w-0 items-baseline gap-2">
+              <div className="flex min-w-0 items-baseline gap-1.5">
                 <span className="hidden shrink-0 text-[10px] text-fg-muted sm:inline">{client.code}</span>
                 <span className="truncate text-sm font-bold text-fg">{client.name}</span>
               </div>
             )}
-            <div className="ml-auto">
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <AccountArea pbName={pbName} onLogout={handleLogout} />
               <MoreMenu
                 groups={[
                   { title: "메뉴", items: utilityItems },
@@ -208,7 +252,7 @@ export default function AppNav() {
           </div>
 
           {/* 2행 — 메인 섹션 + 분석 탭. 좁으면 가로 스크롤 */}
-          <div className="flex items-center gap-1 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin]">
+          <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
             {MAIN_SECTIONS.map((s) => {
               const isActive =
                 (s.id === "basic" && activeView === "home") ||
@@ -228,8 +272,8 @@ export default function AppNav() {
             })}
 
             {/* 계층 구분 — 세로선 + 그룹 라벨 */}
-            <span className="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-            <span className="shrink-0 whitespace-nowrap pr-1 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+            <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
               분석
             </span>
 
@@ -255,9 +299,9 @@ export default function AppNav() {
 
   // ── 일반 페이지: 1행 ──
   return (
-    <nav className="sticky top-14 z-30 border-b border-border bg-[#f0f4fa]" aria-label="주요 메뉴">
-      <div className="mx-auto flex h-11 max-w-[1800px] items-center gap-1 px-4 lg:px-6">
-        <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:thin]">
+    <nav className={shell} aria-label="주요 메뉴">
+      <div className="mx-auto flex h-11 max-w-[1800px] items-center gap-2 px-4 lg:px-6">
+        <div className="flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:thin]">
           {utilityItems.map((item) => (
             <Link
               key={item.key}
@@ -272,7 +316,7 @@ export default function AppNav() {
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <span className="hidden text-[10px] text-fg-muted lg:inline">참고용 · 투자권유 아님</span>
+          <AccountArea pbName={pbName} onLogout={handleLogout} />
           <MoreMenu groups={[{ title: "바로가기", items: externalItems }]} />
         </div>
       </div>

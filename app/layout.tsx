@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import Header from "@/components/Header";
 import AppNav from "@/components/AppNav";
 import SplashScreen from "@/components/SplashScreen";
 
@@ -28,9 +27,9 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <SplashScreen />
-          <Header />
-          {/* 네비가 좌측 사이드바에서 상단 가로바로 바뀌면서 세로 스택이 됐다 —
-              본문은 이제 화면 전체 폭을 쓴다(각 페이지의 max-w 컨테이너가 상한을 잡는다). */}
+          {/* 헤더 줄을 없애고 로고·PB명·로그아웃을 AppNav 1행으로 통합했다.
+              최상단 요소가 AppNav 하나뿐이라 세로가 헤더 높이(3.5rem)만큼 줄었다.
+              본문은 화면 전체 폭을 쓴다(각 페이지의 max-w 컨테이너가 상한을 잡는다). */}
           <div className="flex flex-col">
             <Suspense fallback={<AppNavFallback />}>
               <AppNav />

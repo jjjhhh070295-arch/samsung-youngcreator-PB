@@ -149,8 +149,8 @@ export default function PBPage() {
 
       <div className="grid items-start gap-4 xl:grid-cols-12">
         <div className="min-w-0 xl:col-span-9"><BookDashboard pbId={pbId} rows={bookRows} analysis={bookAnalysis} /></div>
-        {/* sticky 오프셋 = 헤더(3.5rem) + 상단 가로 네비 1행(2.75rem) + 여백(1rem) */}
-        <aside className="space-y-4 xl:col-span-3 xl:sticky xl:top-[7.25rem]">
+        {/* sticky 오프셋 = 상단 네비 1행(h-11 = 2.75rem) + 여백(1rem). 헤더 줄은 제거됨 */}
+        <aside className="space-y-4 xl:col-span-3 xl:sticky xl:top-[3.75rem]">
           <section className="card p-3">
             <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-fg">핵심 KPI</h2><span className="badge-muted">실시간 현황</span></div>
             <PBDashboard clients={myClients} consultations={myConsultations} />
