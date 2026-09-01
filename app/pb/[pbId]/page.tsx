@@ -30,6 +30,7 @@ import ClientAvatar from "@/components/ClientAvatar";
 import { buildClientBookRow } from "@/lib/advisory/book";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
 import { resolveHeritageInputsBulk } from "@/lib/heritage";
+import { resolveAssetBreakdownBulk } from "@/lib/assets";
 
 export default function PBPage() {
   const { pbId } = useParams<{ pbId: string }>();
@@ -49,6 +50,7 @@ export default function PBPage() {
   const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
   const [consultScheduleOpen, setConsultScheduleOpen] = useState(false);
   const [extraEventOpen, setExtraEventOpen] = useState(false);
+  const [investableAum, setInvestableAum] = useState(0);
 
   const refreshSchedules = useCallback(() => {
     setScheduleRefreshKey((key) => key + 1);
@@ -101,6 +103,21 @@ export default function PBPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 대시보드 AUM = 부동산 제외 합계. assetSize 합계와 다르다.
+  useEffect(() => {
+    const mine = allClients.filter((c) => c.assignedPbId === pbId);
+    if (mine.length === 0) { setInvestableAum(0); return; }
+    let cancelled = false;
+    resolveAssetBreakdownBulk(mine.map((c) => c.id))
+      .then((map) => {
+        if (cancelled) return;
+        const sum = Array.from(map.values()).reduce((s, b) => s + b.investableKrw, 0);
+        setInvestableAum(sum);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [allClients, pbId]);
 
   useEffect(() => {
     refreshSchedules();
@@ -177,7 +194,7 @@ export default function PBPage() {
         <aside className="space-y-4 xl:col-span-3 xl:sticky xl:top-[3.75rem]">
           <section className="card p-3">
             <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-fg">핵심 KPI</h2><span className="badge-muted">실시간 현황</span></div>
-            <PBDashboard clients={myClients} consultations={myConsultations} />
+            <PBDashboard clients={myClients} consultations={myConsultations} investableAum={investableAum} />
           </section>
           <section className="card p-4">
             <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-fg">최근 상담 고객</h2><span className="text-[11px] text-fg-muted">최근 {Math.min(5, myConsultations.length)}건</span></div>

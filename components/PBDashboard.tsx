@@ -6,6 +6,7 @@ import { formatKRW, formatDurationKo } from "@/lib/format";
 interface Props {
   clients: Client[];
   consultations: Consultation[];
+  investableAum: number;
 }
 
 function Stat({
@@ -35,9 +36,8 @@ function Stat({
 }
 
 // PB 대시보드: 담당 고객 수 · 총 운용자산(AUM) · 개인/법인 비율 · 평균 상담시간
-export default function PBDashboard({ clients, consultations }: Props) {
+export default function PBDashboard({ clients, consultations, investableAum }: Props) {
   const count = clients.length;
-  const aum = clients.reduce((s, c) => s + (c.assetSize || 0), 0);
   const individuals = clients.filter((c) => c.clientType === "individual").length;
   const corporates = clients.filter((c) => c.clientType === "corporate").length;
   const soleProprietors = clients.filter((c) => c.clientType === "sole_proprietor").length;
@@ -55,7 +55,7 @@ export default function PBDashboard({ clients, consultations }: Props) {
   return (
     <div className="grid grid-cols-2 gap-2 xl:grid-cols-1 2xl:grid-cols-2">
       <Stat label="담당 고객" value={`${count}명`} />
-      <Stat label="총 운용자산 (AUM)" value={formatKRW(aum)} accent />
+      <Stat label="총 운용자산 (AUM)" value={formatKRW(investableAum)} accent />
       <Stat
         label="개인 / 법인 / 개인사업자"
         value={`${individuals} / ${corporates} / ${soleProprietors}`}

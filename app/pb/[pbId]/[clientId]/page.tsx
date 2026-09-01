@@ -27,6 +27,7 @@ import PartyRelationshipModule from "@/components/PartyRelationshipModule";
 import ClientAvatar from "@/components/ClientAvatar";
 import FactorsSummary from "@/components/FactorsSummary";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
+import { resolveAssetBreakdown } from "@/lib/assets";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
@@ -43,6 +44,7 @@ export default function ClientDetailPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [investableWon, setInvestableWon] = useState<number | null>(null);
   const load = useCallback(async () => {
     setStatus("loading");
     try {
@@ -65,6 +67,16 @@ export default function ClientDetailPage() {
   }, [clientId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // AUM 표시는 부동산 제외(투자가능자산) 기준 — 조회 실패 시 assetSize로 폴백.
+  useEffect(() => {
+    if (!clientId) return;
+    let cancelled = false;
+    resolveAssetBreakdown(clientId)
+      .then((b) => { if (!cancelled) setInvestableWon(b?.investableKrw ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [clientId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -175,7 +187,7 @@ export default function ClientDetailPage() {
             <div className="min-w-0">
               <div className="flex flex-wrap gap-1.5"><span className="badge-navy font-mono">{client.code}</span><span className="badge-muted">{CLIENT_TYPE_LABEL[client.clientType]}</span>{client.isMajorityShareholder && <span className="badge-warning">최대주주</span>}</div>
               <h1 className="mt-2 truncate text-2xl font-black tracking-tight text-fg">{client.name}</h1>
-              <p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>{riskProfile ? ` · ${riskProfile}` : ""}</p>
+              <p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#1428A0]">{formatKRW(investableWon ?? client.assetSize)}</b> (총자산 {formatKRW(client.assetSize)}){riskProfile ? ` · ${riskProfile}` : ""}</p>
             </div>
           </div>
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto lg:min-w-[480px]">
