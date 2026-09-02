@@ -13,7 +13,7 @@ interface Props {
   open: boolean;
   pbId: string;
   clients: Client[];
-  pbs: PB[];
+  pbs: Array<Pick<PB, "id" | "name">>;
   allClients: Client[];
   onClose: () => void;
   onSaved: () => void;
