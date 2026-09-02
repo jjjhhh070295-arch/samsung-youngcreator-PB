@@ -9,8 +9,10 @@ import type {
   TickerSnapshot,
 } from "@/lib/advisory/types";
 import type { EnrichedBar } from "@/lib/advisory/tickerIndicatorsExtended";
+import { enrichBars, streakMarkers, volumeProfile } from "@/lib/advisory/tickerIndicatorsExtended";
+import { aggregateOhlcBars, type OhlcTimeframe, timeframeLabel } from "@/lib/advisory/ohlcAggregate";
+import type { OhlcBar } from "@/lib/advisory/ohlcTypes";
 import type { FinancialSnapshot, InvestorFlowSeries } from "@/lib/advisory/ohlcTypes";
-import type { VolumeProfileLevel, StreakMarker } from "@/lib/advisory/tickerIndicatorsExtended";
 import { appendRun, loadBundle, saveBundle } from "@/lib/advisory/control";
 import {
   DEFAULT_ANALYSIS_PRESETS,
@@ -31,6 +33,28 @@ import type { DrawingDocument } from "@/lib/advisory/drawingTypes";
 import { TickerCandleChart } from "./TickerCandleChart";
 import { TickerIndicatorPanels } from "./TickerIndicatorPanels";
 import { TickerAnalysisPresetsDrawer } from "./TickerAnalysisPresetsDrawer";
+import {
+  TickerMultiChartPanel,
+  type MultiChartEntry,
+  useMultiChartEntries,
+} from "./TickerMultiChartPanel";
+
+function toOhlcBar(bar: EnrichedBar): OhlcBar {
+  return {
+    time: bar.time,
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    volume: bar.volume,
+  };
+}
+
+function barsForTimeframe(dailyBars: EnrichedBar[], timeframe: OhlcTimeframe): EnrichedBar[] {
+  const raw = dailyBars.map(toOhlcBar);
+  const aggregated = aggregateOhlcBars(raw, timeframe);
+  return enrichBars(aggregated.slice(-260));
+}
 
 function formatAsOf(iso: string) {
   const d = new Date(iso);
@@ -78,9 +102,10 @@ export default function TickerAnalysisPanel({
   const [snapshot, setSnapshot] = useState<TickerSnapshot | null>(null);
   const [profile, setProfile] = useState<TickerProfile | null>(null);
   const [liveQuote, setLiveQuote] = useState<TickerLiveQuote | null>(null);
-  const [bars, setBars] = useState<EnrichedBar[]>([]);
-  const [volumeProfile, setVolumeProfile] = useState<VolumeProfileLevel[]>([]);
-  const [streakMarkers, setStreakMarkers] = useState<StreakMarker[]>([]);
+  const [dailyBars, setDailyBars] = useState<EnrichedBar[]>([]);
+  const [timeframe, setTimeframe] = useState<OhlcTimeframe>("daily");
+  const [multiChartOpen, setMultiChartOpen] = useState(false);
+  const { entries: multiEntries, upsertEntry } = useMultiChartEntries();
   const [financial, setFinancial] = useState<FinancialSnapshot | null>(null);
   const [investorFlow, setInvestorFlow] = useState<InvestorFlowSeries | null>(null);
   const [kisConfigured, setKisConfigured] = useState(false);
@@ -106,6 +131,34 @@ export default function TickerAnalysisPanel({
       setDrawings(loadDrawings(pbId, snapshot.resolvedSymbol));
     }
   }, [pbId, snapshot?.resolvedSymbol]);
+
+  const displayBars = useMemo(
+    () => (dailyBars.length ? barsForTimeframe(dailyBars, timeframe) : []),
+    [dailyBars, timeframe],
+  );
+  const displayVolumeProfile = useMemo(
+    () => volumeProfile(displayBars.map(toOhlcBar)),
+    [displayBars],
+  );
+  const displayStreakMarkers = useMemo(
+    () => streakMarkers(displayBars.map(toOhlcBar)),
+    [displayBars],
+  );
+
+  const primaryMultiEntry = useMemo((): MultiChartEntry | null => {
+    if (!snapshot || !dailyBars.length) return null;
+    return {
+      id: `primary-${snapshot.resolvedSymbol}`,
+      query: snapshot.resolvedSymbol,
+      symbol: snapshot.resolvedSymbol,
+      name: snapshot.name,
+      currency: snapshot.currency,
+      lastPrice: liveQuote?.price ?? snapshot.lastPrice.value,
+      d1Pct: snapshot.periodReturns.d1?.value ?? null,
+      dailyBars,
+      busy: false,
+    };
+  }, [snapshot, dailyBars, liveQuote]);
 
   const activePreset = useMemo(
     () => presetsDoc.presets.find((p) => p.id === activePresetId) ?? presetsDoc.presets[0],
@@ -163,7 +216,8 @@ export default function TickerAnalysisPanel({
     setSnapshot(null);
     setProfile(null);
     setLiveQuote(null);
-    setBars([]);
+    setDailyBars([]);
+    setTimeframe("daily");
     setStatus("idle");
     try {
       const res = await fetch(`/api/ticker/ohlc?symbol=${encodeURIComponent(q.trim())}`, { cache: "no-store" });
@@ -177,9 +231,18 @@ export default function TickerAnalysisPanel({
       setSnapshot(snap);
       setProfile((data.profile ?? null) as TickerProfile | null);
       setLiveQuote((data.quote ?? null) as TickerLiveQuote | null);
-      setBars((data.ohlc?.bars ?? []) as EnrichedBar[]);
-      setVolumeProfile(data.ohlc?.volumeProfile ?? []);
-      setStreakMarkers(data.ohlc?.streakMarkers ?? []);
+      setDailyBars((data.ohlc?.bars ?? []) as EnrichedBar[]);
+      upsertEntry({
+        id: `primary-${snap.resolvedSymbol}`,
+        query: q.trim(),
+        symbol: snap.resolvedSymbol,
+        name: snap.name,
+        currency: snap.currency,
+        lastPrice: (data.quote?.price ?? snap.lastPrice.value) as number,
+        d1Pct: snap.periodReturns.d1?.value ?? null,
+        dailyBars: (data.ohlc?.bars ?? []) as EnrichedBar[],
+        busy: false,
+      });
       setFinancial(data.financial ?? null);
       setInvestorFlow(data.investorFlow ?? null);
       setKisConfigured(!!data.kisConfigured);
@@ -234,6 +297,67 @@ export default function TickerAnalysisPanel({
   const selectPreset = (id: string) => {
     setActivePresetId(id);
     saveActivePresetId(pbId, id);
+  };
+
+  const loadMultiTicker = async (q: string) => {
+    const query = q.trim();
+    if (!query) return;
+    const pendingId = `pending-${query}-${Date.now()}`;
+    upsertEntry({
+      id: pendingId,
+      query,
+      symbol: query,
+      name: query,
+      currency: "KRW",
+      lastPrice: 0,
+      d1Pct: null,
+      dailyBars: [],
+      busy: true,
+    });
+    try {
+      const res = await fetch(`/api/ticker/ohlc?symbol=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!data.ok || !data.snapshot) {
+        upsertEntry({
+          id: pendingId,
+          query,
+          symbol: query,
+          name: query,
+          currency: "KRW",
+          lastPrice: 0,
+          d1Pct: null,
+          dailyBars: [],
+          busy: false,
+          error: data.error || "조회 실패",
+        });
+        return;
+      }
+      const snap = data.snapshot as TickerSnapshot;
+      upsertEntry({
+        id: pendingId,
+        query,
+        symbol: snap.resolvedSymbol,
+        name: snap.name,
+        currency: snap.currency,
+        lastPrice: (data.quote?.price ?? snap.lastPrice.value) as number,
+        d1Pct: snap.periodReturns.d1?.value ?? null,
+        dailyBars: (data.ohlc?.bars ?? []) as EnrichedBar[],
+        busy: false,
+      });
+    } catch (e: any) {
+      upsertEntry({
+        id: pendingId,
+        query,
+        symbol: query,
+        name: query,
+        currency: "KRW",
+        lastPrice: 0,
+        d1Pct: null,
+        dailyBars: [],
+        busy: false,
+        error: e?.message ?? "조회 실패",
+      });
+    }
   };
 
   const d1 = snapshot?.periodReturns.d1;
@@ -330,7 +454,7 @@ export default function TickerAnalysisPanel({
         </div>
       )}
 
-      {snapshot && bars.length > 0 && (
+      {snapshot && dailyBars.length > 0 && (
         <>
           <div className="card p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -359,23 +483,56 @@ export default function TickerAnalysisPanel({
 
             <div className="mt-5 overflow-hidden rounded-xl border border-border">
               <div className="border-b border-border bg-surface px-3 py-2">
-                <p className="text-xs font-bold text-fg">일봉 캔들차트 · {activePreset?.name}</p>
-                <p className="text-[10px] text-fg-muted">
-                  overlay {overlayKinds.length} · 패널 {panelKinds.length}
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-fg">
+                      {timeframeLabel(timeframe)} 캔들차트 · {activePreset?.name}
+                    </p>
+                    <p className="text-[10px] text-fg-muted">
+                      overlay {overlayKinds.length} · 패널 {panelKinds.length}
+                      {timeframe !== "daily" && " · 드로잉은 일봉에서만 표시"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(["daily", "weekly", "monthly"] as const).map((tf) => (
+                      <button
+                        key={tf}
+                        type="button"
+                        onClick={() => setTimeframe(tf)}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                          timeframe === tf
+                            ? "bg-[#1428A0] text-white"
+                            : "border border-border bg-white text-fg hover:border-[#1428A0]"
+                        }`}
+                      >
+                        {timeframeLabel(tf)}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn-outline px-2.5 py-1 text-[11px]"
+                      onClick={() => setMultiChartOpen(true)}
+                    >
+                      멀티차트
+                    </button>
+                  </div>
+                </div>
               </div>
               <TickerCandleChart
-                bars={bars}
+                bars={displayBars}
                 overlayKinds={overlayKinds}
-                streakMarkers={streakMarkers}
-                volumeProfile={volumeProfile}
+                streakMarkers={displayStreakMarkers}
+                volumeProfile={displayVolumeProfile}
                 drawingDoc={drawings}
                 onDrawingChange={handleDrawingChange}
                 currency={snapshot.currency}
+                latestPrice={liveQuote?.price ?? snapshot.lastPrice.value}
+                enableDrawings={timeframe === "daily"}
+                title={snapshot.name}
               />
               <TickerIndicatorPanels
                 enabledKinds={panelKinds}
-                bars={bars}
+                bars={displayBars}
                 syncId={syncId}
                 financial={financial}
                 investorNote={investorFlow?.note}
@@ -406,6 +563,16 @@ export default function TickerAnalysisPanel({
         presetsDoc={presetsDoc}
         editingPresetId={activePresetId}
         onSave={handlePresetsSave}
+      />
+
+      <TickerMultiChartPanel
+        open={multiChartOpen}
+        onClose={() => setMultiChartOpen(false)}
+        timeframe={timeframe}
+        overlayKinds={overlayKinds}
+        primary={primaryMultiEntry}
+        entries={multiEntries}
+        onAdd={loadMultiTicker}
       />
     </div>
   );

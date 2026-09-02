@@ -15,15 +15,22 @@ export interface ChartScales {
   times: string[];
 }
 
-export function defaultLayout(width: number, height: number): ChartLayout {
+export function defaultLayout(width: number, height: number, opts?: { compact?: boolean }): ChartLayout {
   return {
     width,
     height,
-    paddingLeft: 56,
-    paddingRight: 16,
+    paddingLeft: opts?.compact ? 8 : 56,
+    paddingRight: opts?.compact ? 52 : 64,
     paddingTop: 12,
     paddingBottom: 28,
   };
+}
+
+export function nearestBarIndex(x: number, scales: ChartScales, layout: ChartLayout): number {
+  const n = scales.times.length;
+  if (n === 0) return 0;
+  const ratio = Math.min(1, Math.max(0, (x - layout.paddingLeft) / plotWidth(layout)));
+  return Math.round(ratio * Math.max(n - 1, 0));
 }
 
 export function scalesFromBars(bars: EnrichedBar[]): ChartScales {
