@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { aggregateOhlcBars } from "./ohlcAggregate";
+import { aggregateOhlcBars, chartExportFilename, timeframeStorageSuffix } from "./ohlcAggregate";
 import type { OhlcBar } from "./ohlcTypes";
 
 const daily: OhlcBar[] = [
@@ -43,5 +43,13 @@ describe("aggregateOhlcBars", () => {
     assert.equal(monthly[1].open, 115);
     assert.equal(monthly[1].close, 120);
     assert.equal(monthly[1].volume, 1500);
+  });
+
+  it("maps timeframe to storage/export suffix", () => {
+    assert.equal(timeframeStorageSuffix("daily"), "1D");
+    assert.equal(timeframeStorageSuffix("weekly"), "1W");
+    assert.equal(timeframeStorageSuffix("monthly"), "1M");
+    assert.equal(chartExportFilename("005930.KS", "daily"), "chart-005930KS-1D.png");
+    assert.equal(chartExportFilename("000660.KS", "weekly"), "chart-000660KS-1W.png");
   });
 });

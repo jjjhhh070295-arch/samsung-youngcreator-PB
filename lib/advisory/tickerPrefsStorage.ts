@@ -9,12 +9,16 @@ import {
   type TickerAnalysisPresets,
 } from "./tickerAnalysisPresets";
 import type { DrawingDocument } from "./drawingTypes";
+import type { OhlcTimeframe } from "./ohlcAggregate";
+import { timeframeStorageSuffix } from "./ohlcAggregate";
 
 const PRESETS_KEY = (pbId: string) => `ticker-analysis-presets:${pbId || "default"}`;
 const ACTIVE_PRESET_KEY = (pbId: string) => `ticker-active-analysis-preset:${pbId || "default"}`;
 const LEGACY_INDICATOR_KEY = (pbId: string) => `ticker-indicators:${pbId || "default"}`;
-const DRAWING_KEY = (pbId: string, ticker: string) =>
+const LEGACY_DRAWING_KEY = (pbId: string, ticker: string) =>
   `ticker-drawings:${pbId || "default"}:${ticker.toUpperCase()}`;
+const DRAWING_KEY = (pbId: string, ticker: string, timeframe: OhlcTimeframe) =>
+  `ticker-drawings:${pbId || "default"}:${ticker.toUpperCase()}:${timeframeStorageSuffix(timeframe)}`;
 
 function safeParse<T>(raw: string | null): T | null {
   if (!raw) return null;
@@ -103,7 +107,11 @@ export function saveActivePresetId(pbId: string, presetId: string): void {
   window.localStorage.setItem(ACTIVE_PRESET_KEY(pbId), presetId);
 }
 
-export function loadDrawings(pbId: string, ticker: string): DrawingDocument {
+export function loadDrawings(
+  pbId: string,
+  ticker: string,
+  timeframe: OhlcTimeframe = "daily",
+): DrawingDocument {
   const empty: DrawingDocument = {
     version: 1,
     objects: [],
@@ -111,9 +119,20 @@ export function loadDrawings(pbId: string, ticker: string): DrawingDocument {
     updatedAt: new Date(0).toISOString(),
   };
   if (typeof window === "undefined") return empty;
-  const parsed = safeParse<DrawingDocument>(
-    window.localStorage.getItem(DRAWING_KEY(pbId, ticker)),
-  );
+
+  const key = DRAWING_KEY(pbId, ticker, timeframe);
+  let parsed = safeParse<DrawingDocument>(window.localStorage.getItem(key));
+
+  if (!parsed && timeframe === "daily") {
+    parsed = safeParse<DrawingDocument>(
+      window.localStorage.getItem(LEGACY_DRAWING_KEY(pbId, ticker)),
+    );
+    if (parsed) {
+      saveDrawings(pbId, ticker, parsed, "daily");
+      window.localStorage.removeItem(LEGACY_DRAWING_KEY(pbId, ticker));
+    }
+  }
+
   if (!parsed) return empty;
   return {
     version: 1,
@@ -127,10 +146,11 @@ export function saveDrawings(
   pbId: string,
   ticker: string,
   doc: DrawingDocument,
+  timeframe: OhlcTimeframe = "daily",
 ): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(
-    DRAWING_KEY(pbId, ticker),
+    DRAWING_KEY(pbId, ticker, timeframe),
     JSON.stringify({ ...doc, updatedAt: new Date().toISOString() }),
   );
 }

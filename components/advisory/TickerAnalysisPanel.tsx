@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import type {
   EvidenceBundle,
@@ -30,7 +30,7 @@ import {
   saveDrawings,
 } from "@/lib/advisory/tickerPrefsStorage";
 import type { DrawingDocument } from "@/lib/advisory/drawingTypes";
-import { TickerCandleChart } from "./TickerCandleChart";
+import { TickerCandleChart, type TickerCandleChartHandle } from "./TickerCandleChart";
 import { TickerIndicatorPanels } from "./TickerIndicatorPanels";
 import { TickerAnalysisPresetsDrawer } from "./TickerAnalysisPresetsDrawer";
 import {
@@ -115,7 +115,11 @@ export default function TickerAnalysisPanel({
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [presetsDoc, setPresetsDoc] = useState<TickerAnalysisPresets>(DEFAULT_ANALYSIS_PRESETS);
   const [activePresetId, setActivePresetId] = useState("preset-1");
-  const [drawings, setDrawings] = useState<DrawingDocument>(() => loadDrawings(pbId, initialSymbol || ""));
+  const [drawings, setDrawings] = useState<DrawingDocument>(() =>
+    loadDrawings(pbId, initialSymbol || "", "daily"),
+  );
+  const chartRef = useRef<TickerCandleChartHandle>(null);
+  const [exportBusy, setExportBusy] = useState(false);
 
   useEffect(() => {
     setPresetsDoc(loadAnalysisPresets(pbId));
@@ -128,9 +132,9 @@ export default function TickerAnalysisPanel({
 
   useEffect(() => {
     if (snapshot?.resolvedSymbol) {
-      setDrawings(loadDrawings(pbId, snapshot.resolvedSymbol));
+      setDrawings(loadDrawings(pbId, snapshot.resolvedSymbol, timeframe));
     }
-  }, [pbId, snapshot?.resolvedSymbol]);
+  }, [pbId, snapshot?.resolvedSymbol, timeframe]);
 
   const displayBars = useMemo(
     () => (dailyBars.length ? barsForTimeframe(dailyBars, timeframe) : []),
@@ -286,7 +290,28 @@ export default function TickerAnalysisPanel({
 
   const handleDrawingChange = (doc: DrawingDocument) => {
     setDrawings(doc);
-    if (snapshot?.resolvedSymbol) saveDrawings(pbId, snapshot.resolvedSymbol, doc);
+    if (snapshot?.resolvedSymbol) saveDrawings(pbId, snapshot.resolvedSymbol, doc, timeframe);
+  };
+
+  const switchTimeframe = (tf: OhlcTimeframe) => {
+    if (snapshot?.resolvedSymbol && tf !== timeframe) {
+      saveDrawings(pbId, snapshot.resolvedSymbol, drawings, timeframe);
+    }
+    setTimeframe(tf);
+  };
+
+  const downloadChartImage = async () => {
+    if (!snapshot || !chartRef.current) return;
+    setExportBusy(true);
+    try {
+      await chartRef.current.exportPng({
+        symbol: snapshot.resolvedSymbol,
+        name: snapshot.name,
+        timeframe,
+      });
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   const handlePresetsSave = (next: TickerAnalysisPresets) => {
@@ -490,7 +515,7 @@ export default function TickerAnalysisPanel({
                     </p>
                     <p className="text-[10px] text-fg-muted">
                       overlay {overlayKinds.length} · 패널 {panelKinds.length}
-                      {timeframe !== "daily" && " · 드로잉은 일봉에서만 표시"}
+                      · 드로잉 {timeframeLabel(timeframe)} 별 저장
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -498,7 +523,7 @@ export default function TickerAnalysisPanel({
                       <button
                         key={tf}
                         type="button"
-                        onClick={() => setTimeframe(tf)}
+                        onClick={() => switchTimeframe(tf)}
                         className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                           timeframe === tf
                             ? "bg-[#1428A0] text-white"
@@ -515,10 +540,20 @@ export default function TickerAnalysisPanel({
                     >
                       멀티차트
                     </button>
+                    <button
+                      type="button"
+                      className="btn-outline px-2.5 py-1 text-[11px]"
+                      disabled={exportBusy}
+                      onClick={() => void downloadChartImage()}
+                    >
+                      {exportBusy ? "저장 중…" : "차트 이미지 저장"}
+                    </button>
                   </div>
                 </div>
               </div>
               <TickerCandleChart
+                key={`${snapshot.resolvedSymbol}-${timeframe}`}
+                ref={chartRef}
                 bars={displayBars}
                 overlayKinds={overlayKinds}
                 streakMarkers={displayStreakMarkers}
@@ -527,7 +562,6 @@ export default function TickerAnalysisPanel({
                 onDrawingChange={handleDrawingChange}
                 currency={snapshot.currency}
                 latestPrice={liveQuote?.price ?? snapshot.lastPrice.value}
-                enableDrawings={timeframe === "daily"}
                 title={snapshot.name}
               />
               <TickerIndicatorPanels

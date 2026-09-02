@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { EnrichedBar } from "@/lib/advisory/tickerIndicatorsExtended";
 import type { IndicatorKind } from "@/lib/advisory/tickerAnalysisPresets";
 import {
@@ -15,6 +15,12 @@ import {
   type ChartLayout,
 } from "@/lib/advisory/chartCoords";
 import { formatChartPrice, formatChartVolume, priceAxisTicks } from "@/lib/advisory/chartPriceFormat";
+import { downloadSvgAsPng } from "@/lib/advisory/chartExport";
+import {
+  chartExportFilename,
+  timeframeLabel,
+  type OhlcTimeframe,
+} from "@/lib/advisory/ohlcAggregate";
 import {
   DRAFT_DASH,
   DRAFT_OPACITY,
@@ -477,19 +483,11 @@ function commitDraft(draft: DrawingDraft, style: DrawingDocument["style"]): Draw
   return { ...preview, id: uid() };
 }
 
-export function TickerCandleChart({
-  bars,
-  overlayKinds,
-  streakMarkers,
-  volumeProfile,
-  drawingDoc,
-  onDrawingChange,
-  currency,
-  latestPrice,
-  compact = false,
-  enableDrawings = true,
-  title,
-}: {
+export type TickerCandleChartHandle = {
+  exportPng: (meta: { symbol: string; name: string; timeframe: OhlcTimeframe }) => Promise<void>;
+};
+
+export const TickerCandleChart = forwardRef<TickerCandleChartHandle, {
   bars: EnrichedBar[];
   overlayKinds: IndicatorKind[];
   streakMarkers: Array<{ time: string; kind: "up3" | "down3" }>;
@@ -501,7 +499,22 @@ export function TickerCandleChart({
   compact?: boolean;
   enableDrawings?: boolean;
   title?: string;
-}) {
+}>(function TickerCandleChart(
+  {
+  bars,
+  overlayKinds,
+  streakMarkers,
+  volumeProfile,
+  drawingDoc,
+  onDrawingChange,
+  currency,
+  latestPrice,
+  compact = false,
+  enableDrawings = true,
+  title,
+},
+  ref,
+) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 720, h: 360 });
@@ -560,6 +573,22 @@ export function TickerCandleChart({
   const showStreak = overlayKinds.includes("streak");
 
   const styleBase = drawingDoc.style;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      exportPng: async ({ symbol, name, timeframe }) => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        await downloadSvgAsPng(svg, {
+          filename: chartExportFilename(symbol, timeframe),
+          title: `${name} (${symbol})`,
+          subtitle: `${timeframeLabel(timeframe)} · ${currency}`,
+        });
+      },
+    }),
+    [currency],
+  );
 
   const commitObject = useCallback(
     (obj: DrawingObject) => {
@@ -1070,7 +1099,9 @@ export function TickerCandleChart({
       )}
     </div>
   );
-}
+});
+
+TickerCandleChart.displayName = "TickerCandleChart";
 
 function plotH(layout: ChartLayout) {
   return layout.height - layout.paddingTop - layout.paddingBottom;
