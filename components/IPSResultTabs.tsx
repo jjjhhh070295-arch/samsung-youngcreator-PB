@@ -15,7 +15,7 @@ import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
 import ScoreRubricButton from "./ScoreRubricButton";
 import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
-import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
+import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
 import ConsultationHub from "./advisory/ConsultationHub";
 import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
 
@@ -40,6 +40,7 @@ export type Tab =
   | "cashflow"
   | "portfolio"
   | "portfolio2"
+  | "recommend"
   | "taxProjection"
   | "stress"
   | "ips";
@@ -99,46 +100,11 @@ export default function IPSResultTabs({
 
   // PortfolioPanel에서 계산된 보유자산을 받아 스트레스 weights에도 동일하게 반영
   const [heldAssets, setHeldAssets] = useState<HeldAssets | undefined>(undefined);
-  const [researchItems, setResearchItems] = useState<MarketResearchItem[]>(FALLBACK_MARKET_RESEARCH);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/research", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && Array.isArray(data?.items) && data.items.length > 0) {
-          setResearchItems(data.items);
-        }
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  // 확정 시점의 분석 리포트 중 "영향 큰 상위 N개"를 가져와 포트폴리오에 박제
-  async function pickTopReports(n = 5): Promise<Portfolio["referencedReports"]> {
-    try {
-      const res = await fetch("/api/research/signals", { cache: "no-store" });
-      const data = await res.json();
-      const reports: any[] = data?.reports ?? [];
-      return reports
-        .map((r) => ({
-          report: r,
-          power: (r.signals ?? []).reduce((s: number, x: any) => s + (x.strength || 0), 0),
-        }))
-        .filter((x) => x.power > 0)
-        .sort((a, b) => b.power - a.power)
-        .slice(0, n)
-        .map((x) => ({
-          title: x.report.title,
-          source: x.report.source,
-          url: x.report.url,
-          date: x.report.date ?? null,
-          summary: x.report.summary ?? "",
-          signals: x.report.signals ?? [],
-        }));
-    } catch {
-      return [];
-    }
+  // Research Copilot 승인 manifest 소비 어댑터가 연결되기 전에는 어떤 LLM·dummy
+  // 리포트도 고객 포트폴리오 확정본에 박제하지 않는다.
+  async function pickTopReports(): Promise<Portfolio["referencedReports"]> {
+    return [];
   }
 
   const finalizePortfolio = async () => {
@@ -165,7 +131,7 @@ export default function IPSResultTabs({
 
     setFinalizing(true);
     try {
-      const referencedReports = await pickTopReports(5);
+      const referencedReports = await pickTopReports();
       // 확정 시점 박제: 구조(allocations)·근거(referencedReports)·확정시각을 함께 저장 → 이후 리서치가 바뀌어도 고정
       await onFinalizePortfolio({ ...chosen, referencedReports, confirmedAt: new Date().toISOString() });
     } finally {
@@ -188,11 +154,10 @@ export default function IPSResultTabs({
   );
 
   // SET 6자산 비중: 확정된 안의 weights만 추출해 세후/StressTestPanel에 전달.
-  // PortfolioPanel과 동일하게 heldAssets(보유자산)+researchItems를 사용해
-  // 화면 표시와 스트레스 입력 weights를 일치시킨다.
+  // 미승인 리서치는 제외하고 고객 입력값·보유자산으로만 스트레스 입력 weights를 맞춘다.
   const stressPortfolioModel = useMemo(
-    () => buildPortfolioViewModel(client, researchItems, heldAssets),
-    [client, researchItems, heldAssets],
+    () => buildPortfolioViewModel(client, [], heldAssets),
+    [client, heldAssets],
   );
   const portfolioWeights = useMemo(() => {
     const vm = stressPortfolioModel;
@@ -440,6 +405,10 @@ export default function IPSResultTabs({
             onSelectionChange={() => {}}
           />
         </div>
+      )}
+
+      {tab === "recommend" && (
+        <ProductRecommendPanel key={`product-recommend-${client.id}`} client={client} />
       )}
 
       {/* 세전·세후 — 포트폴리오 비중별 세금/비용/세후 금액 비교 */}

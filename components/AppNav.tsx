@@ -14,13 +14,17 @@
 //
 // 항목이 가로로 다 안 들어가는 문제는 계층별로 다르게 처리한다:
 //   · 분석 탭 → 2행에 두고 가로 스크롤(overflow-x-auto). 화면 전환의 주 동선이라 숨기지 않는다.
-//   · 유틸 링크·외부 바로가기 → 우측 "메뉴" 드롭다운. 이동 빈도가 낮아 한 단계 숨겨도 된다.
+//   · 일반 페이지의 긴 유틸 링크 → 모바일에서 우측 "메뉴" 드롭다운에도 제공한다.
+//   · 외부 바로가기 → 우측 "메뉴" 드롭다운. 이동 빈도가 낮아 한 단계 숨겨도 된다.
 
 import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getClient, listPbs } from "@/lib/store";
-import { getLoggedInPbId, clearLoggedInPbId } from "@/lib/auth";
+import {
+  AUTH_SESSION_CHANGED_EVENT,
+  getLoggedInPbSession,
+  logoutPb,
+} from "@/lib/auth";
 import type { Client } from "@/lib/types";
 
 const MAIN_SECTIONS = [
@@ -32,6 +36,7 @@ const ANALYSIS_TABS = [
   { id: "cashflow", label: "현금흐름" },
   { id: "portfolio", label: "포트폴리오" },
   { id: "portfolio2", label: "포트폴리오 2" },
+  { id: "recommend", label: "상품추천" },
   { id: "taxProjection", label: "세전·세후" },
   { id: "ips", label: "IPS" },
 ];
@@ -67,11 +72,15 @@ interface MoreMenuGroup {
 function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      toggleRef.current?.focus();
     };
     const onPointer = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
@@ -87,6 +96,7 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
   return (
     <div ref={wrapRef} className="relative shrink-0">
       <button
+        ref={toggleRef}
         type="button"
         aria-expanded={open}
         aria-haspopup="true"
@@ -173,26 +183,42 @@ export default function AppNav() {
   const activeTab = searchParams?.get("tab") ?? "cashflow";
 
   useEffect(() => {
-    if (!clientId) { setClient(null); return; }
-    getClient(clientId).then(setClient).catch(() => {});
-  }, [clientId]);
+    if (!pbId || !clientId) { setClient(null); return; }
+    let cancelled = false;
+    fetch(`/api/pb/context?pbId=${encodeURIComponent(pbId)}&clientId=${encodeURIComponent(clientId)}`, {
+      cache: "no-store",
+      credentials: "same-origin",
+    }).then(async (response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!cancelled) setClient(data?.client ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setClient(null);
+      });
+    return () => { cancelled = true; };
+  }, [clientId, pbId]);
 
-  // 로그인한 PB 이름 — 세션만 사용한다(URL pbId로 세션을 만들지 않는다, 인증 우회 차단).
   useEffect(() => {
     let cancelled = false;
-    const sessionPbId = getLoggedInPbId();
-    if (!sessionPbId) { setPbName(null); return; }
-    listPbs()
-      .then((pbs) => {
-        if (cancelled) return;
-        setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? null);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const syncSession = () => {
+      void getLoggedInPbSession()
+        .then((session) => {
+          if (!cancelled) setPbName(session?.pbName ?? null);
+        })
+        .catch(() => {
+          if (!cancelled) setPbName(null);
+        });
+    };
+    syncSession();
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    };
   }, [pathname]);
 
-  const handleLogout = () => {
-    clearLoggedInPbId();
+  const handleLogout = async () => {
+    await logoutPb();
     setPbName(null);
     router.push("/");
   };
@@ -203,11 +229,15 @@ export default function AppNav() {
     router.push(`/pb/${pbId}/${clientId}?${next.toString()}`);
   };
 
+  const researchHref = pbId
+    ? `/pb/${pbId}/research${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`
+    : "/research";
+
   const utilityItems: MoreMenuItem[] = [
     { key: "home", label: "홈", icon: "🏠", href: "/" },
     ...(pbId ? [{ key: "book", label: "다고객 북", icon: "📒", href: `/pb/${pbId}` }] : []),
     ...(pbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${pbId}/ticker` }] : []),
-    { key: "research", label: "리서치", icon: "📊", href: "/research" },
+    { key: "research", label: "리서치 코파일럿", icon: "📊", href: researchHref },
   ];
   const externalItems: MoreMenuItem[] = EXTERNAL_LINKS.map((l) => ({
     key: l.href,
@@ -301,23 +331,31 @@ export default function AppNav() {
   return (
     <nav className={shell} aria-label="주요 메뉴">
       <div className="mx-auto flex h-11 max-w-[1800px] items-center gap-2 px-4 lg:px-6">
-        <div className="flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:thin]">
-          {utilityItems.map((item) => (
-            <Link
-              key={item.key}
-              href={item.href}
-              aria-current={pathname === item.href ? "page" : undefined}
-              className={pillClass(pathname === item.href)}
-            >
-              <span className="mr-1" aria-hidden="true">{item.icon}</span>
-              {item.label}
-            </Link>
-          ))}
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+          {utilityItems.map((item) => {
+            const collapseOnMobile = item.key === "ticker" || item.key === "research";
+            return (
+              <Link
+                key={item.key}
+                href={item.href}
+                aria-current={pathname === item.href ? "page" : undefined}
+                className={`${pillClass(pathname === item.href)} ${collapseOnMobile ? "hidden sm:inline-flex" : "inline-flex"}`}
+              >
+                <span className="mr-1" aria-hidden="true">{item.icon}</span>
+                {item.label}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <AccountArea pbName={pbName} onLogout={handleLogout} />
-          <MoreMenu groups={[{ title: "바로가기", items: externalItems }]} />
+          <MoreMenu
+            groups={[
+              { title: "메뉴", items: utilityItems },
+              { title: "바로가기", items: externalItems },
+            ]}
+          />
         </div>
       </div>
     </nav>

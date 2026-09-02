@@ -53,7 +53,7 @@ export default function ProductRecommendPanel({ client }: { client: Client }) {
       const res = await fetch("/api/advisory/recommend", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ client, constraintText: text }),
+        body: JSON.stringify({ clientId: client.id, constraintText: text }),
       });
       const data = await res.json();
       if (!data.ok) {

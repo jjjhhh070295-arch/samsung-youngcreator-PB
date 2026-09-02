@@ -5,10 +5,6 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL } from "@/lib/types";
 import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey } from "@/lib/types";
 import {
-  getClient,
-  listClients,
-  listConsultations,
-  listPbs,
   updateClient,
   deleteClient,
 } from "@/lib/store";
@@ -34,12 +30,12 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "cashflow"; // 유효하지 않은 tab(삭제된 heritage/flags/questions/factors/recommend 등)은 cashflow로 폴백 — factors는 기본 정보로 이동, recommend는 luaroy 커밋 의도대로 병합 시 제거
+  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "recommend", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "cashflow"; // 유효하지 않은 tab(삭제된 heritage/flags/questions/factors 등)은 cashflow로 폴백 — factors는 기본 정보로 이동
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
-  const [pbs, setPbs] = useState<PB[]>([]);
+  const [pbs, setPbs] = useState<Array<Pick<PB, "id" | "name">>>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -48,23 +44,29 @@ export default function ClientDetailPage() {
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      const [c, cons, allPbs, clients] = await Promise.all([
-        getClient(clientId),
-        listConsultations(clientId),
-        listPbs(),
-        listClients(),
-      ]);
+      const response = await fetch(
+        `/api/pb/context?pbId=${encodeURIComponent(pbId)}&clientId=${encodeURIComponent(clientId)}`,
+        { cache: "no-store", credentials: "same-origin" },
+      );
+      if (!response.ok) { setStatus("error"); return; }
+      const data = await response.json() as {
+        pb: Pick<PB, "id" | "name">;
+        clients: Client[];
+        consultations: Consultation[];
+        client: Client | null;
+      };
+      const c = data.client;
       if (!c) { setStatus("error"); return; }
       setClient(c);
-      setAllClients(clients);
-      setConsultations(cons);
-      setPbs(allPbs);
+      setAllClients(data.clients);
+      setConsultations(data.consultations);
+      setPbs([data.pb]);
       setStatus("ready");
     } catch (e) {
       console.error(e);
       setStatus("error");
     }
-  }, [clientId]);
+  }, [clientId, pbId]);
 
   useEffect(() => { load(); }, [load]);
 

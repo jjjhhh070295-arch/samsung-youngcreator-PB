@@ -149,7 +149,7 @@ export function canTransition(from: AdvisoryStatus, to: AdvisoryStatus): boolean
 export function hardStopReasons(bundle: EvidenceBundle): string[] {
   const reasons: string[] = [];
   if (bundle.resultHash && bundle.outputHash && bundle.resultHash !== bundle.outputHash) {
-    reasons.push("계산 결과 해시 불일치 — 고객 제안 차단.");
+    reasons.push("계산 결과 확인값 불일치(해시 불일치) — 고객 제안 차단.");
   }
   if (bundle.judge && !bundle.judge.passed) {
     reasons.push("검토 실패 — 확정으로 이동할 수 없습니다.");
@@ -170,7 +170,7 @@ export function hardStopReasons(bundle: EvidenceBundle): string[] {
 export function softLockReasons(bundle: EvidenceBundle): string[] {
   const reasons: string[] = [];
   if (!bundle.judge || !hasCalcGateJudge(bundle.judge)) {
-    reasons.push("계산 검토 결과가 없습니다. 계산·검토 기록을 생성하세요.");
+    reasons.push("계산 검토 결과가 없습니다(결정론 계산 스냅샷 누락). 계산·검토 기록을 생성하세요.");
   }
   if (!bundle.citation) {
     reasons.push("출처 확인 결과가 없습니다. 계산·검토 기록을 생성하세요.");

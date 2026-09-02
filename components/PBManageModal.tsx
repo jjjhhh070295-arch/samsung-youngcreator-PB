@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { PB } from "@/lib/types";
+import type {
+  PbAdminCreateInput,
+  PbAdminDto,
+  PbAdminUpdateInput,
+} from "@/lib/admin/pbAdmin.shared";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Props {
   open: boolean;
-  pbs: PB[];
+  pbs: PbAdminDto[];
   clientCountOf: (pbId: string) => number;
-  onCreate: (data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }) => Promise<PB>;
-  onUpdate: (id: string, data: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string }) => Promise<void>;
+  onCreate: (data: PbAdminCreateInput) => Promise<PbAdminDto>;
+  onUpdate: (id: string, data: PbAdminUpdateInput) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
 }
@@ -95,7 +99,7 @@ export default function PBManageModal({
     setEditEmailError("");
     setBusy(true);
     try {
-      const patch: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string } = {
+      const patch: PbAdminUpdateInput = {
         name: editName.trim(),
         email: trimmedEmail,
         title: editTitle.trim(),
@@ -110,7 +114,7 @@ export default function PBManageModal({
     }
   };
 
-  const startEdit = (pb: PB) => {
+  const startEdit = (pb: PbAdminDto) => {
     setEditingId(pb.id);
     setEditName(pb.name);
     setEditEmployeeId(pb.employeeId ?? "");
@@ -121,7 +125,7 @@ export default function PBManageModal({
     setEditEmailError("");
   };
 
-  const remove = async (pb: PB) => {
+  const remove = async (pb: PbAdminDto) => {
     const n = clientCountOf(pb.id);
     const msg =
       n > 0

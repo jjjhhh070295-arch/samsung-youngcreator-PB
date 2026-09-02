@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Client } from "@/lib/types";
-import { listPbs } from "@/lib/store";
+import { getLoggedInPbSession } from "@/lib/auth";
 import type { CalcResults, EvidenceBundle } from "@/lib/advisory/types";
 import type { AdvisoryInputContext } from "@/lib/advisory/integrity";
 import {
@@ -43,9 +43,11 @@ export default function ConsultationHub({ client }: { client: Client }) {
   useEffect(() => {
     let cancelled = false;
     const loadInputContext = async () => {
-      const pbs = await listPbs();
+      const session = await getLoggedInPbSession();
       if (cancelled) return;
-      const assignedPbDisplay = pbs.find((pb) => pb.id === client.assignedPbId)?.name ?? "미지정";
+      const assignedPbDisplay = session?.pbId === client.assignedPbId
+        ? session.pbName
+        : "권한 확인 필요";
       setInputContextState({
         sourcePbId: client.assignedPbId,
         value: { assignedPbDisplay },

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { Client } from "@/lib/types";
 import { CLIENT_TYPE_LABEL, computeStages } from "@/lib/types";
-import { getClient } from "@/lib/store";
 import { formatKRW, formatDate } from "@/lib/format";
 import IPSRadar from "@/components/IPSRadar";
 import IPSSummary from "@/components/IPSSummary";
@@ -105,7 +104,13 @@ export default function ClientView() {
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      const c = await getClient(clientId);
+      const response = await fetch(`/api/pb/context?clientId=${encodeURIComponent(clientId)}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (!response.ok) return setStatus("error");
+      const data = await response.json() as { client: Client | null };
+      const c = data.client;
       if (!c) return setStatus("error");
       setClient(c);
       setStatus("ready");

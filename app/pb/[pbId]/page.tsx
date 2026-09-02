@@ -5,9 +5,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { PB, Client, Consultation } from "@/lib/types";
 import {
-  listPbs,
-  listClients,
-  listAllConsultations,
   updatePb,
   deletePb,
   createClient,
@@ -36,9 +33,9 @@ export default function PBPage() {
   const { pbId } = useParams<{ pbId: string }>();
   const router = useRouter();
 
-  const [pb, setPb] = useState<PB | null>(null);
+  const [pb, setPb] = useState<Pick<PB, "id" | "name"> | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
-  const [pbs, setPbs] = useState<PB[]>([]);
+  const [pbs, setPbs] = useState<Array<Pick<PB, "id" | "name">>>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
 
@@ -59,13 +56,20 @@ export default function PBPage() {
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      const [allPbs, clients, cons] = await Promise.all([
-        listPbs(),
-        listClients(),
-        listAllConsultations(),
-      ]);
-      setPbs(allPbs);
-      setPb(allPbs.find((p) => p.id === pbId) ?? null);
+      const response = await fetch(`/api/pb/context?pbId=${encodeURIComponent(pbId)}`, {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error("PB 고객 문맥을 불러오지 못했습니다.");
+      const data = await response.json() as {
+        pb: Pick<PB, "id" | "name">;
+        clients: Client[];
+        consultations: Consultation[];
+      };
+      const clients = data.clients;
+      const cons = data.consultations;
+      setPbs([data.pb]);
+      setPb(data.pb);
       setAllClients(clients);
       setConsultations(cons);
       const mine = clients.filter((c) => c.assignedPbId === pbId);

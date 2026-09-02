@@ -18,7 +18,6 @@ import {
 } from "recharts";
 import type { Client, PB } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META } from "@/lib/types";
-import { getClient, listPbs } from "@/lib/store";
 import { resolveAssetBreakdown } from "@/lib/assets";
 import { formatKRW, formatDate } from "@/lib/format";
 import {
@@ -237,7 +236,7 @@ export default function IPSDocumentPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
   const [client, setClient] = useState<Client | null>(null);
-  const [pbs, setPbs] = useState<PB[]>([]);
+  const [pbs, setPbs] = useState<Array<Pick<PB, "id" | "name">>>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [pdfBlocked, setPdfBlocked] = useState(true);
   const [pdfReason, setPdfReason] = useState("최신 상담 내용과 문서 발행 조건을 확인하고 있습니다.");
@@ -265,7 +264,17 @@ export default function IPSDocumentPage() {
     const requestedLoadEpoch = ++loadEpochRef.current;
     setStatus("loading");
     try {
-      const [c, allPbs] = await Promise.all([getClient(clientId), listPbs()]);
+      const response = await fetch(
+        `/api/pb/context?pbId=${encodeURIComponent(pbId)}&clientId=${encodeURIComponent(clientId)}`,
+        { cache: "no-store", credentials: "same-origin" },
+      );
+      if (!response.ok) throw new Error("허용된 고객 문맥을 불러오지 못했습니다.");
+      const data = await response.json() as {
+        pb: Pick<PB, "id" | "name">;
+        client: Client | null;
+      };
+      const c = data.client;
+      const allPbs = [data.pb];
       if (
         loadEpochRef.current !== requestedLoadEpoch ||
         routeKeyRef.current !== requestedRouteKey
@@ -285,7 +294,7 @@ export default function IPSDocumentPage() {
       console.error(e);
       setStatus("error");
     }
-  }, [clientId, routeKey]);
+  }, [clientId, pbId, routeKey]);
 
   useEffect(() => {
     load();

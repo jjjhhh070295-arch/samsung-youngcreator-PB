@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { aggregateAnalyses, type ReportAnalysis } from "@/lib/researchAnalysis";
+import { aggregateAnalyses, isApprovedResearchModel, type ReportAnalysis } from "@/lib/researchAnalysis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +31,8 @@ export async function GET() {
         model: r.model,
         analyzedAt: r.analyzed_at,
       }))
+      // 기존 LLM·dummy 캐시는 PB 승인 Evidence가 아니므로 소비 API에서 제외한다.
+      .filter((r) => isApprovedResearchModel(r.model))
       // 본문 추출 실패 등으로 신호를 하나도 못 뽑은 리포트(표·차트 only 등)는 목록에서 제외
       .filter((r) => r.signals.length > 0);
 
