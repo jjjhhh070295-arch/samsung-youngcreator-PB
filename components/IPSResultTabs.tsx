@@ -15,7 +15,6 @@ import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
 import ScoreRubricButton from "./ScoreRubricButton";
 import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
-import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import ProductRecommendPanel from "./advisory/ProductRecommendPanel";
 import ConsultationHub from "./advisory/ConsultationHub";
 import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
@@ -41,6 +40,7 @@ export type Tab =
   | "cashflow"
   | "portfolio"
   | "portfolio2"
+  | "recommend"
   | "taxProjection"
   | "stress"
   | "ips";
@@ -405,6 +405,10 @@ export default function IPSResultTabs({
             onSelectionChange={() => {}}
           />
         </div>
+      )}
+
+      {tab === "recommend" && (
+        <ProductRecommendPanel key={`product-recommend-${client.id}`} client={client} />
       )}
 
       {/* 세전·세후 — 포트폴리오 비중별 세금/비용/세후 금액 비교 */}

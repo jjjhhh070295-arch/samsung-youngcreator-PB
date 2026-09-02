@@ -1,4 +1,5 @@
 import type { Client } from "@/lib/types";
+import type { ResearchClientSummary } from "@/lib/researchCopilot/types";
 import { DEMO_PB_CREDENTIALS, DEMO_PB_ID, getServerDemoPb, listClientsByPb } from "@/lib/store";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 
@@ -54,4 +55,10 @@ export function authorizeInitialResearchClient(
   return authorizedClients.some((client) => client.id === requestedClientId)
     ? requestedClientId
     : undefined;
+}
+
+export function toResearchClientSummaries(
+  authorizedClients: ReadonlyArray<Pick<Client, "id" | "name" | "code">>,
+): ResearchClientSummary[] {
+  return authorizedClients.map(({ id, name, code }) => ({ id, name, code }));
 }

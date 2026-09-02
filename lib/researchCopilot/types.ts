@@ -135,3 +135,13 @@ export interface ResearchWorkspaceState {
   draft: ResearchDraft;
   outputs: ResearchOutputRecord[];
 }
+
+/**
+ * The only customer fields that may cross the Research Copilot
+ * Server Component -> Client Component boundary.
+ */
+export interface ResearchClientSummary {
+  id: string;
+  name: string;
+  code: string;
+}

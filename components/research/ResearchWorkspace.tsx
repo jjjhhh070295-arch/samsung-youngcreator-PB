@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Client } from "@/lib/types";
 import { RESEARCH_COPILOT_AS_OF, RESEARCH_COPILOT_FIXTURE } from "@/lib/researchCopilot/fixture";
 import {
   approveResearchDraft,
@@ -24,6 +23,7 @@ import {
 } from "@/lib/researchCopilot/state";
 import type {
   ResearchClaim,
+  ResearchClientSummary,
   ResearchSourceDocument,
   ResearchViewSnapshot,
   ResearchWorkspaceState,
@@ -272,7 +272,7 @@ export default function ResearchWorkspace({
 }: {
   pbId: string;
   initialClientId?: string;
-  authorizedClients: Client[];
+  authorizedClients: ResearchClientSummary[];
 }) {
   const router = useRouter();
   const initialIdentity = normalizeWorkspaceClientId(initialClientId);
@@ -291,8 +291,10 @@ export default function ResearchWorkspace({
 
   useEffect(() => {
     const nextClientId = normalizeWorkspaceClientId(initialClientId);
-    if (nextClientId !== selectedClientId) setSelectedClientId(nextClientId);
-  }, [initialClientId, selectedClientId]);
+    setSelectedClientId((currentClientId) => (
+      currentClientId === nextClientId ? currentClientId : nextClientId
+    ));
+  }, [initialClientId]);
 
   useEffect(() => {
     const expected = { pbId, clientId: selectedClientId };

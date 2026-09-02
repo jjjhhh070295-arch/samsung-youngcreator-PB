@@ -14,7 +14,8 @@
 //
 // 항목이 가로로 다 안 들어가는 문제는 계층별로 다르게 처리한다:
 //   · 분석 탭 → 2행에 두고 가로 스크롤(overflow-x-auto). 화면 전환의 주 동선이라 숨기지 않는다.
-//   · 유틸 링크·외부 바로가기 → 우측 "메뉴" 드롭다운. 이동 빈도가 낮아 한 단계 숨겨도 된다.
+//   · 일반 페이지의 긴 유틸 링크 → 모바일에서 우측 "메뉴" 드롭다운에도 제공한다.
+//   · 외부 바로가기 → 우측 "메뉴" 드롭다운. 이동 빈도가 낮아 한 단계 숨겨도 된다.
 
 import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
@@ -35,6 +36,7 @@ const ANALYSIS_TABS = [
   { id: "cashflow", label: "현금흐름" },
   { id: "portfolio", label: "포트폴리오" },
   { id: "portfolio2", label: "포트폴리오 2" },
+  { id: "recommend", label: "상품추천" },
   { id: "taxProjection", label: "세전·세후" },
   { id: "ips", label: "IPS" },
 ];
@@ -70,11 +72,15 @@ interface MoreMenuGroup {
 function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      toggleRef.current?.focus();
     };
     const onPointer = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
@@ -90,6 +96,7 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
   return (
     <div ref={wrapRef} className="relative shrink-0">
       <button
+        ref={toggleRef}
         type="button"
         aria-expanded={open}
         aria-haspopup="true"
@@ -324,23 +331,31 @@ export default function AppNav() {
   return (
     <nav className={shell} aria-label="주요 메뉴">
       <div className="mx-auto flex h-11 max-w-[1800px] items-center gap-2 px-4 lg:px-6">
-        <div className="flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:thin]">
-          {utilityItems.map((item) => (
-            <Link
-              key={item.key}
-              href={item.href}
-              aria-current={pathname === item.href ? "page" : undefined}
-              className={pillClass(pathname === item.href)}
-            >
-              <span className="mr-1" aria-hidden="true">{item.icon}</span>
-              {item.label}
-            </Link>
-          ))}
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+          {utilityItems.map((item) => {
+            const collapseOnMobile = item.key === "ticker" || item.key === "research";
+            return (
+              <Link
+                key={item.key}
+                href={item.href}
+                aria-current={pathname === item.href ? "page" : undefined}
+                className={`${pillClass(pathname === item.href)} ${collapseOnMobile ? "hidden sm:inline-flex" : "inline-flex"}`}
+              >
+                <span className="mr-1" aria-hidden="true">{item.icon}</span>
+                {item.label}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <AccountArea pbName={pbName} onLogout={handleLogout} />
-          <MoreMenu groups={[{ title: "바로가기", items: externalItems }]} />
+          <MoreMenu
+            groups={[
+              { title: "메뉴", items: utilityItems },
+              { title: "바로가기", items: externalItems },
+            ]}
+          />
         </div>
       </div>
     </nav>

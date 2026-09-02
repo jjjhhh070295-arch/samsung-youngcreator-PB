@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AUTH_SESSION_CHANGED_EVENT,
@@ -10,9 +10,16 @@ import {
 } from "@/lib/auth";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import MarketMiniChart from "@/components/MarketMiniChart";
+import PBManageModal from "@/components/PBManageModal";
+import type {
+  PbAdminCreateInput,
+  PbAdminDto,
+  PbAdminUpdateInput,
+} from "@/lib/admin/pbAdmin.shared";
 
 type MarketTicker = { label: string; sub: string; value: string; change: string; up: boolean };
 type EtfItem = { code: string; name: string; price: number; changeRate: string; up: boolean; flat: boolean };
+type AdminStatus = "idle" | "loading" | "ready" | "denied" | "unavailable" | "error";
 
 const DUMMY_MARKET: MarketTicker[] = [
   { label: "코스피", sub: "KOSPI", value: "2,545.98", change: "+0.87%", up: true },
@@ -35,6 +42,13 @@ export default function HomePage() {
   const [loginBusy, setLoginBusy] = useState(false);
   const [session, setSession] = useState<PublicPbSession | null>(null);
 
+  // PB 관리 데이터는 로그인 후에도 서버 관리자 경계를 통과한 경우에만 받는다.
+  const [adminPbs, setAdminPbs] = useState<PbAdminDto[]>([]);
+  const [adminStatus, setAdminStatus] = useState<AdminStatus>("idle");
+  const [adminError, setAdminError] = useState("");
+  const [pbManageOpen, setPbManageOpen] = useState(false);
+  const adminLoadGeneration = useRef(0);
+
   // 시세
   const [market, setMarket] = useState<MarketTicker[]>(DUMMY_MARKET);
   const [marketLive, setMarketLive] = useState(false);
@@ -50,14 +64,58 @@ export default function HomePage() {
   });
   const [chartLoading, setChartLoading] = useState(true);
 
+  const loadAdminPbs = useCallback(async (generation: number) => {
+    setAdminStatus("loading");
+    setAdminError("");
+    try {
+      const response = await fetch("/api/admin/pbs", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (generation !== adminLoadGeneration.current) return;
+      if (!response.ok) {
+        setAdminPbs([]);
+        setPbManageOpen(false);
+        setAdminStatus(
+          response.status === 401 || response.status === 403
+            ? "denied"
+            : response.status === 503
+              ? "unavailable"
+              : "error",
+        );
+        return;
+      }
+      const body = await response.json() as { ok?: boolean; pbs?: unknown };
+      if (generation !== adminLoadGeneration.current) return;
+      if (!body.ok || !Array.isArray(body.pbs)) throw new Error("Invalid admin response");
+      setAdminPbs(body.pbs as PbAdminDto[]);
+      setAdminStatus("ready");
+    } catch {
+      if (generation !== adminLoadGeneration.current) return;
+      setAdminPbs([]);
+      setPbManageOpen(false);
+      setAdminStatus("error");
+      setAdminError("PB 관리자 정보를 불러오지 못했습니다.");
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const syncSession = async () => {
+      const generation = ++adminLoadGeneration.current;
       try {
         const current = await getLoggedInPbSession();
-        if (!cancelled) {
+        if (!cancelled && generation === adminLoadGeneration.current) {
           setSession(current);
           setStatus("ready");
+          if (current) {
+            void loadAdminPbs(generation);
+          } else {
+            setAdminPbs([]);
+            setAdminStatus("idle");
+            setPbManageOpen(false);
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -70,9 +128,10 @@ export default function HomePage() {
     window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
     return () => {
       cancelled = true;
+      adminLoadGeneration.current += 1;
       window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
     };
-  }, []);
+  }, [loadAdminPbs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,20 +195,37 @@ export default function HomePage() {
     }
   };
 
-  const handleCreatePb = async (data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }) => {
-    const pb = await createPb(data);
-    await load();
-    return pb;
+  const requestAdminMutation = async <T,>(method: "POST" | "PATCH" | "DELETE", body: unknown) => {
+    setAdminError("");
+    const response = await fetch("/api/admin/pbs", {
+      method,
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => null) as T | null;
+    if (!response.ok || !payload) {
+      setAdminError("PB 관리 요청이 거부되었거나 처리되지 않았습니다.");
+      throw new Error("PB admin request failed");
+    }
+    return payload;
   };
 
-  const handleUpdatePb = async (id: string, data: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string }) => {
-    await updatePb(id, data);
-    await load();
+  const handleCreatePb = async (data: PbAdminCreateInput) => {
+    const result = await requestAdminMutation<{ ok: true; pb: PbAdminDto }>("POST", data);
+    await loadAdminPbs(++adminLoadGeneration.current);
+    return result.pb;
+  };
+
+  const handleUpdatePb = async (id: string, data: PbAdminUpdateInput) => {
+    await requestAdminMutation<{ ok: true }>("PATCH", { id, data });
+    await loadAdminPbs(++adminLoadGeneration.current);
   };
 
   const handleDeletePb = async (id: string) => {
-    await deletePb(id);
-    await load();
+    await requestAdminMutation<{ ok: true }>("DELETE", { id });
+    await loadAdminPbs(++adminLoadGeneration.current);
   };
 
   return (
@@ -362,22 +438,62 @@ export default function HomePage() {
           </div>
           )}
 
-          {/* 인증 안내 — PB·고객 전체 목록을 로그인 전 브라우저로 보내지 않는다. */}
-          <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
-            <div className="mb-6">
-              <p className="text-base font-bold text-fg">서버 세션 보호</p>
-              <p className="text-xs text-fg-muted">로그인 전에는 PB·고객 원본을 브라우저로 전송하지 않습니다.</p>
-            </div>
-            <div className="space-y-3">
-              <div className="rounded-lg bg-surface-2 px-4 py-3">
-                <p className="text-sm font-bold text-fg">HttpOnly 서명 세션</p>
-                <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-                  서버가 로그인 정보를 검증하고, URL의 PB와 세션의 PB가 같을 때만 보호 화면을 렌더링합니다.
-                </p>
+          {session && adminStatus === "ready" ? (
+            <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
+              <div className="mb-6">
+                <p className="text-base font-bold text-fg">관리자</p>
+                <p className="text-xs text-fg-muted">서버에서 승인된 관리자만 PB 계정을 관리할 수 있습니다.</p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3">
+                  <span className="text-sm text-fg">등록된 PB</span>
+                  <span className="text-lg font-black text-[#1428A0]">{adminPbs.length}명</span>
+                </div>
+                <button
+                  className="w-full rounded-lg border border-[#1428A0] py-3 text-sm font-bold text-[#1428A0] transition-colors hover:bg-[#1428A0] hover:text-white"
+                  onClick={() => setPbManageOpen(true)}
+                >
+                  PB 계정 관리
+                </button>
+                {adminError && <p className="text-xs text-red-500">{adminError}</p>}
               </div>
             </div>
-          </div>
+          ) : (
+            /* 인증 안내 — PB·고객 전체 목록을 로그인 전 브라우저로 보내지 않는다. */
+            <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
+              <div className="mb-6">
+                <p className="text-base font-bold text-fg">서버 세션 보호</p>
+                <p className="text-xs text-fg-muted">PB·고객 원본은 관리자 확인 전에 브라우저로 전송하지 않습니다.</p>
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-lg bg-surface-2 px-4 py-3">
+                  <p className="text-sm font-bold text-fg">
+                    {adminStatus === "loading" ? "관리자 권한 확인 중" : "HttpOnly 서명 세션"}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                    {adminStatus === "unavailable"
+                      ? "관리자 서버 설정 또는 공유 저장소가 준비되지 않아 관리 기능을 차단했습니다."
+                      : adminStatus === "error"
+                        ? "관리자 정보를 확인하지 못해 관리 기능을 차단했습니다."
+                        : "서버가 로그인과 관리자 허용목록을 모두 검증한 경우에만 PB 관리 기능을 엽니다."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+      {session && adminStatus === "ready" && (
+        <PBManageModal
+          open={pbManageOpen}
+          pbs={adminPbs}
+          clientCountOf={(pbId) => adminPbs.find((pb) => pb.id === pbId)?.clientCount ?? 0}
+          onCreate={handleCreatePb}
+          onUpdate={handleUpdatePb}
+          onDelete={handleDeletePb}
+          onClose={() => setPbManageOpen(false)}
+        />
       )}
     </div>
   );

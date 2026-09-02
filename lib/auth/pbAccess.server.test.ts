@@ -5,6 +5,7 @@ import {
   authenticatePbCredentials,
   authorizeInitialResearchClient,
   listAuthorizedResearchClients,
+  toResearchClientSummaries,
 } from "./pbAccess.server";
 
 function client(id: string, assignedPbId: string): Client {
@@ -60,4 +61,13 @@ test("a forged query-string client ID is discarded", () => {
   const clients = [{ id: "client-a" }];
   assert.equal(authorizeInitialResearchClient("client-a", clients), "client-a");
   assert.equal(authorizeInitialResearchClient("client-b", clients), undefined);
+});
+
+test("the browser research workspace receives only id, name, and code", () => {
+  const summary = toResearchClientSummaries([client("client-a", "pb-a")]);
+  assert.deepEqual(summary, [{ id: "client-a", name: "client-a", code: "client-a" }]);
+  assert.deepEqual(Object.keys(summary[0]).sort(), ["code", "id", "name"]);
+  assert.equal("birthDate" in summary[0], false);
+  assert.equal("consultationNotes" in summary[0], false);
+  assert.equal("assetSize" in summary[0], false);
 });
