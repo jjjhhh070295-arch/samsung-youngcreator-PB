@@ -26,6 +26,7 @@ import AssetAllocationBar from "@/components/AssetAllocationBar";
 import PartyRelationshipModule from "@/components/PartyRelationshipModule";
 import ClientAvatar from "@/components/ClientAvatar";
 import FactorsSummary from "@/components/FactorsSummary";
+import SimpleCashflowPanel from "@/components/SimpleCashflowPanel";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 import { resolveAssetBreakdown } from "@/lib/assets";
 
@@ -34,7 +35,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "cashflow"; // 유효하지 않은 tab(삭제된 heritage/flags/questions/factors/recommend 등)은 cashflow로 폴백 — factors는 기본 정보로 이동, recommend는 luaroy 커밋 의도대로 병합 시 제거
+  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "portfolio"; // cashflow 탭은 기본 정보로 통합 — factors는 기본 정보로 이동
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
@@ -86,11 +87,12 @@ export default function ClientDetailPage() {
     if (el) el.scrollIntoView({ behavior: "smooth" });
   }, [activeView]);
 
-  // 예전 "?view=analysis&tab=factors" 딥링크(7요인이 analysis 탭이던 시절) → 기본 정보로 이동.
-  // 그냥 두면 cashflow 탭으로 조용히 폴백돼버려 사용자가 원했던 7요인 화면을 못 찾는다.
+  // 예전 딥링크 → 기본 정보로 이동 (7요인·현금흐름 탭 통합)
   useEffect(() => {
-    if (activeView === "analysis" && searchParams?.get("tab") === "factors") {
-      router.replace(`/pb/${pbId}/${clientId}?view=home`);
+    const tab = searchParams?.get("tab");
+    if (activeView !== "analysis") return;
+    if (tab === "factors" || tab === "cashflow") {
+      router.replace(`/pb/${pbId}/${clientId}?view=home${tab === "cashflow" ? "#cashflow" : ""}`);
     }
   }, [activeView, searchParams, router, pbId, clientId]);
 
@@ -289,6 +291,13 @@ export default function ClientDetailPage() {
           />
         </section>
 
+        <section id="cashflow">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
+            <span>💰</span> 현금흐름
+          </h2>
+          <SimpleCashflowPanel cashFlows={client.cashFlows} onSave={saveCashFlows} />
+        </section>
+
         {/* 관계 네트워크 */}
         <section>
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
@@ -359,7 +368,6 @@ export default function ClientDetailPage() {
           tab={activeTab}
           onSetTab={handleSetTab}
           onEdit={() => setModalOpen(true)}
-          onSaveCashFlows={saveCashFlows}
           onSavePortfolios={savePortfolios}
           onFinalizePortfolio={finalizePortfolio}
           onUnfinalizePortfolio={unfinalizePortfolio}

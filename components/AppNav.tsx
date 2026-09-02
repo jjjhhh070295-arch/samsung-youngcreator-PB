@@ -29,7 +29,6 @@ const MAIN_SECTIONS = [
 ];
 
 const ANALYSIS_TABS = [
-  { id: "cashflow", label: "현금흐름" },
   { id: "portfolio", label: "포트폴리오" },
   { id: "portfolio2", label: "포트폴리오 2" },
   { id: "taxProjection", label: "세전·세후" },
@@ -170,7 +169,7 @@ export default function AppNav() {
   const [pbName, setPbName] = useState<string | null>(null);
 
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab = searchParams?.get("tab") ?? "cashflow";
+  const activeTab = searchParams?.get("tab") ?? "portfolio";
 
   useEffect(() => {
     if (!clientId) { setClient(null); return; }
