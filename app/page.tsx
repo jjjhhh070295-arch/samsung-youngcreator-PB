@@ -16,18 +16,7 @@ import {
 import { AUTH_SESSION_CHANGED_EVENT, getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
-import MarketMiniChart from "@/components/MarketMiniChart";
-
-type MarketTicker = { label: string; sub: string; value: string; change: string; up: boolean };
-type EtfItem = { code: string; name: string; price: number; changeRate: string; up: boolean; flat: boolean };
-
-const DUMMY_MARKET: MarketTicker[] = [
-  { label: "코스피", sub: "KOSPI", value: "2,545.98", change: "+0.87%", up: true },
-  { label: "S&P 500", sub: "S&P 500", value: "5,602.23", change: "+1.24%", up: true },
-  { label: "원/달러", sub: "USD/KRW", value: "1,372.50", change: "-0.34%", up: false },
-  { label: "미국 국채 10Y", sub: "US 10Y", value: "4.46%", change: "-0.03%p", up: false },
-  { label: "한국 국채 3Y", sub: "국고채 3년", value: "3.21%", change: "+0.02%p", up: true },
-];
+import HomeMarketBoard from "@/components/HomeMarketBoard";
 
 export default function HomePage() {
   const router = useRouter();
@@ -45,74 +34,13 @@ export default function HomePage() {
   const [loginBusy, setLoginBusy] = useState(false);
   const [loggedInPbId, setLoggedInPbIdState] = useState<string | null>(null);
 
-  // 시세
-  const [market, setMarket] = useState<MarketTicker[]>(DUMMY_MARKET);
-  const [marketLive, setMarketLive] = useState(false);
-  const [etfs, setEtfs] = useState<EtfItem[]>([]);
-  const [rightTab, setRightTab] = useState<"market" | "etf">("market");
-  const [marketAt, setMarketAt] = useState<Date | null>(null);
-
-  // 당일 차트 데이터
-  type ChartSeries = { points:{time:string;value:number}[]; prevClose:number|null; delayMinutes:number; startTime:string|null; endTime:string|null };
-  const [chartData, setChartData] = useState<{ kospi: ChartSeries; spx: ChartSeries }>({
-    kospi: {points:[],prevClose:null,delayMinutes:0,startTime:null,endTime:null},
-    spx:   {points:[],prevClose:null,delayMinutes:0,startTime:null,endTime:null},
-  });
-  const [chartLoading, setChartLoading] = useState(true);
+  // 시세 상태와 폴링은 components/HomeMarketBoard.tsx 로 옮겼다 — 로그인 뒤에만 마운트된다.
 
   useEffect(() => {
     const syncSession = () => setLoggedInPbIdState(getLoggedInPbId());
     syncSession();
     window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
     return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadCharts = async () => {
-      try {
-        const response = await fetch("/api/chart", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (!cancelled) setChartData(data);
-      } catch {
-        // 일시적 갱신 실패 시 마지막 정상 차트를 유지한다.
-      } finally {
-        if (!cancelled) setChartLoading(false);
-      }
-    };
-
-    loadCharts();
-    const id = window.setInterval(loadCharts, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadMarket = () => {
-      fetch("/api/market", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d) => {
-          if (cancelled || !d?.ok || !Array.isArray(d.items) || d.items.length === 0) return;
-          setMarket(d.items);
-          setMarketLive(true);
-          setMarketAt(new Date());
-        })
-        .catch(() => {});
-      fetch("/api/etf", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d) => {
-          if (cancelled || !d?.ok || !Array.isArray(d.items)) return;
-          setEtfs(d.items);
-        })
-        .catch(() => {});
-    };
-    loadMarket();
-    const id = setInterval(loadMarket, 60_000);
-    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   const load = useCallback(async () => {
@@ -189,121 +117,23 @@ export default function HomePage() {
 
   return (
     <div className="px-6 py-6">
-      {/* 히어로 — 좌: 브랜딩 + 실시간 차트 / 우: 시세 전광판 */}
-      <div className="mb-10 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.4fr_1fr]">
-        {/* 좌 */}
-        <div className="flex flex-col gap-4">
-          <div>
-            <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[#1428A0]">
-              <span className="h-px w-6 bg-[#1428A0]" />
-              SAMSUNG SECURITIES · PRIVATE BANKING
-            </p>
-            <p className="mt-2 text-sm text-fg-muted">
-              삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.
-            </p>
-            <p className="mt-1 text-[11px] text-fg-muted/70">
-              ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <MarketMiniChart data={chartData.kospi.points} prevClose={chartData.kospi.prevClose} label="코스피 (KOSPI)" loading={chartLoading} delayMinutes={chartData.kospi.delayMinutes} startTime={chartData.kospi.startTime} endTime={chartData.kospi.endTime} />
-            <MarketMiniChart data={chartData.spx.points} prevClose={chartData.spx.prevClose} label="S&P 500" loading={chartLoading} delayMinutes={chartData.spx.delayMinutes} startTime={chartData.spx.startTime} endTime={chartData.spx.endTime} />
-          </div>
-        </div>
-
-        {/* 우 — 시세 전광판 */}
-        <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex gap-1">
-              <button
-                onClick={() => setRightTab("market")}
-                className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
-                  rightTab === "market" ? "bg-surface-2 text-fg" : "text-fg-muted hover:text-fg"
-                }`}
-              >
-                증시 · 금리
-              </button>
-              <button
-                onClick={() => setRightTab("etf")}
-                className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
-                  rightTab === "etf" ? "bg-surface-2 text-fg" : "text-fg-muted hover:text-fg"
-                }`}
-              >
-                KODEX ETF
-              </button>
-            </div>
-            {rightTab === "market" ? (
-              <span
-                className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${
-                  marketLive ? "bg-green-500/15 text-green-500" : "bg-surface-2 text-fg-muted"
-                }`}
-              >
-                {marketLive ? (
-                  <>
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> 실시간
-                    {marketAt && (
-                      <span className="ml-1 opacity-70">
-                        {marketAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                      </span>
-                    )}
-                  </>
-                ) : "예시"}
-              </span>
-            ) : (
-              <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-fg-muted">
-                순자산 상위
-              </span>
-            )}
-          </div>
-
-          {rightTab === "market" && (
-            <div className="space-y-0.5">
-              {market.map((m) => (
-                <div
-                  key={m.label}
-                  className="flex items-center justify-between rounded-lg px-2 py-2 transition-colors hover:bg-surface-2"
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-fg">{m.label}</p>
-                    <p className="text-[11px] text-fg-muted">{m.sub}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-fg">{m.value}</p>
-                    <p className={`text-[11px] font-medium ${m.up ? "text-green-500" : "text-red-500"}`}>
-                      {m.change}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {rightTab === "etf" &&
-            (etfs.length === 0 ? (
-              <p className="py-8 text-center text-sm text-fg-muted">불러오는 중…</p>
-            ) : (
-              <div className="space-y-0.5">
-                {etfs.map((e) => (
-                  <a
-                    key={e.code}
-                    href={`https://finance.naver.com/item/main.naver?code=${e.code}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-surface-2"
-                  >
-                    <p className="min-w-0 truncate text-sm font-semibold text-fg">{e.name}</p>
-                    <div className="shrink-0 text-right">
-                      <p className="text-sm font-semibold text-fg">{e.price.toLocaleString()}원</p>
-                      <p className={`text-[11px] font-medium ${e.flat ? "text-fg-muted" : e.up ? "text-green-500" : "text-red-500"}`}>
-                        {e.changeRate}
-                      </p>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            ))}
-        </div>
+      {/* 브랜딩 — 로그인 여부와 무관하게 항상 보인다. 로그인 전에는 이 아래가 바로
+          로그인 폼이라, 서비스 식별 요소가 화면에서 사라지지 않게 남겨 둔다. */}
+      <div className="mb-6">
+        <p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[#1428A0]">
+          <span className="h-px w-6 bg-[#1428A0]" />
+          SAMSUNG SECURITIES · PRIVATE BANKING
+        </p>
+        <p className="mt-2 text-sm text-fg-muted">
+          삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.
+        </p>
+        <p className="mt-1 text-[11px] text-fg-muted/70">
+          ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
+        </p>
       </div>
+
+      {/* 미니차트·시세 전광판은 로그인 뒤에만. 로그인 전 화면은 로그인 폼 하나로 좁힌다. */}
+      {loggedInPbId && <HomeMarketBoard />}
 
       {/* 로그인 영역 */}
       {status === "loading" && <LoadingView />}
@@ -315,7 +145,14 @@ export default function HomePage() {
       )}
 
       {status === "ready" && (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1fr]">
+        // 로그인 전에는 카드가 로그인 폼 하나뿐이라 2열 그리드를 쓰면 오른쪽이 빈다.
+        <div
+          className={
+            loggedInPbId
+              ? "grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1fr]"
+              : "mx-auto w-full max-w-md"
+          }
+        >
           {/* 로그인 상태 / 로그인 폼 */}
           {loggedInPbId ? (
             <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
@@ -390,50 +227,63 @@ export default function HomePage() {
                 {loginBusy ? "로그인 중…" : "로그인"}
               </button>
 
+              {/* 시연 편의를 위해 계정을 남긴다. DEMO_PB_CREDENTIALS 는 lib/store.ts 에
+                  하드코딩돼 클라이언트 번들에도 그대로 들어가므로, 화면에서만 지운다고
+                  가려지지 않는다 — 대신 데모 전용임을 명시한다. */}
               <p className="text-center text-[11px] text-fg-muted">
                 시연 계정: {DEMO_PB_CREDENTIALS.employeeId} / {DEMO_PB_CREDENTIALS.password}
+              </p>
+              <p className="text-center text-[10px] text-fg-muted/70">
+                데모 전용 계정입니다 — 실제 고객 데이터는 포함되어 있지 않습니다.
               </p>
             </div>
           </div>
           )}
 
-          {/* 관리자 패널 */}
-          <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
-            <div className="mb-6">
-              <p className="text-base font-bold text-fg">관리자</p>
-              <p className="text-xs text-fg-muted">PB 계정 등록 및 관리</p>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3">
-                <span className="text-sm text-fg">등록된 PB</span>
-                <span className="text-lg font-black text-[#1428A0]">{pbs.length}명</span>
+          {/* 관리자 패널 — PB 계정 생성·수정·삭제(비밀번호 변경 포함)가 가능하므로
+              로그인 상태에서만 노출한다. 이전에는 로그인 없이도 보였다. */}
+          {loggedInPbId && (
+            <div className="rounded-2xl border border-border bg-surface p-8 shadow-card">
+              <div className="mb-6">
+                <p className="text-base font-bold text-fg">관리자</p>
+                <p className="text-xs text-fg-muted">PB 계정 등록 및 관리</p>
               </div>
-              <button
-                className="w-full rounded-lg border border-[#1428A0] py-3 text-sm font-bold text-[#1428A0] hover:bg-[#1428A0] hover:text-white transition-colors"
-                onClick={() => setPbManageOpen(true)}
-              >
-                PB 계정 관리
-              </button>
-            </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3">
+                  <span className="text-sm text-fg">등록된 PB</span>
+                  <span className="text-lg font-black text-[#1428A0]">{pbs.length}명</span>
+                </div>
+                <button
+                  className="w-full rounded-lg border border-[#1428A0] py-3 text-sm font-bold text-[#1428A0] hover:bg-[#1428A0] hover:text-white transition-colors"
+                  onClick={() => setPbManageOpen(true)}
+                >
+                  PB 계정 관리
+                </button>
+              </div>
 
-            {usingLocalFallback && (
-              <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700 border border-amber-200">
-                ⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.
-              </p>
-            )}
-          </div>
+              {usingLocalFallback && (
+                <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700 border border-amber-200">
+                  ⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      <PBManageModal
-        open={pbManageOpen}
-        pbs={pbs}
-        clientCountOf={clientCount}
-        onCreate={handleCreatePb}
-        onUpdate={handleUpdatePb}
-        onDelete={handleDeletePb}
-        onClose={() => setPbManageOpen(false)}
-      />
+      {/* 모달도 로그인 상태에서만 마운트한다 — 패널을 숨겨도 pbManageOpen 만 켜지면
+          열리는 경로를 함께 막는다. */}
+      {loggedInPbId && (
+        <PBManageModal
+          open={pbManageOpen}
+          pbs={pbs}
+          clientCountOf={clientCount}
+          onCreate={handleCreatePb}
+          onUpdate={handleUpdatePb}
+          onDelete={handleDeletePb}
+          onClose={() => setPbManageOpen(false)}
+        />
+      )}
     </div>
   );
 }
