@@ -295,7 +295,12 @@ export default function ClientDetailPage() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
             <span>💰</span> 현금흐름
           </h2>
-          <SimpleCashflowPanel cashFlows={client.cashFlows} onSave={saveCashFlows} />
+          <SimpleCashflowPanel
+            cashFlows={client.cashFlows}
+            onSave={saveCashFlows}
+            pbId={pbId}
+            clientId={clientId}
+          />
         </section>
 
         {/* 관계 네트워크 */}
