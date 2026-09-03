@@ -20,7 +20,7 @@ import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getClient, listPbs } from "@/lib/store";
-import { getLoggedInPbId, getLoggedInPbName, clearLoggedInPbId } from "@/lib/auth";
+import { getLoggedInPbId, getLoggedInPbName, clearLoggedInPbId, onSessionChanged } from "@/lib/auth";
 import type { Client } from "@/lib/types";
 
 const MAIN_SECTIONS = [
@@ -179,18 +179,22 @@ export default function AppNav() {
   // 로그인한 PB 이름 — 세션만 사용한다(URL pbId로 세션을 만들지 않는다, 인증 우회 차단).
   useEffect(() => {
     let cancelled = false;
-    const sessionPbId = getLoggedInPbId();
-    if (!sessionPbId) { setPbName(null); return; }
-    // 세션에 저장된 이름으로 먼저 그린다 — 목록 조회를 기다리지 않고, 조회가
-    // 실패해도(로컬 폴백엔 데모 PB만 있다) 이름이 사라지지 않는다.
-    setPbName(getLoggedInPbName());
-    listPbs()
-      .then((pbs) => {
-        if (cancelled) return;
-        setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? getLoggedInPbName());
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const sync = () => {
+      const sessionPbId = getLoggedInPbId();
+      if (!sessionPbId) { setPbName(null); return; }
+      // 세션에 저장된 이름으로 먼저 그린다 — 목록 조회를 기다리지 않고, 조회가
+      // 실패해도(로컬 폴백엔 데모 PB만 있다) 이름이 사라지지 않는다.
+      setPbName(getLoggedInPbName());
+      listPbs()
+        .then((pbs) => {
+          if (cancelled) return;
+          setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? getLoggedInPbName());
+        })
+        .catch(() => {});
+    };
+    sync();
+    const unsubscribe = onSessionChanged(sync);
+    return () => { cancelled = true; unsubscribe(); };
   }, [pathname]);
 
   const handleLogout = () => {

@@ -13,7 +13,7 @@ import {
   DEMO_PB_CREDENTIALS,
   authenticatePb,
 } from "@/lib/store";
-import { AUTH_SESSION_CHANGED_EVENT, getLoggedInPbId, getLoggedInPbName, setLoggedInPbId } from "@/lib/auth";
+import { getLoggedInPbId, getLoggedInPbName, onSessionChanged, setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import HomeMarketBoard from "@/components/HomeMarketBoard";
@@ -44,8 +44,8 @@ export default function HomePage() {
       setLoggedInPbNameState(getLoggedInPbName());
     };
     syncSession();
-    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
-    return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
+    // 다른 탭의 로그인·로그아웃까지 함께 듣는다.
+    return onSessionChanged(syncSession);
   }, []);
 
   // 로그인 전에는 PB·고객 목록을 아예 가져오지 않는다. 예전에는 마운트 즉시 listPbs()를
