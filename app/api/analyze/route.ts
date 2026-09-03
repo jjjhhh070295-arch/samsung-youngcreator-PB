@@ -31,7 +31,7 @@ const SYSTEM_PROMPT = `당신은 PB(프라이빗뱅커)의 상담 기록을 분�
 [채점 기준표 — explicit일 때 반드시 이 기준으로 점수 부여]
 ${rubricForPrompt()}
 
-[정성 요인(tax·legal·unique)은 '태그'로 — 매우 중요]
+[정성 요인(tax·liquidity·legal·unique)은 '태그'로 — 매우 중요]
 아래 목록에서 해당되는 태그를 골라 value에 **정확히 이 라벨 그대로**, 콤마로 나열한다(복수 가능). 해당 없으면 빈 문자열.
 정성 요인의 score는 시스템이 태그 강도로 자동 산출하므로 점수는 신경 쓰지 말고 value(태그)만 정확히 고른다.
 ${tagOptionsForPrompt()}
@@ -139,8 +139,11 @@ async function callClaude(apiKey: string, notes: string, strict: boolean, attemp
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-5",
         max_tokens: 1024,
+        // 적합성 판단의 근거로 남는 결과다. 같은 상담 기록이 같은 7요인을 내놓아야
+        // 사후 검증이 되므로 온도를 0으로 고정한다(미지정 시 API 기본값으로 흔들린다).
+        temperature: 0,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: userText }],
       }),

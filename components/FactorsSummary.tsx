@@ -14,6 +14,8 @@ import ScoreRubricButton from "./ScoreRubricButton";
 import HeritageSignalBadge from "./HeritageSignalBadge";
 import FactorGroups from "./FactorGroups";
 import InvestmentSurveyModal from "./InvestmentSurveyModal";
+import SurveyApplyDiffModal from "./SurveyApplyDiffModal";
+import { mergeSurveyIps, type SurveyFactorChange } from "@/lib/surveyIpsMerge";
 
 interface Props {
   client: Client;
@@ -35,10 +37,22 @@ export default function FactorsSummary({
   const ips = client.ips;
   const [surveyOpen, setSurveyOpen] = useState(false);
   const [surveyRefreshKey, setSurveyRefreshKey] = useState(0);
+  // 설문 제출 → 즉시 저장이 아니라, 합친 결과와 변경 내역을 들고 확인 모달을 띄운다.
+  const [pendingApply, setPendingApply] = useState<{
+    ips: IPS;
+    result: InvestmentSurveyResult;
+    changes: SurveyFactorChange[];
+  } | null>(null);
+  const [applying, setApplying] = useState(false);
   const savedSurvey = useMemo(() => {
     if (typeof window === "undefined") return null;
     return loadInvestmentSurvey(pbId, client.id);
   }, [pbId, client.id, surveyRefreshKey]);
+
+  const commitSurvey = async (nextIps: IPS, result: InvestmentSurveyResult) => {
+    await onSurveyApplied(nextIps, result);
+    setSurveyRefreshKey((key) => key + 1);
+  };
 
   const flags = useMemo(() => {
     const list: { code: string; factor: string; text: string }[] = [];
@@ -92,9 +106,32 @@ export default function FactorsSummary({
         pbId={pbId}
         client={client}
         onClose={() => setSurveyOpen(false)}
-        onApplied={async (nextIps, result) => {
-          await onSurveyApplied(nextIps, result);
-          setSurveyRefreshKey((key) => key + 1);
+        onApplied={async (surveyIps, result) => {
+          // mapSurveyToIPS 는 7요인을 전부 새로 만들어 준다. 그대로 저장하면 상담 근거가
+          // 사라지므로 여기서 합친 뒤(설문 소관/상담 소관 분리) PB 확인을 받는다.
+          const { merged, changes, changedCount } = mergeSurveyIps(ips, surveyIps, result.finalTendency);
+          if (changedCount === 0) {
+            await commitSurvey(merged, result); // 바뀌는 게 없으면 확인 창을 띄우지 않는다
+            return;
+          }
+          setPendingApply({ ips: merged, result, changes });
+        }}
+      />
+
+      <SurveyApplyDiffModal
+        open={!!pendingApply}
+        changes={pendingApply?.changes ?? []}
+        saving={applying}
+        onCancel={() => setPendingApply(null)}
+        onConfirm={async () => {
+          if (!pendingApply) return;
+          setApplying(true);
+          try {
+            await commitSurvey(pendingApply.ips, pendingApply.result);
+            setPendingApply(null);
+          } finally {
+            setApplying(false);
+          }
         }}
       />
 
