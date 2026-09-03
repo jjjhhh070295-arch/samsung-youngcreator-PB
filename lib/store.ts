@@ -176,6 +176,11 @@ function uid(): string {
 // 낸다. 하나만 체크하면 절반의 케이스에서 이 함수가 무력해지므로 둘 다 잡는다.
 const MISSING_COLUMN_ERROR_CODES = new Set(["42703", "PGRST204"]);
 
+// authenticate_pb 함수가 아직 없는 환경(= supabase-migration-pbs-rls.sql 미실행)을
+// 알아보는 코드. PGRST202 는 PostgREST 스키마 캐시에 함수가 없을 때, 42883 은
+// Postgres 의 undefined_function 이다.
+const MISSING_FUNCTION_ERROR_CODES = new Set(["PGRST202", "42883"]);
+
 async function withMissingColumnFallback<T = any>(
   attempt: (row: Record<string, any>) => PromiseLike<{ data: T; error: any }>,
   row: Record<string, any>,
@@ -574,10 +579,14 @@ export async function listPbs(): Promise<PB[]> {
  *
  * 예전에는 app/page.tsx 가 listPbs() 로 전체 PB 를 password 까지 받아온 뒤 브라우저에서
  * === 로 대조했다. 로그인 화면을 열기만 해도 전원 비밀번호가 노출되는 구조였다.
- * 여기서는 password 를 select 하지 않고 "필터 조건"으로만 쓴다(PostgREST 는 select 목록에
- * 없는 컬럼으로도 필터링한다) — 비밀번호가 응답에 실리지 않고, 틀리면 행 자체가 안 온다.
  *
- * 다만 이건 여전히 anon 키로 도는 클라이언트 질의라 최종 방어선은 RLS 다. 서버 세션
+ * 대조는 DB 의 SECURITY DEFINER 함수 authenticate_pb 에 맡긴다
+ * (supabase-migration-pbs-rls.sql). anon 은 password 컬럼을 읽지도 필터하지도 못하고,
+ * 비밀번호는 쿼리스트링(?password=eq.…)이 아니라 POST 바디로 나가 액세스 로그에
+ * 남지 않는다. 함수가 아직 없는 환경에서는 예전 컬럼 필터 방식으로 폴백한다 —
+ * 코드 배포와 마이그레이션 실행 순서가 뒤바뀌어도 로그인이 죽지 않게.
+ *
+ * 여전히 평문 비교이고 anon 키로 도는 클라이언트 호출이다. 서버 세션
  * (app/api/auth/session) 으로 옮기기 전까지의 중간 단계로 본다.
  */
 export async function authenticatePb(employeeId: string, password: string): Promise<PB | null> {
@@ -605,7 +614,29 @@ export async function authenticatePb(employeeId: string, password: string): Prom
     return isDemoCredential ? demoPb() : null;
   }
 
-  const { data, error } = await selectPbColumnsWithFallback((columns) =>
+  // Supabase 에 없거나 조회가 실패해도 데모 자격증명은 통과시킨다(기존 동작 유지).
+  const fallbackToDemo = () => (isDemoCredential ? demoPb() : null);
+
+  const viaRpc = await supabase!.rpc("authenticate_pb", {
+    p_employee_id: normalizedId,
+    p_password: normalizedPassword,
+  });
+  if (!viaRpc.error) {
+    // 함수가 null 을 주면 자격증명 불일치다.
+    return viaRpc.data ? rowToPb(viaRpc.data) : fallbackToDemo();
+  }
+  if (!MISSING_FUNCTION_ERROR_CODES.has(viaRpc.error.code)) {
+    console.warn("[store] PB 로그인 조회 실패 — 데모 계정만 허용:", viaRpc.error.message);
+    return fallbackToDemo();
+  }
+
+  // ── 폴백: authenticate_pb 미배포 환경 ──
+  // password 를 select 하지 않고 필터 조건으로만 쓴다(PostgREST 는 select 목록에 없는
+  // 컬럼으로도 필터링한다). 마이그레이션을 적용하고 나면 이 경로는 타지 않는다.
+  console.warn(
+    "[store] authenticate_pb 함수 없음 — supabase-migration-pbs-rls.sql 미실행으로 보고 컬럼 필터로 폴백",
+  );
+  const viaColumnFilter = await selectPbColumnsWithFallback((columns) =>
     supabase!
       .from("pbs")
       .select(columns)
@@ -614,10 +645,11 @@ export async function authenticatePb(employeeId: string, password: string): Prom
       .limit(1)
       .maybeSingle(),
   );
-  if (!error && data) return rowToPb(data);
-  if (error) console.warn("[store] PB 로그인 조회 실패 — 데모 계정만 허용:", error.message);
-  // Supabase 에 없거나 조회가 실패해도 데모 자격증명은 통과시킨다(기존 동작 유지).
-  return isDemoCredential ? demoPb() : null;
+  if (!viaColumnFilter.error && viaColumnFilter.data) return rowToPb(viaColumnFilter.data);
+  if (viaColumnFilter.error) {
+    console.warn("[store] PB 로그인 조회 실패 — 데모 계정만 허용:", viaColumnFilter.error.message);
+  }
+  return fallbackToDemo();
 }
 
 export async function createPb(data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }): Promise<PB> {
