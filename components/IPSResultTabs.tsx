@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Client, CashFlow, Portfolio, StageKey } from "@/lib/types";
+import type { Client, Portfolio, StageKey } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
 import { formatKRW } from "@/lib/format";
-import CashFlowEditor from "./CashFlowEditor";
+import { loadSimpleCashflowRows, summarizeSimpleCashflowRows } from "@/lib/simpleCashflow";
 import PortfolioPanel from "./PortfolioPanel";
 import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
@@ -27,7 +27,6 @@ interface Props {
   tab: Tab;
   onSetTab: (t: Tab) => void;
   onEdit: () => void;
-  onSaveCashFlows: (flows: CashFlow[]) => Promise<void> | void;
   onSavePortfolios: (portfolios: Portfolio[]) => Promise<void> | void;
   onFinalizePortfolio: (portfolio: Portfolio) => Promise<void> | void;
   onUnfinalizePortfolio: () => Promise<void> | void;
@@ -54,7 +53,6 @@ export default function IPSResultTabs({
   tab,
   onSetTab,
   onEdit,
-  onSaveCashFlows,
   onSavePortfolios,
   onFinalizePortfolio,
   onUnfinalizePortfolio,
@@ -94,8 +92,11 @@ export default function IPSResultTabs({
     }
   }, [clientId]);
   const [portfolioDetailMode, setPortfolioDetailMode] = useState(false);
-
   const [finalizing, setFinalizing] = useState(false);
+  const simpleCashflowTotals = useMemo(
+    () => summarizeSimpleCashflowRows(loadSimpleCashflowRows(client.cashFlows)),
+    [client.cashFlows],
+  );
 
   // PortfolioPanel에서 계산된 보유자산을 받아 스트레스 weights에도 동일하게 반영
   const [heldAssets, setHeldAssets] = useState<HeldAssets | undefined>(undefined);
@@ -278,23 +279,7 @@ export default function IPSResultTabs({
         </div>
       )}
 
-      {/* 현금흐름 */}
-      {tab === "cashflow" && (
-        <div>
-          <div className="mb-3 flex items-center justify-end">
-            <StageToggle k="cashflow" />
-          </div>
-          <CashFlowEditor
-            cashFlows={client.cashFlows}
-            clientType={client.clientType}
-            accountSeparation={client.accountSeparation}
-            linkedClientName={linkedClient?.name}
-            onSave={onSaveCashFlows}
-          />
-        </div>
-      )}
-
-      {/* 포트폴리오 — 패널 편집 + 최종 확정 */}
+      {/* 현금흐름 탭은 기본 정보 화면으로 통합됨 — portfolio 탭 요약에서만 참조 */}
       {tab === "portfolio" && (
         <div>
           {/* 산출 입력 요약 (읽기 전용) — 포트폴리오를 짤 때 근거를 옆에 두고 보는 용도 */}
@@ -329,12 +314,12 @@ export default function IPSResultTabs({
                   <p className="text-xs text-fg-muted">등록된 현금흐름이 없습니다.</p>
                 ) : (
                   <ul className="space-y-1 text-xs text-fg-muted">
-                    {client.cashFlows.map((cf) => (
-                      <li key={cf.id}>
-                        {cf.label || "(무제목)"} · {formatKRW(cf.amount)} · {cf.date || "시점 미정"}
-                        {cf.recurring && " · 정기"}
-                      </li>
-                    ))}
+                    <li>순유입 합계 {formatKRW(simpleCashflowTotals.netInflow)}</li>
+                    <li>순유출 합계 {formatKRW(simpleCashflowTotals.netOutflowExTax)}</li>
+                    <li>총세금 {formatKRW(simpleCashflowTotals.totalTax)}</li>
+                    <li>
+                      <b className="text-fg">순자금 {formatKRW(simpleCashflowTotals.netCash)}</b>
+                    </li>
                   </ul>
                 )}
               </div>

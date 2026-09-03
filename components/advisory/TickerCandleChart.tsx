@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { EnrichedBar } from "@/lib/advisory/tickerIndicatorsExtended";
 import type { IndicatorKind } from "@/lib/advisory/tickerAnalysisPresets";
 import {
   defaultLayout,
+  nearestBarIndex,
   pointerToTP,
   pointerToTPFromSvg,
   plotWidth,
@@ -13,6 +14,13 @@ import {
   timeToX,
   type ChartLayout,
 } from "@/lib/advisory/chartCoords";
+import { formatChartPrice, formatChartVolume, priceAxisTicks } from "@/lib/advisory/chartPriceFormat";
+import { downloadSvgAsPng } from "@/lib/advisory/chartExport";
+import {
+  chartExportFilename,
+  timeframeLabel,
+  type OhlcTimeframe,
+} from "@/lib/advisory/ohlcAggregate";
 import {
   DRAFT_DASH,
   DRAFT_OPACITY,
@@ -475,15 +483,11 @@ function commitDraft(draft: DrawingDraft, style: DrawingDocument["style"]): Draw
   return { ...preview, id: uid() };
 }
 
-export function TickerCandleChart({
-  bars,
-  overlayKinds,
-  streakMarkers,
-  volumeProfile,
-  drawingDoc,
-  onDrawingChange,
-  currency,
-}: {
+export type TickerCandleChartHandle = {
+  exportPng: (meta: { symbol: string; name: string; timeframe: OhlcTimeframe }) => Promise<void>;
+};
+
+export const TickerCandleChart = forwardRef<TickerCandleChartHandle, {
   bars: EnrichedBar[];
   overlayKinds: IndicatorKind[];
   streakMarkers: Array<{ time: string; kind: "up3" | "down3" }>;
@@ -491,7 +495,26 @@ export function TickerCandleChart({
   drawingDoc: DrawingDocument;
   onDrawingChange: (doc: DrawingDocument) => void;
   currency: string;
-}) {
+  latestPrice?: number;
+  compact?: boolean;
+  enableDrawings?: boolean;
+  title?: string;
+}>(function TickerCandleChart(
+  {
+  bars,
+  overlayKinds,
+  streakMarkers,
+  volumeProfile,
+  drawingDoc,
+  onDrawingChange,
+  currency,
+  latestPrice,
+  compact = false,
+  enableDrawings = true,
+  title,
+},
+  ref,
+) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 720, h: 360 });
@@ -505,16 +528,22 @@ export function TickerCandleChart({
     orig: DrawingObject;
   } | null>(null);
   const [hoverHitId, setHoverHitId] = useState<string | null>(null);
+  const [inspect, setInspect] = useState<{
+    x: number;
+    y: number;
+    barIndex: number;
+    price: number;
+  } | null>(null);
 
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
-      setSize({ w: entry.contentRect.width, h: 360 });
+      setSize({ w: entry.contentRect.width, h: compact ? 220 : 360 });
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [compact]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -528,8 +557,14 @@ export function TickerCandleChart({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const layout = useMemo(() => defaultLayout(size.w, size.h), [size]);
+  const layout = useMemo(() => defaultLayout(size.w, size.h, { compact }), [size, compact]);
   const scales = useMemo(() => scalesFromBars(bars), [bars]);
+  const axisTicks = useMemo(
+    () => priceAxisTicks(scales.minPrice, scales.maxPrice, compact ? 4 : 6),
+    [scales.minPrice, scales.maxPrice, compact],
+  );
+  const lastClose = bars.length ? bars[bars.length - 1].close : null;
+  const refPrice = latestPrice ?? lastClose;
   const candleW = Math.max(2, (layout.width - layout.paddingLeft - layout.paddingRight) / Math.max(bars.length, 1) * 0.6);
 
   const showSma = overlayKinds.includes("sma");
@@ -538,6 +573,22 @@ export function TickerCandleChart({
   const showStreak = overlayKinds.includes("streak");
 
   const styleBase = drawingDoc.style;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      exportPng: async ({ symbol, name, timeframe }) => {
+        const svg = svgRef.current;
+        if (!svg) return;
+        await downloadSvgAsPng(svg, {
+          filename: chartExportFilename(symbol, timeframe),
+          title: `${name} (${symbol})`,
+          subtitle: `${timeframeLabel(timeframe)} · ${currency}`,
+        });
+      },
+    }),
+    [currency],
+  );
 
   const commitObject = useCallback(
     (obj: DrawingObject) => {
@@ -556,6 +607,27 @@ export function TickerCandleChart({
     const rect = e.currentTarget.getBoundingClientRect();
     return pointerToTP(e.clientX, e.clientY, rect, scales, layout);
   };
+
+  const updateInspect = useCallback(
+    (tp: { x: number; y: number; price: number }) => {
+      const inPlot =
+        tp.x >= layout.paddingLeft &&
+        tp.x <= layout.width - layout.paddingRight &&
+        tp.y >= layout.paddingTop &&
+        tp.y <= layout.height - layout.paddingBottom;
+      if (!inPlot || draft || drag) {
+        setInspect(null);
+        return;
+      }
+      setInspect({
+        x: tp.x,
+        y: tp.y,
+        barIndex: nearestBarIndex(tp.x, scales, layout),
+        price: tp.price,
+      });
+    },
+    [layout, scales, draft, drag],
+  );
 
   const replaceObject = useCallback(
     (id: string, next: DrawingObject) => {
@@ -582,6 +654,10 @@ export function TickerCandleChart({
 
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     const tp = pointerTp(e);
+    if (!enableDrawings) {
+      updateInspect(tp);
+      return;
+    }
 
     if (tool === "erase") {
       if (selectedId) {
@@ -628,22 +704,30 @@ export function TickerCandleChart({
           drag.id,
           moveDrawing(drag.orig, drag.start, { time: tp.time, price: tp.price }, scales),
         );
+        setInspect(null);
         return;
       }
       const hit = findHitDrawing(drawingDoc.objects, tp.x, tp.y, scales, layout);
       setHoverHitId(hit?.id ?? null);
+      if (!hit) updateInspect(tp);
+      else setInspect(null);
       return;
     }
 
     if (tool === "erase") {
       const hit = findHitDrawing(drawingDoc.objects, tp.x, tp.y, scales, layout);
       setHoverHitId(hit?.id ?? null);
+      updateInspect(tp);
       return;
     }
 
     setHoverHitId(null);
+    setInspect(null);
 
-    if (!draft || draft.pointerId !== e.pointerId) return;
+    if (!draft || draft.pointerId !== e.pointerId) {
+      if (!draft && !drag) updateInspect(tp);
+      return;
+    }
 
     if (draft.tool === "pen") {
       setDraft((d) =>
@@ -723,8 +807,11 @@ export function TickerCandleChart({
 
   const draftPreview = draft ? draftToPreviewObject(draft, styleBase) : null;
   const vpMax = Math.max(...volumeProfile.map((v) => v.weightPct), 1);
-  const chartCursor =
-    tool === "select"
+  const inspectBar = inspect ? bars[inspect.barIndex] : null;
+  const axisX = layout.width - layout.paddingRight + 4;
+  const chartCursor = !enableDrawings
+    ? "crosshair"
+    : tool === "select"
       ? drag
         ? "grabbing"
         : hoverHitId
@@ -751,14 +838,63 @@ export function TickerCandleChart({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
           onPointerLeave={() => {
-            if (!drag) setHoverHitId(null);
+            if (!drag) {
+              setHoverHitId(null);
+              setInspect(null);
+            }
           }}
         >
           <g pointerEvents="none">
-          {[0.25, 0.5, 0.75].map((r) => {
-            const y = layout.paddingTop + plotH(layout) * r;
-            return <line key={r} x1={layout.paddingLeft} x2={layout.width - layout.paddingRight} y1={y} y2={y} stroke="#e2e8f0" />;
+          {axisTicks.map((tick) => {
+            const y = priceToY(tick, scales, layout);
+            return (
+              <g key={tick}>
+                <line
+                  x1={layout.paddingLeft}
+                  x2={layout.width - layout.paddingRight}
+                  y1={y}
+                  y2={y}
+                  stroke="#e2e8f0"
+                  strokeDasharray="2 4"
+                />
+                <text x={axisX} y={y + 3} fontSize={compact ? 9 : 10} fill="#64748b">
+                  {formatChartPrice(tick, currency)}
+                </text>
+              </g>
+            );
           })}
+
+          {refPrice != null && (
+            <g>
+              <line
+                x1={layout.paddingLeft}
+                x2={layout.width - layout.paddingRight}
+                y1={priceToY(refPrice, scales, layout)}
+                y2={priceToY(refPrice, scales, layout)}
+                stroke="#1428A0"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+                opacity={0.85}
+              />
+              <rect
+                x={axisX - 2}
+                y={priceToY(refPrice, scales, layout) - 9}
+                width={layout.paddingRight - 6}
+                height={16}
+                rx={3}
+                fill="#1428A0"
+              />
+              <text
+                x={axisX + 2}
+                y={priceToY(refPrice, scales, layout) + 3}
+                fontSize={compact ? 9 : 10}
+                fontWeight={600}
+                fill="#fff"
+              >
+                {formatChartPrice(refPrice, currency)}
+              </text>
+            </g>
+          )}
 
           {showVp &&
             volumeProfile.map((lvl, i) => {
@@ -829,17 +965,89 @@ export function TickerCandleChart({
             })}
           </g>
 
-          {drawingDoc.objects.map((obj) => renderDrawing(obj, scales, layout, obj.id === selectedId))}
+          {enableDrawings &&
+            drawingDoc.objects.map((obj) => renderDrawing(obj, scales, layout, obj.id === selectedId))}
 
-          {draftPreview && renderDrawing(draftPreview, scales, layout, false, true)}
+          {enableDrawings && draftPreview && renderDrawing(draftPreview, scales, layout, false, true)}
+
+          {inspect && !draft && !drag && (
+            <g pointerEvents="none">
+              <line
+                x1={inspect.x}
+                x2={inspect.x}
+                y1={layout.paddingTop}
+                y2={layout.height - layout.paddingBottom}
+                stroke="#1428A0"
+                strokeWidth={1}
+                opacity={0.45}
+              />
+              <line
+                x1={layout.paddingLeft}
+                x2={layout.width - layout.paddingRight}
+                y1={inspect.y}
+                y2={inspect.y}
+                stroke="#1428A0"
+                strokeWidth={1}
+                opacity={0.45}
+              />
+              <rect
+                x={axisX - 2}
+                y={inspect.y - 9}
+                width={layout.paddingRight - 6}
+                height={16}
+                rx={3}
+                fill="#0f172a"
+                opacity={0.92}
+              />
+              <text x={axisX + 2} y={inspect.y + 3} fontSize={compact ? 9 : 10} fontWeight={600} fill="#fff">
+                {formatChartPrice(inspect.price, currency)}
+              </text>
+            </g>
+          )}
         </svg>
+
+        {inspect && inspectBar && (
+          <div
+            className="pointer-events-none absolute z-10 min-w-[148px] rounded-lg border border-border bg-white/95 px-2.5 py-2 text-[11px] shadow-sm backdrop-blur-sm"
+            style={{
+              left: `${Math.min(Math.max((inspect.x / layout.width) * 100, 8), 72)}%`,
+              top: Math.max(8, inspect.y - 88),
+            }}
+          >
+            {title && <p className="mb-1 font-bold text-[#1428A0]">{title}</p>}
+            <p className="font-semibold text-fg">{inspectBar.time}</p>
+            <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-fg-muted">
+              <span>O</span>
+              <span className="text-right font-medium text-fg">
+                {formatChartPrice(inspectBar.open, currency)}
+              </span>
+              <span>H</span>
+              <span className="text-right font-medium text-fg">
+                {formatChartPrice(inspectBar.high, currency)}
+              </span>
+              <span>L</span>
+              <span className="text-right font-medium text-fg">
+                {formatChartPrice(inspectBar.low, currency)}
+              </span>
+              <span>C</span>
+              <span className="text-right font-medium text-fg">
+                {formatChartPrice(inspectBar.close, currency)}
+              </span>
+              <span>Vol</span>
+              <span className="text-right font-medium text-fg">{formatChartVolume(inspectBar.volume)}</span>
+            </div>
+          </div>
+        )}
         <p className="border-t border-border px-3 py-1 text-[10px] text-fg-muted">
-          {currency} · OHLC 캔들 · Esc 드로잉/선택 취소
-          {tool === "select" && " · 선택/이동: 도형 클릭 후 드래그"}
+          {currency} · OHLC 캔들
+          {enableDrawings && " · Esc 드로잉/선택 취소"}
+          {enableDrawings && tool === "select" && " · 선택/이동: 도형 클릭 후 드래그"}
           {showVp && " · 매물대: 최근 구간 거래량 binning(참고용)"}
         </p>
       </div>
 
+      {enableDrawings && (
+        <>
       <TickerDrawingToolbar
         vertical
         tool={tool}
@@ -887,9 +1095,13 @@ export function TickerCandleChart({
           setDrag(null);
         }}
       />
+        </>
+      )}
     </div>
   );
-}
+});
+
+TickerCandleChart.displayName = "TickerCandleChart";
 
 function plotH(layout: ChartLayout) {
   return layout.height - layout.paddingTop - layout.paddingBottom;
