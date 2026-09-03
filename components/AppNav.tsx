@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from "react";
 import { getClient, listPbs } from "@/lib/store";
 import { getLoggedInPbId, getLoggedInPbName, clearLoggedInPbId, onSessionChanged } from "@/lib/auth";
 import type { Client } from "@/lib/types";
+import SessionCountdown from "@/components/SessionCountdown";
 
 const MAIN_SECTIONS = [
   { id: "basic", icon: "👤", label: "기본 정보" },
@@ -144,6 +145,9 @@ function AccountArea({ pbName, onLogout }: { pbName: string | null; onLogout: ()
   return (
     <>
       <span className="hidden whitespace-nowrap text-xs text-fg-muted md:inline">{pbName} PB</span>
+      {/* 이름(누구) → 세션 잔여(상태) → 로그아웃(조작) 순서. 두 네비 레이아웃이
+          모두 AccountArea 를 쓰므로 여기 한 곳만 손보면 된다. */}
+      <SessionCountdown />
       <button
         type="button"
         onClick={onLogout}
