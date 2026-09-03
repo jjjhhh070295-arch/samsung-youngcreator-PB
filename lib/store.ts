@@ -39,7 +39,7 @@ function rowToPb(r: any): PB {
     code: r.code,
     name: r.name,
     employeeId: r.employee_id ?? "",
-    password: r.password ?? "",
+    // password 는 의도적으로 옮기지 않는다 — 애초에 select 하지 않으므로 r 에 없다.
     createdAt: r.created_at,
     // 모닝 브리핑 1단계 컬럼 — 마이그레이션 전이면 r.email 등이 아예 없어 undefined로 빠진다.
     email: r.email ?? undefined,
@@ -198,6 +198,39 @@ async function withMissingColumnFallback<T = any>(
     `[store] "${first.error.message}" — 마이그레이션 미실행으로 보고 [${optionalKeys.join(", ")}] 없이 재시도`,
   );
   return attempt(stripped);
+}
+
+// ── pbs 읽기 컬럼 화이트리스트 ──────────────────────────────────────────────
+// select("*") 를 쓰면 password 컬럼이 그대로 브라우저로 내려온다. 로그인 화면만 열어도
+// 전체 PB 의 평문 비밀번호가 네트워크 응답에 실렸다 — 그래서 읽을 컬럼을 명시한다.
+// password 는 authenticatePb() 에서 "필터 조건"으로만 쓰고 절대 select 하지 않는다.
+const PB_BASE_COLUMNS = ["id", "code", "name", "employee_id", "created_at"] as const;
+const PB_OPTIONAL_COLUMNS = ["email", "title", "phone"] as const; // 모닝 브리핑 1단계 마이그레이션
+
+// insert 재시도로 row 에서 빠진 옵션 컬럼은 select 목록에서도 빼야 42703 이 안 난다.
+function pbSelectColumnsFor(row: Record<string, any>): string {
+  return [...PB_BASE_COLUMNS, ...PB_OPTIONAL_COLUMNS.filter((c) => c in row)].join(", ");
+}
+
+// 순수 SELECT 판 withMissingColumnFallback — 옵션 컬럼이 없는 환경이면 기본 컬럼만으로 재시도.
+async function selectPbColumnsWithFallback<T = any>(
+  attempt: (columns: string) => PromiseLike<{ data: T; error: any }>,
+): Promise<{ data: T; error: any }> {
+  const full = await attempt([...PB_BASE_COLUMNS, ...PB_OPTIONAL_COLUMNS].join(", "));
+  if (!full.error || !MISSING_COLUMN_ERROR_CODES.has(full.error.code)) return full;
+  return attempt(PB_BASE_COLUMNS.join(", "));
+}
+
+// 로컬 폴백 DB 의 PB 에는 로그인 대조용 password 가 들어 있다. 목록·화면으로 나갈 때는 뺀다.
+function publicPb(pb: PB): PB {
+  const { password: _password, ...rest } = pb;
+  return rest;
+}
+
+// PostgREST 의 like/ilike 는 * 와 % 를 와일드카드로 해석한다. 사원번호를 그대로 넣으면
+// "*" 한 글자로 아무 계정이나 매칭되므로 패턴 문자를 이스케이프한다.
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_*]/g, (ch) => "\\" + ch);
 }
 
 // ───────────────────────── 로컬 폴백 저장소 ─────────────────────────
@@ -518,20 +551,73 @@ function nextPbCode(existing: PB[]): string {
   return `PB-${String(max + 1).padStart(3, "0")}`;
 }
 
+// 화면용 PB 목록 — password 는 어느 경로로도 포함되지 않는다(로그인 검증은 authenticatePb).
 export async function listPbs(): Promise<PB[]> {
   if (usingLocalFallback) {
-    return loadLocal().pbs.slice().sort((a, b) => a.code.localeCompare(b.code));
+    return loadLocal().pbs.map(publicPb).sort((a, b) => a.code.localeCompare(b.code));
   }
-  const { data, error } = await supabase!
-    .from("pbs")
-    .select("*")
-    .order("code", { ascending: true });
+  const { data, error } = await selectPbColumnsWithFallback((columns) =>
+    supabase!.from("pbs").select(columns).order("code", { ascending: true }),
+  );
   if (error) {
     console.warn("[store] Supabase PB 조회 실패 — 데모 계정으로 폴백:", error.message);
-    return localOrSampleDb().pbs.slice().sort((a, b) => a.code.localeCompare(b.code));
+    return localOrSampleDb().pbs.map(publicPb).sort((a, b) => a.code.localeCompare(b.code));
   }
   const remote = (data ?? []).map(rowToPb);
-  return mergeById(remote, localOrSampleDb().pbs).sort((a, b) => a.code.localeCompare(b.code));
+  return mergeById(remote, localOrSampleDb().pbs.map(publicPb)).sort((a, b) =>
+    a.code.localeCompare(b.code),
+  );
+}
+
+/**
+ * 로그인 검증 전용 — 사원번호로 단건만 조회한다.
+ *
+ * 예전에는 app/page.tsx 가 listPbs() 로 전체 PB 를 password 까지 받아온 뒤 브라우저에서
+ * === 로 대조했다. 로그인 화면을 열기만 해도 전원 비밀번호가 노출되는 구조였다.
+ * 여기서는 password 를 select 하지 않고 "필터 조건"으로만 쓴다(PostgREST 는 select 목록에
+ * 없는 컬럼으로도 필터링한다) — 비밀번호가 응답에 실리지 않고, 틀리면 행 자체가 안 온다.
+ *
+ * 다만 이건 여전히 anon 키로 도는 클라이언트 질의라 최종 방어선은 RLS 다. 서버 세션
+ * (app/api/auth/session) 으로 옮기기 전까지의 중간 단계로 본다.
+ */
+export async function authenticatePb(employeeId: string, password: string): Promise<PB | null> {
+  const normalizedId = employeeId.trim().toUpperCase();
+  const normalizedPassword = password.trim();
+  if (!normalizedId || !normalizedPassword) return null;
+
+  const isDemoCredential =
+    normalizedId === DEMO_PB_CREDENTIALS.employeeId &&
+    normalizedPassword === DEMO_PB_CREDENTIALS.password;
+
+  // 데모 계정은 로컬 시드에만 존재할 수 있다(ensureLocalSample 이 항상 되살린다).
+  const demoPb = () => {
+    const found = localOrSampleDb().pbs.find((pb) => pb.id === DEMO_PB_ID);
+    return found ? publicPb(found) : null;
+  };
+
+  if (usingLocalFallback) {
+    const found = loadLocal().pbs.find(
+      (pb) =>
+        (pb.employeeId ?? "").trim().toUpperCase() === normalizedId &&
+        pb.password === normalizedPassword,
+    );
+    if (found) return publicPb(found);
+    return isDemoCredential ? demoPb() : null;
+  }
+
+  const { data, error } = await selectPbColumnsWithFallback((columns) =>
+    supabase!
+      .from("pbs")
+      .select(columns)
+      .ilike("employee_id", escapeLikePattern(normalizedId))
+      .eq("password", normalizedPassword)
+      .limit(1)
+      .maybeSingle(),
+  );
+  if (!error && data) return rowToPb(data);
+  if (error) console.warn("[store] PB 로그인 조회 실패 — 데모 계정만 허용:", error.message);
+  // Supabase 에 없거나 조회가 실패해도 데모 자격증명은 통과시킨다(기존 동작 유지).
+  return isDemoCredential ? demoPb() : null;
 }
 
 export async function createPb(data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }): Promise<PB> {
@@ -556,7 +642,7 @@ export async function createPb(data: { name: string; employeeId: string; passwor
   const code = nextPbCode(existing);
   // email/title/phone은 마이그레이션 미실행 시 withMissingColumnFallback이 자동으로 빼고 재시도한다.
   const { data: row, error } = await withMissingColumnFallback(
-    (row) => supabase!.from("pbs").insert(row).select().single(),
+    (row) => supabase!.from("pbs").insert(row).select(pbSelectColumnsFor(row)).single(),
     {
       code,
       name: data.name,

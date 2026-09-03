@@ -10,8 +10,8 @@ import {
   updatePb,
   deletePb,
   usingLocalFallback,
-  DEMO_PB_ID,
   DEMO_PB_CREDENTIALS,
+  authenticatePb,
 } from "@/lib/store";
 import { AUTH_SESSION_CHANGED_EVENT, getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
@@ -43,7 +43,15 @@ export default function HomePage() {
     return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
   }, []);
 
+  // 로그인 전에는 PB·고객 목록을 아예 가져오지 않는다. 예전에는 마운트 즉시 listPbs()를
+  // 호출해, 로그인 화면을 열기만 해도 전체 PB 목록이 네트워크로 내려갔다.
   const load = useCallback(async () => {
+    if (!loggedInPbId) {
+      setPbs([]);
+      setClients([]);
+      setStatus("ready");
+      return;
+    }
     setStatus("loading");
     try {
       const [p, c] = await Promise.all([listPbs(), listClients()]);
@@ -55,7 +63,7 @@ export default function HomePage() {
       setLoadError(e?.message ?? String(e));
       setStatus("error");
     }
-  }, []);
+  }, [loggedInPbId]);
 
   useEffect(() => {
     load();
@@ -67,26 +75,9 @@ export default function HomePage() {
     setLoginError("");
     setLoginBusy(true);
     try {
-      const employeeId = loginEmpId.trim().toUpperCase();
-      const normalizedPassword = password.trim();
-
-      // 최신 PB 목록을 다시 읽어 데모 PB 보장 후 매칭 (stale state / 구 localStorage 대비)
-      const latestPbs = await listPbs();
-      setPbs(latestPbs);
-
-      const demoLogin =
-        employeeId === DEMO_PB_CREDENTIALS.employeeId &&
-        normalizedPassword === DEMO_PB_CREDENTIALS.password;
-
-      const found =
-        latestPbs.find(
-          (pb) =>
-            pb.employeeId.trim().toUpperCase() === employeeId && pb.password === normalizedPassword,
-        ) ??
-        (demoLogin
-          ? latestPbs.find((pb) => pb.id === DEMO_PB_ID) ??
-            latestPbs.find((pb) => pb.code.trim().toUpperCase() === "PB-001")
-          : undefined);
+      // 검증은 store 의 단건 조회로 넘겼다 — 예전에는 여기서 listPbs()로 전체 PB를
+      // password까지 받아와 브라우저에서 대조했다(로그인 화면에서 전원 비밀번호 노출).
+      const found = await authenticatePb(loginEmpId, password);
 
       if (!found) {
         setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다.");

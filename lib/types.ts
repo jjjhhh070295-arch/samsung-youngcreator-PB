@@ -163,7 +163,13 @@ export interface PB {
   code: string; // "PB-001"
   name: string;
   employeeId: string; // 사원번호
-  password: string;   // 비밀번호 (프로토타입: plaintext)
+  /**
+   * 비밀번호 (프로토타입: plaintext).
+   * Supabase에서 읽어온 PB에는 절대 들어 있지 않다 — listPbs()/authenticatePb()는
+   * password를 select하지 않는다. 값이 채워지는 곳은 로컬 폴백 DB(pb-app-local-db)와
+   * createPb/updatePb로 보내는 쓰기 입력뿐이다.
+   */
+  password?: string;
   createdAt: string;
   // 모닝 브리핑 1단계 — pbs.email/title/phone 마이그레이션 실행 전에는 항상 undefined.
   email?: string; // 고객 브리핑 메일의 Reply-To로 쓰인다
