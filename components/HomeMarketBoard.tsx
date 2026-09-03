@@ -13,8 +13,27 @@
 
 import { useEffect, useState } from "react";
 import MarketMiniChart from "@/components/MarketMiniChart";
+import IndicatorPickerModal from "@/components/IndicatorPickerModal";
+import { getLoggedInPbId } from "@/lib/auth";
+import { DEFAULT_INDICATOR_IDS, getIndicator } from "@/lib/marketIndicators";
+import {
+  loadDashboardIndicators,
+  resetDashboardIndicators,
+  saveDashboardIndicators,
+} from "@/lib/dashboardPrefsStorage";
 
-type MarketTicker = { label: string; sub: string; value: string; change: string; up: boolean };
+type MarketTicker = {
+  id?: string;
+  label: string;
+  sub: string;
+  value: string;
+  change: string;
+  up: boolean;
+  /** FRED 지표의 관측일. Yahoo 실시간은 null. */
+  asOf?: string | null;
+  /** true = FRED 동봉 스냅샷 값(실시간 아님). */
+  fallback?: boolean;
+};
 type EtfItem = { code: string; name: string; price: number; changeRate: string; up: boolean; flat: boolean };
 
 // 시세 API 실패 시 화면이 비지 않게 두는 폴백. 이 값이 쓰이는 동안 배지가 "예시"로 표시된다.
@@ -33,6 +52,25 @@ export default function HomeMarketBoard() {
   const [marketLive, setMarketLive] = useState(false);
   const [etfs, setEtfs] = useState<EtfItem[]>([]);
   const [rightTab, setRightTab] = useState<"market" | "etf">("market");
+
+  // PB별 전광판 지표 설정. 이 컴포넌트는 로그인 뒤에만 마운트되므로 세션이 반드시 있다.
+  // pbId 를 못 읽으면 "default" 스코프로 떨어지고 기본 지표가 나온다.
+  const [pbId, setPbId] = useState("");
+  const [indicatorIds, setIndicatorIds] = useState<string[]>(DEFAULT_INDICATOR_IDS);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  /** 조회 실패로 전광판에서 빠진 지표 — 고른 게 말없이 사라지지 않게 안내한다. */
+  const [failedIds, setFailedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const id = getLoggedInPbId() ?? "";
+    setPbId(id);
+    setIndicatorIds(loadDashboardIndicators(id));
+  }, []);
+
+  const applyIndicators = (ids: string[]) => {
+    setIndicatorIds(ids);
+    saveDashboardIndicators(pbId, ids);
+  };
   const [marketAt, setMarketAt] = useState<Date | null>(null);
 
   const [chartData, setChartData] = useState<{ kospi: ChartSeries; spx: ChartSeries }>({
@@ -64,14 +102,17 @@ export default function HomeMarketBoard() {
     };
   }, []);
 
+  // indicatorIds 가 바뀌면 폴링을 다시 건다 — 지표를 고르는 즉시 전광판이 갱신된다.
   useEffect(() => {
     let cancelled = false;
+    const query = `?ids=${encodeURIComponent(indicatorIds.join(","))}`;
     const loadMarket = () => {
-      fetch("/api/market", { cache: "no-store" })
+      fetch(`/api/market${query}`, { cache: "no-store" })
         .then((r) => r.json())
         .then((d) => {
           if (cancelled || !d?.ok || !Array.isArray(d.items) || d.items.length === 0) return;
           setMarket(d.items);
+          setFailedIds(Array.isArray(d.failedIds) ? d.failedIds : []);
           setMarketLive(true);
           setMarketAt(new Date());
         })
@@ -87,7 +128,7 @@ export default function HomeMarketBoard() {
     loadMarket();
     const id = setInterval(loadMarket, 60_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [indicatorIds]);
 
   return (
     <div className="mb-10 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.4fr_1fr]">
@@ -119,22 +160,34 @@ export default function HomeMarketBoard() {
               </button>
             </div>
             {rightTab === "market" ? (
-              <span
-                className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${
-                  marketLive ? "bg-green-500/15 text-green-500" : "bg-surface-2 text-fg-muted"
-                }`}
-              >
-                {marketLive ? (
-                  <>
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> 실시간
-                    {marketAt && (
-                      <span className="ml-1 opacity-70">
-                        {marketAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                      </span>
-                    )}
-                  </>
-                ) : "예시"}
-              </span>
+              <div className="flex items-center gap-1">
+                <span
+                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${
+                    marketLive ? "bg-green-500/15 text-green-500" : "bg-surface-2 text-fg-muted"
+                  }`}
+                >
+                  {marketLive ? (
+                    <>
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> 실시간
+                      {marketAt && (
+                        <span className="ml-1 opacity-70">
+                          {marketAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                        </span>
+                      )}
+                    </>
+                  ) : "예시"}
+                </span>
+                {/* 지표 선택 진입점 */}
+                <button
+                  type="button"
+                  aria-label="전광판 지표 선택"
+                  title="전광판 지표 선택"
+                  onClick={() => setPickerOpen(true)}
+                  className="rounded-md px-1.5 py-0.5 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+                >
+                  ⚙
+                </button>
+              </div>
             ) : (
               <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-fg-muted">
                 순자산 상위
@@ -146,21 +199,44 @@ export default function HomeMarketBoard() {
             <div className="space-y-0.5">
               {market.map((m) => (
                 <div
-                  key={m.label}
+                  key={m.id ?? m.label}
                   className="flex items-center justify-between rounded-lg px-2 py-2 transition-colors hover:bg-surface-2"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold text-fg">{m.label}</p>
                     <p className="text-[11px] text-fg-muted">{m.sub}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-fg">{m.value}</p>
+                  <div className="shrink-0 text-right">
+                    <p className="flex items-center justify-end gap-1 text-sm font-semibold text-fg">
+                      {/* FRED 스냅샷 폴백 — 실시간이 아니라는 걸 값 옆에서 바로 알 수 있어야 한다.
+                          로컬은 FRED_API_KEY 가 자리표시자라 항상 이 배지가 뜬다. */}
+                      {m.fallback && (
+                        <span
+                          title="실시간 조회 실패 — 동봉 스냅샷 값입니다"
+                          className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                        >
+                          스냅샷
+                        </span>
+                      )}
+                      {m.value}
+                    </p>
                     <p className={`text-[11px] font-medium ${m.up ? "text-green-500" : "text-red-500"}`}>
                       {m.change}
+                      {/* 관측일이 있는 지표(FRED)는 기준일을 함께 보여준다 — 월별 지표를
+                          오늘 값으로 오해하지 않게. */}
+                      {m.asOf && <span className="ml-1 text-fg-muted/70">{m.asOf.slice(2)}</span>}
                     </p>
                   </div>
                 </div>
               ))}
+              {failedIds.length > 0 && (
+                <p className="px-2 pt-1 text-[10px] leading-relaxed text-fg-muted">
+                  {failedIds
+                    .map((id) => getIndicator(id)?.label ?? id)
+                    .join(", ")}{" "}
+                  — 지금은 조회할 수 없어 표시하지 않았습니다.
+                </p>
+              )}
             </div>
           )}
 
@@ -189,6 +265,14 @@ export default function HomeMarketBoard() {
               </div>
             ))}
         </div>
+
+      <IndicatorPickerModal
+        open={pickerOpen}
+        selected={indicatorIds}
+        onChange={applyIndicators}
+        onReset={() => setIndicatorIds(resetDashboardIndicators(pbId))}
+        onClose={() => setPickerOpen(false)}
+      />
       </div>
   );
 }
