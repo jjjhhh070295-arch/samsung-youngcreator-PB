@@ -78,15 +78,74 @@ export function scoreFromTagLabels(key: FactorKey, labels: string[]): number | n
   return Math.min(5, Math.max(...scores));
 }
 
+// ── 부정문 처리 ─────────────────────────────────────────────────────────────
+// 단순 부분매칭만 하면 "상속 계획 없습니다"가 상속 태그로 잡혀 explicit + 4점이 된다.
+// 한국어는 서술어가 뒤에 오므로 부정어는 거의 항상 키워드 "뒤"에 붙는다 — 키워드 바로
+// 뒤 짧은 구간만 본다. 앞쪽은 보지 않는다(창을 넓힐수록 미탐이 는다).
+//
+// 창을 14자로 둔 이유: "상속·증여 관련 논의 불필요"(13자)까지는 닿고,
+// "증여 관련해서는 특별히 논의된 바 없습니다"(17자)처럼 멀어지면 놓친다. 더 넓히면
+// 뒷문장의 부정어까지 끌어와 멀쩡한 태그를 떨어뜨린다 — 태그를 놓치는 쪽(미탐)이
+// 없는 태그를 만드는 쪽(오탐)보다 위험하므로 보수적으로 좁게 잡았다.
+const NEGATION_WINDOW = 14;
+const NEGATION_ADVERB_WINDOW = 6;
+
+// 어간 형태로 적는다. "아니"만 넣으면 "아닙니다"("아니"를 포함하지 않는다)를 놓친다.
+// 부사 "안"은 여기 넣지 않는다 — "방안·대안·제안"의 끝글자와 구별되지 않는다.
+// 대신 STANDALONE_NEGATION 정규식으로 앞에 공백·문장부호가 오는 경우만 잡는다.
+const NEGATION_MARKERS = [
+  "없", "않", "아니", "아닙", "아님", "아냐",
+  "불필", "무관", "미해당",
+  "못하", "못한", "못함",
+];
+
+// 앞이 공백·구두점(또는 키워드 직후)인 "안" 만 부정 부사로 본다.
+//   "신탁은 안 합니다" → 부정        "절세 방안 검토" → 부정 아님
+// 부사 "안"은 뒤따르는 용언 하나만 부정한다. 창을 넓게 두면 뒷절의 "안 좋아지면"
+// 같은 표현이 앞 키워드를 부정하는 것으로 잡힌다 — 실제로 한서홀딩스 메모의
+// "집중 포지션 자회사 실적 안좋아지면…"에서 집중 포지션(5점) 태그가 통째로
+// 사라졌다. 그래서 조사 하나 정도(6자)만 본다.
+const STANDALONE_NEGATION = /(^|[\s,.·「」"'()\[\]])안\s?[가-힣]/;
+
+// 부정어가 보여도 부정이 아닌 경우.
+const NEGATION_EXCEPTIONS = [
+  // 이중부정은 다시 긍정이다("상속세 부담이 없지 않다").
+  "없지 않", "없지는 않", "않지 않", "아니지 않", "없는 것은 아니", "없다고 볼 수 없",
+  // 인과 연결("상속 계획이 없어서 지금부터 세워야 한다")은 화제가 살아 있다는 뜻이다.
+  // 여기서 태그를 떨어뜨리면 상담이 필요한 고객을 놓친다.
+  "없어서", "없으니", "없기 때문", "없다 보니", "없다보니",
+];
+
+function isNegatedAfter(lower: string, start: number, len: number): boolean {
+  const window = lower.slice(start + len, start + len + NEGATION_WINDOW);
+  if (NEGATION_EXCEPTIONS.some((m) => window.includes(m))) return false;
+  if (NEGATION_MARKERS.some((m) => window.includes(m))) return true;
+  return STANDALONE_NEGATION.test(window.slice(0, NEGATION_ADVERB_WINDOW));
+}
+
+/**
+ * 부정되지 않은 언급이 하나라도 있으면 true.
+ * 같은 키워드가 여러 번 나오면 전부 부정된 경우에만 태그를 떨어뜨린다 —
+ * "상속 계획은 없지만 상속세 상담은 필요"처럼 한 번이라도 살아 있으면 태그를 남긴다.
+ */
+function hasUnnegated(lower: string, needle: string): boolean {
+  const n = needle.toLowerCase();
+  if (!n) return false;
+  for (let i = lower.indexOf(n); i !== -1; i = lower.indexOf(n, i + n.length)) {
+    if (!isNegatedAfter(lower, i, n.length)) return true;
+  }
+  return false;
+}
+
 // 텍스트(LLM 출력/원문)에서 해당 요인 태그 추출 — 라벨 정확매칭 + 키워드 부분매칭.
 // AI가 "부동산 양도세, 증여세"처럼 풀어 써도 키워드로 태그를 잡아 점수가 매겨지게 한다.
+// 키워드 뒤에 부정어가 붙은 언급은 제외한다(위 부정문 처리 참고).
 export function matchTagsInText(key: FactorKey, text: string): { labels: string[]; score: number | null } {
   const tags = TAG_FACTORS[key];
   if (!tags || !text) return { labels: [], score: null };
   const lower = text.toLowerCase();
-  const has = (s: string) => lower.includes(s.toLowerCase());
   const labels = tags
-    .filter((t) => has(t.label) || (t.kw ?? []).some((k) => has(k)))
+    .filter((t) => hasUnnegated(lower, t.label) || (t.kw ?? []).some((k) => hasUnnegated(lower, k)))
     .map((t) => t.label);
   return { labels, score: scoreFromTagLabels(key, labels) };
 }

@@ -140,10 +140,13 @@ async function callClaude(apiKey: string, notes: string, strict: boolean, attemp
       },
       body: JSON.stringify({
         model: "claude-sonnet-5",
-        max_tokens: 1024,
-        // 적합성 판단의 근거로 남는 결과다. 같은 상담 기록이 같은 7요인을 내놓아야
-        // 사후 검증이 되므로 온도를 0으로 고정한다(미지정 시 API 기본값으로 흔들린다).
-        temperature: 0,
+        // claude-sonnet-5 는 기본으로 사고(thinking) 블록을 만들고, 그 토큰도 max_tokens
+        // 예산에서 나간다. 1024 로 두면 사고에 예산을 다 써서 JSON 이 중간에 잘리고
+        // stop_reason=max_tokens 로 끝나 파싱이 항상 실패한다(2048 도 부족했다).
+        // 박기만 메모(1763자) 기준 사고+본문이 2,023 토큰이라 여유를 두고 6000 으로 잡는다.
+        max_tokens: 6000,
+        // temperature 는 이 모델에서 거부된다("temperature is deprecated for this model", 400).
+        // 재현성은 이 경로에서 포기한다 — 넣으면 분석 자체가 안 돈다.
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: userText }],
       }),
