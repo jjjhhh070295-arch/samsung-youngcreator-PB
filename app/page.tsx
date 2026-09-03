@@ -13,7 +13,7 @@ import {
   DEMO_PB_CREDENTIALS,
   authenticatePb,
 } from "@/lib/store";
-import { AUTH_SESSION_CHANGED_EVENT, getLoggedInPbId, setLoggedInPbId } from "@/lib/auth";
+import { AUTH_SESSION_CHANGED_EVENT, getLoggedInPbId, getLoggedInPbName, setLoggedInPbId } from "@/lib/auth";
 import PBManageModal from "@/components/PBManageModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import HomeMarketBoard from "@/components/HomeMarketBoard";
@@ -33,11 +33,16 @@ export default function HomePage() {
   const [loginError, setLoginError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [loggedInPbId, setLoggedInPbIdState] = useState<string | null>(null);
+  // 로그인 시 세션에 함께 저장해 둔 이름. PB 목록 조회가 끝나기 전에도 이름을 띄운다.
+  const [loggedInPbName, setLoggedInPbNameState] = useState<string | null>(null);
 
   // 시세 상태와 폴링은 components/HomeMarketBoard.tsx 로 옮겼다 — 로그인 뒤에만 마운트된다.
 
   useEffect(() => {
-    const syncSession = () => setLoggedInPbIdState(getLoggedInPbId());
+    const syncSession = () => {
+      setLoggedInPbIdState(getLoggedInPbId());
+      setLoggedInPbNameState(getLoggedInPbName());
+    };
     syncSession();
     window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
     return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncSession);
@@ -83,7 +88,7 @@ export default function HomePage() {
         setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다.");
         return;
       }
-      setLoggedInPbId(found.id);
+      setLoggedInPbId(found.id, found.name);
       router.push(`/pb/${found.id}`);
     } finally {
       setLoginBusy(false);
@@ -160,7 +165,7 @@ export default function HomePage() {
                 <div className="rounded-lg bg-surface-2 px-4 py-4">
                   <p className="text-xs text-fg-muted">현재 로그인</p>
                   <p className="mt-1 text-base font-bold text-fg">
-                    {pbs.find((pb) => pb.id === loggedInPbId)?.name ?? "PB 사용자"}
+                    {pbs.find((pb) => pb.id === loggedInPbId)?.name ?? loggedInPbName ?? "PB 사용자"}
                   </p>
                 </div>
                 <button

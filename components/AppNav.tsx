@@ -20,7 +20,7 @@ import Link from "next/link";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getClient, listPbs } from "@/lib/store";
-import { getLoggedInPbId, clearLoggedInPbId } from "@/lib/auth";
+import { getLoggedInPbId, getLoggedInPbName, clearLoggedInPbId } from "@/lib/auth";
 import type { Client } from "@/lib/types";
 
 const MAIN_SECTIONS = [
@@ -181,10 +181,13 @@ export default function AppNav() {
     let cancelled = false;
     const sessionPbId = getLoggedInPbId();
     if (!sessionPbId) { setPbName(null); return; }
+    // 세션에 저장된 이름으로 먼저 그린다 — 목록 조회를 기다리지 않고, 조회가
+    // 실패해도(로컬 폴백엔 데모 PB만 있다) 이름이 사라지지 않는다.
+    setPbName(getLoggedInPbName());
     listPbs()
       .then((pbs) => {
         if (cancelled) return;
-        setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? null);
+        setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? getLoggedInPbName());
       })
       .catch(() => {});
     return () => { cancelled = true; };

@@ -8,6 +8,7 @@ export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 interface StoredSession {
   pbId: string;
+  pbName?: string; // 로그인 시점의 PB 이름 — 화면이 목록 조회 없이도 이름을 띄우게 한다
   expiresAt: number; // epoch ms
 }
 
@@ -42,11 +43,8 @@ function removeSession(): void {
 }
 
 /**
- * 저장값 파싱. 두 가지 형태를 받는다.
- * - 현재: {"pbId":"…","expiresAt":1234567890123}
- * - 구버전: PB id 문자열 그대로. 만료 개념이 없던 시절의 값이라 이어받지 않고 버린다 —
- *   이번 배포에서 전원 한 번 로그아웃시켜, 몇 주씩 살아 있던 세션을 여기서 끊는다.
- * 형태가 깨진 값도 세션 없음으로 본다.
+ * 저장값 파싱. 형태가 깨졌거나 구버전 문자열이면 세션 없음으로 본다
+ * (만료 없이 남아 있던 예전 세션을 이 지점에서 끊는다).
  */
 function parseSession(raw: string): StoredSession | null {
   let parsed: unknown = null;
@@ -55,20 +53,25 @@ function parseSession(raw: string): StoredSession | null {
   } catch {
     /* 구버전 문자열 등 — 파싱 실패는 아래에서 세션 없음으로 처리한다 */
   }
+  if (parsed === null || typeof parsed !== "object") return null;
 
-  if (parsed !== null && typeof parsed === "object") {
-    const { pbId, expiresAt } = parsed as Partial<StoredSession>;
-    if (typeof pbId === "string" && pbId && typeof expiresAt === "number" && Number.isFinite(expiresAt)) {
-      return { pbId, expiresAt };
-    }
-    return null;
-  }
+  const { pbId, pbName, expiresAt } = parsed as Partial<StoredSession>;
+  if (typeof pbId !== "string" || !pbId) return null;
+  if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) return null;
 
-  // 구버전 문자열 값 — 호출부(getLoggedInPbId)가 removeSession() 으로 정리한다.
-  return null;
+  return {
+    pbId,
+    pbName: typeof pbName === "string" && pbName ? pbName : undefined,
+    expiresAt,
+  };
 }
 
-export function getLoggedInPbId(): string | null {
+/**
+ * 유효한 세션이거나 null. 만료됐으면 정리하고 화면이 반응하도록 알린다.
+ * 읽기만 하는 함수지만 만료 청소는 여기서 한다 — 어느 화면이든 세션을 읽는 순간
+ * 만료가 확정되므로 별도 감시자가 없어도 상태가 어긋나지 않는다.
+ */
+function readSession(): StoredSession | null {
   if (typeof window === "undefined") return null;
   const raw = readRaw();
   if (!raw) return null;
@@ -79,17 +82,33 @@ export function getLoggedInPbId(): string | null {
     return null;
   }
   if (session.expiresAt <= Date.now()) {
-    // 만료된 값은 읽는 김에 정리하고, 화면이 곧바로 로그인 상태를 다시 그리게 알린다.
     removeSession();
     notifySessionChanged();
     return null;
   }
-  return session.pbId;
+  return session;
 }
 
-export function setLoggedInPbId(pbId: string): void {
+export function getLoggedInPbId(): string | null {
+  return readSession()?.pbId ?? null;
+}
+
+/**
+ * 로그인 시점에 저장해 둔 PB 이름. listPbs() 조회가 끝나기 전이나 조회가 실패했을 때
+ * 화면이 "PB 사용자" 대신 실제 이름을 띄우는 데 쓴다. 이름이 바뀌면 다음 로그인에
+ * 반영된다 — 표시용이라 그 정도 지연은 받아들인다.
+ */
+export function getLoggedInPbName(): string | null {
+  return readSession()?.pbName ?? null;
+}
+
+export function setLoggedInPbId(pbId: string, pbName?: string): void {
   if (typeof window === "undefined") return;
-  writeSession({ pbId, expiresAt: Date.now() + SESSION_TTL_MS });
+  writeSession({
+    pbId,
+    pbName: pbName || undefined,
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  });
   notifySessionChanged();
 }
 
