@@ -172,6 +172,12 @@ export default function ConsultationDetailModal({
             <p className="mb-2 text-sm font-semibold text-fg-muted">
               이 상담 시점의 RRTTLLU 7요인
             </p>
+            {editing && (
+              <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+                이 편집은 이 상담 기록(스냅샷)만 바꿉니다. 고객의 현재 7요인 프로필(기본 정보 화면)에는
+                반영되지 않습니다 — 현재 프로필을 바꾸려면 새 상담에서 저장하세요.
+              </p>
+            )}
             <IPSForm ips={draft} readOnly={!editing} onChange={factorChange} />
           </div>
 
@@ -247,7 +253,7 @@ export default function ConsultationDetailModal({
                 되돌리기
               </button>
               <button className="btn-gold text-sm" onClick={save} disabled={saving}>
-                {saving ? "저장 중…" : "저장 ✓"}
+                {saving ? "저장 중…" : "상담 기록 저장 ✓"}
               </button>
             </>
           ) : (
