@@ -213,16 +213,12 @@ export default function KoreanStockTrendFilter({
         <div>
           <p className={kickerClass}>국내 주식 추세 필터</p>
           <h3 className="text-base font-bold text-fg">
-            {embedded
-              ? "국장 추세 후보 (체크 → 후보 확정 → 선택 종목 반영)"
-              : "국장 추세 후보 (체크 → 후보 확정 → 주식형 반영)"}
+            국장 추세 후보 (체크 → 후보 확정 → 선택 종목 반영)
           </h3>
           <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-fg-muted">
             시가총액 1조 원 이상 국내 주식만 universe에 포함 → 당일 상승률 상위 70개 → 20일선·양봉·적삼봉 → 테마 출처 검증.
-            체크만으로는 반영되지 않으며, 「후보 확정」한 종목만{" "}
-            {embedded
-              ? `국내주식 ${equityWeightPct.toFixed(1)}% 자산군의 선택 종목에 추가됩니다.`
-              : `주식형 ${equityWeightPct.toFixed(0)}%에 배분됩니다.`}
+            체크만으로는 반영되지 않으며, 「후보 확정」한 종목만 국내주식{" "}
+            {equityWeightPct.toFixed(1)}% 자산군의 선택 종목에 추가됩니다.
           </p>
         </div>
         <button type="button" className={runBtnClass} onClick={() => void load()} disabled={loading}>
