@@ -128,6 +128,7 @@ export default function FactorsSummary({
         open={!!pendingApply}
         changes={pendingApply?.changes ?? []}
         saving={applying}
+        mode="survey"
         onCancel={() => setPendingApply(null)}
         onConfirm={async () => {
           if (!pendingApply) return;

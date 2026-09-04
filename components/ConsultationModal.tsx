@@ -331,6 +331,7 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
       <SurveyApplyDiffModal
         open={!!pendingAiApply}
         changes={pendingAiApply?.changes ?? []}
+        mode="consultation"
         onCancel={() => setPendingAiApply(null)}
         onConfirm={() => {
           if (!pendingAiApply) return;
