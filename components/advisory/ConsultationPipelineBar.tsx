@@ -51,9 +51,10 @@ export default function ConsultationPipelineBar({
 
       {needsApprove && (
         <div className="rounded-xl border-2 border-[#1428A0] bg-[#EEF1FF] p-4 shadow-sm [color-scheme:light]">
-          <p className="text-sm font-bold text-[#0F1E7A]">3단계 PB 상담 검토 승인 필요</p>
+          <p className="text-sm font-bold text-[#0F1E7A]">기본정보 승인 필요</p>
           <p className="mt-1 text-[11px] leading-relaxed text-[#334155]">
-            이 파이프라인은 진행상태를 보여줍니다. 바로 아래 상태 패널의 버튼에서 계산 기록 준비와 PB 상담 검토 승인을 순서대로 진행합니다.
+            「기본 정보」탭에서 고객·7요인·현금흐름을 확인한 뒤 「기본정보 승인」을 누르면 1~3단계가 완료됩니다.
+            이어서 포트폴리오 2에서 「포트폴리오 승인」, IPS 탭에서 「IPS 승인」을 진행하세요.
           </p>
         </div>
       )}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL } from "@/lib/types";
-import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey } from "@/lib/types";
+import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey, Stages } from "@/lib/types";
 import {
   getClient,
   listClients,
@@ -13,6 +13,19 @@ import {
   deleteClient,
   saveInvestmentSurvey,
 } from "@/lib/store";
+import {
+  basicApprovalStagePatch,
+  ipsApprovalStagePatch,
+  isBasicWorkflowApproved,
+  isIpsWorkflowApproved,
+  isPortfolioWorkflowApproved,
+  portfolioApprovalStagePatch,
+  validateBasicWorkflowApproval,
+  validateIpsWorkflowApproval,
+  validatePortfolioWorkflowApproval,
+} from "@/lib/advisory/workflowApprovals";
+import { loadBundle } from "@/lib/advisory/control";
+import { loadManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -36,7 +49,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "portfolio"; // cashflow 탭은 기본 정보로 통합 — factors는 기본 정보로 이동
+  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "portfolio2"; // 기본 탭은 포트폴리오 2 — factors/cashflow는 기본 정보로 통합
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
@@ -88,12 +101,16 @@ export default function ClientDetailPage() {
     if (el) el.scrollIntoView({ behavior: "smooth" });
   }, [activeView]);
 
-  // 예전 딥링크 → 기본 정보로 이동 (7요인·현금흐름 탭 통합)
+  // 예전 딥링크 → 통합 경로
   useEffect(() => {
     const tab = searchParams?.get("tab");
     if (activeView !== "analysis") return;
     if (tab === "factors" || tab === "cashflow") {
       router.replace(`/pb/${pbId}/${clientId}?view=home${tab === "cashflow" ? "#cashflow" : ""}`);
+      return;
+    }
+    if (tab === "portfolio" || tab === "taxProjection" || tab === "stress") {
+      router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2${tab === "taxProjection" ? "#tax-projection" : ""}`);
     }
   }, [activeView, searchParams, router, pbId, clientId]);
 
@@ -132,6 +149,92 @@ export default function ClientDetailPage() {
     const stages = { ...(client.stages ?? {}), [key]: !client.stages?.[key] };
     await updateClient(client.id, { stages });
     setClient({ ...client, stages });
+  };
+
+  const patchStages = async (patch: Stages, portfolios?: Portfolio[]) => {
+    if (!client) return;
+    const stages = { ...(client.stages ?? {}), ...patch };
+    const next = portfolios ? { stages, portfolios } : { stages };
+    await updateClient(client.id, next);
+    setClient({ ...client, ...next });
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("pb-evidence-updated"));
+    }
+  };
+
+  const approveBasicInfo = async () => {
+    if (!client) return;
+    if (isBasicWorkflowApproved(client)) {
+      alert("기본정보가 이미 승인되어 있습니다.");
+      return;
+    }
+    const reasons = validateBasicWorkflowApproval(client);
+    if (reasons.length) {
+      alert(`검토 필요\n\n${reasons.join("\n")}`);
+      return;
+    }
+    if (!confirm("기본정보·7요인·현금흐름 입력을 승인할까요?\n(상담 진행 1~3단계가 완료됩니다)")) return;
+    await patchStages(basicApprovalStagePatch());
+  };
+
+  const approvePortfolioWorkflow = async () => {
+    if (!client) return;
+    if (isPortfolioWorkflowApproved(client)) {
+      alert("포트폴리오가 이미 승인되어 있습니다.");
+      return;
+    }
+    const reasons = validatePortfolioWorkflowApproval(client, clientId);
+    if (reasons.length) {
+      alert(`검토 필요\n\n${reasons.join("\n")}`);
+      return;
+    }
+    if (!confirm("포트폴리오·리스크·세전·세후 결과를 승인할까요?\n(상담 진행 4~6단계가 완료됩니다)")) return;
+
+    const draft = loadManualPortfolioDraft(clientId);
+    const labelMap: Record<string, string> = {
+      domesticEquity: "국내주식",
+      globalEquity: "해외주식",
+      domesticBond: "국내채권",
+      globalBond: "해외채권",
+      alternatives: "상품·대체",
+      cash: "현금성",
+    };
+    const allocations = draft
+      ? (Object.entries(draft.allocation) as [string, number][])
+          .filter(([, weight]) => weight > 0)
+          .map(([assetClass, weight]) => ({
+            assetClass: labelMap[assetClass] ?? assetClass,
+            weight,
+          }))
+      : client.portfolios[0]?.allocations ?? [];
+    const portfolio: Portfolio = {
+      id: client.portfolios[0]?.id ?? `manual-${Date.now()}`,
+      label: "맞춤 포트폴리오",
+      allocations,
+      expectedReturn: client.portfolios[0]?.expectedReturn ?? 0,
+      expectedRisk: client.portfolios[0]?.expectedRisk ?? 0,
+      taxNote: "포트폴리오 2 승인 구성",
+      rationale: "PB 맞춤 배분·종목 선택 승인",
+      editedByPb: true,
+      confirmedAt: new Date().toISOString(),
+    };
+    await patchStages(portfolioApprovalStagePatch(), [portfolio]);
+  };
+
+  const approveIpsWorkflow = async () => {
+    if (!client) return;
+    if (isIpsWorkflowApproved(client)) {
+      alert("IPS가 이미 승인되어 있습니다.");
+      return;
+    }
+    const bundle = loadBundle(clientId);
+    const reasons = validateIpsWorkflowApproval(client, bundle);
+    if (reasons.length) {
+      alert(`검토 필요\n\n${reasons.join("\n")}`);
+      return;
+    }
+    if (!confirm("IPS·PDF 단계를 승인할까요?\n(상담 진행 7단계가 완료됩니다)")) return;
+    await patchStages(ipsApprovalStagePatch());
   };
 
   const applySurvey = async (ips: IPS, result: InvestmentSurveyResult) => {
@@ -250,9 +353,16 @@ export default function ClientDetailPage() {
                   </p>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button className="btn-outline text-sm" onClick={() => setEditOpen(true)}>수정</button>
                 <button className="btn-ghost text-sm text-red-500" onClick={() => setDeleteOpen(true)}>삭제</button>
+                <button
+                  type="button"
+                  className={isBasicWorkflowApproved(client) ? "btn-outline text-sm" : "btn-primary text-sm"}
+                  onClick={() => void approveBasicInfo()}
+                >
+                  {isBasicWorkflowApproved(client) ? "기본정보 승인됨 ✓" : "기본정보 승인"}
+                </button>
               </div>
             </div>
           </div>
@@ -381,6 +491,8 @@ export default function ClientDetailPage() {
           onFinalizePortfolio={finalizePortfolio}
           onUnfinalizePortfolio={unfinalizePortfolio}
           onToggleStage={toggleStage}
+          onApprovePortfolioWorkflow={approvePortfolioWorkflow}
+          onApproveIpsWorkflow={approveIpsWorkflow}
           linkedClient={linkedClient}
         />
       )}

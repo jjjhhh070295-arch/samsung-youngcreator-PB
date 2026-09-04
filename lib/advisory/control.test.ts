@@ -6,7 +6,7 @@ import { buildRiskMetrics } from "./riskEngine";
 import { evaluateGoldSet } from "./goldSet";
 import { judgeCitations } from "./citations";
 import { JUDGE_MAX_RETRIES } from "./constants";
-import { buildPipeline, currentPipelineStep, pipelineMatchesStatus } from "./pipeline";
+import { buildPipeline, pipelineMatchesStatus } from "./pipeline";
 import { buildRecommendResult } from "./recommend";
 import { parseAdvisoryConstraints } from "./constraints";
 import { advisoryInputHash, verifyEvidenceAgainstClient } from "./integrity";
@@ -904,7 +904,7 @@ describe("PB approve gate", () => {
 });
 
 describe("pipeline steps", () => {
-  it("pipeline approve 단계가 review에만 고정되지 않음", () => {
+  it("기본정보·포트폴리오 stages로 파이프라인 1~6을 완료한다", () => {
     const client: Client = {
       id: "c1",
       code: "C-1",
@@ -929,26 +929,35 @@ describe("pipeline steps", () => {
         rationale: "파이프라인 테스트용 포트폴리오",
         editedByPb: false,
       }],
-      stages: { portfolio: true, stress: true },
+      stages: {},
       createdAt: "2026-01-01T00:00:00.000Z",
     };
     client.ips.return = { ...client.ips.return, value: "10%", status: "explicit", reviewed: true };
 
-    // locked 전에는 하위 단계가 완료로 보이지 않음
     let b = readyBundle();
     b = transitionStatus(b, "review", "PB", "검토");
     let steps = buildPipeline(client, b);
     assert.equal(steps.find((s) => s.id === "approve")?.state, "review");
     assert.notEqual(steps.find((s) => s.id === "portfolio")?.state, "complete");
 
-    b = approveByPb(b);
-    assert.equal(b.status, "locked");
+    client.stages = { basic: true, factors: true, cashflow: true };
     steps = buildPipeline(client, b);
-    const approve = steps.find((s) => s.id === "approve");
-    assert.equal(approve?.state, "complete");
-    assert.equal(pipelineMatchesStatus(steps, "locked"), true);
+    assert.equal(steps.find((s) => s.id === "consult")?.state, "complete");
+    assert.equal(steps.find((s) => s.id === "ips")?.state, "complete");
+    assert.equal(steps.find((s) => s.id === "approve")?.state, "complete");
+    assert.notEqual(steps.find((s) => s.id === "portfolio")?.state, "complete");
+
+    client.stages = { ...client.stages, portfolio: true, stress: true };
+    steps = buildPipeline(client, b);
     assert.equal(steps.find((s) => s.id === "portfolio")?.state, "complete");
-    assert.notEqual(currentPipelineStep(steps).id, "approve");
+    assert.equal(steps.find((s) => s.id === "risk")?.state, "complete");
+    assert.equal(steps.find((s) => s.id === "tax")?.state, "complete");
+    assert.notEqual(steps.find((s) => s.id === "pdf")?.state, "complete");
+
+    client.stages = { ...client.stages, ips: true };
+    steps = buildPipeline(client, b);
+    assert.equal(steps.find((s) => s.id === "pdf")?.state, "complete");
+    assert.equal(pipelineMatchesStatus(steps, "locked"), true);
   });
 
   it("judgeCalcResults는 메타 있으면 통과", () => {
