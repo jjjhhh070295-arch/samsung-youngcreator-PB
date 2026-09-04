@@ -13,7 +13,7 @@ import { isAuthorizedCronRequest } from "@/lib/cronAuth";
 import { isKnownPbRequest } from "@/lib/pbRequestAuth";
 import { buildBriefingSystemPrompt } from "@/lib/briefing/prompt";
 import { htmlToText } from "@/lib/briefing/htmlToText";
-import { BRIEFING_BLOCKED_DOMAINS } from "@/lib/briefing/blockedDomains";
+import { BRIEFING_ALLOWED_DOMAINS } from "@/lib/briefing/allowedDomains";
 import { extractJson } from "@/lib/briefing/extractJson";
 
 export const runtime = "nodejs";
@@ -119,15 +119,15 @@ async function runGenerate(overwrite: boolean) {
       // 검색 1회의 실측 비용은 약 4초뿐이라 여기서 깎을 수 있는 시간이 없다.
       // 프롬프트의 "8~10회"와 짝이므로 한쪽만 바꾸면 모델이 계획한 검색이 중간에 끊긴다.
       //
-      // blocked_domains: 출처 규율을 모델의 자체 점검이 아니라 도구에서 강제한다.
-      // 화이트리스트가 아니라 차단 목록인 이유는 lib/briefing/blockedDomains.ts 주석 참고
-      // — 목표주가가 이미 잘 안 잡히는 상태라 검색을 더 굶기면 안 된다.
+      // allowed_domains: 출처 규율을 모델의 자체 점검이 아니라 도구에서 강제한다.
+      // 차단 목록을 먼저 썼다가 화이트리스트로 바꾼 경위는 lib/briefing/allowedDomains.ts
+      // 주석 참고 — 목표가 SEO 페이지는 무한 생성되므로 차단 목록으로는 못 이긴다.
       tools: [
         {
           type: "web_search_20250305",
           name: "web_search",
           max_uses: 10,
-          blocked_domains: BRIEFING_BLOCKED_DOMAINS,
+          allowed_domains: BRIEFING_ALLOWED_DOMAINS,
         },
       ],
     }).finalMessage();
