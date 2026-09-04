@@ -3,6 +3,12 @@ import type { PortfolioDetailHolding, PortfolioOption } from "@/lib/portfolio";
 export interface PbSelectedKoreanStock {
   ticker: string;
   name: string;
+  /** Optional enrichment for instrument selection / preview */
+  price?: number | null;
+  asOf?: string | null;
+  source?: string;
+  currency?: string;
+  exchange?: string;
 }
 
 /**

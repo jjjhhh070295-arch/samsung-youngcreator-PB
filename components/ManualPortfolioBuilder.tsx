@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import PortfolioAnalyticsCards from "./PortfolioAnalyticsCards";
+import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
+import type { PbSelectedKoreanStock } from "@/lib/advisory/krTrendPortfolio";
+import { bondsForAssetClass, type BondCatalogEntry } from "@/lib/advisory/bondInstrumentCatalog";
+import {
+  mergeTrendConfirmedIntoSelected,
+  sameInstrument,
+} from "@/lib/advisory/mergeTrendInstruments";
 
 type AssetClass =
   | "domesticEquity"
@@ -39,6 +46,8 @@ type ExistingHolding = {
   valueKrw: number;
   assetClass: "domesticEquity" | "globalEquity";
 };
+
+type InstrumentSourceTab = "search" | "trend" | "bonds";
 
 const ASSET_CLASSES: Array<{ id: AssetClass; label: string; description: string; searchable: boolean }> = [
   { id: "domesticEquity", label: "국내주식", description: "기존 국내주식 포함", searchable: true },
@@ -82,6 +91,20 @@ function formatPrice(value: number | null, currency: string) {
   return `${currency === "KRW" ? "₩" : "$"}${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
 }
 
+function bondEntryToInstrument(entry: BondCatalogEntry): Instrument {
+  return {
+    symbol: entry.symbol,
+    name: entry.name,
+    exchange: entry.exchange,
+    currency: entry.currency,
+    kind: entry.kind,
+    price: null,
+    changePct: null,
+    asOf: null,
+    source: entry.source,
+  };
+}
+
 export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { clientId: string; totalAssetWon: number }) {
   const [allocation, setAllocation] = useState<Allocation>(EMPTY_ALLOCATION);
   const [selected, setSelected] = useState<SelectedInstrument[]>([]);
@@ -97,6 +120,14 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
   const [searchError, setSearchError] = useState("");
   const [results, setResults] = useState<Instrument[]>([]);
   const [resultType, setResultType] = useState<"stock" | "etf" | "etn" | "other">("stock");
+  const [sourceTab, setSourceTab] = useState<InstrumentSourceTab>("search");
+
+  const handleTrendSelection = useCallback((stocks: PbSelectedKoreanStock[], _equityPending: boolean) => {
+    if (stocks.length === 0) return;
+    setSelected((current) => mergeTrendConfirmedIntoSelected(current, stocks));
+    setActiveClass("domesticEquity");
+    setSourceTab("search");
+  }, []);
 
   useEffect(() => {
     try {
@@ -249,13 +280,39 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
     }
   };
 
-  const addInstrument = (instrument: Instrument) => {
+  const addInstrument = (instrument: Instrument, assetClass: AssetClass = activeClass) => {
     setSelected((current) => {
-      if (current.some((item) => item.assetClass === activeClass && item.symbol === instrument.symbol)) return current;
-      const sameClassCount = current.filter((item) => item.assetClass === activeClass).length;
-      return [...current, { ...instrument, assetClass: activeClass, weightWithinClass: sameClassCount === 0 ? 100 : 0 }];
+      if (current.some((item) => item.assetClass === assetClass && sameInstrument(item.symbol, instrument.symbol))) {
+        return current;
+      }
+      const sameClassCount = current.filter((item) => item.assetClass === assetClass).length;
+      return [...current, { ...instrument, assetClass, weightWithinClass: sameClassCount === 0 ? 100 : 0 }];
     });
   };
+
+  const addBondOption = (entry: BondCatalogEntry) => {
+    addInstrument(bondEntryToInstrument(entry), entry.assetClass);
+    setActiveClass(entry.assetClass);
+  };
+
+  const classValidationWarnings = useMemo(() => {
+    return ASSET_CLASSES.filter((item) => item.searchable && allocation[item.id] > 0)
+      .map((item) => {
+        const items = selected.filter((row) => row.assetClass === item.id);
+        const sum = items.reduce((acc, row) => acc + row.weightWithinClass, 0);
+        if (items.length === 0) return `${item.label} 편입 종목이 없습니다.`;
+        if (Math.abs(sum - 100) >= 0.001) return `${item.label} 내 비중 합계가 100%가 아닙니다. (현재 ${sum.toFixed(1)}%)`;
+        return null;
+      })
+      .filter((msg): msg is string => Boolean(msg));
+  }, [allocation, selected]);
+
+  const bondOptions = useMemo(() => {
+    if (activeClass === "domesticBond" || activeClass === "globalBond") {
+      return bondsForAssetClass(activeClass);
+    }
+    return [];
+  }, [activeClass]);
 
   const selectedForClass = selected.filter((item) => item.assetClass === activeClass);
   const withinClassTotal = selectedForClass.reduce((sum, item) => sum + item.weightWithinClass, 0);
@@ -391,62 +448,156 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
           <div>
             <p className="decision-kicker">Instrument selection</p>
             <h3 className="mt-1 text-base font-black text-fg">자산군별 종목 검색·선택</h3>
-            <p className="mt-1 text-[11px] text-fg-muted">국내는 Naver Finance, 해외는 Yahoo Finance에서 현재가와 종목 정보를 조회합니다.</p>
+            <p className="mt-1 text-[11px] text-fg-muted">
+              직접 검색, 국내 주식 추세 필터, 채권 카탈로그로 편입 종목을 고르고 자산군 내 비중을 입력합니다.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {ASSET_CLASSES.filter((item) => item.searchable && allocation[item.id] > 0).map((item) => (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => { setActiveClass(item.id); setResults([]); setSearchError(""); setResultType("stock"); }}
+                onClick={() => {
+                  setActiveClass(item.id);
+                  setResults([]);
+                  setSearchError("");
+                  setResultType("stock");
+                  setSourceTab(
+                    item.id === "domesticEquity"
+                      ? "search"
+                      : item.id === "domesticBond" || item.id === "globalBond"
+                        ? "bonds"
+                        : "search",
+                  );
+                }}
                 className={`rounded-full border px-3 py-1.5 text-xs font-bold ${activeClass === item.id ? "border-[#1428A0] bg-[#1428A0] text-white" : "border-border bg-white text-fg-muted"}`}
               >
                 {item.label} {allocation[item.id]}%
               </button>
             ))}
           </div>
-          <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-relaxed text-blue-700">국내 상장 ETF도 실제 노출 자산군에서 검색합니다. 예: KODEX 200은 국내주식, KODEX 미국S&amp;P500은 해외주식, 국채 ETF는 채권, 골드·원유 ETF는 상품·대체.</p>
+          <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-relaxed text-blue-700">
+            국내 상장 ETF도 실제 노출 자산군에서 검색합니다. 예: KODEX 200은 국내주식, KODEX 미국S&amp;P500은 해외주식, 국채 ETF는 채권, 골드·원유 ETF는 상품·대체.
+          </p>
 
           {allocation[activeClass] > 0 && activeClass !== "cash" && (
             <>
-              <div className="flex gap-2">
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter") search(); }}
-                  placeholder={activeClass.startsWith("domestic") ? "종목명 또는 코드 검색" : "영문 종목명 또는 티커 검색"}
-                  className="min-w-0 flex-1 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#1428A0]"
-                />
-                <button type="button" onClick={search} disabled={searching || !query.trim()} className="btn-primary px-4 py-2 text-sm disabled:opacity-40">{searching ? "검색 중…" : "실시간 검색"}</button>
+              <div className="inline-flex flex-wrap rounded-lg border border-border bg-surface-2 p-1">
+                <button
+                  type="button"
+                  onClick={() => setSourceTab("search")}
+                  className={`rounded-md px-3 py-1.5 text-xs font-black transition ${sourceTab === "search" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}
+                >
+                  직접 검색
+                </button>
+                {activeClass === "domesticEquity" && (
+                  <button
+                    type="button"
+                    onClick={() => setSourceTab("trend")}
+                    className={`rounded-md px-3 py-1.5 text-xs font-black transition ${sourceTab === "trend" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}
+                  >
+                    추세 필터
+                  </button>
+                )}
+                {(activeClass === "domesticBond" || activeClass === "globalBond") && (
+                  <button
+                    type="button"
+                    onClick={() => setSourceTab("bonds")}
+                    className={`rounded-md px-3 py-1.5 text-xs font-black transition ${sourceTab === "bonds" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}
+                  >
+                    채권 선택
+                  </button>
+                )}
               </div>
-              {searchError && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{searchError}</p>}
-              {results.length > 0 && (
-                <div>
-                  <div className="mb-3 flex items-center justify-between gap-3 border-b border-border">
-                    <div className="flex gap-1">
-                      <button type="button" onClick={() => setResultType("stock")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "stock" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>개별종목 <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{stockResults.length}</span></button>
-                      <button type="button" onClick={() => setResultType("etf")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "etf" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>ETF <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{etfResults.length}</span></button>
-                      <button type="button" onClick={() => setResultType("etn")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "etn" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>ETN <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{etnResults.length}</span></button>
-                      <button type="button" onClick={() => setResultType("other")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "other" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>기타상품 <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{otherResults.length}</span></button>
-                    </div>
-                    <span className="text-[10px] text-fg-muted">총 {results.length}개</span>
+
+              {sourceTab === "trend" && activeClass === "domesticEquity" && (
+                <KoreanStockTrendFilter
+                  embedded
+                  clientId={clientId}
+                  equityWeightPct={allocation.domesticEquity}
+                  onSelectionChange={handleTrendSelection}
+                />
+              )}
+
+              {sourceTab === "bonds" && bondOptions.length > 0 && (
+                <div className="rounded-xl border border-border bg-white p-3">
+                  <p className="text-xs font-black text-fg">채권 옵션 · {ASSET_CLASSES.find((a) => a.id === activeClass)?.label}</p>
+                  <p className="mt-0.5 text-[10px] text-fg-muted">
+                    국채·미채 노출은 ETF, 한전채·구글 회사채는 직접투자 라벨입니다. 시세는 카탈로그 기준이며 실시간 가격을 만들지 않습니다.
+                  </p>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {bondOptions.map((entry) => {
+                      const already = selected.some(
+                        (item) => item.assetClass === entry.assetClass && sameInstrument(item.symbol, entry.symbol),
+                      );
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          disabled={already}
+                          onClick={() => addBondOption(entry)}
+                          className={`rounded-xl border p-3 text-left transition ${already ? "border-emerald-200 bg-emerald-50 opacity-80" : "border-border bg-white hover:border-[#1428A0]"}`}
+                        >
+                          <span className="flex items-start justify-between gap-2">
+                            <span>
+                              <span className="block text-xs font-black text-[#1428A0]">{entry.label}</span>
+                              <span className="mt-0.5 block text-sm font-bold text-fg">{entry.name}</span>
+                              <span className="mt-0.5 block text-[10px] text-fg-muted">
+                                {entry.symbol} · {entry.kind} · {entry.source}
+                              </span>
+                              <span className="mt-1 block text-[10px] text-fg-muted">{entry.note}</span>
+                            </span>
+                            <span className="shrink-0 text-[10px] font-bold text-fg-muted">{already ? "선택됨" : "추가"}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="grid gap-2 md:grid-cols-2">
-                  {visibleResults.map((item) => (
-                    <button key={item.symbol} type="button" onClick={() => addInstrument(item)} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3 text-left hover:border-[#1428A0]">
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-black text-fg">{item.name}</span>
-                        <span className="mt-0.5 block text-[10px] text-fg-muted">{item.symbol} · {item.exchange} · {item.source}</span>
-                      </span>
-                      <span className="shrink-0 text-right">
-                        <span className="block text-xs font-black text-fg">{formatPrice(item.price, item.currency)}</span>
-                        <span className={`block text-[10px] ${(item.changePct ?? 0) >= 0 ? "text-rose-600" : "text-blue-600"}`}>{item.changePct == null ? "" : `${item.changePct >= 0 ? "+" : ""}${item.changePct.toFixed(2)}%`}</span>
-                      </span>
-                    </button>
-                  ))}
-                  </div>
-                  {visibleResults.length === 0 && <div className="rounded-xl border border-dashed border-border bg-surface-2 px-4 py-8 text-center"><p className="text-xs font-bold text-fg-muted">이 탭에 해당하는 검색 결과가 없습니다.</p></div>}
                 </div>
+              )}
+
+              {sourceTab === "search" && (
+                <>
+                  <div className="flex gap-2">
+                    <input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === "Enter") search(); }}
+                      placeholder={activeClass.startsWith("domestic") ? "종목명 또는 코드 검색" : "영문 종목명 또는 티커 검색"}
+                      className="min-w-0 flex-1 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-[#1428A0]"
+                    />
+                    <button type="button" onClick={search} disabled={searching || !query.trim()} className="btn-primary px-4 py-2 text-sm disabled:opacity-40">{searching ? "검색 중…" : "실시간 검색"}</button>
+                  </div>
+                  {searchError && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{searchError}</p>}
+                  {results.length > 0 && (
+                    <div>
+                      <div className="mb-3 flex items-center justify-between gap-3 border-b border-border">
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => setResultType("stock")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "stock" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>개별종목 <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{stockResults.length}</span></button>
+                          <button type="button" onClick={() => setResultType("etf")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "etf" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>ETF <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{etfResults.length}</span></button>
+                          <button type="button" onClick={() => setResultType("etn")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "etn" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>ETN <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{etnResults.length}</span></button>
+                          <button type="button" onClick={() => setResultType("other")} className={`border-b-2 px-4 py-2 text-xs font-black transition ${resultType === "other" ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>기타상품 <span className="ml-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">{otherResults.length}</span></button>
+                        </div>
+                        <span className="text-[10px] text-fg-muted">총 {results.length}개</span>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                      {visibleResults.map((item) => (
+                        <button key={item.symbol} type="button" onClick={() => addInstrument(item)} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-3 text-left hover:border-[#1428A0]">
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-black text-fg">{item.name}</span>
+                            <span className="mt-0.5 block text-[10px] text-fg-muted">{item.symbol} · {item.exchange} · {item.source}</span>
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="block text-xs font-black text-fg">{formatPrice(item.price, item.currency)}</span>
+                            <span className={`block text-[10px] ${(item.changePct ?? 0) >= 0 ? "text-rose-600" : "text-blue-600"}`}>{item.changePct == null ? "" : `${item.changePct >= 0 ? "+" : ""}${item.changePct.toFixed(2)}%`}</span>
+                          </span>
+                        </button>
+                      ))}
+                      </div>
+                      {visibleResults.length === 0 && <div className="rounded-xl border border-dashed border-border bg-surface-2 px-4 py-8 text-center"><p className="text-xs font-bold text-fg-muted">이 탭에 해당하는 검색 결과가 없습니다.</p></div>}
+                    </div>
+                  )}
+                </>
               )}
 
               <div className="rounded-xl border border-border bg-surface-2 p-3">
@@ -455,12 +606,26 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                   <span className={`text-xs font-black ${withinClassTotal === 100 || selectedForClass.length === 0 ? "text-emerald-700" : "text-amber-700"}`}>{withinClassTotal}% / 100%</span>
                 </div>
                 {selectedForClass.length === 0 ? (
-                  <p className="mt-2 text-xs text-fg-muted">검색 결과에서 편입할 종목을 선택하세요.</p>
+                  <p className="mt-2 text-xs text-fg-muted">
+                    {activeClass === "domesticEquity"
+                      ? "직접 검색 또는 추세 필터에서 편입할 종목을 확정하세요."
+                      : activeClass === "domesticBond" || activeClass === "globalBond"
+                        ? "채권 선택 또는 직접 검색에서 편입 상품을 고르세요."
+                        : "검색 결과에서 편입할 종목을 선택하세요."}
+                  </p>
                 ) : (
                   <div className="mt-2 space-y-2">
                     {selectedForClass.map((item) => (
                       <div key={`${item.assetClass}-${item.symbol}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-white px-3 py-2">
-                        <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-fg">{item.name}</p><p className="text-[10px] text-fg-muted">{item.symbol}</p></div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-bold text-fg">{item.name}</p>
+                          <p className="text-[10px] text-fg-muted">
+                            {item.symbol}
+                            {item.price != null ? ` · ${formatPrice(item.price, item.currency)}` : ""}
+                            {item.source ? ` · ${item.source}` : ""}
+                            {item.asOf ? ` · as-of ${item.asOf.slice(0, 10)}` : ""}
+                          </p>
+                        </div>
                         <input
                           type="number"
                           min="0"
@@ -473,9 +638,22 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                         <button type="button" onClick={() => setSelected((current) => current.filter((candidate) => !(candidate.assetClass === item.assetClass && candidate.symbol === item.symbol)))} className="text-xs font-bold text-rose-500">삭제</button>
                       </div>
                     ))}
+                    {Math.abs(withinClassTotal - 100) >= 0.001 && (
+                      <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
+                        {ASSET_CLASSES.find((a) => a.id === activeClass)?.label} 내 비중 합계가 100%가 아닙니다. (현재 {withinClassTotal.toFixed(1)}%)
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
+
+              {classValidationWarnings.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                  {classValidationWarnings.map((msg) => (
+                    <p key={msg} className="font-semibold">{msg}</p>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -526,7 +704,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                       <div className="mt-3 space-y-2">
                         {items.map((item) => (
                           <div key={`${item.assetClass}-${item.symbol}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-white px-3 py-2">
-                            <div className="min-w-0"><p className="truncate text-xs font-bold text-fg">{item.name}</p><p className="text-[10px] text-fg-muted">{item.symbol} · 자산군 내 {item.weightWithinClass}%</p></div>
+                            <div className="min-w-0"><p className="truncate text-xs font-bold text-fg">{item.name}({item.symbol})</p><p className="text-[10px] text-fg-muted">자산군 내 {item.weightWithinClass}%{item.source ? ` · ${item.source}` : ""}</p></div>
                             <div className="text-right"><p className="text-xs font-black text-[#1428A0]">전체 {item.totalWeight.toFixed(2)}%</p><p className="text-[10px] text-fg-muted">{formatWon(item.amountWon)}</p></div>
                           </div>
                         ))}
