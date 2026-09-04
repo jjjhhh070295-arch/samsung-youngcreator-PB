@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { isAuthorizedCronRequest } from "@/lib/cronAuth";
+import { isKnownPbRequest } from "@/lib/pbRequestAuth";
 import { buildBriefingSystemPrompt } from "@/lib/briefing/prompt";
 
 export const runtime = "nodejs";
@@ -228,8 +229,14 @@ export async function GET(req: Request) {
 }
 
 // 수동 트리거 — 화면의 "오늘 리포트 생성" 버튼과 "덮어쓰고 다시 생성"이 여기로 온다.
+//
+// 크론 시크릿 또는 PB 인증 둘 중 하나면 통과한다. 브라우저에는 CRON_SECRET 을 둘 수
+// 없으므로, 시크릿만 받으면 프로덕션에서 버튼이 항상 401 로 끝난다 — 화면에서 버튼을
+// 열어 두려면 사람 쪽 경로가 하나 더 있어야 한다.
+// 비용 주의: 1회 생성이 $1 수준이다. overwrite=false 면 같은 날 두 번째 호출은
+// ALREADY_EXISTS 로 끝나 LLM 을 다시 부르지 않는다.
 export async function POST(req: Request) {
-  if (!isAuthorizedCronRequest(req)) {
+  if (!isAuthorizedCronRequest(req) && !(await isKnownPbRequest(req))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
   const { overwrite } = await req.json().catch(() => ({ overwrite: false }));

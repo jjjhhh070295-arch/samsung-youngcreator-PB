@@ -42,7 +42,10 @@ export default function BriefingPage() {
   const loadList = useCallback(async () => {
     setListBusy(true);
     try {
-      const res = await fetch("/api/briefing/list", { cache: "no-store" });
+      const res = await fetch("/api/briefing/list", {
+        cache: "no-store",
+        headers: { "x-pb-id": pbId },
+      });
       const data = await res.json();
       if (!data.ok) {
         setListError(data.error ?? "목록을 불러오지 못했습니다.");
@@ -58,7 +61,7 @@ export default function BriefingPage() {
     } finally {
       setListBusy(false);
     }
-  }, []);
+  }, [pbId]);
 
   useEffect(() => {
     loadList();
@@ -71,7 +74,7 @@ export default function BriefingPage() {
     try {
       const res = await fetch("/api/briefing/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-pb-id": pbId },
         body: JSON.stringify({ overwrite }),
       });
       const data = await res.json();
@@ -103,16 +106,16 @@ export default function BriefingPage() {
             시장 공통 데일리 마켓 인사이트 리포트 — 고객 개인정보는 사용되지 않습니다.
           </p>
         </div>
-        <div className="flex gap-2">
-          {process.env.NODE_ENV === "production" ? (
-            <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-fg-muted">
-              리포트는 매일 새벽 자동 생성됩니다.
-            </p>
-          ) : (
-            <button className="btn-primary text-sm" onClick={() => generate(false)} disabled={generating}>
-              {generating ? "생성 중… (최대 5분)" : "오늘 리포트 생성"}
-            </button>
-          )}
+        {/* 예전에는 프로덕션에서 버튼을 숨기고 "매일 새벽 자동 생성됩니다" 문구만 뒀다.
+            크론이 등록된 지금도 그 문구만 남기면, 크론이 실패한 날 PB 가 빈 화면을 보고도
+            할 수 있는 게 없다. 문구와 버튼을 함께 둔다. */}
+        <div className="flex items-center gap-2">
+          <p className="hidden rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-fg-muted sm:block">
+            매일 새벽 자동 생성 (05:30 KST)
+          </p>
+          <button className="btn-primary text-sm" onClick={() => generate(false)} disabled={generating}>
+            {generating ? "생성 중… (최대 5분)" : "오늘 리포트 생성"}
+          </button>
         </div>
       </div>
 
