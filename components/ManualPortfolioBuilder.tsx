@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import PortfolioAnalyticsCards from "./PortfolioAnalyticsCards";
 
 type AssetClass =
   | "domesticEquity"
@@ -541,6 +542,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
           </div>
         </section>
       )}
+      <PortfolioAnalyticsCards allocation={allocation} selected={selected} complete={hydrated && isComplete && instrumentAllocationComplete} />
     </section>
   );
 }
