@@ -1,3 +1,5 @@
+export type PbScheduleStatus = "planned" | "done" | "canceled";
+
 export interface ConsultationSchedule {
   id: string;
   type: "consultation";
@@ -8,6 +10,11 @@ export interface ConsultationSchedule {
   time: string;
   memo?: string;
   createdAt: string;
+  /** 없으면 "planned" — 상태 도입 이전에 저장된 값과 호환된다. */
+  status?: PbScheduleStatus;
+  updatedAt?: string;
+  /** 상담을 실제로 진행했을 때 그 이력(consultations)의 id. */
+  consultationId?: string;
 }
 
 export interface ExtraEventSchedule {
@@ -19,6 +26,9 @@ export interface ExtraEventSchedule {
   time: string;
   memo?: string;
   createdAt: string;
+  /** 없으면 "planned" — 상태 도입 이전에 저장된 값과 호환된다. */
+  status?: PbScheduleStatus;
+  updatedAt?: string;
 }
 
 export type PbScheduleItem = ConsultationSchedule | ExtraEventSchedule;
@@ -89,16 +99,21 @@ export function getScheduleDateSet(pbId: string): Set<string> {
   return new Set(loadAllPbSchedules(pbId).map((item) => item.date));
 }
 
+/** 상태 도입 이전에 저장된 항목은 status 가 없다 — "planned" 로 본다. */
+function withStatus<T extends { status?: PbScheduleStatus }>(item: T): T {
+  return item.status ? item : { ...item, status: "planned" as PbScheduleStatus };
+}
+
 export function loadConsultationSchedules(pbId: string): ConsultationSchedule[] {
   if (typeof window === "undefined") return [];
   const parsed = safeParse<ConsultationSchedule[]>(window.localStorage.getItem(SCHEDULES_KEY(pbId)));
-  return Array.isArray(parsed) ? parsed.filter((s) => s.pbId === pbId) : [];
+  return Array.isArray(parsed) ? parsed.filter((s) => s.pbId === pbId).map(withStatus) : [];
 }
 
 export function loadExtraEvents(pbId: string): ExtraEventSchedule[] {
   if (typeof window === "undefined") return [];
   const parsed = safeParse<ExtraEventSchedule[]>(window.localStorage.getItem(EVENTS_KEY(pbId)));
-  return Array.isArray(parsed) ? parsed.filter((s) => s.pbId === pbId) : [];
+  return Array.isArray(parsed) ? parsed.filter((s) => s.pbId === pbId).map(withStatus) : [];
 }
 
 export function loadAllPbSchedules(pbId: string): PbScheduleItem[] {
@@ -147,8 +162,62 @@ export function addExtraEventSchedule(
   return next;
 }
 
+/**
+ * 상태 변경 — 취소(canceled)·완료(done)에 쓴다. 해당 id 를 못 찾으면 false.
+ * 상담·기타 두 배열 중 어디에 있는지 모르므로 둘 다 훑는다.
+ *
+ * DB(pb_schedules)가 있는 환경에서는 lib/store.ts 가 직접 update 하고 이 함수는
+ * 타지 않는다. 여기는 supabase-migration-pb-schedules.sql 미실행 환경의 폴백이다.
+ */
+export function setScheduleStatus(pbId: string, id: string, status: PbScheduleStatus): boolean {
+  if (typeof window === "undefined") return false;
+  const now = new Date().toISOString();
+
+  const consultations = loadConsultationSchedules(pbId);
+  const consultIdx = consultations.findIndex((item) => item.id === id);
+  if (consultIdx >= 0) {
+    consultations[consultIdx] = { ...consultations[consultIdx], status, updatedAt: now };
+    saveConsultationSchedules(pbId, consultations);
+    return true;
+  }
+
+  const events = loadExtraEvents(pbId);
+  const eventIdx = events.findIndex((item) => item.id === id);
+  if (eventIdx >= 0) {
+    events[eventIdx] = { ...events[eventIdx], status, updatedAt: now };
+    saveExtraEvents(pbId, events);
+    return true;
+  }
+  return false;
+}
+
+/** 완전 삭제. 되돌릴 수 없으므로 기본은 setScheduleStatus(…, "canceled") 를 쓴다. */
+export function deleteSchedule(pbId: string, id: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  const consultations = loadConsultationSchedules(pbId);
+  const nextConsultations = consultations.filter((item) => item.id !== id);
+  if (nextConsultations.length !== consultations.length) {
+    saveConsultationSchedules(pbId, nextConsultations);
+    return true;
+  }
+
+  const events = loadExtraEvents(pbId);
+  const nextEvents = events.filter((item) => item.id !== id);
+  if (nextEvents.length !== events.length) {
+    saveExtraEvents(pbId, nextEvents);
+    return true;
+  }
+  return false;
+}
+
+/** 취소된 항목을 뺀 전체 일정. 화면에 뿌릴 목록은 이걸 쓴다. */
+export function loadActivePbSchedules(pbId: string): PbScheduleItem[] {
+  return loadAllPbSchedules(pbId).filter((item) => item.status !== "canceled");
+}
+
 export function listTodayTodos(pbId: string, date = todayKstDate()): PbScheduleItem[] {
-  return loadAllPbSchedules(pbId)
+  return loadActivePbSchedules(pbId)
     .filter((item) => item.date === date)
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time));

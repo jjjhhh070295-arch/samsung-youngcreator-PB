@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PbScheduleItem } from "@/lib/advisory/pbScheduleStorage";
 import {
   KST_WEEKDAY_LABELS,
   buildMonthCalendarDays,
   formatKstDateLabel,
   formatKstTodoHeader,
-  listTodayTodos,
-  loadAllPbSchedules,
   parseKstDateParts,
   todayKstDate,
 } from "@/lib/advisory/pbScheduleStorage";
+import { listPbSchedules } from "@/lib/store";
 
 interface Props {
   pbId: string;
@@ -28,21 +27,44 @@ export function PbTodayTodos({ pbId, refreshKey = 0 }: Props) {
   const [selectedDate, setSelectedDate] = useState(today);
   const [viewYear, setViewYear] = useState(todayParts.year);
   const [viewMonth, setViewMonth] = useState(todayParts.month);
-  const [scheduleDates, setScheduleDates] = useState<Set<string>>(new Set());
-  const [items, setItems] = useState<PbScheduleItem[]>([]);
+  const [schedules, setSchedules] = useState<PbScheduleItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const reloadSchedules = useCallback(() => {
-    setScheduleDates(new Set(loadAllPbSchedules(pbId).map((item) => item.date)));
-    setItems(listTodayTodos(pbId, selectedDate));
-  }, [pbId, selectedDate]);
-
+  // 일정은 이제 DB(pb_schedules)에서 온다 — 마이그레이션 전이면 store 가 localStorage 로
+  // 폴백한다. 조회는 PB 단위로 한 번만 하고, 달력 점과 선택 날짜 목록은 그 결과에서
+  // 파생시킨다(날짜를 누를 때마다 다시 조회하지 않는다).
   useEffect(() => {
-    reloadSchedules();
-  }, [reloadSchedules, refreshKey]);
+    let cancelled = false;
+    setLoading(true);
+    listPbSchedules(pbId)
+      .then((rows) => {
+        if (!cancelled) setSchedules(rows);
+      })
+      .catch((e) => {
+        console.error(e);
+        if (!cancelled) setSchedules([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pbId, refreshKey]);
 
-  useEffect(() => {
-    setItems(listTodayTodos(pbId, selectedDate));
-  }, [pbId, selectedDate, refreshKey]);
+  const scheduleDates = useMemo(
+    () => new Set(schedules.map((item) => item.date)),
+    [schedules],
+  );
+
+  const items = useMemo(
+    () =>
+      schedules
+        .filter((item) => item.date === selectedDate)
+        .slice()
+        .sort((a, b) => a.time.localeCompare(b.time)),
+    [schedules, selectedDate],
+  );
 
   const calendarDays = useMemo(
     () => buildMonthCalendarDays(viewYear, viewMonth),
@@ -73,14 +95,14 @@ export function PbTodayTodos({ pbId, refreshKey = 0 }: Props) {
           <h2 className="text-sm font-black text-fg">오늘 PB의 할일</h2>
           <p className="mt-0.5 text-[11px] text-fg-muted">{header}</p>
         </div>
-        <span className="badge-navy">{items.length}건</span>
+        <span className="badge-navy">{loading ? "…" : `${items.length}건`}</span>
       </div>
 
       <div className="grid min-h-[220px] grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_220px] md:items-start">
         <div className="flex min-h-[180px] flex-col">
-          {items.length === 0 ? (
+          {loading || items.length === 0 ? (
             <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-surface-2/50 px-4 py-8 text-sm text-fg-muted">
-              {emptyLabel}
+              {loading ? "일정을 불러오는 중…" : emptyLabel}
             </div>
           ) : (
             <ul className="space-y-2">

@@ -28,6 +28,14 @@ import type {
 } from "./types";
 import { emptyIPS } from "./types";
 import { SAMPLE_BOOK_CLIENTS } from "./advisory/sampleBook";
+import type { PbScheduleItem, PbScheduleStatus } from "./advisory/pbScheduleStorage";
+import {
+  addConsultationSchedule,
+  addExtraEventSchedule,
+  deleteSchedule,
+  loadActivePbSchedules,
+  setScheduleStatus,
+} from "./advisory/pbScheduleStorage";
 import type { InvestmentSurveyResult } from "./investmentSurvey";
 import {
   saveInvestmentSurvey as saveLocalInvestmentSurvey,
@@ -1248,6 +1256,197 @@ export async function updateConsultation(
   if (patch.ipsSnapshot !== undefined) row.ips_snapshot = patch.ipsSnapshot;
   const { error } = await supabase!.from("consultations").update(row).eq("id", id);
   if (error) throw error;
+}
+
+// ───────────────────────── PB 일정 (pb_schedules) ─────────────────────────
+//
+// 일정은 원래 브라우저 localStorage 에만 있었다(pb-schedules:{pbId}). 같은 PB 라도 다른
+// 기기에서는 아무것도 안 보이고 브라우저 데이터를 지우면 사라졌다. DB 를 우선 쓰고,
+// supabase-migration-pb-schedules.sql 미실행 환경에서는 예전대로 localStorage 로 폴백한다
+// — investment_surveys 와 같은 방식이다.
+//
+// 폴백은 "테이블이 없을 때"의 임시 경로지 병행 저장소가 아니다. 테이블이 있으면 DB 만
+// 읽는다(로컬 잔여분을 합치지 않는다) — 기기마다 목록이 달라 보이는 상태를 없애는 게
+// 이 작업의 목적이기 때문이다. 기존 로컬 일정은 이관하지 않기로 했다.
+
+const PB_SCHEDULE_TABLE = "pb_schedules";
+
+/** Postgres time 은 "14:00:00" 으로 온다. 앱은 "HH:MM" 만 쓴다. */
+function toHhMm(value: unknown): string {
+  return typeof value === "string" ? value.slice(0, 5) : "";
+}
+
+function rowToPbSchedule(r: any): PbScheduleItem {
+  const base = {
+    id: String(r.id),
+    pbId: String(r.pb_id ?? ""),
+    date: String(r.scheduled_on ?? ""),
+    time: toHhMm(r.scheduled_at),
+    memo: r.memo ?? undefined,
+    createdAt: r.created_at ?? new Date().toISOString(),
+    status: (r.status ?? "planned") as PbScheduleStatus,
+    updatedAt: r.updated_at ?? undefined,
+  };
+  if (r.kind === "event") {
+    return { ...base, type: "event", title: r.title ?? "" };
+  }
+  return {
+    ...base,
+    type: "consultation",
+    clientId: r.party_id ?? "",
+    clientName: r.client_name ?? "",
+    consultationId: r.consultation_id ?? undefined,
+  };
+}
+
+// 데모 PB·로컬 전용 고객은 id 가 uuid 가 아니라 FK insert 가 실패한다. createConsultation /
+// saveInvestmentSurvey 과 같은 판단을 쓴다.
+function schedulesUseLocal(pbId: string, clientId?: string): boolean {
+  if (usingLocalFallback || isDemoPbId(pbId)) return true;
+  return clientId ? localClientExists(clientId) : false;
+}
+
+function warnScheduleFallback(action: string, error: { code?: string; message?: string }): void {
+  if (MISSING_TABLE_ERROR_CODES.has(error.code ?? "")) {
+    console.warn(
+      `[store] pb_schedules 테이블 없음 — supabase-migration-pb-schedules.sql 미실행으로 보고 localStorage 로 ${action}`,
+    );
+  } else {
+    console.warn(`[store] pb_schedules ${action} 실패 — localStorage 로 폴백:`, error.message);
+  }
+}
+
+/** 해당 PB 의 일정 전체(취소분 제외). 본인 것만 본다 — eq('pb_id', pbId). */
+export async function listPbSchedules(pbId: string): Promise<PbScheduleItem[]> {
+  if (!pbId) return [];
+  if (schedulesUseLocal(pbId)) return loadActivePbSchedules(pbId);
+
+  const { data, error } = await supabase!
+    .from(PB_SCHEDULE_TABLE)
+    .select("*")
+    .eq("pb_id", pbId)
+    .neq("status", "canceled")
+    .order("scheduled_on", { ascending: true })
+    .order("scheduled_at", { ascending: true });
+  if (error) {
+    warnScheduleFallback("조회", error);
+    return loadActivePbSchedules(pbId);
+  }
+  return (data ?? []).map(rowToPbSchedule);
+}
+
+export async function createConsultationSchedule(
+  pbId: string,
+  input: { clientId: string; clientName: string; date: string; time: string; memo?: string },
+): Promise<PbScheduleItem> {
+  if (schedulesUseLocal(pbId, input.clientId)) {
+    return addConsultationSchedule(pbId, input);
+  }
+  const { data, error } = await supabase!
+    .from(PB_SCHEDULE_TABLE)
+    .insert({
+      pb_id: pbId,
+      kind: "consultation",
+      party_id: input.clientId || null,
+      client_name: input.clientName || null,
+      scheduled_on: input.date,
+      scheduled_at: input.time,
+      memo: input.memo || null,
+    })
+    .select("*")
+    .single();
+  if (error) {
+    warnScheduleFallback("저장", error);
+    return addConsultationSchedule(pbId, input);
+  }
+  return rowToPbSchedule(data);
+}
+
+export async function createExtraEventSchedule(
+  pbId: string,
+  input: { title: string; date: string; time: string; memo?: string },
+): Promise<PbScheduleItem> {
+  if (schedulesUseLocal(pbId)) {
+    return addExtraEventSchedule(pbId, input);
+  }
+  const { data, error } = await supabase!
+    .from(PB_SCHEDULE_TABLE)
+    .insert({
+      pb_id: pbId,
+      kind: "event",
+      title: input.title,
+      scheduled_on: input.date,
+      scheduled_at: input.time,
+      memo: input.memo || null,
+    })
+    .select("*")
+    .single();
+  if (error) {
+    warnScheduleFallback("저장", error);
+    return addExtraEventSchedule(pbId, input);
+  }
+  return rowToPbSchedule(data);
+}
+
+async function updatePbScheduleStatus(
+  pbId: string,
+  id: string,
+  status: PbScheduleStatus,
+  consultationId?: string,
+): Promise<void> {
+  if (schedulesUseLocal(pbId)) {
+    setScheduleStatus(pbId, id, status);
+    return;
+  }
+  const row: Record<string, any> = { status, updated_at: new Date().toISOString() };
+  if (consultationId !== undefined) row.consultation_id = consultationId || null;
+
+  const { error } = await supabase!
+    .from(PB_SCHEDULE_TABLE)
+    .update(row)
+    .eq("id", id)
+    .eq("pb_id", pbId); // 남의 일정을 건드리지 않는다
+  if (error) {
+    warnScheduleFallback("상태 변경", error);
+    // 테이블이 없어 로컬에만 있는 일정이면 여기서 처리된다. 로컬에도 없다면 아무 일도
+    // 일어나지 않은 것이므로 조용히 성공한 척하지 않고 호출부에 알린다.
+    if (!setScheduleStatus(pbId, id, status)) {
+      throw new Error(`일정 상태를 바꾸지 못했습니다: ${error.message}`);
+    }
+  }
+}
+
+/** 일정 취소. 행을 지우지 않고 status='canceled' 로 남긴다(기본 취소 수단). */
+export async function cancelPbSchedule(pbId: string, id: string): Promise<void> {
+  await updatePbScheduleStatus(pbId, id, "canceled");
+}
+
+/** 상담을 실제로 진행했을 때. consultationId 를 주면 그 이력과 잇는다. */
+export async function completePbSchedule(
+  pbId: string,
+  id: string,
+  consultationId?: string,
+): Promise<void> {
+  await updatePbScheduleStatus(pbId, id, "done", consultationId);
+}
+
+/** 완전 삭제 — 되돌릴 수 없다. 화면에서 감추는 것이 목적이면 cancelPbSchedule 을 쓴다. */
+export async function deletePbSchedule(pbId: string, id: string): Promise<void> {
+  if (schedulesUseLocal(pbId)) {
+    deleteSchedule(pbId, id);
+    return;
+  }
+  const { error } = await supabase!
+    .from(PB_SCHEDULE_TABLE)
+    .delete()
+    .eq("id", id)
+    .eq("pb_id", pbId);
+  if (error) {
+    warnScheduleFallback("삭제", error);
+    if (!deleteSchedule(pbId, id)) {
+      throw new Error(`일정을 삭제하지 못했습니다: ${error.message}`);
+    }
+  }
 }
 
 // ───────────────────────── Seed / Reset ─────────────────────────

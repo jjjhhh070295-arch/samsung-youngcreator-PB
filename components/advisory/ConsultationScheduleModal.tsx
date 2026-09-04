@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Client, ClientType, PB } from "@/lib/types";
 import { CLIENT_TYPE_LABEL } from "@/lib/types";
-import { createClient, nextClientCode } from "@/lib/store";
-import { addConsultationSchedule, todayKstDate } from "@/lib/advisory/pbScheduleStorage";
+import { createClient, createConsultationSchedule, nextClientCode } from "@/lib/store";
+import { todayKstDate } from "@/lib/advisory/pbScheduleStorage";
 import ClientAvatar from "@/components/ClientAvatar";
 
 type Mode = "existing" | "new";
@@ -112,7 +112,9 @@ export default function ConsultationScheduleModal({
         targetName = created.name;
       }
 
-      addConsultationSchedule(pbId, {
+      // 예전에는 여기서 localStorage 에 직접 썼다 — 바로 위 createClient()는 DB 로 가는데
+      // 일정만 로컬에 남아, 다른 기기에서 보면 "고객은 있는데 일정이 없는" 상태가 됐다.
+      await createConsultationSchedule(pbId, {
         clientId: targetId,
         clientName: targetName,
         date,

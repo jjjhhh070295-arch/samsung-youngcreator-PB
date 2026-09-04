@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { addExtraEventSchedule, todayKstDate } from "@/lib/advisory/pbScheduleStorage";
+import { createExtraEventSchedule } from "@/lib/store";
+import { todayKstDate } from "@/lib/advisory/pbScheduleStorage";
 
 interface Props {
   open: boolean;
@@ -36,7 +37,7 @@ export default function ExtraEventModal({ open, pbId, onClose, onSaved }: Props)
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setError("");
     if (!title.trim()) {
       setError("일정 제목을 입력해 주세요.");
@@ -49,7 +50,7 @@ export default function ExtraEventModal({ open, pbId, onClose, onSaved }: Props)
 
     setSaving(true);
     try {
-      addExtraEventSchedule(pbId, {
+      await createExtraEventSchedule(pbId, {
         title: title.trim(),
         date,
         time,
