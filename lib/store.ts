@@ -97,6 +97,8 @@ function rowToClient(r: any): Client {
     email: r.email ?? undefined,
     emailOptIn: r.email_opt_in ?? false,
     emailOptOutAt: r.email_opt_out_at ?? null,
+    financialIncomeComprehensiveTax: r.financial_income_comprehensive_tax ?? false,
+    financialIncomeProfile: r.financial_income_profile ?? null,
   };
 }
 
@@ -116,6 +118,12 @@ function clientToPartyRow(c: Partial<Client>): any {
   if (c.email !== undefined) row.email = c.email || null;
   if (c.emailOptIn !== undefined) row.email_opt_in = c.emailOptIn;
   if (c.emailOptOutAt !== undefined) row.email_opt_out_at = c.emailOptOutAt || null;
+  if (c.financialIncomeComprehensiveTax !== undefined) {
+    row.financial_income_comprehensive_tax = Boolean(c.financialIncomeComprehensiveTax);
+  }
+  if (c.financialIncomeProfile !== undefined) {
+    row.financial_income_profile = c.financialIncomeProfile ?? null;
+  }
   return row;
 }
 
@@ -1070,7 +1078,7 @@ export async function createClient(input: NewClientInput): Promise<Client> {
       email: input.email || null,
       email_opt_in: input.emailOptIn ?? false,
     },
-    ["email", "email_opt_in"],
+    ["email", "email_opt_in", "financial_income_comprehensive_tax", "financial_income_profile"],
   );
   if (pe) throw pe;
 
@@ -1125,7 +1133,7 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
     const { error } = await withMissingColumnFallback(
       (row) => supabase!.from("parties").update(row).eq("id", id).then((res) => ({ data: null, error: res.error })),
       partyRow,
-      ["email", "email_opt_in", "email_opt_out_at"],
+      ["email", "email_opt_in", "email_opt_out_at", "financial_income_comprehensive_tax", "financial_income_profile"],
     );
     if (error) throw error;
   }

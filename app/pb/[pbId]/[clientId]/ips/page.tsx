@@ -40,6 +40,8 @@ import { stableJsonStringify } from "@/lib/advisory/stableJson";
 import { HONESTY_LIMITS } from "@/lib/advisory/constants";
 import { mergeTaxProfile, projectTax } from "@/lib/taxProjection";
 import { DEFAULT_HORIZON_YEARS } from "@/lib/taxProjectionRules";
+import { isPortfolioWorkflowApproved } from "@/lib/advisory/workflowApprovals";
+import { isFinancialIncomeReadyForTax } from "@/lib/financialIncome";
 
 const CHART_COLORS = ["#0F172A", "#1428A0", "#2C3EE8", "#10b981", "#ef4444", "#8b5cf6", "#64748B"];
 
@@ -816,18 +818,22 @@ export default function IPSDocumentPage() {
   const vmWeights = confirmedWeights ?? {
     etf: 30, bond: 25, els: 0, mmf: 30, gold: 10, dollar: 5, raw: 0,
   };
-  const mergedTax = mergeTaxProfile(documentClient);
-  const taxWaterfall = projectTax({
-    // 부동산 제외 투자가능자산 기준. 조회 전/실패 시 총자산으로 폴백.
-    principalWon: investableWon ?? documentClient.assetSize,
-    horizonYears: DEFAULT_HORIZON_YEARS,
-    weights: vmWeights,
-    expectedReturnPct: pf?.expectedReturn ?? 6,
-    taxProfile: mergedTax.profile,
-    cashFlows: documentClient.cashFlows,
-    cashflowTaxSummary: mergedTax.cashflowSummary,
-    label: pf?.label ?? "기준안",
-  });
+  const taxReady =
+    isPortfolioWorkflowApproved(documentClient) && isFinancialIncomeReadyForTax(documentClient);
+  const mergedTax = taxReady ? mergeTaxProfile(documentClient) : null;
+  const taxWaterfall = taxReady && mergedTax
+    ? projectTax({
+        // 부동산 제외 투자가능자산 기준. 조회 전/실패 시 총자산으로 폴백.
+        principalWon: investableWon ?? documentClient.assetSize,
+        horizonYears: DEFAULT_HORIZON_YEARS,
+        weights: vmWeights,
+        expectedReturnPct: pf?.expectedReturn ?? 6,
+        taxProfile: mergedTax.profile,
+        cashFlows: documentClient.cashFlows,
+        cashflowTaxSummary: mergedTax.cashflowSummary,
+        label: pf?.label ?? "기준안",
+      })
+    : null;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -1224,29 +1230,47 @@ export default function IPSDocumentPage() {
         )}
 
         <Section title="세전·세금·비용·세후 결과">
-          <table className="w-full text-sm">
-            <tbody>
-              <tr className="border-b border-gray-100">
-                <td className="py-1.5">세전 기말자산</td>
-                <td className="py-1.5 text-right font-semibold">{formatKRW(taxWaterfall.principalWon + taxWaterfall.grossReturnWon)}</td>
-              </tr>
-              <tr className="border-b border-gray-100">
-                <td className="py-1.5">예상 세금</td>
-                <td className="py-1.5 text-right">−{formatKRW(taxWaterfall.taxes.totalTaxWon)}</td>
-              </tr>
-              <tr className="border-b border-gray-100">
-                <td className="py-1.5">상품/거래 비용</td>
-                <td className="py-1.5 text-right">−{formatKRW(taxWaterfall.feesWon)}</td>
-              </tr>
-              <tr>
-                <td className="py-1.5 font-bold">세후 기말자산</td>
-                <td className="py-1.5 text-right font-bold">{formatKRW(taxWaterfall.netEndingWon)}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p className="mt-1 text-[10px] text-gray-500">
-            기준일 {dateStr} · 통화 KRW · {taxWaterfall.assumptions[0]}
-          </p>
+          {taxWaterfall ? (
+            <>
+              <table className="w-full text-sm">
+                <tbody>
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5">세전 기말자산</td>
+                    <td className="py-1.5 text-right font-semibold">{formatKRW(taxWaterfall.principalWon + taxWaterfall.grossReturnWon)}</td>
+                  </tr>
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5">예상 세금</td>
+                    <td className="py-1.5 text-right">−{formatKRW(taxWaterfall.taxes.totalTaxWon)}</td>
+                  </tr>
+                  {taxWaterfall.taxes.overseasCapitalGainTaxWon > 0 && (
+                    <tr className="border-b border-gray-100">
+                      <td className="py-1.5 pl-4 text-gray-600">└ 해외주식 양도소득세</td>
+                      <td className="py-1.5 text-right text-gray-600">−{formatKRW(taxWaterfall.taxes.overseasCapitalGainTaxWon)}</td>
+                    </tr>
+                  )}
+                  {taxWaterfall.taxes.comprehensiveTaxWon > 0 && (
+                    <tr className="border-b border-gray-100">
+                      <td className="py-1.5 pl-4 text-gray-600">└ 금융소득 종합과세</td>
+                      <td className="py-1.5 text-right text-gray-600">−{formatKRW(taxWaterfall.taxes.comprehensiveTaxWon)}</td>
+                    </tr>
+                  )}
+                  <tr className="border-b border-gray-100">
+                    <td className="py-1.5">상품/거래 비용</td>
+                    <td className="py-1.5 text-right">−{formatKRW(taxWaterfall.feesWon)}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 font-bold">세후 기말자산</td>
+                    <td className="py-1.5 text-right font-bold">{formatKRW(taxWaterfall.netEndingWon)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="mt-1 text-[10px] text-gray-500">
+                기준일 {dateStr} · 통화 KRW · {taxWaterfall.assumptions[0]}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-600">포트폴리오 확정 후 세전·세후 계산이 가능합니다.</p>
+          )}
         </Section>
 
         {/* 디스클레이머 */}

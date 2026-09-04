@@ -9,6 +9,8 @@ import { advisoryInputHash, type AdvisoryInputContext } from "./integrity";
 import { buildRiskMetrics, measured } from "./riskEngine";
 import { runStressScenarios } from "./stressScenarios";
 import type { CalcResults, CitationRef, TaxWaterfall } from "./types";
+import { isPortfolioWorkflowApproved } from "./workflowApprovals";
+import { isFinancialIncomeReadyForTax } from "../financialIncome";
 
 const ENGINE_CITATIONS: CitationRef[] = [
   {
@@ -80,24 +82,27 @@ export function buildEngineSnapshot(
   });
 
   const merged = mergeTaxProfile(client);
-  const tax = projectTax({
-    principalWon,
-    horizonYears: DEFAULT_HORIZON_YEARS,
-    weights,
-    expectedReturnPct,
-    taxProfile: merged.profile,
-    cashFlows: client.cashFlows,
-    cashflowTaxSummary: merged.cashflowSummary,
-    label: pf?.label ?? "기준안",
-  });
-
-  const pretaxEnding = tax.principalWon + tax.grossReturnWon;
-  const waterfall: TaxWaterfall = {
-    pretaxEnding: measured(pretaxEnding, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-    expectedTax: measured(tax.taxes.totalTaxWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-    productCost: measured(tax.feesWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-    afterTaxEnding: measured(tax.netEndingWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-  };
+  const taxReady = isPortfolioWorkflowApproved(client) && isFinancialIncomeReadyForTax(client);
+  let waterfall: TaxWaterfall | null = null;
+  if (taxReady) {
+    const tax = projectTax({
+      principalWon,
+      horizonYears: DEFAULT_HORIZON_YEARS,
+      weights,
+      expectedReturnPct,
+      taxProfile: merged.profile,
+      cashFlows: client.cashFlows,
+      cashflowTaxSummary: merged.cashflowSummary,
+      label: pf?.label ?? "기준안",
+    });
+    const pretaxEnding = tax.principalWon + tax.grossReturnWon;
+    waterfall = {
+      pretaxEnding: measured(pretaxEnding, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
+      expectedTax: measured(tax.taxes.totalTaxWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
+      productCost: measured(tax.feesWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
+      afterTaxEnding: measured(tax.netEndingWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
+    };
+  }
 
   const calcConfig = defaultCalcConfig();
   const calcResults: CalcResults = { risk, stress, waterfall };

@@ -262,6 +262,24 @@ export interface Client {
   email?: string;
   emailOptIn?: boolean; // 모닝 브리핑 수신 동의 — 기본 false, 명시적으로 켜야 발송 대상
   emailOptOutAt?: string | null; // 수신거부 시각. null/undefined면 거부한 적 없음
+  /** 금융소득 종합과세 대상 여부 — 기본 false(아니오) */
+  financialIncomeComprehensiveTax?: boolean;
+  /** 원천징수영수증 등에서 확보한 금융소득(이자·배당) 프로파일 */
+  financialIncomeProfile?: FinancialIncomeProfile | null;
+}
+
+/** 원천징수영수증 PDF 파싱/수동입력 상태 */
+export type WithholdingSlipParseStatus = "none" | "parsed" | "parse_failed" | "manual";
+
+export interface FinancialIncomeProfile {
+  interestIncomeWon: number | null;
+  dividendIncomeWon: number | null;
+  parseStatus: WithholdingSlipParseStatus;
+  fileName?: string | null;
+  extractedAt?: string | null;
+  /** PDF에서 읽힌 원본(추출값) — PB 수정 전 대비 */
+  extractedInterestIncomeWon?: number | null;
+  extractedDividendIncomeWon?: number | null;
 }
 
 // ── 상담 단계 (PB가 단계별로 확정) ──

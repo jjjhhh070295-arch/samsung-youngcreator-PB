@@ -31,6 +31,8 @@ export interface TaxProfile {
   feeRatePct?: number;
   isCorporate?: boolean;
   corporateTaxRatePct?: number;
+  /** 고객 프로필의 금융소득 종합과세 대상 여부 */
+  financialIncomeComprehensiveTax?: boolean;
 }
 
 export interface TaxProfileSourceMeta<T = number | boolean | undefined> {
@@ -84,6 +86,8 @@ export interface TaxProjectionResult {
     interestTaxWon: number;
     dividendTaxWon: number;
     capitalGainTaxWon: number;
+    /** 해외주식 양도소득세 — 금융소득 종합과세와 분리 */
+    overseasCapitalGainTaxWon: number;
     comprehensiveTaxWon: number;
     corporateOverlayTaxWon: number;
     scheduledTaxWon: number;
@@ -181,7 +185,12 @@ function pensionTaxDiscountWon(investmentTaxWon: number, grossReturnWon: number,
 function applyProportionalDiscount(
   taxes: Pick<
     TaxProjectionResult["taxes"],
-    "interestTaxWon" | "dividendTaxWon" | "capitalGainTaxWon" | "comprehensiveTaxWon" | "corporateOverlayTaxWon"
+    | "interestTaxWon"
+    | "dividendTaxWon"
+    | "capitalGainTaxWon"
+    | "overseasCapitalGainTaxWon"
+    | "comprehensiveTaxWon"
+    | "corporateOverlayTaxWon"
   >,
   discountWon: number,
 ) {
@@ -189,6 +198,7 @@ function applyProportionalDiscount(
     taxes.interestTaxWon +
     taxes.dividendTaxWon +
     taxes.capitalGainTaxWon +
+    taxes.overseasCapitalGainTaxWon +
     taxes.comprehensiveTaxWon +
     taxes.corporateOverlayTaxWon;
   if (total <= 0 || discountWon <= 0) return taxes;
@@ -197,6 +207,7 @@ function applyProportionalDiscount(
     interestTaxWon: taxes.interestTaxWon * (1 - ratio),
     dividendTaxWon: taxes.dividendTaxWon * (1 - ratio),
     capitalGainTaxWon: taxes.capitalGainTaxWon * (1 - ratio),
+    overseasCapitalGainTaxWon: taxes.overseasCapitalGainTaxWon * (1 - ratio),
     comprehensiveTaxWon: taxes.comprehensiveTaxWon * (1 - ratio),
     corporateOverlayTaxWon: taxes.corporateOverlayTaxWon * (1 - ratio),
   };
@@ -278,13 +289,16 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       : DOMESTIC_EQUITY_CAPITAL_GAIN_TAX_RATE_PCT;
   let interestTaxWon = interestIncomeWon * (WITHHOLDING_TAX_RATE_PCT / 100);
   let dividendTaxWon = dividendIncomeWon * (WITHHOLDING_TAX_RATE_PCT / 100);
-  const estimatedCapitalGainTaxWon =
+  const estimatedDomesticCapitalGainTaxWon =
     domesticCapitalGainWon * (domesticCapitalRate / 100) +
-    overseasCapitalGainWon * (OVERSEAS_EQUITY_CAPITAL_GAIN_TAX_RATE_PCT / 100) +
     otherCapitalGainWon * (OVERSEAS_EQUITY_CAPITAL_GAIN_TAX_RATE_PCT / 100);
+  const estimatedOverseasCapitalGainTaxWon =
+    overseasCapitalGainWon * (OVERSEAS_EQUITY_CAPITAL_GAIN_TAX_RATE_PCT / 100);
   const hasScheduledCapitalGainTax = cashflowSummary.scheduledTaxes.byBucket.capitalGain > 0;
   const hasScheduledCorporateTax = cashflowSummary.scheduledTaxes.byBucket.corporate > 0;
-  let capitalGainTaxWon = hasScheduledCapitalGainTax ? 0 : estimatedCapitalGainTaxWon;
+  let capitalGainTaxWon = hasScheduledCapitalGainTax ? 0 : estimatedDomesticCapitalGainTaxWon;
+  let overseasCapitalGainTaxWon = hasScheduledCapitalGainTax ? 0 : estimatedOverseasCapitalGainTaxWon;
+  // 금융소득 종합과세(이자·배당만). 해외주식 양도차익은 overseasCapitalGainTaxWon으로 분리.
   let comprehensiveTaxWon = profile.isCorporate
     ? 0
     : financialIncomeExtraTax(interestIncomeWon + dividendIncomeWon, profile, horizonYears);
@@ -295,20 +309,32 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
   if (profile.isCorporate && !hasScheduledCorporateTax) {
     const corporateRate = profile.corporateTaxRatePct ?? corporateTaxRateForTaxableIncome(grossReturnWon);
     const corporateTaxWon = grossReturnWon * (corporateRate / 100);
-    const bucketTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon;
+    const bucketTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + overseasCapitalGainTaxWon;
     estimatedCorporateOverlayWon = Math.max(0, corporateTaxWon - bucketTaxWon);
     corporateOverlayTaxWon = estimatedCorporateOverlayWon;
   } else if (profile.isCorporate && hasScheduledCorporateTax) {
     const corporateRate = profile.corporateTaxRatePct ?? corporateTaxRateForTaxableIncome(grossReturnWon);
     const corporateTaxWon = grossReturnWon * (corporateRate / 100);
-    const bucketTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon;
+    const bucketTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + overseasCapitalGainTaxWon;
     estimatedCorporateOverlayWon = Math.max(0, corporateTaxWon - bucketTaxWon);
   }
 
   const discounted = applyProportionalDiscount(
-    { interestTaxWon, dividendTaxWon, capitalGainTaxWon, comprehensiveTaxWon, corporateOverlayTaxWon },
+    {
+      interestTaxWon,
+      dividendTaxWon,
+      capitalGainTaxWon,
+      overseasCapitalGainTaxWon,
+      comprehensiveTaxWon,
+      corporateOverlayTaxWon,
+    },
     pensionTaxDiscountWon(
-      interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon + corporateOverlayTaxWon,
+      interestTaxWon +
+        dividendTaxWon +
+        capitalGainTaxWon +
+        overseasCapitalGainTaxWon +
+        comprehensiveTaxWon +
+        corporateOverlayTaxWon,
       grossReturnWon,
       profile,
     ),
@@ -316,6 +342,7 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
   interestTaxWon = discounted.interestTaxWon;
   dividendTaxWon = discounted.dividendTaxWon;
   capitalGainTaxWon = discounted.capitalGainTaxWon;
+  overseasCapitalGainTaxWon = discounted.overseasCapitalGainTaxWon;
   comprehensiveTaxWon = discounted.comprehensiveTaxWon;
   corporateOverlayTaxWon = discounted.corporateOverlayTaxWon;
 
@@ -330,12 +357,18 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
     item.taxWon =
       interestTaxWon * interestShare +
       dividendTaxWon * dividendShare +
-      capitalGainTaxWon * capitalShare;
+      (capitalGainTaxWon + overseasCapitalGainTaxWon) * capitalShare;
   }
 
   const scheduledTax = cashflowSummary.scheduledTaxes.totalTaxWon;
   const feesWon = principalWon * (feeRatePct / 100) * horizonYears;
-  const operatingTaxWon = interestTaxWon + dividendTaxWon + capitalGainTaxWon + comprehensiveTaxWon + corporateOverlayTaxWon;
+  const operatingTaxWon =
+    interestTaxWon +
+    dividendTaxWon +
+    capitalGainTaxWon +
+    overseasCapitalGainTaxWon +
+    comprehensiveTaxWon +
+    corporateOverlayTaxWon;
   const totalTaxWon = operatingTaxWon + scheduledTax;
   const operatingNetWon = principalWon + grossReturnWon - operatingTaxWon - feesWon;
   const netEndingWon = principalWon + grossReturnWon - totalTaxWon - feesWon;
@@ -374,21 +407,30 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       note: "주식/ETF 수익 중 배당 30% 가정에 원천징수율을 적용했습니다.",
     },
     {
-      item: "양도세",
+      item: "양도세(국내·기타)",
       source: hasScheduledCapitalGainTax ? "ignored" : "estimated",
       amountWon: roundWon(capitalGainTaxWon),
-      ignoredAmountWon: hasScheduledCapitalGainTax ? roundWon(estimatedCapitalGainTaxWon) : undefined,
+      ignoredAmountWon: hasScheduledCapitalGainTax ? roundWon(estimatedDomesticCapitalGainTaxWon) : undefined,
       note: hasScheduledCapitalGainTax
         ? "현금흐름에 양도세 납부 일정이 있어 운용 추정 양도세는 중복 차감하지 않았습니다."
-        : "국내/해외 ETF·금·달러·원자재 차익을 자산 비중으로 추정했습니다.",
+        : "국내 ETF·금·달러·원자재 차익을 자산 비중으로 추정했습니다.",
     },
     {
-      item: "종합과세",
+      item: "해외주식 양도소득세",
+      source: hasScheduledCapitalGainTax ? "ignored" : "estimated",
+      amountWon: roundWon(overseasCapitalGainTaxWon),
+      ignoredAmountWon: hasScheduledCapitalGainTax ? roundWon(estimatedOverseasCapitalGainTaxWon) : undefined,
+      note: "해외주식 양도차익은 금융소득 종합과세와 분리해 별도 양도소득세로 추정했습니다.",
+    },
+    {
+      item: "금융소득 종합과세",
       source: profile.isCorporate ? "ignored" : "estimated",
       amountWon: roundWon(comprehensiveTaxWon),
       note: profile.isCorporate
-        ? "법인 고객이므로 개인 금융소득종합과세는 표에서 분리해 미반영합니다."
-        : "기존 금융소득과 신규 이자·배당의 2,000만원 초과분만 추가 과세로 추정했습니다.",
+        ? "법인 고객이므로 개인 금융소득 종합과세는 표에서 분리해 미반영합니다."
+        : profile.financialIncomeComprehensiveTax
+          ? "기존 금융소득과 신규 이자·배당의 2,000만원 초과분에 한계세율−원천징수율 차이를 적용했습니다."
+          : "기존 금융소득과 신규 이자·배당의 2,000만원 초과분만 추가 과세로 추정했습니다.",
     },
     ...(profile.isCorporate
       ? [{
@@ -421,6 +463,7 @@ export function projectTax(input: TaxProjectionInput): TaxProjectionResult {
       interestTaxWon: roundWon(interestTaxWon),
       dividendTaxWon: roundWon(dividendTaxWon),
       capitalGainTaxWon: roundWon(capitalGainTaxWon),
+      overseasCapitalGainTaxWon: roundWon(overseasCapitalGainTaxWon),
       comprehensiveTaxWon: roundWon(comprehensiveTaxWon),
       corporateOverlayTaxWon: roundWon(corporateOverlayTaxWon),
       scheduledTaxWon: roundWon(scheduledTax),
@@ -494,8 +537,10 @@ function inferHeuristicTaxProfile(client: Client): TaxProfile {
   ].join(" ");
   const mentionsOverseas = /해외|미국|나스닥|S&P|sp500|외화|달러/i.test(fullText);
   const mentionsDomestic = /국내|코스피|상장주식|삼성전자|하이닉스/i.test(fullText);
-  const annualFinancialIncomeWon =
-    /금융소득종합과세|종합과세/i.test(fullText)
+  const comprehensiveFlag = Boolean(client.financialIncomeComprehensiveTax);
+  const annualFinancialIncomeWon = comprehensiveFlag
+    ? 0
+    : /금융소득종합과세|금융소득 종합과세|종합과세/i.test(fullText)
       ? 30_000_000
       : client.assetSize >= 5_000_000_000
         ? 25_000_000
@@ -518,6 +563,7 @@ function inferHeuristicTaxProfile(client: Client): TaxProfile {
     feeRatePct: DEFAULT_FEE_RATE_PCT,
     isCorporate,
     corporateTaxRatePct: isCorporate ? corporateTaxRateForTaxableIncome(Math.max(0, client.assetSize * 0.04)) : undefined,
+    financialIncomeComprehensiveTax: comprehensiveFlag,
   };
 }
 
@@ -536,16 +582,26 @@ export function mergeTaxProfile(
 ): MergedTaxProfile {
   const inferred = inferHeuristicTaxProfile(client);
   const cashflowFinancialIncomeWon = summary.annualInterestIncomeWon + summary.annualDividendIncomeWon;
+  const profileIncome =
+    Math.max(0, Number(client.financialIncomeProfile?.interestIncomeWon) || 0) +
+    Math.max(0, Number(client.financialIncomeProfile?.dividendIncomeWon) || 0);
+  const comprehensiveFlag =
+    storedProfile.financialIncomeComprehensiveTax ?? Boolean(client.financialIncomeComprehensiveTax);
+
   const annualFinancialIncomeWon = hasManualValue(storedProfile.annualFinancialIncomeWon)
     ? storedProfile.annualFinancialIncomeWon
-    : cashflowFinancialIncomeWon > 0
-      ? cashflowFinancialIncomeWon
-      : inferred.annualFinancialIncomeWon;
+    : comprehensiveFlag && profileIncome > 0
+      ? profileIncome
+      : cashflowFinancialIncomeWon > 0
+        ? cashflowFinancialIncomeWon
+        : inferred.annualFinancialIncomeWon;
   const annualFinancialIncomeSource: TaxDataSource = hasManualValue(storedProfile.annualFinancialIncomeWon)
     ? "manual"
-    : cashflowFinancialIncomeWon > 0
-      ? "cashflow"
-      : "inferred";
+    : comprehensiveFlag && profileIncome > 0
+      ? "manual"
+      : cashflowFinancialIncomeWon > 0
+        ? "cashflow"
+        : "inferred";
 
   const isCorporate = hasManualValue(storedProfile.isCorporate)
     ? storedProfile.isCorporate
@@ -567,6 +623,7 @@ export function mergeTaxProfile(
     feeRatePct: storedProfile.feeRatePct ?? inferred.feeRatePct,
     isCorporate,
     corporateTaxRatePct: storedProfile.corporateTaxRatePct ?? (isCorporate ? inferred.corporateTaxRatePct : undefined),
+    financialIncomeComprehensiveTax: comprehensiveFlag,
   };
 
   const assumptions = [

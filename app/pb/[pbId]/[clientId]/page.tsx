@@ -37,12 +37,14 @@ import { LoadingView, ErrorView } from "@/components/StateViews";
 import HoldingsExtractor from "@/components/HoldingsExtractor";
 import RealEstateModule from "@/components/RealEstateModule";
 import AssetAllocationBar from "@/components/AssetAllocationBar";
+import FinancialIncomeTaxSection from "@/components/FinancialIncomeTaxSection";
 import PartyRelationshipModule from "@/components/PartyRelationshipModule";
 import ClientAvatar from "@/components/ClientAvatar";
 import FactorsSummary from "@/components/FactorsSummary";
 import SimpleCashflowPanel from "@/components/SimpleCashflowPanel";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 import { resolveAssetBreakdown } from "@/lib/assets";
+import type { FinancialIncomeProfile } from "@/lib/types";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
@@ -237,6 +239,24 @@ export default function ClientDetailPage() {
     await patchStages(ipsApprovalStagePatch());
   };
 
+  const saveComprehensiveTaxFlag = async (value: boolean) => {
+    if (!client) return;
+    await updateClient(client.id, { financialIncomeComprehensiveTax: value });
+    setClient({
+      ...client,
+      financialIncomeComprehensiveTax: value,
+      financialIncomeProfile: value
+        ? client.financialIncomeProfile ?? null
+        : client.financialIncomeProfile,
+    });
+  };
+
+  const saveFinancialIncomeProfile = async (profile: FinancialIncomeProfile) => {
+    if (!client) return;
+    await updateClient(client.id, { financialIncomeProfile: profile });
+    setClient({ ...client, financialIncomeProfile: profile });
+  };
+
   const applySurvey = async (ips: IPS, result: InvestmentSurveyResult) => {
     if (!client) return;
     await updateClient(client.id, { ips });
@@ -390,6 +410,12 @@ export default function ClientDetailPage() {
             </div>
           </section>
         </div>
+
+        <FinancialIncomeTaxSection
+          client={client}
+          onChangeComprehensiveTax={saveComprehensiveTaxFlag}
+          onChangeFinancialIncomeProfile={saveFinancialIncomeProfile}
+        />
 
         {/* 7요인 */}
         <section>
