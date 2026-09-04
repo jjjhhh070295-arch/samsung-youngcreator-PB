@@ -59,6 +59,11 @@ end $$;
 -- 미리 만들어 두는 의미다.
 alter table public.pbs enable row level security;
 
+-- supabase.sql 이 만들어 둔 p_pbs 를 반드시 함께 지운다. RLS 정책은 OR 로 합쳐지므로
+-- 그냥 두면 pbs_all 을 어떻게 좁혀도 p_pbs(using(true))가 계속 전부 통과시킨다.
+-- 지금은 둘 다 using(true) 라 동작 차이가 없지만, 나중에 "본인 행만"으로 좁힐 때
+-- 조용히 무력화되는 함정이 된다.
+drop policy if exists "p_pbs" on public.pbs;
 drop policy if exists "pbs_all" on public.pbs;
 create policy "pbs_all" on public.pbs for all using (true) with check (true);
 
@@ -127,6 +132,19 @@ commit;
 -- PostgREST 스키마 캐시 갱신 — 이걸 안 하면 새 함수가 잠시 PGRST202("함수 없음")로
 -- 보이고, 그동안 앱은 예전 컬럼 필터 경로로 폴백해 로그인만 계속 실패한다.
 notify pgrst, 'reload schema';
+
+-- ── 이미 이 파일을 실행한 환경이라면 (추가분만) ─────────────────────────────
+-- 아래 두 줄만 따로 실행하면 된다. 전체를 다시 돌려도 안전하지만(모두 멱등),
+-- 컬럼 권한 재부여와 함수 재생성이 함께 일어나므로 추가분만 돌리는 편이 조용하다.
+--
+-- begin;
+--   drop policy if exists "p_pbs" on public.pbs;
+--   -- pbs_all 은 이미 있다. 없으면 아래 줄도 함께.
+--   -- create policy "pbs_all" on public.pbs for all using (true) with check (true);
+-- commit;
+--
+-- 확인: 정책이 pbs_all 하나만 남아야 한다.
+-- select policyname from pg_policies where schemaname='public' and tablename='pbs';
 
 -- ── 검증 (적용 후 따로 실행) ────────────────────────────────────────────────
 -- 1) password 가 읽기 권한에서 빠졌는지
