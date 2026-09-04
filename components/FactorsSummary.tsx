@@ -4,11 +4,11 @@
 // ConsultationHub(상담 검토·승인 워크플로우)는 성격이 달라 여기 포함하지 않는다 — 나머지
 // analysis 탭들에만 남아있다.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Client, IPS, StageKey } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
-import { loadInvestmentSurvey } from "@/lib/investmentSurveyStorage";
+import { getLatestInvestmentSurvey } from "@/lib/store";
 import IPSRadar from "./IPSRadar";
 import ScoreRubricButton from "./ScoreRubricButton";
 import HeritageSignalBadge from "./HeritageSignalBadge";
@@ -44,9 +44,15 @@ export default function FactorsSummary({
     changes: SurveyFactorChange[];
   } | null>(null);
   const [applying, setApplying] = useState(false);
-  const savedSurvey = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    return loadInvestmentSurvey(pbId, client.id);
+  // DB(investment_surveys, party_id 기준)를 먼저 읽고, 실패·미실행 시
+  // localStorage로 폴백한다 — getLatestInvestmentSurvey 내부에서 처리한다.
+  const [savedSurvey, setSavedSurvey] = useState<InvestmentSurveyResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getLatestInvestmentSurvey(client.id, pbId)
+      .then((result) => { if (!cancelled) setSavedSurvey(result); })
+      .catch(() => { if (!cancelled) setSavedSurvey(null); });
+    return () => { cancelled = true; };
   }, [pbId, client.id, surveyRefreshKey]);
 
   const commitSurvey = async (nextIps: IPS, result: InvestmentSurveyResult) => {

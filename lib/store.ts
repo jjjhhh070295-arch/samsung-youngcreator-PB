@@ -28,6 +28,11 @@ import type {
 } from "./types";
 import { emptyIPS } from "./types";
 import { SAMPLE_BOOK_CLIENTS } from "./advisory/sampleBook";
+import type { InvestmentSurveyResult } from "./investmentSurvey";
+import {
+  saveInvestmentSurvey as saveLocalInvestmentSurvey,
+  loadInvestmentSurvey as loadLocalInvestmentSurvey,
+} from "./investmentSurveyStorage";
 
 export const usingLocalFallback = !isSupabaseConfigured;
 
@@ -180,6 +185,10 @@ const MISSING_COLUMN_ERROR_CODES = new Set(["42703", "PGRST204"]);
 // 알아보는 코드. PGRST202 는 PostgREST 스키마 캐시에 함수가 없을 때, 42883 은
 // Postgres 의 undefined_function 이다.
 const MISSING_FUNCTION_ERROR_CODES = new Set(["PGRST202", "42883"]);
+
+// 테이블 자체가 없는 환경(= 해당 마이그레이션 미실행)을 알아보는 코드. 42P01 은
+// Postgres 의 undefined_table, PGRST205 는 PostgREST 스키마 캐시에 테이블이 없을 때다.
+const MISSING_TABLE_ERROR_CODES = new Set(["42P01", "PGRST205"]);
 
 async function withMissingColumnFallback<T = any>(
   attempt: (row: Record<string, any>) => PromiseLike<{ data: T; error: any }>,
@@ -1471,6 +1480,92 @@ export async function listHeritageMeetingRequests(clientId: string): Promise<Her
   const remote = (data ?? []).map(rowToHeritageMeetingRequest);
   const remoteIds = new Set(remote.map((r) => r.id));
   return [...remote, ...local.filter((r) => !remoteIds.has(r.id))].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+// ───────────────────────── 투자성향 설문 원본 이력 ─────────────────────────
+// mapSurveyToIPS는 설문 응답을 7요인으로 가공해 돌려주고, 지금까지는 그 가공 결과만
+// parties.ips 로 저장됐다. 설문 원본(답변·점수·최종 성향)은 브라우저 localStorage
+// (pb-investment-survey:{pbId}:{clientId})에만 있어, localStorage 키가 (pbId, clientId)
+// 복합이라 담당 PB가 바뀌면 이전 설문이 안 보였다. investment_surveys 테이블은
+// party_id만으로 조회해 그 문제를 없앤다.
+//
+// 이 테이블이 없어도 앱은 정상 동작한다 — insert/select 실패 시(마이그레이션 미실행)
+// lib/investmentSurveyStorage.ts의 기존 localStorage 경로로 조용히 폴백한다. 다만 그
+// 상태에서는 여전히 (pbId, clientId) 키 제약이 남으므로, 실사용 전에
+// supabase-migration-investment-surveys.sql을 반드시 실행할 것.
+//
+// 이력을 누적한다 — 제출할 때마다 새 행을 insert하고 UPDATE하지 않는다. 조회는
+// party_id만으로 한다(pb_id는 "누가 진행했는지" 기록용일 뿐 조회 조건이 아니다).
+
+function rowToInvestmentSurveyResult(r: any): InvestmentSurveyResult {
+  return {
+    answers: r.answers,
+    rawScore: r.raw_score,
+    convertedScore: Number(r.converted_score),
+    tendencyBeforeCap: r.tendency_before_cap ?? "",
+    finalTendency: r.final_tendency,
+    capReason: r.cap_reason ?? null,
+    submittedAt: r.submitted_at,
+  };
+}
+
+export async function saveInvestmentSurvey(
+  partyId: string,
+  pbId: string,
+  result: InvestmentSurveyResult,
+): Promise<void> {
+  if (usingLocalFallback || localClientExists(partyId)) {
+    saveLocalInvestmentSurvey(pbId, partyId, result);
+    return;
+  }
+  const { error } = await supabase!.from("investment_surveys").insert({
+    party_id: partyId,
+    pb_id: pbId || null,
+    answers: result.answers,
+    raw_score: result.rawScore,
+    converted_score: result.convertedScore,
+    tendency_before_cap: result.tendencyBeforeCap || null,
+    final_tendency: result.finalTendency,
+    cap_reason: result.capReason,
+    submitted_at: result.submittedAt,
+  });
+  if (error) {
+    if (MISSING_TABLE_ERROR_CODES.has(error.code)) {
+      console.warn(
+        "[store] investment_surveys 테이블 없음 — supabase-migration-investment-surveys.sql 미실행으로 보고 localStorage에 저장",
+      );
+    } else {
+      console.warn("[store] investment_surveys 저장 실패 — localStorage에 저장:", error.message);
+    }
+    saveLocalInvestmentSurvey(pbId, partyId, result);
+  }
+}
+
+export async function getLatestInvestmentSurvey(
+  partyId: string,
+  pbId: string,
+): Promise<InvestmentSurveyResult | null> {
+  if (usingLocalFallback || localClientExists(partyId)) {
+    return loadLocalInvestmentSurvey(pbId, partyId);
+  }
+  const { data, error } = await supabase!
+    .from("investment_surveys")
+    .select("*")
+    .eq("party_id", partyId)
+    .order("submitted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (MISSING_TABLE_ERROR_CODES.has(error.code)) {
+      console.warn(
+        "[store] investment_surveys 테이블 없음 — supabase-migration-investment-surveys.sql 미실행으로 보고 localStorage만 조회",
+      );
+    } else {
+      console.warn("[store] investment_surveys 조회 실패 — localStorage만 조회:", error.message);
+    }
+    return loadLocalInvestmentSurvey(pbId, partyId);
+  }
+  return data ? rowToInvestmentSurveyResult(data) : loadLocalInvestmentSurvey(pbId, partyId);
 }
 
 // ───────────────────────── 가문 §4 CRUD ─────────────────────────

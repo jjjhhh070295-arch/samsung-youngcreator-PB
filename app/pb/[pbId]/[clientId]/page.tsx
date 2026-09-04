@@ -11,6 +11,7 @@ import {
   listPbs,
   updateClient,
   deleteClient,
+  saveInvestmentSurvey,
 } from "@/lib/store";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
@@ -133,10 +134,13 @@ export default function ClientDetailPage() {
     setClient({ ...client, stages });
   };
 
-  const applySurvey = async (ips: IPS, _result: InvestmentSurveyResult) => {
+  const applySurvey = async (ips: IPS, result: InvestmentSurveyResult) => {
     if (!client) return;
     await updateClient(client.id, { ips });
     setClient({ ...client, ips });
+    // 설문 원본(답변·점수·최종 성향)을 이력으로 남긴다 — 가공된 7요인(ips)과 별개로,
+    // party_id 기준으로 담당 PB가 바뀌어도 지난 설문을 조회할 수 있게 한다.
+    await saveInvestmentSurvey(client.id, pbId, result);
   };
 
   const submitEdit = async (v: ClientFormValue) => {
