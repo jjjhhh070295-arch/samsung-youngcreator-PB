@@ -3,14 +3,6 @@
     {
       "path": "/api/research/snapshot",
       "schedule": "30 6 * * 1-5"
-    },
-    {
-      "path": "/api/briefing/generate",
-      "schedule": "30 20 * * 0-4"
-    },
-    {
-      "path": "/api/briefing/send",
-      "schedule": "0 21 * * 0-4"
     }
   ]
 }
