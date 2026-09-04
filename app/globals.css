@@ -48,6 +48,42 @@ body {
 
 /* 공용 컴포넌트 클래스 */
 @layer components {
+  .login-landing {
+    background:
+      radial-gradient(circle at 52% 42%, rgba(26, 111, 255, 0.46), transparent 34%),
+      radial-gradient(circle at 92% 48%, rgba(26, 118, 255, 0.62), transparent 38%),
+      linear-gradient(135deg, #020e3d 0%, #03206f 34%, #063fbf 68%, #1265f5 100%);
+  }
+  .login-landing::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(90deg, rgba(0, 8, 45, 0.3), transparent 46%, rgba(0, 32, 125, 0.08));
+  }
+  .login-title {
+    color: transparent;
+    background: linear-gradient(90deg, #fff 8%, #dcecff 52%, #55d7ff 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    filter: drop-shadow(0 8px 22px rgba(0, 16, 80, 0.2));
+  }
+  .login-field { @apply flex h-[52px] items-center gap-3 rounded-xl border border-[#D8E2F1] bg-white px-4 text-[#31598E] transition; }
+  .login-field:focus-within { @apply border-[#1455D9] ring-4 ring-[#1455D9]/10; }
+  .login-field input { @apply min-w-0 flex-1 bg-transparent text-sm text-[#102A56] outline-none placeholder:text-[#A2AEC0]; }
+  .login-submit { @apply flex h-[54px] w-full items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-[#0348E8] to-[#125CF5] text-base font-bold text-white shadow-[0_10px_22px_rgba(3,72,232,0.24)] transition; }
+  .login-submit:hover:not(:disabled) { @apply -translate-y-px brightness-110; }
+  .login-submit:disabled { @apply cursor-not-allowed opacity-45 shadow-none; }
+  .login-building { position: absolute; z-index: 1; right: -2%; bottom: 0; width: 38%; height: 84%; opacity: .34; transform: skewY(-3deg); filter: saturate(.8); }
+  .login-building::before { content: ""; position: absolute; inset: 12% 0 0 15%; background: linear-gradient(105deg, rgba(3,19,77,.55), rgba(72,171,255,.32)), repeating-linear-gradient(90deg, transparent 0 34px, rgba(160,220,255,.26) 35px 37px), repeating-linear-gradient(0deg, transparent 0 26px, rgba(150,214,255,.2) 27px 29px); clip-path: polygon(27% 0, 100% 20%, 100% 100%, 0 100%, 0 18%); border-left: 1px solid rgba(180,225,255,.35); }
+  .login-building::after { content: ""; position: absolute; right: 55%; bottom: 0; width: 36%; height: 72%; background: linear-gradient(100deg, rgba(1,13,67,.75), rgba(50,141,245,.25)), repeating-linear-gradient(90deg, transparent 0 27px, rgba(177,224,255,.22) 28px 30px); clip-path: polygon(50% 0, 100% 12%, 100% 100%, 0 100%, 0 22%); }
+  .login-building i { position: absolute; z-index: 2; right: 7%; bottom: 0; width: 1px; height: 82%; background: linear-gradient(transparent, rgba(161,222,255,.6), transparent); }
+  .login-building i:nth-child(2) { right: 24%; height: 66%; }
+  .login-building i:nth-child(3) { right: 42%; height: 75%; }
+  .login-building i:nth-child(4) { right: 61%; height: 58%; }
+  .login-building i:nth-child(5) { right: 79%; height: 46%; }
+  .login-wave { position: absolute; z-index: 1; left: -3%; bottom: -3%; width: 64%; height: 49%; opacity: .3; fill: none; stroke: #20B9FF; stroke-width: .7; }
+
   .card {
     @apply rounded-xl border border-border bg-surface shadow-sm;
   }
@@ -112,6 +148,17 @@ body {
   .badge-success { @apply badge bg-emerald-50 text-emerald-700; }
   .badge-warning { @apply badge bg-amber-50 text-amber-700; }
   .badge-danger { @apply badge bg-red-50 text-red-700; }
+}
+
+@media (max-height: 780px) and (min-width: 768px) {
+  .login-landing main { padding-top: 4.5rem; padding-bottom: 1rem; }
+  .login-landing main > section:nth-of-type(2) { margin-top: 1rem; padding-top: 1.25rem; padding-bottom: 1.25rem; }
+  .login-landing main > section:nth-of-type(3) { margin-top: 1rem; }
+}
+
+@media (max-width: 767px) {
+  .login-building { display: none; }
+  .login-wave { width: 115%; opacity: .18; }
 }
 
 /* 스크롤바 (다크 모드 대응) */
