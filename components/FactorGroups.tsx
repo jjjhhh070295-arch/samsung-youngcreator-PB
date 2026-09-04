@@ -113,7 +113,7 @@ function FactorLine({ factorKey, ips, flags }: { factorKey: FactorKey; ips: IPS;
         </div>
       </div>
       <p className="mt-1 text-[11px] text-fg-muted">{m.desc}</p>
-      <p className={`mt-2 ${valueTone}`}>{valueText}</p>
+      <p className={`mt-2 line-clamp-2 break-words ${valueTone}`} title={valueText}>{valueText}</p>
       {(f.evidence || f.inferenceHint) && (
         <details className="mt-2">
           <summary className="cursor-pointer text-[11px] font-bold text-[#1428A0]">▸ 근거 상세 보기</summary>
@@ -175,7 +175,7 @@ function FactorLineCompact({
         </div>
       </div>
       <p className="mt-1 text-[11px] text-fg-muted">{desc}</p>
-      <p className={`mt-2 ${valueTone}`}>{valueText}</p>
+      <p className={`mt-2 line-clamp-2 break-words ${valueTone}`} title={valueText}>{valueText}</p>
       {hasEvidence && (
         <button
           type="button"
