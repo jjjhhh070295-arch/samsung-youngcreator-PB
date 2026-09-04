@@ -834,6 +834,152 @@ export async function listEmailBriefingTargets(): Promise<EmailBriefingTarget[]>
     }));
 }
 
+// ───────────────────────── 모닝 브리핑 3단계 — 발송 ─────────────────────────
+// 아래 함수들은 전부 서버(발송 라우트·수신거부 라우트)에서만 호출된다. 로컬 폴백을
+// 두지 않는 이유: 폴백이 있으면 Supabase 가 없는 환경에서 "보낸 것처럼" 성공을 돌려주게
+// 되는데, 발송은 되돌릴 수 없어서 조용한 성공이 가장 위험하다. supabase 가 없으면
+// 호출부가 아예 발송을 시작하지 않도록 명시적으로 실패시킨다.
+
+/** 발송 메일의 From 표시 이름·Reply-To·서명에 쓸 PB 정보. */
+export interface PbBriefingProfile {
+  id: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+/**
+ * 담당 PB 프로필을 id 배열 하나로 한 번에 가져온다(고객 수만큼 쿼리하지 않는다).
+ * pbs.title/phone 마이그레이션 전이면 42703 이 나므로, 그때는 name 만 채워 돌려준다 —
+ * 서명이 빈약해질 뿐 발송 자체는 막지 않는다.
+ */
+export async function listPbBriefingProfiles(
+  pbIds: string[],
+): Promise<Map<string, PbBriefingProfile>> {
+  const map = new Map<string, PbBriefingProfile>();
+  const ids = Array.from(new Set(pbIds.filter(Boolean)));
+  if (!supabase || ids.length === 0) return map;
+
+  const full = await supabase.from("pbs").select("id, name, title, email, phone").in("id", ids);
+  const res = MISSING_COLUMN_ERROR_CODES.has(full.error?.code ?? "")
+    ? await supabase.from("pbs").select("id, name").in("id", ids)
+    : full;
+
+  if (res.error) {
+    console.warn("[store] listPbBriefingProfiles 실패 — 서명 없이 진행:", res.error.message);
+    return map;
+  }
+  for (const r of (res.data ?? []) as any[]) {
+    map.set(r.id, {
+      id: r.id,
+      name: r.name ?? "",
+      title: r.title ?? null,
+      email: r.email ?? null,
+      phone: r.phone ?? null,
+    });
+  }
+  return map;
+}
+
+export class BriefingSendsTableMissingError extends Error {
+  constructor() {
+    super(
+      "briefing_sends 테이블이 아직 없습니다. supabase-migration-briefing-sends.sql 을 Supabase SQL Editor에서 먼저 실행하세요.",
+    );
+    this.name = "BriefingSendsTableMissingError";
+  }
+}
+
+/** 이 리포트로 이미 행이 잡힌 고객 id — 재실행 시 중복 발송을 건너뛰는 데 쓴다. */
+export async function listBriefingSendClientIds(reportId: string): Promise<Set<string>> {
+  if (!supabase) throw new Error("Supabase가 설정되지 않았습니다.");
+  const { data, error } = await supabase
+    .from("briefing_sends")
+    .select("client_id")
+    .eq("report_id", reportId);
+  if (error) {
+    if (MISSING_TABLE_ERROR_CODES.has(error.code)) throw new BriefingSendsTableMissingError();
+    throw error;
+  }
+  return new Set((data ?? []).map((r: any) => r.client_id as string));
+}
+
+/**
+ * 발송 "전에" queued 행을 선점한다. unique(report_id, client_id) 덕분에 두 번째 시도는
+ * 23505 로 튕기고 false 가 돌아온다 — 이게 중복 발송을 막는 실제 장치다(위 목록 조회는
+ * 헛수고를 줄이는 용도일 뿐, 동시 실행까지 막지는 못한다).
+ * 성공하면 갱신에 쓸 행 id 를 돌려준다.
+ */
+export async function claimBriefingSend(input: {
+  reportId: string;
+  clientId: string;
+  pbId: string | null;
+  email: string;
+}): Promise<{ claimed: boolean; id?: string }> {
+  if (!supabase) throw new Error("Supabase가 설정되지 않았습니다.");
+  const { data, error } = await supabase
+    .from("briefing_sends")
+    .insert({
+      report_id: input.reportId,
+      client_id: input.clientId,
+      pb_id: input.pbId,
+      email: input.email,
+      status: "queued",
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    if (MISSING_TABLE_ERROR_CODES.has(error.code)) throw new BriefingSendsTableMissingError();
+    if (error.code === "23505") return { claimed: false }; // 이미 나갔거나 다른 실행이 선점
+    throw error;
+  }
+  return { claimed: true, id: data?.id };
+}
+
+/** 선점한 행을 발송 결과로 마감한다. 여기서 실패해도 메일은 이미 나간 뒤라 throw 하지 않는다. */
+export async function finishBriefingSend(
+  id: string,
+  result: { ok: boolean; messageId?: string; error?: string },
+): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("briefing_sends")
+    .update({
+      status: result.ok ? "sent" : "failed",
+      provider_message_id: result.messageId ?? null,
+      error: result.error ? result.error.slice(0, 500) : null,
+      sent_at: result.ok ? new Date().toISOString() : null,
+    })
+    .eq("id", id);
+  if (error) console.warn("[store] finishBriefingSend 실패(메일은 이미 발송됨):", error.message);
+}
+
+/**
+ * 수신거부 기록. 이미 거부한 고객을 다시 눌러도 최초 시각을 덮어쓰지 않는다 —
+ * "언제 거부했는지"가 감사 기록이라 나중 값으로 밀리면 안 된다.
+ * 반환값은 이번 호출로 실제 상태가 바뀌었는지(false 면 이미 거부 상태).
+ */
+export async function optOutFromBriefing(clientId: string): Promise<{ ok: boolean; alreadyOptedOut: boolean }> {
+  if (!supabase) throw new Error("Supabase가 설정되지 않았습니다.");
+  const { data: rows, error } = await supabase
+    .from("parties")
+    .update({ email_opt_out_at: new Date().toISOString(), email_opt_in: false })
+    .eq("id", clientId)
+    .is("email_opt_out_at", null)
+    .select("id");
+  if (error) {
+    if (MISSING_COLUMN_ERROR_CODES.has(error.code)) {
+      throw new Error(
+        "email_opt_out_at 컬럼이 없습니다. supabase-migration-morning-briefing.sql 을 먼저 실행하세요.",
+      );
+    }
+    throw error;
+  }
+  return { ok: true, alreadyOptedOut: (rows ?? []).length === 0 };
+}
+
 export async function getClient(id: string): Promise<Client | null> {
   if (usingLocalFallback) {
     return loadLocal().clients.find((c) => c.id === id) ?? null;

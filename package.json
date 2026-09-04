@@ -20,6 +20,7 @@
     "react-dom": "^18.3.1",
     "read-excel-file": "^9.0.10",
     "recharts": "^2.12.7",
+    "resend": "^6.26.0",
     "unpdf": "^1.6.2"
   },
   "devDependencies": {

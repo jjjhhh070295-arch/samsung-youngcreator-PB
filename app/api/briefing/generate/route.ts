@@ -54,11 +54,7 @@ function extractJson(text: string): any | null {
   }
 }
 
-export async function POST(req: Request) {
-  if (!isAuthorizedCronRequest(req)) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-
+async function runGenerate(overwrite: boolean) {
   if (!supabase) {
     return NextResponse.json(
       { ok: false, code: "NO_DB", error: "Supabase가 설정되지 않았습니다(.env.local 확인)." },
@@ -74,7 +70,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const { overwrite } = await req.json().catch(() => ({ overwrite: false }));
   const reportDate = kstDateString();
 
   const { data: existing, error: existErr } = await supabase
@@ -193,4 +188,23 @@ export async function POST(req: Request) {
       { status: 200 },
     );
   }
+}
+
+// Vercel Cron 은 GET 으로 호출한다 — POST 만 있으면 크론이 405 를 받고 조용히 실패한다.
+// 크론은 덮어쓰지 않는다(overwrite=false): 이미 오늘 리포트가 있으면 ALREADY_EXISTS 로
+// 끝나므로, 재시도가 겹쳐도 LLM 을 두 번 호출해 비용이 두 배로 나가지 않는다.
+export async function GET(req: Request) {
+  if (!isAuthorizedCronRequest(req)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+  return runGenerate(false);
+}
+
+// 수동 트리거 — 화면의 "오늘 리포트 생성" 버튼과 "덮어쓰고 다시 생성"이 여기로 온다.
+export async function POST(req: Request) {
+  if (!isAuthorizedCronRequest(req)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+  const { overwrite } = await req.json().catch(() => ({ overwrite: false }));
+  return runGenerate(!!overwrite);
 }
