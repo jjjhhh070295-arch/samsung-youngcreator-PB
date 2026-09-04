@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { isAuthorizedCronRequest } from "@/lib/cronAuth";
 import { isKnownPbRequest } from "@/lib/pbRequestAuth";
 import { buildBriefingSystemPrompt } from "@/lib/briefing/prompt";
+import { htmlToText } from "@/lib/briefing/htmlToText";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // Vercel Hobby 최대치 — 웹 검색 8~10회 포함 생성 소요시간 확보
@@ -117,19 +118,35 @@ async function runGenerate(overwrite: boolean) {
       max_tokens: 32000,
       system: systemPrompt,
       messages: [{ role: "user", content: "오늘자 데일리 마켓 인사이트 리포트를 작성하라." }],
-      // 검색 1회는 왕복 시간 + 결과 본문이 다음 턴 입력에 그대로 실린다. 10회로는
-      // 실측 433초가 나와 maxDuration(300)을 넘겼다 — Vercel 에서는 매일 잘려 실패한다.
-      // 6회로 낮춰 300초 안에 들어오게 한다. 프롬프트의 "5~6회"와 짝이므로 한쪽만
-      // 바꾸면 모델이 계획한 검색이 중간에 끊긴다.
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6 }],
+      // 이 호출은 출력 토큰 생성 속도에 묶여 있다 — 실측 두 회차 모두 약 90 tok/s 로,
+      // 소요시간이 출력 토큰 수에 거의 정비례한다(433.1s/38,447tok, 417.3s/37,721tok).
+      // sonnet-5 는 thinking 파라미터를 생략하면 adaptive thinking 이 켜지고
+      // output_config.effort 는 지정이 없으면 high 다. 즉 지금까지는 최대 사고 예산으로
+      // 돌고 있었고, 출력의 상당 부분이 리포트가 아니라 사고 토큰이었다.
+      // effort 를 낮추는 것이 리포트 사양을 하나도 건드리지 않고 시간을 줄이는 유일한 축이다.
+      output_config: { effort: "medium" },
+      // 검색 횟수는 시간을 지배하지 않는다 — 10→6 으로 줄였을 때 433.1s→417.3s 로
+      // 15.8초(3.6%)밖에 줄지 않았고, 대신 "데이터 확인 안 됨"이 8→18개로 늘었다.
+      // 검색 1회의 실측 비용은 약 4초뿐이라 여기서 깎을 수 있는 시간이 없다.
+      // 프롬프트의 "8~10회"와 짝이므로 한쪽만 바꾸면 모델이 계획한 검색이 중간에 끊긴다.
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
     }).finalMessage();
 
     const durationSec = (Date.now() - startedAt) / 1000;
 
-    const textBlocks = msg.content.filter(
+    // 최종 JSON 은 text 블록 하나로 오지 않는다. web_search 결과에는 인용(citation)이
+    // 붙고, 인용이 걸린 구간마다 text 블록이 쪼개진다 — 2026-09-04 실측에서 리포트 하나가
+    // 42개 블록으로 나뉘어 왔다. 예전처럼 마지막 블록만 집으면 표 중간부터 시작하는
+    // 조각을 파싱하게 되어 stop_reason=end_turn(정상 종료)인데도 PARSE_FAILED 로 끝난다.
+    //
+    // 검색 중간의 모델 코멘트까지 같이 붙이면 그 안의 중괄호가 JSON 시작으로 오인될 수
+    // 있으므로, 마지막 도구 블록(tool_use·server_tool_use·web_search_tool_result) 이후의
+    // text 블록만 이어 붙인다. 도구를 한 번도 안 썼으면 전체를 잇는다.
+    const lastToolIdx = msg.content.reduce((acc, b, i) => (b.type !== "text" ? i : acc), -1);
+    const textBlocks = msg.content.slice(lastToolIdx + 1).filter(
       (b): b is Anthropic.TextBlock => b.type === "text",
     );
-    const lastText = textBlocks.length > 0 ? textBlocks[textBlocks.length - 1].text : "";
+    const lastText = textBlocks.map((b) => b.text).join("");
     const parsed = extractJson(lastText);
 
     if (!parsed) {
@@ -142,6 +159,7 @@ async function runGenerate(overwrite: boolean) {
         usage: {
           inputTokens: (msg.usage as any)?.input_tokens ?? 0,
           outputTokens: (msg.usage as any)?.output_tokens ?? 0,
+          thinkingTokens: (msg.usage as any)?.output_tokens_details?.thinking_tokens ?? null,
           webSearches: (msg.usage as any)?.server_tool_use?.web_search_requests ?? 0,
         },
         head: lastText.slice(0, 300),
@@ -166,18 +184,26 @@ async function runGenerate(overwrite: boolean) {
       );
     }
 
-    const { headline, html_body, text_body, sources } = parsed;
-    if (!headline || !html_body || !text_body) {
+    const { headline, html_body, sources } = parsed;
+    if (!headline || !html_body) {
       return NextResponse.json(
         { ok: false, code: "PARSE_FAILED", error: "리포트 생성 결과에 필수 필드가 없습니다. 다시 시도하세요." },
         { status: 200 },
       );
     }
 
+    // text_body 는 모델에게 시키지 않고 여기서 만든다 — 같은 내용을 두 번 쓰게 하면
+    // 출력 토큰이 3,000 가까이 늘고, 이 호출은 출력 속도에 묶여 있어 그게 곧 시간이다.
+    const textBody = htmlToText(String(html_body));
+
     const usage: any = msg.usage;
     const inputTokens = usage.input_tokens ?? 0;
     const outputTokens = usage.output_tokens ?? 0;
     const webSearchCount = usage.server_tool_use?.web_search_requests ?? 0;
+    // 출력 토큰 중 사고(thinking)에 쓰인 몫. effort 를 조정할 때 무엇이 줄었는지
+    // 이 값 없이는 알 수 없어서 남긴다 — daily_reports 에 컬럼을 늘리지 않으려고
+    // 저장하지 않고 로그와 응답에만 싣는다.
+    const thinkingTokens = usage.output_tokens_details?.thinking_tokens ?? null;
     const costUsd =
       (inputTokens / 1_000_000) * PRICE_INPUT_PER_MTOK +
       (outputTokens / 1_000_000) * PRICE_OUTPUT_PER_MTOK +
@@ -187,7 +213,7 @@ async function runGenerate(overwrite: boolean) {
       report_date: reportDate,
       headline: String(headline),
       html_body: String(html_body),
-      text_body: String(text_body),
+      text_body: textBody,
       sources: Array.isArray(sources) ? sources : [],
       model: MODEL,
       input_tokens: inputTokens,
@@ -212,7 +238,16 @@ async function runGenerate(overwrite: boolean) {
       throw upsertError;
     }
 
-    return NextResponse.json({ ok: true, report: saved });
+    console.log("[/api/briefing/generate] done", {
+      durationSec: row.duration_sec,
+      inputTokens,
+      outputTokens,
+      thinkingTokens,
+      webSearchCount,
+      costUsd: row.cost_usd,
+    });
+
+    return NextResponse.json({ ok: true, report: saved, thinkingTokens });
   } catch (e: any) {
     console.error("[/api/briefing/generate]", e);
     return NextResponse.json(
