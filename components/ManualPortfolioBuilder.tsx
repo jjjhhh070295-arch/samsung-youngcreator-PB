@@ -2,6 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import PortfolioAnalyticsCards from "./PortfolioAnalyticsCards";
+import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
+import type { PbSelectedKoreanStock } from "@/lib/advisory/krTrendPortfolio";
+import { BOND_INSTRUMENT_CATALOG, type BondCatalogEntry } from "@/lib/advisory/bondInstrumentCatalog";
+import {
+  mergeTrendConfirmedIntoSelected,
+  sameInstrument,
+} from "@/lib/advisory/mergeTrendInstruments";
 
 type AssetClass =
   | "domesticEquity"
@@ -81,6 +89,20 @@ function formatPrice(value: number | null, currency: string) {
   return `${currency === "KRW" ? "₩" : "$"}${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}`;
 }
 
+function bondEntryToInstrument(entry: BondCatalogEntry): Instrument {
+  return {
+    symbol: entry.symbol,
+    name: entry.name,
+    exchange: entry.exchange,
+    currency: entry.currency,
+    kind: entry.kind,
+    price: null,
+    changePct: null,
+    asOf: null,
+    source: entry.source,
+  };
+}
+
 export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { clientId: string; totalAssetWon: number }) {
   const [allocation, setAllocation] = useState<Allocation>(EMPTY_ALLOCATION);
   const [selected, setSelected] = useState<SelectedInstrument[]>([]);
@@ -96,6 +118,27 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
   const [searchError, setSearchError] = useState("");
   const [results, setResults] = useState<Instrument[]>([]);
   const [resultType, setResultType] = useState<"stock" | "etf" | "etn" | "other">("stock");
+
+  /** Move a small slice from cash into a target class if that class is currently 0%. */
+  const ensureClassActive = useCallback((assetClass: AssetClass, minPct = 5) => {
+    setAllocation((current) => {
+      if (current[assetClass] > 0) return current;
+      const take = Math.min(minPct, Math.max(0, current.cash));
+      if (take <= 0) return current;
+      return {
+        ...current,
+        [assetClass]: Math.round(take * 100) / 100,
+        cash: Math.round((current.cash - take) * 100) / 100,
+      };
+    });
+  }, []);
+
+  const handleTrendSelection = useCallback((stocks: PbSelectedKoreanStock[], _equityPending: boolean) => {
+    if (stocks.length === 0) return;
+    setSelected((current) => mergeTrendConfirmedIntoSelected(current, stocks));
+    ensureClassActive("domesticEquity");
+    setActiveClass("domesticEquity");
+  }, [ensureClassActive]);
 
   useEffect(() => {
     try {
@@ -248,13 +291,33 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
     }
   };
 
-  const addInstrument = (instrument: Instrument) => {
+  const addInstrument = (instrument: Instrument, assetClass: AssetClass = activeClass) => {
     setSelected((current) => {
-      if (current.some((item) => item.assetClass === activeClass && item.symbol === instrument.symbol)) return current;
-      const sameClassCount = current.filter((item) => item.assetClass === activeClass).length;
-      return [...current, { ...instrument, assetClass: activeClass, weightWithinClass: sameClassCount === 0 ? 100 : 0 }];
+      if (current.some((item) => item.assetClass === assetClass && sameInstrument(item.symbol, instrument.symbol))) {
+        return current;
+      }
+      const sameClassCount = current.filter((item) => item.assetClass === assetClass).length;
+      return [...current, { ...instrument, assetClass, weightWithinClass: sameClassCount === 0 ? 100 : 0 }];
     });
   };
+
+  const addBondOption = (entry: BondCatalogEntry) => {
+    ensureClassActive(entry.assetClass);
+    addInstrument(bondEntryToInstrument(entry), entry.assetClass);
+    setActiveClass(entry.assetClass);
+  };
+
+  const classValidationWarnings = useMemo(() => {
+    return ASSET_CLASSES.filter((item) => item.searchable && allocation[item.id] > 0)
+      .map((item) => {
+        const items = selected.filter((row) => row.assetClass === item.id);
+        const sum = items.reduce((acc, row) => acc + row.weightWithinClass, 0);
+        if (items.length === 0) return `${item.label} 편입 종목이 없습니다.`;
+        if (Math.abs(sum - 100) >= 0.001) return `${item.label} 내 비중 합계가 100%가 아닙니다. (현재 ${sum.toFixed(1)}%)`;
+        return null;
+      })
+      .filter((msg): msg is string => Boolean(msg));
+  }, [allocation, selected]);
 
   const selectedForClass = selected.filter((item) => item.assetClass === activeClass);
   const withinClassTotal = selectedForClass.reduce((sum, item) => sum + item.weightWithinClass, 0);
@@ -390,21 +453,30 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
           <div>
             <p className="decision-kicker">Instrument selection</p>
             <h3 className="mt-1 text-base font-black text-fg">자산군별 종목 검색·선택</h3>
-            <p className="mt-1 text-[11px] text-fg-muted">국내는 Naver Finance, 해외는 Yahoo Finance에서 현재가와 종목 정보를 조회합니다.</p>
+            <p className="mt-1 text-[11px] text-fg-muted">
+              직접 검색으로 편입 종목을 고르고 자산군 내 비중을 입력합니다. 추세 필터·대표 채권은 아래 별도 섹션에서 추가할 수 있습니다.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {ASSET_CLASSES.filter((item) => item.searchable && allocation[item.id] > 0).map((item) => (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => { setActiveClass(item.id); setResults([]); setSearchError(""); setResultType("stock"); }}
+                onClick={() => {
+                  setActiveClass(item.id);
+                  setResults([]);
+                  setSearchError("");
+                  setResultType("stock");
+                }}
                 className={`rounded-full border px-3 py-1.5 text-xs font-bold ${activeClass === item.id ? "border-[#1428A0] bg-[#1428A0] text-white" : "border-border bg-white text-fg-muted"}`}
               >
                 {item.label} {allocation[item.id]}%
               </button>
             ))}
           </div>
-          <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-relaxed text-blue-700">국내 상장 ETF도 실제 노출 자산군에서 검색합니다. 예: KODEX 200은 국내주식, KODEX 미국S&amp;P500은 해외주식, 국채 ETF는 채권, 골드·원유 ETF는 상품·대체.</p>
+          <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-relaxed text-blue-700">
+            국내 상장 ETF도 실제 노출 자산군에서 검색합니다. 예: KODEX 200은 국내주식, KODEX 미국S&amp;P500은 해외주식, 국채 ETF는 채권, 골드·원유 ETF는 상품·대체.
+          </p>
 
           {allocation[activeClass] > 0 && activeClass !== "cash" && (
             <>
@@ -454,12 +526,22 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                   <span className={`text-xs font-black ${withinClassTotal === 100 || selectedForClass.length === 0 ? "text-emerald-700" : "text-amber-700"}`}>{withinClassTotal}% / 100%</span>
                 </div>
                 {selectedForClass.length === 0 ? (
-                  <p className="mt-2 text-xs text-fg-muted">검색 결과에서 편입할 종목을 선택하세요.</p>
+                  <p className="mt-2 text-xs text-fg-muted">
+                    직접 검색, 아래 추세 필터 확정, 또는 대표 채권 선택으로 편입 종목을 추가하세요.
+                  </p>
                 ) : (
                   <div className="mt-2 space-y-2">
                     {selectedForClass.map((item) => (
                       <div key={`${item.assetClass}-${item.symbol}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-white px-3 py-2">
-                        <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-fg">{item.name}</p><p className="text-[10px] text-fg-muted">{item.symbol}</p></div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-bold text-fg">{item.name}</p>
+                          <p className="text-[10px] text-fg-muted">
+                            {item.symbol}
+                            {item.price != null ? ` · ${formatPrice(item.price, item.currency)}` : ""}
+                            {item.source ? ` · ${item.source}` : ""}
+                            {item.asOf ? ` · as-of ${item.asOf.slice(0, 10)}` : ""}
+                          </p>
+                        </div>
                         <input
                           type="number"
                           min="0"
@@ -472,11 +554,73 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                         <button type="button" onClick={() => setSelected((current) => current.filter((candidate) => !(candidate.assetClass === item.assetClass && candidate.symbol === item.symbol)))} className="text-xs font-bold text-rose-500">삭제</button>
                       </div>
                     ))}
+                    {Math.abs(withinClassTotal - 100) >= 0.001 && (
+                      <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
+                        {ASSET_CLASSES.find((a) => a.id === activeClass)?.label} 내 비중 합계가 100%가 아닙니다. (현재 {withinClassTotal.toFixed(1)}%)
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
+
+              {classValidationWarnings.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                  {classValidationWarnings.map((msg) => (
+                    <p key={msg} className="font-semibold">{msg}</p>
+                  ))}
+                </div>
+              )}
             </>
           )}
+        </div>
+      )}
+
+      {isComplete && (
+        <div className="space-y-3 border-t border-border pt-4">
+          <KoreanStockTrendFilter
+            clientId={clientId}
+            equityWeightPct={allocation.domesticEquity}
+            onSelectionChange={handleTrendSelection}
+          />
+        </div>
+      )}
+
+      {isComplete && (
+        <div className="space-y-3 border-t border-border pt-4">
+          <div className="rounded-2xl border border-border bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Bond selection</p>
+            <h3 className="mt-1 text-base font-bold text-fg">대표 채권 선택</h3>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+              주요 채권형 상품을 선택하면 선택 종목과 포트폴리오에 반영됩니다.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {BOND_INSTRUMENT_CATALOG.map((entry) => {
+                const already = selected.some(
+                  (item) => item.assetClass === entry.assetClass && sameInstrument(item.symbol, entry.symbol),
+                );
+                const classLabel = entry.assetClass === "globalBond" ? "해외채권" : "국내채권";
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    disabled={already}
+                    onClick={() => addBondOption(entry)}
+                    className={`rounded-xl border p-3 text-left transition ${already ? "border-emerald-200 bg-emerald-50 opacity-80" : "border-border bg-surface-2 hover:border-[#1428A0] hover:bg-white"}`}
+                  >
+                    <span className="block text-xs font-black text-[#1428A0]">{entry.label}</span>
+                    <span className="mt-0.5 block text-sm font-bold text-fg">{entry.name}</span>
+                    <span className="mt-1 block text-[10px] text-fg-muted">
+                      {classLabel} · {entry.kind}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-fg-muted">{entry.note}</span>
+                    <span className={`mt-2 inline-block text-[10px] font-bold ${already ? "text-emerald-700" : "text-fg-muted"}`}>
+                      {already ? "선택됨" : "선택 종목에 추가"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
@@ -520,12 +664,12 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                     {asset.id === "cash" ? (
                       <div className="mt-3 flex items-center justify-between rounded-lg bg-white px-3 py-2"><div><p className="text-xs font-bold text-fg">현금성 자산</p><p className="text-[10px] text-fg-muted">예수금·MMF/RP 편입 전 대기자금</p></div><span className="text-xs font-black text-fg">{formatWon(investableWon * allocation.cash / 100)}</span></div>
                     ) : items.length === 0 ? (
-                      <div className="mt-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-4 text-center"><p className="text-xs font-bold text-amber-800">편입 종목 미선택</p><p className="mt-1 text-[10px] text-amber-700">위 검색 영역에서 {asset.label} 종목 또는 ETF를 선택하세요.</p></div>
+                      <div className="mt-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-4 text-center"><p className="text-xs font-bold text-amber-800">편입 종목 미선택</p><p className="mt-1 text-[10px] text-amber-700">검색·추세 필터·대표 채권에서 {asset.label} 종목을 선택하세요.</p></div>
                     ) : (
                       <div className="mt-3 space-y-2">
                         {items.map((item) => (
                           <div key={`${item.assetClass}-${item.symbol}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-white px-3 py-2">
-                            <div className="min-w-0"><p className="truncate text-xs font-bold text-fg">{item.name}</p><p className="text-[10px] text-fg-muted">{item.symbol} · 자산군 내 {item.weightWithinClass}%</p></div>
+                            <div className="min-w-0"><p className="truncate text-xs font-bold text-fg">{item.name}({item.symbol})</p><p className="text-[10px] text-fg-muted">자산군 내 {item.weightWithinClass}%{item.source ? ` · ${item.source}` : ""}</p></div>
                             <div className="text-right"><p className="text-xs font-black text-[#1428A0]">전체 {item.totalWeight.toFixed(2)}%</p><p className="text-[10px] text-fg-muted">{formatWon(item.amountWon)}</p></div>
                           </div>
                         ))}
@@ -541,6 +685,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
           </div>
         </section>
       )}
+      <PortfolioAnalyticsCards key={clientId} allocation={allocation} selected={selected} complete={hydrated && isComplete && instrumentAllocationComplete} />
     </section>
   );
 }

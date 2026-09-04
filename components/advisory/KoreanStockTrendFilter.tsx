@@ -63,11 +63,14 @@ export default function KoreanStockTrendFilter({
   clientId,
   equityWeightPct,
   onSelectionChange,
+  embedded = false,
 }: {
   clientId: string;
   equityWeightPct: number;
   /** 확정된 종목만 전달. 미확정이면 selected=[] equityPending=true */
   onSelectionChange: (selected: PbSelectedKoreanStock[], equityPending: boolean) => void;
+  /** 자산군별 종목 검색·선택 안에 넣을 때 true */
+  embedded?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -109,10 +112,18 @@ export default function KoreanStockTrendFilter({
     setHydrated(true);
   }, [clientId]);
 
-  const checkedList = useMemo(() => {
+  const checkedList = useMemo((): PbSelectedKoreanStock[] => {
     return candidates
       .filter((c) => checked[c.ticker] && c.isFinalCandidate)
-      .map((c) => ({ ticker: c.ticker, name: c.name }));
+      .map((c) => ({
+        ticker: c.ticker,
+        name: c.name,
+        price: c.price,
+        asOf: c.asOf,
+        source: c.source || "pb-kr-trend-filter",
+        currency: c.currency,
+        exchange: c.market === "KOSDAQ" ? "KOSDAQ" : "KOSPI",
+      }));
   }, [candidates, checked]);
 
   // 확정분만 상위로 전달 (체크만으로는 포트폴리오 미반영)
@@ -186,23 +197,31 @@ export default function KoreanStockTrendFilter({
 
   const confirmedTickers = useMemo(() => new Set(confirmed.map((s) => s.ticker)), [confirmed]);
 
+  const shellClass = embedded
+    ? "rounded-xl border border-border bg-white p-3 shadow-sm"
+    : "rounded-2xl border-2 border-[#C5A572]/60 bg-surface p-4 shadow-sm";
+  const kickerClass = embedded
+    ? "text-xs font-semibold uppercase tracking-wide text-[#1428A0]"
+    : "text-xs font-semibold uppercase tracking-wide text-[#8B6914]";
+  const runBtnClass = embedded
+    ? "rounded-lg bg-[#1428A0] px-4 py-2 text-sm font-bold text-white hover:bg-[#0f1f7a] disabled:opacity-50"
+    : "rounded-lg bg-[#C5A572] px-4 py-2 text-sm font-bold text-[#1a1408] hover:bg-[#b8955f] disabled:opacity-50";
+
   return (
-    <section className="rounded-2xl border-2 border-[#C5A572]/60 bg-surface p-4 shadow-sm">
+    <section className={shellClass}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8B6914]">국내 주식 추세 필터</p>
-          <h3 className="text-base font-bold text-fg">국장 추세 후보 (체크 → 후보 확정 → 주식형 반영)</h3>
+          <p className={kickerClass}>국내 주식 추세 필터</p>
+          <h3 className="text-base font-bold text-fg">
+            국장 추세 후보 (체크 → 후보 확정 → 선택 종목 반영)
+          </h3>
           <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-fg-muted">
             시가총액 1조 원 이상 국내 주식만 universe에 포함 → 당일 상승률 상위 70개 → 20일선·양봉·적삼봉 → 테마 출처 검증.
-            체크만으로는 반영되지 않으며, 「후보 확정」한 종목만 주식형 {equityWeightPct.toFixed(0)}%에 배분됩니다.
+            체크만으로는 반영되지 않으며, 「후보 확정」한 종목만 국내주식{" "}
+            {equityWeightPct.toFixed(1)}% 자산군의 선택 종목에 추가됩니다.
           </p>
         </div>
-        <button
-          type="button"
-          className="rounded-lg bg-[#C5A572] px-4 py-2 text-sm font-bold text-[#1a1408] hover:bg-[#b8955f] disabled:opacity-50"
-          onClick={() => void load()}
-          disabled={loading}
-        >
+        <button type="button" className={runBtnClass} onClick={() => void load()} disabled={loading}>
           {loading ? "필터링 중…" : "상위 70 추출 · 필터 실행"}
         </button>
       </div>

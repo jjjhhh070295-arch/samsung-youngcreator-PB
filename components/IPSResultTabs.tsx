@@ -11,7 +11,6 @@ import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
 import TaxProjectionPanel from "./TaxProjectionPanel";
 import ManualPortfolioBuilder from "./ManualPortfolioBuilder";
-import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
 import ScoreRubricButton from "./ScoreRubricButton";
 import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
@@ -419,11 +418,6 @@ export default function IPSResultTabs({
       {tab === "portfolio2" && (
         <div className="space-y-4">
           <ManualPortfolioBuilder clientId={clientId} totalAssetWon={client.assetSize} />
-          <KoreanStockTrendFilter
-            clientId={clientId}
-            equityWeightPct={portfolioWeights[0].etf}
-            onSelectionChange={() => {}}
-          />
         </div>
       )}
 
