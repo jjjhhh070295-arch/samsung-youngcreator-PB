@@ -104,13 +104,20 @@ async function runGenerate(overwrite: boolean) {
     const client = new Anthropic({ apiKey });
     const systemPrompt = buildBriefingSystemPrompt(kstDateLabel());
 
-    const msg = await client.messages.create({
+    // stream() 으로 받는 이유: max_tokens 가 크면 SDK 가 non-streaming 요청을 아예 거부한다
+    // ("Streaming is required for operations that may take longer than 10 minutes").
+    // finalMessage() 는 스트림을 다 모아 create() 와 같은 Message 를 돌려주므로
+    // 아래 파싱·usage 계산 코드는 그대로 쓴다.
+    const msg = await client.messages.stream({
       model: MODEL,
-      max_tokens: 8000,
+      // 리포트 본문(HTML 전문 + 플레인텍스트 사본)이 한 응답에 다 들어가고, claude-sonnet-5 는
+      // 사고(thinking) 토큰도 같은 예산에서 쓴다. 8000 으로는 JSON 이 중간에 잘려
+      // stop_reason=max_tokens 로 끝나고 파싱이 항상 실패한다(2026-09-04 실측).
+      max_tokens: 32000,
       system: systemPrompt,
       messages: [{ role: "user", content: "오늘자 데일리 마켓 인사이트 리포트를 작성하라." }],
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
-    });
+    }).finalMessage();
 
     const durationSec = (Date.now() - startedAt) / 1000;
 
@@ -121,8 +128,28 @@ async function runGenerate(overwrite: boolean) {
     const parsed = extractJson(lastText);
 
     if (!parsed) {
+      // 왜 실패했는지 남기지 않으면 재시도밖에 할 수 있는 게 없고, 재시도는 매번 유료다.
+      // 잘림(max_tokens)인지 형식 위반인지 구분할 수 있게 stop_reason·사용량·본문 양끝을 돌려준다.
+      const diagnostics = {
+        stopReason: (msg as any).stop_reason ?? null,
+        textBlocks: textBlocks.length,
+        textLength: lastText.length,
+        usage: {
+          inputTokens: (msg.usage as any)?.input_tokens ?? 0,
+          outputTokens: (msg.usage as any)?.output_tokens ?? 0,
+          webSearches: (msg.usage as any)?.server_tool_use?.web_search_requests ?? 0,
+        },
+        head: lastText.slice(0, 300),
+        tail: lastText.slice(-300),
+      };
+      console.error("[/api/briefing/generate] PARSE_FAILED", diagnostics);
       return NextResponse.json(
-        { ok: false, code: "PARSE_FAILED", error: "리포트 생성 결과를 파싱하지 못했습니다. 다시 시도하세요." },
+        {
+          ok: false,
+          code: "PARSE_FAILED",
+          error: "리포트 생성 결과를 파싱하지 못했습니다. 다시 시도하세요.",
+          diagnostics,
+        },
         { status: 200 },
       );
     }
