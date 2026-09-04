@@ -81,7 +81,7 @@ async function fetchHolding(h: Holding, years: Period): Promise<MarketData> {
   const fundamentals = await fundamentalsPromise;
   return { ...history, fundamentals,
     source: [...history.source, ...(Object.values(fundamentals).some(finite) ? ["Yahoo Finance:quoteSummary"] : [])],
-    warnings: [...history.warnings ?? [], ...(!Object.values(fundamentals).some(finite) ? [{ type: "FUNDAMENTALS_UNAVAILABLE", message: "안정적인 펀더멘털·펀드 수익률 데이터가 없어 과거 CAGR 또는 자산군 가정으로 대체합니다." }] : [])].map(w => ({ ...w, ticker: h.ticker })) };
+    warnings: [...history.warnings ?? [], ...(!Object.values(fundamentals).some(finite) ? [{ type: "FUNDAMENTALS_UNAVAILABLE", message: "안정적인 펀더멘털·펀드 수익률 데이터가 없어 충분한 과거 이력이 있는 경우에만 CAGR 대용치를 사용합니다. 이력도 부족하면 기대수익률을 제공하지 않습니다." }] : [])].map(w => ({ ...w, ticker: h.ticker })) };
 }
 export interface MarketDataProvider {
   holding(holding: Holding, years: Period): Promise<MarketData>;

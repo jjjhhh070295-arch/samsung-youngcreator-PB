@@ -1,11 +1,9 @@
 import { cagr, daysBetween, finite } from "./calculations";
 import type { ExpectedReturn, Holding, MarketData } from "./types";
 
-// Explicit V1 assumptions, not live forecasts. Cash means uninvested deposits.
-const CLASS_ASSUMPTIONS = { equity: 0.06, dividend: 0.06, bond: 0.0325, commodity: 0.03, cash: 0 };
 export function expectedReturn(holding: Holding, data: MarketData, date: string): ExpectedReturn {
   const f = data.fundamentals ?? {};
-  const make = (value: number, method: string, assumptions: string[], confidence: "low" | "medium" = "low", source = data.source): ExpectedReturn =>
+  const make = (value: number | null, method: string, assumptions: string[], confidence: "low" | "medium" = "low", source = data.source): ExpectedReturn =>
     ({ value, method, assumptions, confidence, source, calculationDate: date });
   if (holding.assetType === "cash") return make(0, "cash_assumption", ["대기자금 이자율 0% 가정"], "low", ["V1:cash-assumption"]);
   if (holding.assetType === "stock") {
@@ -44,5 +42,5 @@ export function expectedReturn(holding: Holding, data: MarketData, date: string)
   if (historical != null && data.prices.length >= 120 && daysBetween(data.prices[0].date, data.prices.at(-1)!.date) >= 365) {
     return make(historical, "historical_cagr_fallback", ["펀더멘털/수익률 데이터 부족: 과거 CAGR을 추정 대용치로 사용", "미래 성과를 보장하지 않음; ETF 보수는 가격에 반영되어 추가 차감하지 않음"]);
   }
-  return make(CLASS_ASSUMPTIONS[holding.subType], "asset_class_fallback", ["관측 데이터 부족: V1 자산군 가정값, 시장 전망 아님"], "low", ["V1:asset-class-assumptions"]);
+  return make(null, "insufficient_evidence", ["펀더멘털·펀드 수익률 근거가 부족하고, 과거 CAGR 대용치에 필요한 최소 1년·120개 유효 가격 관측치도 확보하지 못했습니다. 임시 수익률을 적용하지 않습니다."]);
 }

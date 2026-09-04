@@ -720,7 +720,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
           </div>
         </section>
       )}
-      <PortfolioAnalyticsCards allocation={allocation} selected={selected} complete={hydrated && isComplete && instrumentAllocationComplete} />
+      <PortfolioAnalyticsCards key={clientId} allocation={allocation} selected={selected} complete={hydrated && isComplete && instrumentAllocationComplete} />
     </section>
   );
 }

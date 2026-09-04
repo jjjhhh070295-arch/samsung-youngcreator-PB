@@ -6,6 +6,7 @@ import { expectedReturn } from "./expectedReturn";
 import { parseFundamentals, parseNaverHistory, parseYahooHistory } from "./marketData";
 import { selectionToHoldings } from "./selection";
 import { portfolioAnalytics } from "./service";
+import { assumptionKey, calculatePBScenario, parsePBAssumption } from "./pbScenario";
 import type { Holding, MarketData, Options, Price } from "./types";
 
 const options: Options = { years: 5, rebalance: "quarterly", baseCurrency: "KRW" };
@@ -14,6 +15,35 @@ const dates = ["2025-01-02", "2025-01-03", "2025-01-06", "2025-01-07"];
 const prices = (values: number[], ds = dates): Price[] => values.map((close, i) => ({ date: ds[i], close }));
 const data = (values: number[], ds = dates): MarketData => ({ prices: prices(values, ds), source: ["fixture"] });
 const close = (a: number | null, b: number, epsilon = 1e-10) => assert.ok(a != null && Math.abs(a - b) < epsilon, `${a} != ${b}`);
+
+test("PB scenario validates explicit inputs, including zero and negative returns", () => {
+  for (const rate of ["", " ", "NaN", "Infinity", "-101", "1001"]) assert.throws(() => parsePBAssumption(rate, "근거"));
+  assert.throws(() => parsePBAssumption("10", " "));
+  close(parsePBAssumption("0", "가격 유지 판단").value, 0);
+  close(parsePBAssumption("-20", "하락 시나리오").value, -0.2);
+});
+test("PB scenario keeps original result untouched, rejects partial coverage, and reweights", () => {
+  const holdings = [stock({ weight: 0.6 }), stock({ ticker: "NEW", weight: 0.4 })];
+  const input = [data([100, 101, 99, 102]), data([100, 100, 100, 100])];
+  const result = analyzePortfolio(holdings, input, null, options, dates[3]);
+  const original = JSON.stringify(result);
+  const assumptions = { [assumptionKey(holdings[0])]: parsePBAssumption("10", "PB 판단") };
+  assert.equal(calculatePBScenario(result, assumptions).value, null);
+  assumptions[assumptionKey(holdings[1])] = parsePBAssumption("-5", "신규상장 보수적 시나리오");
+  close(calculatePBScenario(result, assumptions).value, 0.04);
+  const changed = analyzePortfolio(holdings.map(h => ({ ...h, weight: 0.5 })), input, null, options, dates[3]);
+  close(calculatePBScenario(changed, assumptions).value, 0.025);
+  assert.equal(JSON.stringify(result), original);
+  assert.equal(result.portfolio.expectedReturn, null);
+  assert.equal(calculatePBScenario(result, {}).value, null);
+});
+test("PB overrides only missing evidence and ignores stale unrelated symbols", () => {
+  const h = stock();
+  const input = { ...data([100, 101, 99, 102]), fundamentals: { currentPrice: 100, forwardEPS: 5, targetPE: 20, expectedEPSGrowth: 0.1, dividendYield: 0.02 } };
+  const result = analyzePortfolio([h], [input], null, options, dates[3]);
+  const scenario = calculatePBScenario(result, { [assumptionKey(h)]: parsePBAssumption("90", "이전 가정"), stale: parsePBAssumption("50", "다른 종목") });
+  close(scenario.value, 0.12); close(scenario.assumedWeight, 0);
+});
 
 test("1: single 100% holding tracks its price return", () => {
   const result = analyzePortfolio([stock()], [data([100, 110, 99, 120])], null, options, dates[3]);
@@ -40,10 +70,15 @@ test("5: incomplete, negative, zero, non-finite weights rejected", () => {
   for (const weight of [0.99, -1, 0, NaN, Infinity]) assert.throws(() => validateRequest([stock({ weight })], options));
   assert.throws(() => validateRequest([], options));
 });
-test("6: missing series preserves expectation fallback but never fabricates history", () => {
+test("6: missing evidence yields null expectations and never fabricates history", () => {
   const result = analyzePortfolio([stock()], [{ prices: [], source: [] }], null, options, dates[3]);
   assert.equal(result.portfolio.historicalCAGR, null); assert.equal(result.portfolio.mdd, null);
-  assert.equal(result.holdings[0].expectedReturn.method, "asset_class_fallback");
+  assert.equal(result.holdings[0].expectedReturn.method, "insufficient_evidence");
+  assert.equal(result.holdings[0].expectedReturn.value, null);
+  assert.equal(result.holdings[0].contributionToExpectedReturn, null);
+  assert.equal(result.portfolio.expectedReturn, null);
+  assert.equal(result.portfolio.expectedReturnCoverage, 0);
+  assert.ok(result.warnings.some(w => w.type === "EXPECTED_RETURN_UNAVAILABLE"));
   assert.ok(result.warnings.some(w => w.type === "INSUFFICIENT_DATA"));
 });
 test("7: mixed KRW/USD uses historical FX and supports inverse USD conversion", () => {
@@ -66,7 +101,7 @@ test("8: new listing constrains common analysis period; no backfill", () => {
 test("9: invalid prices and fundamental values never escape as NaN/Infinity", () => {
   const bad = [{ date: dates[0], close: NaN }, { date: dates[1], close: Infinity }, { date: dates[2], close: null as unknown as number }, { date: dates[3], close: undefined as unknown as number }];
   const result = analyzePortfolio([stock()], [{ prices: bad, source: [], fundamentals: { forwardEPS: NaN, dividendYield: Infinity } }], null, options, dates[3]);
-  assert.equal(result.portfolio.historicalCAGR, null); assert.ok(Number.isFinite(result.portfolio.expectedReturn));
+  assert.equal(result.portfolio.historicalCAGR, null); assert.equal(result.portfolio.expectedReturn, null);
   const visit = (v: unknown) => { if (typeof v === "number") assert.ok(Number.isFinite(v)); else if (v && typeof v === "object") Object.values(v).forEach(visit); };
   visit(result); assert.deepEqual(cleanPrices(bad), []);
 });
@@ -87,13 +122,33 @@ test("fundamental model, simplified assumptions and bond yield priority", () => 
   const bond = stock({ assetType: "etf", subType: "bond" });
   close(expectedReturn(bond, { ...d, fundamentals: { yieldToMaturity: 0.05, expenseRatio: 0.002, distributionYield: 0.04 } }, dates[0]).value, 0.048);
   assert.equal(expectedReturn(bond, { ...d, fundamentals: { distributionYield: 0.04 } }, dates[0]).method, "distribution_yield");
-  assert.equal(expectedReturn(stock({ assetType: "etf", subType: "commodity" }), d, dates[0]).method, "asset_class_fallback");
+  assert.equal(expectedReturn(stock({ assetType: "etf", subType: "commodity" }), d, dates[0]).method, "insufficient_evidence");
 });
 test("long historical fallback requires at least a year; historical fund return not fee-deducted twice", () => {
   const ds = Array.from({ length: 366 }, (_, i) => new Date(Date.UTC(2024, 0, 1 + i)).toISOString().slice(0, 10));
   const item = { ...data(ds.map((_, i) => 100 * 1.1 ** (i / 365.25)), ds), fundamentals: { expenseRatio: 0.01 } };
   const estimate = expectedReturn(stock({ assetType: "etf" }), item, dates[0]);
   assert.equal(estimate.method, "historical_cagr_fallback"); close(estimate.value, 0.1);
+});
+test("one unsupported holding blocks aggregate expectation without excluding it from historical NAV", () => {
+  const holdings = [stock({ weight: 0.8 }), stock({ ticker: "NEW", weight: 0.2 })];
+  const input = [
+    { ...data([100, 110, 105, 120]), fundamentals: { currentPrice: 100, forwardEPS: 5, expectedEPSGrowth: 0.1, targetPE: 20, dividendYield: 0.02 } },
+    data([100, 100, 100, 100]),
+  ];
+  const result = analyzePortfolio(holdings, input, null, options, dates[3]);
+  assert.equal(result.portfolio.expectedReturn, null);
+  close(result.portfolio.expectedReturnCoverage, 0.8);
+  close(result.holdings[0].contributionToExpectedReturn, 0.096);
+  assert.equal(result.holdings[1].contributionToExpectedReturn, null);
+  close(result.nav.at(-1)!.value, 116);
+  assert.notEqual(result.portfolio.historicalCAGR, null);
+  const warnings = result.warnings.filter(w => w.type === "EXPECTED_RETURN_UNAVAILABLE");
+  assert.equal(warnings.length, 1); assert.equal(warnings[0].ticker, "NEW");
+  const resolved = analyzePortfolio([stock()], [input[0]], null, options, dates[3]);
+  close(resolved.portfolio.expectedReturn, 0.12);
+  close(resolved.portfolio.expectedReturnCoverage, 1);
+  assert.equal(resolved.warnings.some(w => w.type === "EXPECTED_RETURN_UNAVAILABLE"), false);
 });
 test("common dates omit unknown missing dates and long data gaps suppress risk", () => {
   const h = [stock({ weight: 0.5 }), stock({ ticker: "OTHER", weight: 0.5 })];

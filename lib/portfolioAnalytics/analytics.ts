@@ -43,11 +43,13 @@ export function analyzePortfolio(holdings: Holding[], data: MarketData[], fx: Pr
       })), source: [...expectedData.source, "Yahoo Finance:USDKRW"] };
     }
     const estimate = expectedReturn(h, expectedData, today);
-    if (h.currency !== options.baseCurrency) estimate.assumptions.push(estimate.method === "historical_cagr_fallback" && fxMap.size ? "과거 환율 반영" : "미래 환율 변화 0% 가정 (현지통화 기대수익률)");
-    return { ...h, expectedReturn: estimate, contributionToExpectedReturn: h.weight * estimate.value };
+    if (estimate.value == null) warnings.push({ type: "EXPECTED_RETURN_UNAVAILABLE", ticker: h.ticker, message: `${h.name}: ${estimate.assumptions.join(" ")}` });
+    if (estimate.value != null && h.currency !== options.baseCurrency) estimate.assumptions.push(estimate.method === "historical_cagr_fallback" && fxMap.size ? "과거 환율 반영" : "미래 환율 변화 0% 가정 (현지통화 기대수익률)");
+    return { ...h, expectedReturn: estimate, contributionToExpectedReturn: estimate.value == null ? null : h.weight * estimate.value };
   });
   const result: AnalyticsResult = {
-    portfolio: { expectedReturn: expected.reduce((sum, h) => sum + h.contributionToExpectedReturn, 0), historicalCAGR: null, mdd: null,
+    portfolio: { expectedReturn: expected.some(h => h.expectedReturn.value == null) ? null : expected.reduce((sum, h) => sum + h.contributionToExpectedReturn!, 0),
+      expectedReturnCoverage: expected.reduce((sum, h) => sum + (h.expectedReturn.value == null ? 0 : h.weight), 0), historicalCAGR: null, mdd: null,
       annualizedVolatility: null, analysisPeriod: null, baseCurrency: options.baseCurrency, fxApplied: false, rebalance: options.rebalance },
     holdings: expected, drawdown: null, warnings, nav: [],
   };

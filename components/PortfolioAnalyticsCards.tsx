@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PortfolioEvidenceWarning from "./PortfolioEvidenceWarning";
+import { calculatePBScenario, type PBAssumptions } from "@/lib/portfolioAnalytics/pbScenario";
 import { selectionToHoldings } from "@/lib/portfolioAnalytics/selection";
 import { PERIODS, type AnalyticsResult, type Period, type Rebalance } from "@/lib/portfolioAnalytics/types";
 
 const pct = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "—";
 const METHODS: Record<string, string> = {
   fundamental: "3년 EPS·목표 PER·배당", simplified_fundamental: "단순화 펀더멘털",
-  historical_cagr_fallback: "과거 CAGR 대용치", asset_class_fallback: "자산군 가정값",
+  historical_cagr_fallback: "과거 CAGR 대용치", insufficient_evidence: "근거 부족 · 산출 불가",
   cash_assumption: "대기 현금 가정", ytm: "만기수익률", sec_yield: "SEC 수익률", distribution_yield: "분배 수익률",
 };
 const REBALANCE_LABELS: Array<[Rebalance, string]> = [["none", "리밸런싱 없음"], ["monthly", "매월"], ["quarterly", "분기"], ["semiannual", "반기"], ["annual", "매년"]];
@@ -18,6 +20,7 @@ export default function PortfolioAnalyticsCards({ allocation, selected, complete
   const [years, setYears] = useState<Period>(5);
   const [rebalance, setRebalance] = useState<Rebalance>("quarterly");
   const [retry, setRetry] = useState(0);
+  const [pbAssumptions, setPBAssumptions] = useState<PBAssumptions>({});
   const [state, setState] = useState<{ key: string; result?: AnalyticsResult; error?: string }>({ key: "" });
   let selectionError = "", requestKey = "";
   try {
@@ -40,6 +43,7 @@ export default function PortfolioAnalyticsCards({ allocation, selected, complete
   }, [requestKey, retry]);
   const current = state.key === requestKey && requestKey ? state : null;
   const result = current?.result;
+  const scenario = result && Object.keys(pbAssumptions).length ? calculatePBScenario(result, pbAssumptions) : null;
   const period = result?.portfolio.analysisPeriod;
   const historicalLabel = period && period.years < years - 0.05 ? `과거 ${period.years.toFixed(1)}년 (요청 ${years}Y)` : `과거 ${years}Y`;
   const cards = [
@@ -63,17 +67,30 @@ export default function PortfolioAnalyticsCards({ allocation, selected, complete
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       {cards.map(([label, value, info]) => <div key={label} className="rounded-xl border border-border bg-surface-2 p-3">
         <p className="text-xs font-bold text-fg-muted">{label} <button type="button" title={info} aria-label={info} className="rounded-full px-1 text-[#1428A0]">ⓘ</button></p>
-        <p className="mt-2 text-2xl font-black text-[#1428A0]">{pct(value)}</p>
+        <p className="mt-2 text-2xl font-black text-[#1428A0]">{label === "연 기대수익률" && result && value == null ? "산출 불가" : pct(value)}</p>
       </div>)}
     </div>
     <p className="text-[11px] text-fg-muted">과거 데이터 기반 수익률이며 미래 성과를 의미하지 않습니다.</p>
     {result && <>
+      {result.holdings.some(h => h.expectedReturn.value == null) && <PortfolioEvidenceWarning holdings={result.holdings.filter(h => h.expectedReturn.value == null)} coverage={result.portfolio.expectedReturnCoverage} assumptions={pbAssumptions} onApply={setPBAssumptions} />}
+      {scenario && scenario.assumedWeight > 0 && <div className="space-y-2 rounded-xl border border-blue-200 bg-blue-50 p-4" aria-label="PB 가정 기반 시나리오">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-black text-blue-900">PB 가정 기반 · 연 기대수익률 (별도 계산)</h4><button type="button" className="text-xs underline" onClick={() => setPBAssumptions({})}>PB 가정 해제</button></div>
+        <p className="text-2xl font-black text-blue-900">{scenario.value == null ? "추가 입력 필요" : pct(scenario.value)}</p>
+        <p className="text-xs text-blue-900">전체 비중 중 {pct(scenario.assumedWeight)}에 PB 가정을 적용했습니다. 나머지는 기존 추정치를 사용하며, 검증된 시장 전망이나 보장 수익률이 아닙니다.</p>
+        {scenario.missing.length > 0 && <p className="text-xs text-amber-800">가정 미입력: {scenario.missing.map(h => h.name).join(", ")} — 모든 근거 부족 종목을 입력해야 전체 시나리오를 계산합니다.</p>}
+        {scenario.holdings.filter(h => h.assumption).map((h, i) => <div key={`${h.ticker}-${i}`} className="border-t border-blue-200 pt-2 text-xs">
+          <p className="font-bold">{h.name} ({h.ticker}) · PB 가정 {pct(h.scenarioValue)} · 비중 {pct(h.weight)} · 기여도 {pct(h.contribution)}p</p>
+          <p className="mt-1 whitespace-pre-wrap break-words">근거: {h.assumption!.reason}</p>
+          <p className="mt-1">출처: PB 직접 입력 · 입력일 {new Date(h.assumption!.calculationDate).toLocaleString("ko-KR")}</p>
+        </div>)}
+        <p className="text-xs text-blue-900">현재 화면에서만 유지됩니다. 과거 CAGR·MDD·변동성에는 적용되지 않습니다.</p>
+      </div>}
       {period && <p className="text-[11px] text-fg-muted">실제 분석: {period.start} ~ {period.end} · {result.portfolio.fxApplied ? "USD/KRW 환율 반영" : result.holdings.some(h => h.currency !== "KRW") ? "환율 미반영: 경고 확인" : "원화 자산"}</p>}
       <details className="rounded-lg border border-border p-3 text-xs">
         <summary className="cursor-pointer font-bold">기대수익률 산출방식·신뢰도 확인</summary>
         <div className="mt-3 space-y-3">{result.holdings.map((h, i) => <div key={`${h.ticker}-${i}`} className="border-t border-border pt-2">
-          <p className="font-bold">{h.name} ({h.ticker}) · {pct(h.weight)} · 연 {pct(h.expectedReturn.value)}</p>
-          <p>{METHODS[h.expectedReturn.method] ?? h.expectedReturn.method} · 신뢰도 {h.expectedReturn.confidence === "medium" ? "중간" : "낮음"} · 기여도 {pct(h.contributionToExpectedReturn)}p</p>
+          <p className="font-bold">{h.name} ({h.ticker}) · {pct(h.weight)} · {h.expectedReturn.value == null ? "기대수익률 산출 불가" : `연 ${pct(h.expectedReturn.value)}`}</p>
+          <p>{METHODS[h.expectedReturn.method] ?? h.expectedReturn.method}{h.expectedReturn.value != null && <> · 신뢰도 {h.expectedReturn.confidence === "medium" ? "중간" : "낮음"} · 기여도 {pct(h.contributionToExpectedReturn)}p</>}</p>
           <p className="mt-1 text-fg-muted">{h.expectedReturn.assumptions.join(" · ")}</p>
           <p className="mt-1 break-words text-fg-muted">출처: {h.expectedReturn.source.join(", ")} · 계산일 {h.expectedReturn.calculationDate}</p>
         </div>)}</div>

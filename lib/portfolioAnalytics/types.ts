@@ -20,19 +20,19 @@ export interface Fundamentals {
 export interface MarketData { prices: Price[]; source: string[]; fundamentals?: Fundamentals; warnings?: Warning[] }
 export interface Warning { type: string; ticker?: string; message: string }
 export interface ExpectedReturn {
-  value: number; method: string; confidence: "low" | "medium";
+  value: number | null; method: string; confidence: "low" | "medium";
   source: string[]; calculationDate: string; assumptions: string[];
 }
 export interface Drawdown { mdd: number; peakDate: string; troughDate: string; recoveryDate: string | null; recoveryDays: number | null }
 export interface AnalyticsResult {
   portfolio: {
-    expectedReturn: number; historicalCAGR: number | null; mdd: number | null;
+    expectedReturn: number | null; expectedReturnCoverage: number; historicalCAGR: number | null; mdd: number | null;
     annualizedVolatility: number | null;
     analysisPeriod: { start: string; end: string; years: number } | null;
     baseCurrency: Currency; fxApplied: boolean; rebalance: Rebalance;
   };
   drawdown: Drawdown | null;
-  holdings: Array<Holding & { expectedReturn: ExpectedReturn; contributionToExpectedReturn: number }>;
+  holdings: Array<Holding & { expectedReturn: ExpectedReturn; contributionToExpectedReturn: number | null }>;
   warnings: Warning[];
   nav: Array<{ date: string; value: number }>;
 }
