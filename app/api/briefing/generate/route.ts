@@ -117,7 +117,11 @@ async function runGenerate(overwrite: boolean) {
       max_tokens: 32000,
       system: systemPrompt,
       messages: [{ role: "user", content: "오늘자 데일리 마켓 인사이트 리포트를 작성하라." }],
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
+      // 검색 1회는 왕복 시간 + 결과 본문이 다음 턴 입력에 그대로 실린다. 10회로는
+      // 실측 433초가 나와 maxDuration(300)을 넘겼다 — Vercel 에서는 매일 잘려 실패한다.
+      // 6회로 낮춰 300초 안에 들어오게 한다. 프롬프트의 "5~6회"와 짝이므로 한쪽만
+      // 바꾸면 모델이 계획한 검색이 중간에 끊긴다.
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6 }],
     }).finalMessage();
 
     const durationSec = (Date.now() - startedAt) / 1000;
