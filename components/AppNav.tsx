@@ -24,16 +24,11 @@ import { getLoggedInPbId, getLoggedInPbName, clearLoggedInPbId, onSessionChanged
 import type { Client } from "@/lib/types";
 import SessionCountdown from "@/components/SessionCountdown";
 
-const MAIN_SECTIONS = [
-  { id: "basic", icon: "👤", label: "기본 정보" },
-  { id: "consultation", icon: "📝", label: "상담 진행" },
-];
-
-const ANALYSIS_TABS = [
-  { id: "portfolio", label: "포트폴리오" },
-  { id: "portfolio2", label: "포트폴리오 2" },
-  { id: "taxProjection", label: "세전·세후" },
-  { id: "ips", label: "IPS" },
+/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 2 → IPS */
+const CLIENT_WORKFLOW_TABS = [
+  { id: "basic", icon: "👤", label: "기본 정보", view: "home" as const },
+  { id: "portfolio2", icon: "📊", label: "포트폴리오 2", view: "analysis" as const, tab: "portfolio2" },
+  { id: "ips", icon: "📄", label: "IPS", view: "analysis" as const, tab: "ips" },
 ];
 
 const EXTERNAL_LINKS = [
@@ -173,7 +168,7 @@ export default function AppNav() {
   const [pbName, setPbName] = useState<string | null>(null);
 
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab = searchParams?.get("tab") ?? "portfolio";
+  const activeTab = searchParams?.get("tab") ?? "portfolio2";
 
   useEffect(() => {
     if (!clientId) { setClient(null); return; }
@@ -261,43 +256,23 @@ export default function AppNav() {
             </div>
           </div>
 
-          {/* 2행 — 메인 섹션 + 분석 탭. 좁으면 가로 스크롤 */}
+          {/* 2행 — 기본 정보 / 포트폴리오 2 / IPS */}
           <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
-            {MAIN_SECTIONS.map((s) => {
+            {CLIENT_WORKFLOW_TABS.map((s) => {
               const isActive =
-                (s.id === "basic" && activeView === "home") ||
-                (s.id === "consultation" && activeView === "consultation");
+                s.view === "home"
+                  ? activeView === "home"
+                  : activeView === "analysis" && activeTab === s.tab;
               return (
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => goTo(s.id === "consultation" ? "consultation" : "home")}
+                  onClick={() => goTo(s.view, s.tab)}
                   aria-current={isActive ? "page" : undefined}
                   className={pillClass(isActive)}
                 >
                   <span className="mr-1" aria-hidden="true">{s.icon}</span>
                   {s.label}
-                </button>
-              );
-            })}
-
-            {/* 계층 구분 — 세로선 + 그룹 라벨 */}
-            <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
-            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
-              분석
-            </span>
-
-            {ANALYSIS_TABS.map((t) => {
-              const isActive = activeView === "analysis" && activeTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => goTo("analysis", t.id)}
-                  aria-current={isActive ? "page" : undefined}
-                  className={pillClass(isActive)}
-                >
-                  {t.label}
                 </button>
               );
             })}

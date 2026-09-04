@@ -14,7 +14,7 @@ export default function PortfolioPageRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio`);
+    router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
   }, [router, pbId, clientId]);
 
   return null;

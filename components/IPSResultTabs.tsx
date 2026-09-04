@@ -16,7 +16,13 @@ import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import ConsultationHub from "./advisory/ConsultationHub";
-import { canIssueClientPdf, loadBundle, pdfBlockReason } from "@/lib/advisory/control";
+import { loadBundle } from "@/lib/advisory/control";
+import {
+  isIpsWorkflowApproved,
+  isPortfolioWorkflowApproved,
+  workflowPdfBlockReason,
+  workflowPdfReady,
+} from "@/lib/advisory/workflowApprovals";
 
 interface Props {
   client: Client;
@@ -30,6 +36,8 @@ interface Props {
   onFinalizePortfolio: (portfolio: Portfolio) => Promise<void> | void;
   onUnfinalizePortfolio: () => Promise<void> | void;
   onToggleStage: (key: StageKey) => Promise<void> | void;
+  onApprovePortfolioWorkflow: () => Promise<void> | void;
+  onApproveIpsWorkflow: () => Promise<void> | void;
   linkedClient?: Client | null;
 }
 
@@ -56,6 +64,8 @@ export default function IPSResultTabs({
   onFinalizePortfolio,
   onUnfinalizePortfolio,
   onToggleStage,
+  onApprovePortfolioWorkflow,
+  onApproveIpsWorkflow,
   linkedClient,
 }: Props) {
   const router = useRouter();
@@ -205,8 +215,10 @@ export default function IPSResultTabs({
   const stressInvestableKrw = stressPortfolioModel.assetLayer?.investableKrw ?? client.assetSize;
   const stressAssetBaseEstimated = stressPortfolioModel.assetLayer == null;
   const advisoryBundle = loadBundle(clientId);
-  const pdfReady = canIssueClientPdf(advisoryBundle);
-  const consultationComplete = Boolean(done.factors && done.portfolio && done.stress && pdfReady);
+  const pdfReady = workflowPdfReady(client, advisoryBundle);
+  const consultationComplete = Boolean(
+    isPortfolioWorkflowApproved(client) && isIpsWorkflowApproved(client) && pdfReady,
+  );
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -220,7 +232,7 @@ export default function IPSResultTabs({
 
   return (
     <div className="space-y-5">
-      {tab !== "portfolio2" && <ConsultationHub key={`consultation-${client.id}`} client={client} />}
+      {tab === "portfolio2" && <ConsultationHub key={`consultation-${client.id}`} client={client} />}
 
       {/* 기본정보 */}
       {tab === "basic" && (
@@ -418,17 +430,52 @@ export default function IPSResultTabs({
       {tab === "portfolio2" && (
         <div className="space-y-4">
           <ManualPortfolioBuilder clientId={clientId} totalAssetWon={client.assetSize} />
+
+          <div className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Portfolio approval</p>
+                <h3 className="mt-1 text-base font-bold text-fg">포트폴리오 승인</h3>
+                <p className="mt-1 text-[11px] text-fg-muted">
+                  맞춤 배분·종목·세전·세후 결과를 확인한 뒤 승인하면 상담 진행 4~6단계가 완료됩니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className={isPortfolioWorkflowApproved(client) ? "btn-outline px-5 py-2.5 text-sm" : "btn-primary px-5 py-2.5 text-sm"}
+                onClick={() => void onApprovePortfolioWorkflow()}
+              >
+                {isPortfolioWorkflowApproved(client) ? "포트폴리오 승인됨 ✓" : "포트폴리오 승인"}
+              </button>
+            </div>
+          </div>
+
+          <section id="tax-projection" className="space-y-3 border-t border-border pt-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Tax result</p>
+              <h3 className="mt-1 text-base font-black text-fg">세전·세후 결과</h3>
+              <p className="mt-1 text-[11px] text-fg-muted">
+                세전 결과 · 세금 · 비용 · 세후 결과를 확인합니다.
+              </p>
+            </div>
+            <TaxProjectionPanel
+              client={client}
+              baseWeights={portfolioWeights[0]}
+              principalWon={stressInvestableKrw}
+              assetBaseEstimated={stressAssetBaseEstimated}
+            />
+          </section>
         </div>
       )}
 
-      {/* 세전·세후 — 포트폴리오 비중별 세금/비용/세후 금액 비교 */}
+      {/* 세전·세후 — 포트폴리오 2로 통합됨. 딥링크는 리다이렉트 */}
       {tab === "taxProjection" && (
-        <TaxProjectionPanel
-          client={client}
-          baseWeights={portfolioWeights[0]}
-          principalWon={stressInvestableKrw}
-          assetBaseEstimated={stressAssetBaseEstimated}
-        />
+        <div className="card p-6 text-center">
+          <p className="text-sm font-bold text-fg">세전·세후는 포트폴리오 2 하단에 통합되었습니다.</p>
+          <button type="button" className="btn-primary mt-3 text-sm" onClick={() => onSetTab("portfolio2")}>
+            포트폴리오 2로 이동
+          </button>
+        </div>
       )}
 
       {/* 스트레스 — 포트폴리오 최종 확정 후 진행 */}
@@ -464,7 +511,14 @@ export default function IPSResultTabs({
       {/* IPS — 투자정책서 문서 생성 + 단계 확정 */}
       {tab === "ips" && (
         <div>
-          <div className="mb-3 flex items-center justify-end">
+          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              className={isIpsWorkflowApproved(client) ? "btn-outline whitespace-nowrap text-xs" : "btn-primary whitespace-nowrap text-xs"}
+              onClick={() => void onApproveIpsWorkflow()}
+            >
+              {isIpsWorkflowApproved(client) ? "IPS 승인됨 ✓" : "IPS 승인"}
+            </button>
             <StageToggle k="ips" />
           </div>
           <div className="card flex flex-col items-center gap-4 p-8 text-center">
@@ -480,18 +534,20 @@ export default function IPSResultTabs({
             </div>
             <div className="flex flex-wrap justify-center gap-2 text-xs">
               <span className={done.factors ? "badge-success" : "badge-muted"}>고객 분석 {done.factors ? "완료" : "대기"}</span>
-              <span className={pdfReady ? "badge-success" : "badge-muted"}>PB 승인 {pdfReady ? "완료" : "대기"}</span>
+              <span className={isIpsWorkflowApproved(client) ? "badge-success" : "badge-muted"}>
+                IPS 승인 {isIpsWorkflowApproved(client) ? "완료" : "대기"}
+              </span>
               <span className={done.portfolio ? "badge-success" : "badge-muted"}>포트폴리오 {done.portfolio ? "확정" : "대기"}</span>
               <span className={done.stress ? "badge-success" : "badge-muted"}>스트레스 테스트 {done.stress ? "완료" : "대기"}</span>
             </div>
             {!done.portfolio && (
               <p className="text-xs text-fg-muted">
-                💡 포트폴리오를 최종 확정하면 문서에 포트폴리오 내역도 함께 채워집니다.
+                💡 포트폴리오 2에서 「포트폴리오 승인」을 완료하면 문서에 포트폴리오 내역도 함께 채워집니다.
               </p>
             )}
             {!pdfReady && (
               <p className="text-xs font-semibold text-red-600">
-                {pdfBlockReason(advisoryBundle)}
+                {workflowPdfBlockReason(client, advisoryBundle)}
               </p>
             )}
             <div className="flex flex-wrap justify-center gap-2">
