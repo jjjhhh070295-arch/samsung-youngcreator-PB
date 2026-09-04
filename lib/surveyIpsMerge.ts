@@ -149,3 +149,73 @@ export function mergeSurveyIps(
     changedCount: changes.filter((c) => c.kind !== "preserved" && c.kind !== "unchanged").length,
   };
 }
+
+// ── 상담 중 AI 분석 병합 ─────────────────────────────────────────────────────
+// ConsultationModal의 "① 상담 내용 입력·분석"이 /api/analyze 결과를 setDraftIps(ips)로
+// 통째로 교체하고 있었다. AI가 못 뽑은 요인은 status:"empty"인 빈 객체로 오는데, 그걸
+// 그대로 덮어쓰면 이미 채워져 있던(설문 반영·직전 상담 확정 등) 값이 통째로 사라진다.
+//
+// 규칙은 설문 병합보다 단순하다 — 요인 성격에 따른 소관 구분이 없다.
+//   - AI가 값을 못 채운 요인(status:"empty", value/score/inferenceHint 전부 없음)은
+//     기존 draft 값을 그대로 둔다.
+//   - AI가 값을 채운 요인 중, 기존 값이 이미 hasExplicitFact(explicit+score+value 완비)
+//     라면 "확정된 근거를 덮어쓰는 것"이라 PB 확인이 필요하다(kind: "replaced").
+//   - 기존 값이 explicit 근거를 안 갖췄으면(비어있거나 inferred) 그냥 채운다(kind: "filled").
+// SurveyApplyDiffModal을 그대로 재사용한다 — kind 값을 기존 SurveyChangeKind 안에서
+// 고른 것도 그래서다(라벨 문구가 "설문" 기준이라 상담 문맥에는 다소 안 맞지만, 모달을
+// 새로 만들지 않고 재사용하라는 지시라 이 문구 불일치는 감수한다).
+export interface ConsultationMergeResult {
+  merged: IPS;
+  changes: SurveyFactorChange[];
+  /** true면 hasExplicitFact를 덮어쓰는 요인이 있다는 뜻 — 확인 모달을 띄워야 한다. */
+  needsConfirmation: boolean;
+}
+
+function aiFilledFactor(f: IPSFactor): boolean {
+  return f.status !== "empty" && !!(f.value || f.score != null || f.inferenceHint);
+}
+
+export function mergeConsultationAiIps(current: IPS, aiIps: IPS): ConsultationMergeResult {
+  const merged = {} as IPS;
+  const changes: SurveyFactorChange[] = [];
+
+  for (const m of FACTOR_META) {
+    const key = m.key;
+    const before = current[key];
+    const fromAi = aiIps[key];
+    let after: IPSFactor;
+    let kind: SurveyChangeKind;
+
+    if (!aiFilledFactor(fromAi)) {
+      after = before;
+      kind = "unchanged";
+    } else if (hasExplicitFact(before)) {
+      after = fromAi;
+      kind = "replaced";
+    } else {
+      after = fromAi;
+      kind = "filled";
+    }
+
+    if (sameFactor(before, after)) kind = "unchanged";
+
+    const hadBasis = !!(before.evidence || before.inferenceHint);
+    const keptEvidence = !!before.evidence && after.evidence.includes(before.evidence);
+
+    merged[key] = after;
+    changes.push({
+      key,
+      label: LABEL[key] ?? key,
+      kind,
+      before,
+      after,
+      losesEvidence: kind !== "unchanged" && hadBasis && !keptEvidence,
+    });
+  }
+
+  return {
+    merged,
+    changes,
+    needsConfirmation: changes.some((c) => c.kind === "replaced"),
+  };
+}

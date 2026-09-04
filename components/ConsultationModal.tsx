@@ -8,9 +8,11 @@ import { QUANT_FACTORS, autoScoreFromValue } from "@/lib/scoring";
 import { matchTagsInText } from "@/lib/rrttlluScoring";
 import { createConsultation, updateClient } from "@/lib/store";
 import { formatDuration, formatDurationKo } from "@/lib/format";
+import { mergeConsultationAiIps, type SurveyFactorChange } from "@/lib/surveyIpsMerge";
 import ConsultationInput from "./ConsultationInput";
 import IPSForm from "./IPSForm";
 import IPSRadar from "./IPSRadar";
+import SurveyApplyDiffModal from "./SurveyApplyDiffModal";
 
 interface Props {
   open: boolean;
@@ -32,6 +34,8 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [aiMsg, setAiMsg] = useState(""); // 전체 채점 결과 메시지
+  // AI 분석이 이미 확정된(explicit+score+value) 요인을 덮어쓰려 할 때만 확인 모달을 띄운다.
+  const [pendingAiApply, setPendingAiApply] = useState<{ merged: IPS; changes: SurveyFactorChange[] } | null>(null);
 
   // 타이머
   const [running, setRunning] = useState(false);
@@ -52,6 +56,7 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
       startRef.current = null;
       startIsoRef.current = "";
       endIsoRef.current = "";
+      setPendingAiApply(null);
     }
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
@@ -84,9 +89,17 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
     setDirty(true);
   };
 
+  // /api/analyze는 못 뽑은 요인을 status:"empty" 빈 객체로 채워 돌려준다. 그걸 그대로
+  // setDraftIps하면 이미 채워져 있던 값(설문 반영·이전 상담 확정 등)이 통째로 사라지므로
+  // 요인 단위로 병합한다 — 이미 확정된 값을 덮어쓸 때만 확인을 받는다.
   const onAiResult = (ips: IPS) => {
-    setDraftIps(ips);
-    setDirty(true);
+    const { merged, changes, needsConfirmation } = mergeConsultationAiIps(draftIps, ips);
+    if (!needsConfirmation) {
+      setDraftIps(merged);
+      setDirty(true);
+      return;
+    }
+    setPendingAiApply({ merged, changes });
   };
 
   // 입력값으로 전체 채점(규칙 기반, LLM 불필요): 자유서술/숫자에서 7요인 점수 산출.
@@ -314,6 +327,18 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
           </div>
         </div>
       </div>
+
+      <SurveyApplyDiffModal
+        open={!!pendingAiApply}
+        changes={pendingAiApply?.changes ?? []}
+        onCancel={() => setPendingAiApply(null)}
+        onConfirm={() => {
+          if (!pendingAiApply) return;
+          setDraftIps(pendingAiApply.merged);
+          setDirty(true);
+          setPendingAiApply(null);
+        }}
+      />
     </div>
   );
 }
