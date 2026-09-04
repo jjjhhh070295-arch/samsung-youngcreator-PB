@@ -80,6 +80,7 @@ function SortTh({
   desc,
   ariaSort,
   onClick,
+  thClassName = "",
 }: {
   label: string;
   align: "left" | "right";
@@ -87,9 +88,10 @@ function SortTh({
   desc: boolean;
   ariaSort: "ascending" | "descending" | "none";
   onClick: () => void;
+  thClassName?: string;
 }) {
   return (
-    <th className={`px-1 py-1 text-xs ${align === "right" ? "text-right" : "text-left"}`} aria-sort={ariaSort}>
+    <th className={`px-1 py-1 text-xs ${align === "right" ? "text-right" : "text-left"} ${thClassName}`} aria-sort={ariaSort}>
       <button
         type="button"
         onClick={onClick}
@@ -257,13 +259,17 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
             <p className="text-xs font-semibold text-[#1428A0]">현재 정렬: {sortLabel}</p>
             <p className="text-[10px] text-fg-muted">헤더를 눌러 같은 기준으로 오름/내림차순을 바꿀 수 있습니다</p>
           </div>
-          <table className="w-full min-w-[960px] text-sm">
+          {/* 열 10개 기준 실제 필요 폭이 960px 을 넘어, 남는 폭을 고객명·구분이 떠안아
+              "박달리"가 두 글자씩 쪼개졌다. 최소 폭을 올리고 부족하면 가로 스크롤한다
+              (감싸는 div 가 overflow-x-auto). 좁은 화면용 대안은 상단의 [카드] 뷰다. */}
+          <table className="w-full min-w-[1180px] text-sm">
             <thead className="border-b border-border bg-surface-2 text-xs text-fg-muted">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold">식별코드</th>
                 <SortTh
                   label="고객명"
                   align="left"
+                  thClassName="min-w-[10rem]"
                   active={sortKey.startsWith("name-")}
                   desc={sortKey === "name-desc"}
                   ariaSort={sortKey === "name-asc" ? "ascending" : sortKey === "name-desc" ? "descending" : "none"}
@@ -308,16 +314,16 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
                   className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-2"
                 >
                   <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-[#1428A0]">{r.code}</td>
-                  <td className="px-3 py-2"><div className="flex items-center gap-2"><ClientAvatar name={r.name} type={r.clientType} size="sm" /><span className="font-bold text-fg">{r.name}</span></div></td>
-                  <td className="px-3 py-2">
-                    <span className="badge-navy">{CLIENT_TYPE_LABEL[r.clientType as ClientType] ?? r.clientType}</span>
+                  <td className="whitespace-nowrap px-3 py-2"><div className="flex items-center gap-2"><ClientAvatar name={r.name} type={r.clientType} size="sm" /><span className="font-bold text-fg">{r.name}</span></div></td>
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <span className="badge-navy whitespace-nowrap">{CLIENT_TYPE_LABEL[r.clientType as ClientType] ?? r.clientType}</span>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-fg-muted">{formatDate(r.birthDate)}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-medium">{formatKRW(r.totalAssets)}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right"><ReturnText value={r.totalReturnPct} /></td>
                   <td className="whitespace-nowrap px-3 py-2.5">{r.riskGrade}</td>
                   <td className="px-3 py-2.5">
-                    <div className="flex max-w-[220px] flex-wrap gap-1">
+                    <div className="flex max-w-[180px] flex-wrap gap-1">
                       {r.holdings.length === 0 && <span className="text-[11px] text-fg-muted">—</span>}
                       {r.holdings.slice(0, 3).map((h) =>
                         h.ticker ? (
