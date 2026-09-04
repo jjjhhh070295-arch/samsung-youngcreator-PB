@@ -13,6 +13,8 @@ import { isAuthorizedCronRequest } from "@/lib/cronAuth";
 import { isKnownPbRequest } from "@/lib/pbRequestAuth";
 import { buildBriefingSystemPrompt } from "@/lib/briefing/prompt";
 import { htmlToText } from "@/lib/briefing/htmlToText";
+import { BRIEFING_BLOCKED_DOMAINS } from "@/lib/briefing/blockedDomains";
+import { extractJson } from "@/lib/briefing/extractJson";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // Vercel Hobby 최대치 — 웹 검색 8~10회 포함 생성 소요시간 확보
@@ -41,19 +43,6 @@ function kstDateLabel(): string {
   const kst = kstNow();
   const weekday = ["일", "월", "화", "수", "목", "금", "토"][kst.getUTCDay()];
   return `${kst.getUTCFullYear()}년 ${kst.getUTCMonth() + 1}월 ${kst.getUTCDate()}일 (${weekday})`;
-}
-
-function extractJson(text: string): any | null {
-  if (!text) return null;
-  const t = text.replace(/```(?:json)?/gi, "").trim();
-  const start = t.indexOf("{");
-  const end = t.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(t.slice(start, end + 1));
-  } catch {
-    return null;
-  }
 }
 
 async function runGenerate(overwrite: boolean) {
@@ -129,7 +118,18 @@ async function runGenerate(overwrite: boolean) {
       // 15.8초(3.6%)밖에 줄지 않았고, 대신 "데이터 확인 안 됨"이 8→18개로 늘었다.
       // 검색 1회의 실측 비용은 약 4초뿐이라 여기서 깎을 수 있는 시간이 없다.
       // 프롬프트의 "8~10회"와 짝이므로 한쪽만 바꾸면 모델이 계획한 검색이 중간에 끊긴다.
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
+      //
+      // blocked_domains: 출처 규율을 모델의 자체 점검이 아니라 도구에서 강제한다.
+      // 화이트리스트가 아니라 차단 목록인 이유는 lib/briefing/blockedDomains.ts 주석 참고
+      // — 목표주가가 이미 잘 안 잡히는 상태라 검색을 더 굶기면 안 된다.
+      tools: [
+        {
+          type: "web_search_20250305",
+          name: "web_search",
+          max_uses: 10,
+          blocked_domains: BRIEFING_BLOCKED_DOMAINS,
+        },
+      ],
     }).finalMessage();
 
     const durationSec = (Date.now() - startedAt) / 1000;
@@ -147,7 +147,14 @@ async function runGenerate(overwrite: boolean) {
       (b): b is Anthropic.TextBlock => b.type === "text",
     );
     const lastText = textBlocks.map((b) => b.text).join("");
-    const parsed = extractJson(lastText);
+    const extraction = extractJson(lastText);
+    const parsed = extraction.value;
+
+    if (extraction.repaired) {
+      console.warn(
+        "[/api/briefing/generate] JSON 제어문자 보정으로 살렸다 — 프롬프트 점검 필요",
+      );
+    }
 
     if (!parsed) {
       // 왜 실패했는지 남기지 않으면 재시도밖에 할 수 있는 게 없고, 재시도는 매번 유료다.
@@ -156,6 +163,9 @@ async function runGenerate(overwrite: boolean) {
         stopReason: (msg as any).stop_reason ?? null,
         textBlocks: textBlocks.length,
         textLength: lastText.length,
+        parseError: extraction.error ?? null,
+        parseErrorPosition: extraction.position ?? null,
+        parseErrorContext: extraction.context ?? null,
         usage: {
           inputTokens: (msg.usage as any)?.input_tokens ?? 0,
           outputTokens: (msg.usage as any)?.output_tokens ?? 0,
