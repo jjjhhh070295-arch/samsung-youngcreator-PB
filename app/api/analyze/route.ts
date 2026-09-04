@@ -37,6 +37,9 @@ ${rubricForPrompt()}
 ${tagOptionsForPrompt()}
 예: tax → "한계세율 높음(38%+), 금융소득종합과세 대상, 상속"
 
+[라벨·근거 지어내기 금지 — 매우 중요]
+value·evidence는 상담 원문에 실제로 있는 내용만 적는다. 원문에 없는 기간·금액·상황을 value에 지어내지 말고, evidence는 원문에 실제로 있는 구절을 그대로(변형 없이) 인용한다 — 이 시스템은 evidence가 원문에 실제로 존재하는지 검증하며, 검증에 실패하면 그 근거는 버려진다.
+
 [채점 원칙]
 - explicit이면 위 기준표에 맞춰 점수(1~5)를 정한다. 상담에 나온 수치/표현을 기준표 구간에 대입한다. (예: 목표수익률 "연 6~8%" → 3점)
 - 애매하면 낮게, 명시적 근거가 강할 때만 높게(보수적).
@@ -73,8 +76,26 @@ function extractJson(text: string): any | null {
   }
 }
 
+// 공백·줄바꿈 차이를 흡수하고 비교하기 위한 정규화 — 단일 공백으로 축약.
+function normalizeWhitespace(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+// LLM이 인용했다는 evidence가 실제로 원문(notes)에 있는 구절인지 확인한다.
+// 공백·줄바꿈 차이는 허용하되(normalizeWhitespace), 원문에 없는 문장이면 환각으로 본다.
+function evidenceExistsInNotes(evidence: string, notes: string): boolean {
+  const needle = normalizeWhitespace(evidence);
+  if (!needle) return false;
+  return normalizeWhitespace(notes).includes(needle);
+}
+
 // AI 원시 결과 → 안전한 IPS (방어적 정규화)
-function normalizeToIPS(raw: any): IPS {
+// notes(상담 원문)를 받는 이유: 정성 요인(tax·liquidity·legal·unique) 태그 매칭과 evidence
+// 검증을 LLM 출력이 아니라 원문 기준으로 해야 한다. LLM의 value/evidence/inferenceHint를
+// 매칭 입력에 섞으면, LLM이 원문에 없는 라벨(예: 기간·금액)을 지어낸 경우에도 그 지어낸
+// 텍스트가 그대로 태그로 잡혀 explicit으로 승격되는 문제가 있었다(app/api/analyze/route.ts
+// 원문 없는 evidence가 explicit 근거로 둔갑하던 버그).
+function normalizeToIPS(raw: any, notes: string): IPS {
   const ips = emptyIPS("ai");
   if (!raw || typeof raw !== "object") return ips;
 
@@ -92,23 +113,28 @@ function normalizeToIPS(raw: any): IPS {
     let finalStatus = status;
 
     if (isTagFactor(key)) {
-      // 정성 요인: value+근거+단서 합쳐서 태그 추출(LLM이 어디에 써도 잡히게) → 강도 자동
-      const combined = [r.value, r.evidence, r.inferenceHint]
-        .filter((s) => typeof s === "string")
-        .join(" ");
-      const m = matchTagsInText(key, combined);
+      // 정성 요인: 태그 매칭은 상담 원문(notes)만 대상으로 한다 — LLM의 value는 매칭
+      // 입력에 넣지 않는다(자기가 지어낸 라벨을 자기가 근거로 승격시키는 걸 막는다).
+      const m = matchTagsInText(key, notes);
       if (m.labels.length > 0) {
         value = m.labels.join(", ");
         score = m.score;
         finalStatus = "explicit";
       } else {
         value = "";
-        finalStatus = status === "explicit" ? "empty" : status; // 태그 못 고르면 점수 없음
+        finalStatus = status === "explicit" ? "empty" : status; // 원문에 태그 근거 없으면 채우지 않는다
       }
     } else if (status === "explicit" && typeof r.score === "number") {
       score = Math.max(1, Math.min(5, Math.round(r.score)));
     }
     // inferred/empty(비태그) 는 점수 강제로 null (과대계상 방지)
+
+    // evidence는 요인 종류와 무관하게 원문에 실제로 있는 구절일 때만 남긴다 — LLM이
+    // 지어낸 인용문은 화면에 근거로 노출하지 않는다.
+    const evidenceOk =
+      finalStatus === "explicit" &&
+      typeof r.evidence === "string" &&
+      evidenceExistsInNotes(r.evidence, notes);
 
     ips[key] = {
       value,
@@ -116,7 +142,7 @@ function normalizeToIPS(raw: any): IPS {
       notes: "",
       source: "ai",
       status: finalStatus,
-      evidence: finalStatus === "explicit" && typeof r.evidence === "string" ? r.evidence : "",
+      evidence: evidenceOk ? r.evidence : "",
       inferenceHint:
         finalStatus === "inferred" && typeof r.inferenceHint === "string" ? r.inferenceHint : "",
       reviewed: false, // AI 결과는 draft
@@ -219,7 +245,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const ips = normalizeToIPS(parsed);
+    const ips = normalizeToIPS(parsed, notes);
     return NextResponse.json({ ok: true, ips });
   } catch (e: any) {
     console.error("[/api/analyze]", e);
