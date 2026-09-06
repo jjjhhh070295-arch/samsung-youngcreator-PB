@@ -7,7 +7,6 @@
 
 import type { Client, Stages } from "../types";
 import type { EvidenceBundle } from "./types";
-import { hardStopReasons } from "./control";
 import { validateManualPortfolioForApproval } from "../manualPortfolioDraft";
 import { financialIncomeBlockReason, isFinancialIncomeReadyForTax } from "../financialIncome";
 
@@ -60,7 +59,7 @@ export function validatePortfolioWorkflowApproval(client: Client, clientId: stri
   return reasons;
 }
 
-export function validateIpsWorkflowApproval(client: Client, bundle: EvidenceBundle): string[] {
+export function validateIpsWorkflowApproval(client: Client, _bundle: EvidenceBundle): string[] {
   const reasons: string[] = [];
   if (!isBasicWorkflowApproved(client)) {
     reasons.push("기본정보 승인이 먼저 필요합니다.");
@@ -68,22 +67,17 @@ export function validateIpsWorkflowApproval(client: Client, bundle: EvidenceBund
   if (!isPortfolioWorkflowApproved(client)) {
     reasons.push("포트폴리오 승인이 먼저 필요합니다.");
   }
-  if (bundle.status === "blocked") {
-    reasons.push(bundle.blockReasons[0] || "고객 제안이 차단된 상태입니다.");
-  }
-  const hard = hardStopReasons(bundle);
-  if (hard.length) reasons.push(hard[0]);
+  // Evidence blocked/하드스톱은 IPS 승인 시 syncEvidenceAfterIpsApproval에서 해제한다.
   return reasons;
 }
 
-/** 고객용 PDF — 3단 승인 완료 + Evidence 하드스톱 없음. */
-export function workflowPdfReady(client: Client, bundle: EvidenceBundle): boolean {
-  if (!isBasicWorkflowApproved(client)) return false;
-  if (!isPortfolioWorkflowApproved(client)) return false;
-  if (!isIpsWorkflowApproved(client)) return false;
-  if (bundle.status === "blocked") return false;
-  if (hardStopReasons(bundle).length > 0) return false;
-  return true;
+/** 고객용 PDF — 3단 승인(client.stages) 완료. Evidence는 승인 sync가 locked로 맞춘다. */
+export function workflowPdfReady(client: Client, _bundle: EvidenceBundle): boolean {
+  return (
+    isBasicWorkflowApproved(client) &&
+    isPortfolioWorkflowApproved(client) &&
+    isIpsWorkflowApproved(client)
+  );
 }
 
 export function workflowPdfBlockReason(client: Client, bundle: EvidenceBundle): string {

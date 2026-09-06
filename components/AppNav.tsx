@@ -22,14 +22,18 @@ import { useEffect, useRef, useState } from "react";
 import { getClient, listPbs } from "@/lib/store";
 import { getLoggedInPbId, getLoggedInPbName, clearLoggedInPbId, onSessionChanged } from "@/lib/auth";
 import type { Client } from "@/lib/types";
+import {
+  isBasicWorkflowApproved,
+  isPortfolioWorkflowApproved,
+} from "@/lib/advisory/workflowApprovals";
 import SessionCountdown from "@/components/SessionCountdown";
 
-/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 → IPS */
+/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 2 → IPS */
 const CLIENT_WORKFLOW_TABS = [
   { id: "basic", icon: "👤", label: "기본 정보", view: "home" as const },
-  { id: "portfolio2", icon: "📊", label: "포트폴리오", view: "analysis" as const, tab: "portfolio2" },
+  { id: "portfolio2", icon: "📊", label: "포트폴리오 2", view: "analysis" as const, tab: "portfolio2" },
   { id: "ips", icon: "📄", label: "IPS", view: "analysis" as const, tab: "ips" },
-];
+] as const;
 
 const EXTERNAL_LINKS = [
   { label: "삼성증권", href: "https://www.samsungpop.com" },
@@ -37,7 +41,14 @@ const EXTERNAL_LINKS = [
 ];
 
 // 가로 네비 항목 공통 스타일 — shrink-0 + whitespace-nowrap 이 가로 스크롤의 전제다.
-function pillClass(active: boolean): string {
+function pillClass(active: boolean, disabled = false): string {
+  if (disabled) {
+    return [
+      "shrink-0 whitespace-nowrap rounded-md px-3.5 py-1.5 text-[15px]",
+      "cursor-not-allowed opacity-40 text-fg-muted",
+      "focus-visible:outline-none",
+    ].join(" ");
+  }
   return [
     "shrink-0 whitespace-nowrap rounded-md px-3.5 py-1.5 text-[15px] transition-colors",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]",
@@ -172,7 +183,20 @@ export default function AppNav() {
 
   useEffect(() => {
     if (!clientId) { setClient(null); return; }
-    getClient(clientId).then(setClient).catch(() => {});
+    let cancelled = false;
+    const reload = () => {
+      getClient(clientId)
+        .then((c) => { if (!cancelled) setClient(c); })
+        .catch(() => {});
+    };
+    reload();
+    window.addEventListener("pb-client-updated", reload);
+    window.addEventListener("pb-evidence-updated", reload);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pb-client-updated", reload);
+      window.removeEventListener("pb-evidence-updated", reload);
+    };
   }, [clientId]);
 
   // 로그인한 PB 이름 — 세션만 사용한다(URL pbId로 세션을 만들지 않는다, 인증 우회 차단).
@@ -202,7 +226,18 @@ export default function AppNav() {
     router.push("/");
   };
 
+  const basicApproved = client ? isBasicWorkflowApproved(client) : false;
+  const portfolioApproved = client ? isPortfolioWorkflowApproved(client) : false;
+
   const goTo = (view: string, tab?: string) => {
+    if (tab === "portfolio2" && !basicApproved) {
+      alert("기본정보 승인 후 포트폴리오를 진행할 수 있습니다.");
+      return;
+    }
+    if (tab === "ips" && !portfolioApproved) {
+      alert("포트폴리오 승인 후 IPS를 확정할 수 있습니다.");
+      return;
+    }
     const next = new URLSearchParams({ view });
     if (tab) next.set("tab", tab);
     router.push(`/pb/${pbId}/${clientId}?${next.toString()}`);
@@ -256,20 +291,38 @@ export default function AppNav() {
             </div>
           </div>
 
-          {/* 2행 — 기본 정보 / 포트폴리오 / IPS */}
+          {/* 2행 — 기본 정보 / 포트폴리오 2 / IPS (승인 전 후속 탭 비활성) */}
           <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
             {CLIENT_WORKFLOW_TABS.map((s) => {
               const isActive =
                 s.view === "home"
                   ? activeView === "home"
-                  : activeView === "analysis" && activeTab === s.tab;
+                  : activeView === "analysis" && "tab" in s && activeTab === s.tab;
+              const disabled =
+                s.id === "portfolio2"
+                  ? !basicApproved
+                  : s.id === "ips"
+                    ? !portfolioApproved
+                    : false;
               return (
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => goTo(s.view, s.tab)}
+                  disabled={disabled}
+                  aria-disabled={disabled || undefined}
+                  onClick={() => {
+                    if (disabled) return;
+                    goTo(s.view, "tab" in s ? s.tab : undefined);
+                  }}
                   aria-current={isActive ? "page" : undefined}
-                  className={pillClass(isActive)}
+                  className={pillClass(isActive, disabled)}
+                  title={
+                    disabled
+                      ? s.id === "portfolio2"
+                        ? "기본정보 승인 후 포트폴리오를 진행할 수 있습니다."
+                        : "포트폴리오 승인 후 IPS를 확정할 수 있습니다."
+                      : undefined
+                  }
                 >
                   <span className="mr-1" aria-hidden="true">{s.icon}</span>
                   {s.label}

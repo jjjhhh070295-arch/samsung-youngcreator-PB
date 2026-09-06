@@ -40,7 +40,11 @@ import { stableJsonStringify } from "@/lib/advisory/stableJson";
 import { HONESTY_LIMITS } from "@/lib/advisory/constants";
 import { mergeTaxProfile, projectTax } from "@/lib/taxProjection";
 import { DEFAULT_HORIZON_YEARS } from "@/lib/taxProjectionRules";
-import { isPortfolioWorkflowApproved } from "@/lib/advisory/workflowApprovals";
+import {
+  isIpsWorkflowApproved,
+  isPortfolioWorkflowApproved,
+} from "@/lib/advisory/workflowApprovals";
+import { syncEvidenceAfterIpsApproval } from "@/lib/advisory/workflowEvidenceSync";
 import { isFinancialIncomeReadyForTax } from "@/lib/financialIncome";
 
 const CHART_COLORS = ["#0F172A", "#1428A0", "#2C3EE8", "#10b981", "#ef4444", "#8b5cf6", "#64748B"];
@@ -418,7 +422,13 @@ export default function IPSDocumentPage() {
       failVerification("최종 PDF 비활성: 현재 고객과 담당 PB 경로가 일치하지 않습니다.");
       return () => controller.abort();
     }
-    const bundle = loadBundle(clientId);
+    const bundle = isIpsWorkflowApproved(client)
+      ? (() => {
+          const current = loadBundle(clientId);
+          if (canIssueClientPdf(current)) return current;
+          return syncEvidenceAfterIpsApproval(client);
+        })()
+      : loadBundle(clientId);
     if (!canIssueClientPdf(bundle)) {
       failVerification(pdfBlockReason(bundle));
       return () => controller.abort();

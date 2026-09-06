@@ -17,11 +17,13 @@ import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import { loadBundle } from "@/lib/advisory/control";
 import {
+  isBasicWorkflowApproved,
   isIpsWorkflowApproved,
   isPortfolioWorkflowApproved,
   workflowPdfBlockReason,
   workflowPdfReady,
 } from "@/lib/advisory/workflowApprovals";
+import { ipsExtractionMissingReasons } from "@/lib/advisory/ipsExtraction";
 
 interface Props {
   client: Client;
@@ -218,6 +220,8 @@ export default function IPSResultTabs({
   const consultationComplete = Boolean(
     isPortfolioWorkflowApproved(client) && isIpsWorkflowApproved(client) && pdfReady,
   );
+  const ipsMissing = ipsExtractionMissingReasons(client);
+  const ipsReady = isBasicWorkflowApproved(client) && ipsMissing.length === 0;
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -507,8 +511,8 @@ export default function IPSResultTabs({
 
       {/* IPS — 투자정책서 문서 생성 + 단계 확정 */}
       {tab === "ips" && (
-        <div>
-          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <div className="space-y-4">
+          <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               className={isIpsWorkflowApproved(client) ? "btn-outline whitespace-nowrap text-xs" : "btn-primary whitespace-nowrap text-xs"}
@@ -518,6 +522,46 @@ export default function IPSResultTabs({
             </button>
             <StageToggle k="ips" />
           </div>
+
+          {!ipsReady ? (
+            <div className="card flex flex-col items-center gap-2 p-8 text-center">
+              <span className="text-2xl">⚠️</span>
+              <p className="text-sm font-medium text-fg">IPS 추출에 필요한 정보가 부족합니다</p>
+              <ul className="mt-1 max-w-md list-disc space-y-1 pl-5 text-left text-xs text-fg-muted">
+                {(ipsMissing.length ? ipsMissing : ["기본정보 승인 후 IPS가 생성됩니다."]).map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="card space-y-4 p-5">
+              <div>
+                <p className="decision-kicker">IPS extract</p>
+                <h3 className="mt-1 text-lg font-bold text-fg">추출된 투자정책 (RRTTLLU)</h3>
+                <p className="mt-1 text-xs text-fg-muted">
+                  기본정보 승인 시 고객 프로필·설문·현금흐름·세금 플래그로 확정된 요인입니다.
+                </p>
+              </div>
+              <IPSRadar ips={client.ips} />
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {FACTOR_META.map((m) => {
+                  const f = client.ips[m.key];
+                  return (
+                    <div key={m.key} className="rounded-lg border border-border bg-surface-2/40 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                        {m.label} ({m.labelEn})
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-fg">{f?.value?.trim() || "—"}</p>
+                      {f?.notes?.trim() && (
+                        <p className="mt-1 text-[11px] text-fg-muted">{f.notes}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="card flex flex-col items-center gap-4 p-8 text-center">
             <span className="text-3xl">{consultationComplete ? "✓" : "📄"}</span>
             <div>
