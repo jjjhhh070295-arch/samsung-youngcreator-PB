@@ -29,10 +29,10 @@ import {
 } from "@/lib/advisory/workflowApprovals";
 import SessionCountdown from "@/components/SessionCountdown";
 
-/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 2 → IPS → 고객화면 */
+/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 → IPS → 고객화면 */
 const CLIENT_WORKFLOW_TABS = [
   { id: "basic", icon: "👤", label: "기본 정보", view: "home" as const },
-  { id: "portfolio2", icon: "📊", label: "포트폴리오 2", view: "analysis" as const, tab: "portfolio2" },
+  { id: "portfolio2", icon: "📊", label: "포트폴리오", view: "analysis" as const, tab: "portfolio2" },
   { id: "ips", icon: "📄", label: "IPS", view: "analysis" as const, tab: "ips" },
   { id: "customer", icon: "🖥️", label: "고객화면", view: "analysis" as const, tab: "customer" },
 ] as const;
@@ -267,7 +267,7 @@ export default function AppNav() {
 
   const utilityItems: MoreMenuItem[] = [
     { key: "home", label: "홈", icon: "🏠", href: "/" },
-    ...(pbId ? [{ key: "book", label: "다고객 북", icon: "📒", href: `/pb/${pbId}` }] : []),
+    ...(pbId ? [{ key: "book", label: "고객조회", icon: "📒", href: `/pb/${pbId}` }] : []),
     ...(pbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${pbId}/ticker` }] : []),
     { key: "research", label: "리서치", icon: "📊", href: "/research" },
     // PB 계정 관리 — 예전에는 홈 화면 카드로만 열 수 있어 관리하려면 홈으로 돌아가야 했다.
@@ -316,7 +316,7 @@ export default function AppNav() {
             </div>
           </div>
 
-          {/* 2행 — 기본 정보 / 포트폴리오 2 / IPS / 고객화면 */}
+          {/* 2행 — 기본 정보 / 포트폴리오 / IPS / 고객화면 */}
           <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
             {CLIENT_WORKFLOW_TABS.map((s) => {
               const isActive =

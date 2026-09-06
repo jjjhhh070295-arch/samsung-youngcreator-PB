@@ -692,7 +692,7 @@ export default function ManualPortfolioBuilder({
           <div className="flex flex-col gap-3 bg-[#071B4A] p-5 text-white sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-blue-200">Custom portfolio preview</p>
-              <h3 className="mt-1 text-xl font-black">선택 포트폴리오</h3>
+              <h3 className="mt-1 text-xl font-black">Portfolio preview</h3>
               <p className="mt-1 text-xs text-blue-100">입력한 자산군 비중과 종목별 내부 비중을 결합한 최종 구성입니다.</p>
             </div>
             <div className={`rounded-xl border px-4 py-2 text-right ${instrumentAllocationComplete ? "border-emerald-300/40 bg-emerald-400/15" : "border-amber-300/40 bg-amber-300/10"}`}>

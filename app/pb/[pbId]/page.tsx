@@ -160,7 +160,7 @@ export default function PBPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
           <div>
             <Link href="/" className="text-[11px] font-semibold text-[#1428A0] hover:underline">PB Home</Link>
-            <h1 className="mt-1 text-xl font-black tracking-tight text-fg">다고객 북</h1>
+            <h1 className="mt-1 text-xl font-black tracking-tight text-fg">고객조회</h1>
             <p className="mt-0.5 text-xs text-fg-muted">{pb.name} PB · 담당 고객을 검색·필터·정렬하여 관리합니다.</p>
           </div>
           <div className="flex flex-wrap gap-2">
