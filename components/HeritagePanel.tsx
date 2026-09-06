@@ -226,7 +226,15 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
             </span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
-            <div className="console-metric"><p className="console-label">현금성 자산</p><p className="mt-1 text-sm font-bold text-fg">{eok(gap.liquidAssetsWon)}</p></div>
+            {/* "현금성 자산"이라고 부르던 값이다. 실제로는 listBookHoldings 가 돌려주는
+                Σ(수량 × 평균매입단가) — client_holdings 에서 avg_price 만 읽고 lastPrice 를
+                null 로 두기 때문에 evalAmount 가 취득원가로 떨어진다. 예금·보험은 애초에
+                이 테이블에 없다. 갭 계산의 분모라 오해하면 납부재원 판단이 통째로 틀어진다. */}
+            <div className="console-metric">
+              <p className="console-label">보유종목 취득원가</p>
+              <p className="mt-1 text-sm font-bold text-fg">{eok(gap.liquidAssetsWon)}</p>
+              <p className="text-[10px] font-semibold text-amber-700">시가 아님 · 예금 미포함</p>
+            </div>
             <div className="console-metric"><p className="console-label">갭(하한 기준)</p><p className="mt-1 text-sm font-bold text-fg">{eok(gap.minGapWon)}</p></div>
             <div className="console-metric"><p className="console-label">갭(상한 기준·최악)</p><p className="mt-1 text-sm font-bold text-fg">{eok(gap.maxGapWon)}</p></div>
           </div>

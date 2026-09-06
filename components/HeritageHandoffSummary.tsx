@@ -132,9 +132,24 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
             <div className="decision-card mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div><p className="text-[11px] text-fg-muted">총자산</p><p className="mt-0.5 text-sm font-bold text-fg">{eok(input.assetSizeWon)}</p></div>
               <div><p className="text-[11px] text-fg-muted">부동산</p><p className="mt-0.5 text-sm font-bold text-fg">{realEstateValueWon != null ? `${eok(realEstateValueWon)} (${realEstateWeightLabel})` : "미입력"}</p></div>
-              <div><p className="text-[11px] text-fg-muted">금융자산(현금성)</p><p className="mt-0.5 text-sm font-bold text-fg">{eok(liquidAssetsWon)}</p></div>
+              <div>
+                <p className="text-[11px] text-fg-muted">보유종목 취득원가 합계</p>
+                <p className="mt-0.5 text-sm font-bold text-fg">{eok(liquidAssetsWon)}</p>
+                <p className="text-[10px] font-semibold text-amber-700">시가 아님</p>
+              </div>
               <div><p className="text-[11px] text-fg-muted">채무</p><p className="mt-0.5 text-sm font-bold text-fg">{eok(debtWon)}</p></div>
             </div>
+            {/* 라벨이 "금융자산(현금성)"이던 시절, 이 값은 실제로는 Σ(수량 × 평균매입단가)였다.
+                listBookHoldings 가 client_holdings 에서 quantity·avg_price 만 읽고 lastPrice 를
+                null 로 두기 때문에 evalAmount 가 avgPrice 로 폴백한다(current_price 컬럼은
+                테이블에 있으나 비어 있다). 세무사가 이 숫자를 시가로 읽으면 과세표준이
+                통째로 틀어지므로, 무엇인지 문서에 명시한다. */}
+            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+              <span className="font-bold">보유종목 금액은 취득원가(수량 × 평균매입단가) 합계입니다.</span>{" "}
+              현재 시세가 반영되지 않았고, 예금·보험·퇴직금 등 다른 금융재산은 포함돼 있지 않습니다.
+              상속세 과세가액은 <span className="font-bold">상속개시일 현재의 시가</span>로 평가해야 하므로,
+              이 금액을 그대로 쓰지 마시고 평가기준일 시세로 재산정해 주십시오.
+            </p>
           </section>
 
           {/* 3. 가족관계 */}
