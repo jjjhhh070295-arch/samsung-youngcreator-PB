@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { updateAllocationWithCash, type ManualAllocation } from "./manualPortfolioDraft";
+import { remainingPctForFinalTarget, updateAllocationWithCash, type ManualAllocation } from "./manualPortfolioDraft";
 
 const empty: ManualAllocation = {
   domesticEquity: 0,
@@ -26,5 +26,14 @@ describe("updateAllocationWithCash", () => {
     const global = updateAllocationWithCash(domestic, "globalEquity", 50);
     assert.equal(global.globalEquity, 30);
     assert.equal(global.cash, 0);
+  });
+});
+
+describe("remainingPctForFinalTarget", () => {
+  it("keeps a 50억원 holding fixed inside a 350억원 total and allocates only the remaining 300억원", () => {
+    const fixedPct = 50 / 350 * 100;
+    const allocationScale = 300 / 350;
+    assert.equal(remainingPctForFinalTarget(fixedPct, fixedPct, allocationScale), 0);
+    assert.ok(Math.abs(remainingPctForFinalTarget(50, fixedPct, allocationScale) - 41.6666666667) < 1e-9);
   });
 });

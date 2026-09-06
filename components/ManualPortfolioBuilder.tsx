@@ -11,7 +11,7 @@ import {
   redistributeAssetClassWeights,
   sameInstrument,
 } from "@/lib/advisory/mergeTrendInstruments";
-import { updateAllocationWithCash } from "@/lib/manualPortfolioDraft";
+import { remainingPctForFinalTarget, updateAllocationWithCash } from "@/lib/manualPortfolioDraft";
 
 type AssetClass =
   | "domesticEquity"
@@ -252,6 +252,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
     alternatives: allocation.alternatives * allocationScale,
     cash: allocation.cash * allocationScale,
   }), [allocation, allocationScale, existingByClass, investableWon]);
+  const finalTotal = Object.values(finalAllocation).reduce((sum, value) => sum + value, 0);
 
   const save = useCallback(() => {
     const now = new Date().toISOString();
@@ -272,9 +273,23 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
     setAllocation((current) => updateAllocationWithCash(current, assetClass, value));
   };
 
-  const updateAllocationAmount = (assetClass: AssetClass, amountEok: number) => {
-    const percentage = allocatableWon > 0 ? (amountEok * 100_000_000 / allocatableWon) * 100 : 0;
-    updateAllocation(assetClass, Math.round(percentage * 100) / 100);
+  const fixedPctForClass = (assetClass: AssetClass) => {
+    if (assetClass === "domesticEquity") return investableWon > 0 ? existingByClass.domesticEquity / investableWon * 100 : 0;
+    if (assetClass === "globalEquity") return investableWon > 0 ? existingByClass.globalEquity / investableWon * 100 : 0;
+    return 0;
+  };
+
+  /** 전체 포트폴리오 목표 비중을 남은 배분 가능 자산 기준 내부 비중으로 변환한다. */
+  const updateFinalAllocation = (assetClass: AssetClass, finalPct: number) => {
+    if (assetClass === "cash" || allocationScale <= 0) return;
+    const fixedPct = fixedPctForClass(assetClass);
+    const remainingAssetPct = remainingPctForFinalTarget(finalPct, fixedPct, allocationScale);
+    updateAllocation(assetClass, Math.round(remainingAssetPct * 100) / 100);
+  };
+
+  const updateFinalAllocationAmount = (assetClass: AssetClass, amountEok: number) => {
+    const finalPct = investableWon > 0 ? (amountEok * 100_000_000 / investableWon) * 100 : 0;
+    updateFinalAllocation(assetClass, finalPct);
   };
 
   const applyExistingHoldings = () => {
@@ -393,7 +408,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
           </div>
           <div className={`min-w-[210px] rounded-xl border px-4 py-3 ${isComplete ? "border-emerald-300/50 bg-emerald-400/15" : "border-amber-300/50 bg-amber-300/10"}`}>
             <div className="flex items-end justify-between gap-4">
-              <div><p className="text-[10px] font-bold text-blue-100">배분 합계</p><p className="mt-1 text-3xl font-black">{total.toFixed(1)}%</p></div>
+              <div><p className="text-[10px] font-bold text-blue-100">전체 자산배분 합계</p><p className="mt-1 text-3xl font-black">{finalTotal.toFixed(1)}%</p></div>
               <span className={`mb-1 rounded-full px-2 py-1 text-[10px] font-black ${isComplete ? "bg-emerald-300 text-emerald-950" : "bg-amber-300 text-amber-950"}`}>{isComplete ? "배분 완료" : `${remainingPct > 0 ? "잔여" : "초과"} ${Math.abs(remainingPct).toFixed(1)}%`}</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className={`h-full rounded-full ${total > 100 ? "bg-rose-400" : isComplete ? "bg-emerald-300" : "bg-amber-300"}`} style={{ width: `${Math.min(total, 100)}%` }} /></div>
@@ -439,7 +454,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-black text-fg">입력 기준</p>
-          <p className="mt-0.5 text-[10px] text-fg-muted">비현금 자산을 입력하면 나머지는 현금성 자산으로 자동 배분되어 항상 100%를 유지합니다.</p>
+          <p className="mt-0.5 text-[10px] text-fg-muted">전체 투자가능자산 기준입니다. 기존 보유주식 비중은 고정하고, 변경한 비현금 자산 외의 잔여분은 현금성으로 자동 배분합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-border bg-surface-2 p-1">
@@ -451,6 +466,8 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {ASSET_CLASSES.map((item) => {
+          const fixedPct = fixedPctForClass(item.id);
+          const fixedWon = item.id === "domesticEquity" || item.id === "globalEquity" ? existingByClass[item.id] : 0;
           return (
             <label key={item.id} className={`group rounded-xl border p-4 transition ${item.id === "cash" ? "border-emerald-200 bg-emerald-50" : "border-border bg-white hover:-translate-y-0.5 hover:border-[#1428A0]/30 hover:shadow-sm"}`}>
               <span className="flex items-start justify-between gap-3">
@@ -461,19 +478,20 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                 <span className="flex items-center gap-1">
                   <input
                     type="number"
-                    min="0"
-                    max={inputMode === "percent" ? 100 : allocatableWon / 100_000_000}
+                    min={inputMode === "percent" ? fixedPct : fixedWon / 100_000_000}
+                    max={inputMode === "percent" ? 100 : investableWon / 100_000_000}
                     step="0.1"
-                    value={inputMode === "percent" ? Number(allocation[item.id].toFixed(2)) : Number((allocatableWon * allocation[item.id] / 100 / 100_000_000).toFixed(2))}
-                    onChange={(event) => inputMode === "percent" ? updateAllocation(item.id, Number(event.target.value)) : updateAllocationAmount(item.id, Number(event.target.value))}
+                    value={inputMode === "percent" ? Number(finalAllocation[item.id].toFixed(2)) : Number((investableWon * finalAllocation[item.id] / 100 / 100_000_000).toFixed(2))}
+                    onChange={(event) => inputMode === "percent" ? updateFinalAllocation(item.id, Number(event.target.value)) : updateFinalAllocationAmount(item.id, Number(event.target.value))}
                     disabled={item.id === "cash"}
                     className="w-24 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-lg font-black text-fg outline-none transition focus:border-[#1428A0] focus:bg-white focus:ring-2 focus:ring-[#1428A0]/10"
                   />
                   <span className="min-w-7 text-xs font-bold text-fg-muted">{inputMode === "percent" ? "%" : "억원"}</span>
                 </span>
               </span>
-              <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-surface-2"><span className="block h-full rounded-full bg-gradient-to-r from-[#1428A0] to-[#4F67E8]" style={{ width: `${Math.min(allocation[item.id], 100)}%` }} /></span>
-              <span className="mt-2 flex items-center justify-between text-[10px] text-fg-muted"><span>{inputMode === "percent" ? formatWon(allocatableWon * allocation[item.id] / 100) : `${allocation[item.id].toFixed(2)}%`}</span><span>{item.id === "cash" ? "자동 계산" : "배분 가능 자산 기준"}</span></span>
+              <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-surface-2"><span className="block h-full rounded-full bg-gradient-to-r from-[#1428A0] to-[#4F67E8]" style={{ width: `${Math.min(finalAllocation[item.id], 100)}%` }} /></span>
+              <span className="mt-2 flex items-center justify-between text-[10px] text-fg-muted"><span>{inputMode === "percent" ? formatWon(investableWon * finalAllocation[item.id] / 100) : `${finalAllocation[item.id].toFixed(2)}%`}</span><span>{item.id === "cash" ? "자동 계산" : "전체 투자가능자산 기준"}</span></span>
+              {fixedWon > 0 && <span className="mt-2 block rounded-md bg-blue-50 px-2 py-1.5 text-[10px] font-bold text-blue-700">기존 보유 고정 {formatWon(fixedWon)} · {fixedPct.toFixed(2)}% 포함</span>}
             </label>
           );
         })}
@@ -506,7 +524,7 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
                 }}
                 className={`rounded-full border px-3 py-1.5 text-xs font-bold ${activeClass === item.id ? "border-[#1428A0] bg-[#1428A0] text-white" : "border-border bg-white text-fg-muted"}`}
               >
-                {item.label} {allocation[item.id]}%
+                {item.label} {finalAllocation[item.id].toFixed(2)}%
               </button>
             ))}
           </div>
