@@ -5,7 +5,15 @@ import type { CashFlow } from "@/lib/types";
 import { formatKRW, parseNumber } from "@/lib/format";
 import PeriodCashflowLineChart from "./cashflow/PeriodCashflowLineChart";
 import {
+  CASHFLOW_PERIOD_TYPE_OPTIONS,
+  compareCashflowPeriodKeys,
+  formatCashflowPeriodLabel,
+  isCashflowPeriodType,
+  type CashflowPeriodType,
+} from "@/lib/cashflowPeriod";
+import {
   calcSimpleNetCash,
+  inferCashflowPeriodType,
   loadSimpleCashflowRows,
   nextSimpleCashflowPeriod,
   rowsToPeriodSeries,
@@ -16,13 +24,19 @@ import {
 
 interface Props {
   cashFlows: CashFlow[];
-  onSave: (flows: CashFlow[]) => Promise<void> | void;
+  onSave: (flows: CashFlow[], periodType?: CashflowPeriodType) => Promise<void> | void;
   pbId?: string;
   clientId?: string;
+  /** 고객에 저장된 입력 주기(있으면 우선) */
+  initialPeriodType?: CashflowPeriodType | null;
 }
 
 function detailOpenKey(pbId: string, clientId: string) {
   return `pb-cashflow-detail-open:${pbId || "default"}:${clientId || "default"}`;
+}
+
+function periodTypeKey(pbId: string, clientId: string) {
+  return `pb-cashflow-period-type:${pbId || "default"}:${clientId || "default"}`;
 }
 
 function loadDetailOpen(pbId: string, clientId: string): boolean {
@@ -43,6 +57,25 @@ function saveDetailOpen(pbId: string, clientId: string, open: boolean) {
   }
 }
 
+function loadStoredPeriodType(pbId: string, clientId: string): CashflowPeriodType | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(periodTypeKey(pbId, clientId));
+    return isCashflowPeriodType(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredPeriodType(pbId: string, clientId: string, periodType: CashflowPeriodType) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(periodTypeKey(pbId, clientId), periodType);
+  } catch {
+    // ignore
+  }
+}
+
 function SummaryCard({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
     <div className="console-metric">
@@ -52,16 +85,96 @@ function SummaryCard({ label, value, tone }: { label: string; value: number; ton
   );
 }
 
-export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default", clientId = "default" }: Props) {
+function PeriodEditor({
+  periodType,
+  value,
+  onChange,
+}: {
+  periodType: CashflowPeriodType;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  if (periodType === "monthly") {
+    return (
+      <input
+        className="input py-1 text-xs"
+        type="month"
+        value={/^\d{4}-\d{2}$/.test(value) ? value : ""}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+
+  const year = value.match(/^(20\d{2})/)?.[1] ?? String(new Date().getFullYear());
+  const setYear = (nextYear: string) => {
+    if (periodType === "yearly") onChange(nextYear);
+    else if (periodType === "quarterly") {
+      const q = value.match(/-Q([1-4])/)?.[1] ?? "1";
+      onChange(`${nextYear}-Q${q}`);
+    } else {
+      const h = value.match(/-H([12])/)?.[1] ?? "1";
+      onChange(`${nextYear}-H${h}`);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <input
+        className="input w-20 py-1 text-xs"
+        type="number"
+        min={2000}
+        max={2100}
+        value={year}
+        onChange={(e) => setYear(e.target.value.slice(0, 4))}
+      />
+      <span className="text-[11px] text-fg-muted">년</span>
+      {periodType === "quarterly" && (
+        <select
+          className="input py-1 text-xs"
+          value={value.match(/-Q([1-4])/)?.[1] ?? "1"}
+          onChange={(e) => onChange(`${year}-Q${e.target.value}`)}
+        >
+          <option value="1">1분기</option>
+          <option value="2">2분기</option>
+          <option value="3">3분기</option>
+          <option value="4">4분기</option>
+        </select>
+      )}
+      {periodType === "semiAnnual" && (
+        <select
+          className="input py-1 text-xs"
+          value={value.match(/-H([12])/)?.[1] ?? "1"}
+          onChange={(e) => onChange(`${year}-H${e.target.value}`)}
+        >
+          <option value="1">상반기</option>
+          <option value="2">하반기</option>
+        </select>
+      )}
+    </div>
+  );
+}
+
+export default function SimpleCashflowPanel({
+  cashFlows,
+  onSave,
+  pbId = "default",
+  clientId = "default",
+  initialPeriodType = null,
+}: Props) {
   const [rows, setRows] = useState<SimpleCashflowRow[]>([]);
+  const [periodType, setPeriodType] = useState<CashflowPeriodType>("monthly");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
 
   useEffect(() => {
     setRows(loadSimpleCashflowRows(cashFlows));
+    const inferred = inferCashflowPeriodType(cashFlows);
+    const stored = loadStoredPeriodType(pbId, clientId);
+    const nextType = initialPeriodType ?? stored ?? inferred;
+    setPeriodType(nextType);
     setDirty(false);
-  }, [cashFlows]);
+  }, [cashFlows, clientId, initialPeriodType, pbId]);
 
   useEffect(() => {
     setDetailOpen(loadDetailOpen(pbId, clientId));
@@ -69,6 +182,10 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
 
   const totals = useMemo(() => summarizeSimpleCashflowRows(rows), [rows]);
   const chartSeries = useMemo(() => rowsToPeriodSeries(rows), [rows]);
+  const sortedRows = useMemo(
+    () => [...rows].sort((a, b) => compareCashflowPeriodKeys(a.period, b.period)),
+    [rows],
+  );
 
   const mutate = (next: SimpleCashflowRow[]) => {
     setRows(next);
@@ -84,7 +201,7 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
       ...rows,
       {
         id: `row-${Date.now()}`,
-        period: nextSimpleCashflowPeriod(rows),
+        period: nextSimpleCashflowPeriod(rows, periodType),
         netInflow: 0,
         netOutflowExTax: 0,
         totalTax: 0,
@@ -96,10 +213,17 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
     mutate(rows.filter((row) => row.id !== id));
   };
 
+  const changePeriodType = (next: CashflowPeriodType) => {
+    setPeriodType(next);
+    saveStoredPeriodType(pbId, clientId, next);
+    setDirty(true);
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSave(simpleRowsToCashFlows(rows, cashFlows));
+      saveStoredPeriodType(pbId, clientId, periodType);
+      await onSave(simpleRowsToCashFlows(rows, cashFlows, periodType), periodType);
       setDirty(false);
     } finally {
       setSaving(false);
@@ -120,7 +244,7 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
         <div>
           <h3 className="text-sm font-black text-fg">현금흐름</h3>
           <p className="mt-0.5 text-[11px] text-fg-muted">
-            순유입, 순유출, 총세금만 입력해 월별 현금흐름을 관리합니다.
+            총유입, 총유출, 총세금만 입력해 기간별 현금흐름을 관리합니다. 순자금 = 총유입 − 총유출 − 총세금.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -134,8 +258,8 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
       </div>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <SummaryCard label="표시기간 순유입 합계" value={totals.netInflow} tone="text-[#1428A0]" />
-        <SummaryCard label="표시기간 순유출 합계(세금 제외)" value={totals.netOutflowExTax} />
+        <SummaryCard label="표시기간 총유입 합계" value={totals.netInflow} tone="text-[#1428A0]" />
+        <SummaryCard label="표시기간 총유출 합계(세금 제외)" value={totals.netOutflowExTax} />
         <SummaryCard label="표시기간 총세금" value={totals.totalTax} />
         <SummaryCard
           label="표시기간 순자금"
@@ -144,44 +268,68 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
         />
       </div>
 
+      {totals.netCash < 0 && (
+        <div className="mt-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          순자금이 마이너스입니다. 세금 납부와 생활비 대응을 위해 유동성 높은 자산 편입이 필요합니다.
+        </div>
+      )}
+
       {detailOpen ? (
         <div className="mt-4 space-y-4 border-t border-border pt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] text-fg-muted">월별 입력 · 차트</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[11px] font-semibold text-fg-muted">현금흐름 입력 · 차트</p>
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-fg">
+                입력 주기
+                <select
+                  className="input py-1 text-xs"
+                  value={periodType}
+                  onChange={(e) => changePeriodType(e.target.value as CashflowPeriodType)}
+                >
+                  {CASHFLOW_PERIOD_TYPE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <button type="button" className="btn-outline text-xs" onClick={addRow}>
-              + 월 추가
+              + 기간 추가
             </button>
           </div>
 
           {rows.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border bg-surface-2/40 px-4 py-10 text-center text-sm text-fg-muted">
-              등록된 월별 현금흐름이 없습니다. &quot;+ 월 추가&quot;로 첫 행을 만드세요.
+              등록된 현금흐름이 없습니다. &quot;+ 기간 추가&quot;로 첫 행을 만드세요.
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-border">
               <table className="min-w-full border-collapse text-left text-xs">
                 <thead className="bg-surface-2 text-fg-muted">
                   <tr>
-                    <th className="px-3 py-2 font-bold">월 / 기간</th>
-                    <th className="px-3 py-2 font-bold">순유입</th>
-                    <th className="px-3 py-2 font-bold">순유출</th>
+                    <th className="px-3 py-2 font-bold">기간</th>
+                    <th className="px-3 py-2 font-bold">총유입</th>
+                    <th className="px-3 py-2 font-bold">총유출</th>
                     <th className="px-3 py-2 font-bold">총세금</th>
                     <th className="px-3 py-2 font-bold">순자금</th>
                     <th className="px-3 py-2 font-bold" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border bg-white">
-                  {[...rows]
-                    .sort((a, b) => a.period.localeCompare(b.period))
-                    .map((row) => (
+                  {sortedRows.map((row) => {
+                    const net = calcSimpleNetCash(row);
+                    return (
                       <tr key={row.id}>
                         <td className="px-3 py-2">
-                          <input
-                            className="input py-1 text-xs"
-                            type="month"
+                          <PeriodEditor
+                            periodType={periodType}
                             value={row.period}
-                            onChange={(e) => updateRow(row.id, { period: e.target.value })}
+                            onChange={(period) => updateRow(row.id, { period })}
                           />
+                          <p className="mt-1 text-[10px] text-fg-muted">
+                            {formatCashflowPeriodLabel(row.period, periodType)}
+                          </p>
                         </td>
                         {(["netInflow", "netOutflowExTax", "totalTax"] as const).map((field) => (
                           <td key={field} className="px-3 py-2">
@@ -196,8 +344,8 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
                             />
                           </td>
                         ))}
-                        <td className="px-3 py-2 font-semibold text-[#1428A0]">
-                          {formatKRW(calcSimpleNetCash(row))}
+                        <td className={`px-3 py-2 font-semibold ${net >= 0 ? "text-[#1428A0]" : "text-red-600"}`}>
+                          {formatKRW(net)}
                         </td>
                         <td className="px-3 py-2 text-right">
                           <button
@@ -209,7 +357,8 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -217,8 +366,8 @@ export default function SimpleCashflowPanel({ cashFlows, onSave, pbId = "default
 
           {chartSeries.length > 0 ? (
             <div className="rounded-xl border border-border bg-surface-2/30 p-3">
-              <p className="mb-2 text-xs font-bold text-fg">월별 현금흐름 추이</p>
-              <PeriodCashflowLineChart series={chartSeries} className="h-72" />
+              <p className="mb-2 text-xs font-bold text-fg">현금흐름 추이</p>
+              <PeriodCashflowLineChart series={chartSeries} periodType={periodType} className="h-72" />
             </div>
           ) : null}
         </div>

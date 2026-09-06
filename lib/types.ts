@@ -1,5 +1,9 @@
 // ── 데이터 모델 (BLUEPRINT §4) ──
 
+import type { CashflowPeriodType } from "./cashflowPeriod";
+
+export type { CashflowPeriodType } from "./cashflowPeriod";
+
 // ── Party 데이터 모델 ──
 export type PartyType = "individual" | "corporate";
 
@@ -266,6 +270,8 @@ export interface Client {
   financialIncomeComprehensiveTax?: boolean;
   /** 원천징수영수증 등에서 확보한 금융소득(이자·배당) 프로파일 */
   financialIncomeProfile?: FinancialIncomeProfile | null;
+  /** 현금흐름 입력 주기 — 월별/분기별/반기별/연도별 */
+  cashflowPeriodType?: CashflowPeriodType | null;
 }
 
 /** 원천징수영수증 PDF 파싱/수동입력 상태 */

@@ -1191,17 +1191,17 @@ export default function IPSDocumentPage() {
             <div className="space-y-3 text-xs">
               <div className="rounded border border-gray-200 p-3">
                 <p className="mb-1 font-semibold text-gray-800">월별 현금흐름 추이</p>
-                <p className="mb-2 text-[10px] text-gray-500">순유입·순유출(세금 제외)·총세금·월 순자금 (만원)</p>
+                <p className="mb-2 text-[10px] text-gray-500">총유입·총유출(세금 제외)·총세금·순자금 (만원)</p>
                 <PeriodCashflowLineChart series={periodSeries} className="h-80" />
               </div>
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-gray-300 text-left text-gray-500">
                     <th className="py-1.5">기간</th>
-                    <th className="py-1.5 text-right">순유입</th>
-                    <th className="py-1.5 text-right">순유출(세금 제외)</th>
+                    <th className="py-1.5 text-right">총유입</th>
+                    <th className="py-1.5 text-right">총유출(세금 제외)</th>
                     <th className="py-1.5 text-right">총세금</th>
-                    <th className="py-1.5 text-right">월 순자금</th>
+                    <th className="py-1.5 text-right">순자금</th>
                     <th className="py-1.5 text-right">누적</th>
                   </tr>
                 </thead>
@@ -1223,7 +1223,7 @@ export default function IPSDocumentPage() {
                 </tbody>
               </table>
               <p className="text-[10px] text-gray-400">
-                ※ 순유출은 세금을 제외한 생활비·운영비·투자성 유출을 합산한 값입니다. 총세금은 별도 컬럼으로 분리했습니다.
+                ※ 총유출은 세금을 제외한 생활비·운영비·투자성 유출을 합산한 값입니다. 총세금은 별도 컬럼으로 분리했습니다. 순자금 = 총유입 − 총유출 − 총세금.
               </p>
             </div>
           </Section>

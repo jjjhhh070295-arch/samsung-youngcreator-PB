@@ -14,6 +14,10 @@ import {
 } from "recharts";
 import type { PeriodCashflowChartPoint, PeriodCashflowPoint } from "@/lib/periodCashflow";
 import { toPeriodCashflowChartData } from "@/lib/periodCashflow";
+import {
+  formatCashflowPeriodLabel,
+  type CashflowPeriodType,
+} from "@/lib/cashflowPeriod";
 
 export const LINE_COLORS = {
   income: "#2563eb",
@@ -43,11 +47,17 @@ const computeZeroBasedDomain = (chartData: PeriodCashflowChartPoint[]): [number,
 export default function PeriodCashflowLineChart({
   series,
   className = "h-80",
+  periodType = "monthly",
 }: {
   series: PeriodCashflowPoint[];
   className?: string;
+  periodType?: CashflowPeriodType;
 }) {
-  const chartData = toPeriodCashflowChartData(series);
+  const labeled = series.map((point) => ({
+    ...point,
+    period: formatCashflowPeriodLabel(point.period, periodType),
+  }));
+  const chartData = toPeriodCashflowChartData(labeled);
   const yDomain = computeZeroBasedDomain(chartData);
 
   return (
@@ -64,10 +74,10 @@ export default function PeriodCashflowLineChart({
           <ReferenceLine y={0} stroke="#111827" strokeWidth={2} ifOverflow="extendDomain" />
           <Tooltip formatter={(value: unknown) => `${Number(value).toLocaleString()}만원`} />
           <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
-          <Bar dataKey="incomePlotManwon" name="순유입" fill={LINE_COLORS.income} radius={[4, 4, 0, 0]} />
-          <Bar dataKey="nonTaxOutflowPlotManwon" name="순유출(세금 제외)" fill={LINE_COLORS.outflow} radius={[4, 4, 0, 0]} />
+          <Bar dataKey="incomePlotManwon" name="총유입" fill={LINE_COLORS.income} radius={[4, 4, 0, 0]} />
+          <Bar dataKey="nonTaxOutflowPlotManwon" name="총유출(세금 제외)" fill={LINE_COLORS.outflow} radius={[4, 4, 0, 0]} />
           <Bar dataKey="taxPlotManwon" name="총세금" fill={LINE_COLORS.tax} radius={[4, 4, 0, 0]} />
-          <Line type="monotone" dataKey="netPlotManwon" name="월 순자금" stroke={LINE_COLORS.net} strokeWidth={3} dot={false} />
+          <Line type="monotone" dataKey="netPlotManwon" name="순자금" stroke={LINE_COLORS.net} strokeWidth={3} dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
