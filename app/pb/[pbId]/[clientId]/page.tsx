@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL } from "@/lib/types";
-import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey, Stages } from "@/lib/types";
+import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey, Stages, FinancialIncomeProfile } from "@/lib/types";
+import type { CashflowPeriodType } from "@/lib/cashflowPeriod";
 import {
   getClient,
   listClients,
@@ -44,7 +45,6 @@ import FactorsSummary from "@/components/FactorsSummary";
 import SimpleCashflowPanel from "@/components/SimpleCashflowPanel";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 import { resolveAssetBreakdown } from "@/lib/assets";
-import type { FinancialIncomeProfile } from "@/lib/types";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
@@ -120,10 +120,12 @@ export default function ClientDetailPage() {
     router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=${t}`, { scroll: false });
   };
 
-  const saveCashFlows = async (flows: CashFlow[]) => {
+  const saveCashFlows = async (flows: CashFlow[], periodType?: CashflowPeriodType) => {
     if (!client) return;
-    await updateClient(client.id, { cashFlows: flows });
-    setClient({ ...client, cashFlows: flows });
+    const patch: Partial<Client> = { cashFlows: flows };
+    if (periodType) patch.cashflowPeriodType = periodType;
+    await updateClient(client.id, patch);
+    setClient({ ...client, cashFlows: flows, ...(periodType ? { cashflowPeriodType: periodType } : {}) });
   };
 
   const savePortfolios = async (portfolios: Portfolio[]) => {
@@ -440,6 +442,7 @@ export default function ClientDetailPage() {
             onSave={saveCashFlows}
             pbId={pbId}
             clientId={clientId}
+            initialPeriodType={client.cashflowPeriodType ?? null}
           />
         </section>
 

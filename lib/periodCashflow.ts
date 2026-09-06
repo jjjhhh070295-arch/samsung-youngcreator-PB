@@ -1,5 +1,6 @@
 import type { CashFlow } from "./types";
 import { CASHFLOW_TAX_KEYWORDS, NON_TAX_EXPENSE_PATTERN } from "./cashflowTaxRules";
+import { normalizeCashflowPeriodKey } from "./cashflowPeriod";
 
 export interface PeriodCashflowPoint {
   period: string;
@@ -59,14 +60,7 @@ const cellToText = (value: unknown) => {
   return String(value ?? "").trim();
 };
 
-const parsePeriod = (raw: string) => {
-  const value = raw.trim();
-  const iso = value.match(/(20\d{2})[./-](\d{1,2})(?:[./-]\d{1,2})?/);
-  if (iso) return `${iso[1]}-${String(Number(iso[2])).padStart(2, "0")}`;
-  const korean = value.match(/(20\d{2})년\s*(\d{1,2})월/);
-  if (korean) return `${korean[1]}-${String(Number(korean[2])).padStart(2, "0")}`;
-  return "";
-};
+const parsePeriod = (raw: string) => normalizeCashflowPeriodKey(raw);
 
 const findHeaderIndex = (rows: Row[]) =>
   rows.findIndex((row) => {
@@ -183,8 +177,8 @@ export function extractPeriodCashFlows(rows: Row[], fileName = "기간별 현금
 
   const header = rows[headerIndex];
   const periodColumn = findColumn(header, ["기간", "월", "date", "period"], 0);
-  const incomeColumn = findColumn(header, ["순유입", "유입", "수입", "소득", "income"], 1);
-  const outflowColumn = findColumn(header, ["순유출", "유출", "지출", "비용", "expense", "outflow"], 2);
+  const incomeColumn = findColumn(header, ["총유입", "순유입", "유입", "수입", "소득", "income"], 1);
+  const outflowColumn = findColumn(header, ["총유출", "순유출", "유출", "지출", "비용", "expense", "outflow"], 2);
   const savingColumn = findColumn(header, ["저축", "투자", "saving", "investment"], -1);
   const taxColumn = findTaxColumn(header, -1);
   const memoColumn = findColumn(header, ["메모", "이벤트", "비고", "note"], -1);

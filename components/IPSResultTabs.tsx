@@ -325,8 +325,8 @@ export default function IPSResultTabs({
                   <p className="text-xs text-fg-muted">등록된 현금흐름이 없습니다.</p>
                 ) : (
                   <ul className="space-y-1 text-xs text-fg-muted">
-                    <li>순유입 합계 {formatKRW(simpleCashflowTotals.netInflow)}</li>
-                    <li>순유출 합계 {formatKRW(simpleCashflowTotals.netOutflowExTax)}</li>
+                    <li>총유입 합계 {formatKRW(simpleCashflowTotals.netInflow)}</li>
+                    <li>총유출 합계 {formatKRW(simpleCashflowTotals.netOutflowExTax)}</li>
                     <li>총세금 {formatKRW(simpleCashflowTotals.totalTax)}</li>
                     <li>
                       <b className="text-fg">순자금 {formatKRW(simpleCashflowTotals.netCash)}</b>

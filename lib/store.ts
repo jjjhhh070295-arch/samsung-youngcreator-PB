@@ -99,6 +99,7 @@ function rowToClient(r: any): Client {
     emailOptOutAt: r.email_opt_out_at ?? null,
     financialIncomeComprehensiveTax: r.financial_income_comprehensive_tax ?? false,
     financialIncomeProfile: r.financial_income_profile ?? null,
+    cashflowPeriodType: r.cashflow_period_type ?? null,
   };
 }
 
@@ -123,6 +124,9 @@ function clientToPartyRow(c: Partial<Client>): any {
   }
   if (c.financialIncomeProfile !== undefined) {
     row.financial_income_profile = c.financialIncomeProfile ?? null;
+  }
+  if (c.cashflowPeriodType !== undefined) {
+    row.cashflow_period_type = c.cashflowPeriodType ?? null;
   }
   return row;
 }
@@ -1078,7 +1082,7 @@ export async function createClient(input: NewClientInput): Promise<Client> {
       email: input.email || null,
       email_opt_in: input.emailOptIn ?? false,
     },
-    ["email", "email_opt_in", "financial_income_comprehensive_tax", "financial_income_profile"],
+    ["email", "email_opt_in", "financial_income_comprehensive_tax", "financial_income_profile", "cashflow_period_type"],
   );
   if (pe) throw pe;
 
@@ -1133,7 +1137,7 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
     const { error } = await withMissingColumnFallback(
       (row) => supabase!.from("parties").update(row).eq("id", id).then((res) => ({ data: null, error: res.error })),
       partyRow,
-      ["email", "email_opt_in", "email_opt_out_at", "financial_income_comprehensive_tax", "financial_income_profile"],
+      ["email", "email_opt_in", "email_opt_out_at", "financial_income_comprehensive_tax", "financial_income_profile", "cashflow_period_type"],
     );
     if (error) throw error;
   }
