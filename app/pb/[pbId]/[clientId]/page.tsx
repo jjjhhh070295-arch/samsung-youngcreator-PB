@@ -63,6 +63,7 @@ import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import IPSResultTabs, { type Tab } from "@/components/IPSResultTabs";
+import ClientFacingView from "@/components/ClientFacingView";
 import TrendChart from "@/components/TrendChart";
 import ConsultationHistory from "@/components/ConsultationHistory";
 import { LoadingView, ErrorView } from "@/components/StateViews";
@@ -79,13 +80,27 @@ import { resolveAssetBreakdown } from "@/lib/assets";
 
 const MSG_NEED_BASIC = "기본정보 승인 후 포트폴리오를 진행할 수 있습니다.";
 const MSG_NEED_PORTFOLIO = "포트폴리오 승인 후 IPS를 확정할 수 있습니다.";
+const MSG_NEED_CUSTOMER =
+  "고객화면을 표시하려면 포트폴리오 승인과 IPS 검토가 필요합니다.";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "portfolio2"; // 기본 탭은 포트폴리오 — factors/cashflow는 기본 정보로 통합
+  const activeTab: Tab =
+    (
+      [
+        "basic",
+        "cashflow",
+        "portfolio",
+        "portfolio2",
+        "taxProjection",
+        "stress",
+        "ips",
+        "customer",
+      ] as const
+    ).find((t) => t === searchParams?.get("tab")) ?? "portfolio2";
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
@@ -170,13 +185,13 @@ export default function ClientDetailPage() {
       alert(msg);
     };
 
-    if ((activeTab === "portfolio2" || activeTab === "ips") && !isBasicWorkflowApproved(client)) {
+    if ((activeTab === "portfolio2" || activeTab === "ips" || activeTab === "customer") && !isBasicWorkflowApproved(client)) {
       warn(MSG_NEED_BASIC, `${client.id}:need-basic`);
       router.replace(`/pb/${pbId}/${clientId}?view=home`);
       return;
     }
-    if (activeTab === "ips" && !isPortfolioWorkflowApproved(client)) {
-      warn(MSG_NEED_PORTFOLIO, `${client.id}:need-portfolio`);
+    if ((activeTab === "ips" || activeTab === "customer") && !isPortfolioWorkflowApproved(client)) {
+      warn(activeTab === "customer" ? MSG_NEED_CUSTOMER : MSG_NEED_PORTFOLIO, `${client.id}:need-portfolio`);
       router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
     }
   }, [status, client, activeView, activeTab, router, pbId, clientId]);
@@ -196,8 +211,8 @@ export default function ClientDetailPage() {
       alert(MSG_NEED_BASIC);
       return;
     }
-    if (t === "ips" && client && !isPortfolioWorkflowApproved(client)) {
-      alert(MSG_NEED_PORTFOLIO);
+    if ((t === "ips" || t === "customer") && client && !isPortfolioWorkflowApproved(client)) {
+      alert(t === "customer" ? MSG_NEED_CUSTOMER : MSG_NEED_PORTFOLIO);
       return;
     }
     router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=${t}`, { scroll: false });
@@ -810,7 +825,10 @@ export default function ClientDetailPage() {
       </>)}
 
       {/* 분석 */}
-      {activeView === "analysis" && (
+      {activeView === "analysis" && activeTab === "customer" && client && (
+        <ClientFacingView client={client} embedded />
+      )}
+      {activeView === "analysis" && activeTab !== "customer" && (
         <IPSResultTabs
           client={client}
           allClients={allClients}
