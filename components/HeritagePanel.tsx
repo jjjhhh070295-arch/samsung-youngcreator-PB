@@ -54,6 +54,8 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
   const [liquidAssetsWon, setLiquidAssetsWon] = useState(0);
   // 인계 요약의 종목별 표에 쓴다. 합계만으로는 세무사가 재산 목록을 못 만든다.
   const [clientHoldings, setClientHoldings] = useState<BookHolding[]>([]);
+  // 채무 0원이 "무차입"인지 "미입력"인지 인계 요약이 구분할 수 있게 원자료 개수를 넘긴다.
+  const [debtInfo, setDebtInfo] = useState<{ propertyCount: number; debtRecordCount: number }>({ propertyCount: 0, debtRecordCount: 0 });
   const [successionFlag, setSuccessionFlag] = useState<BusinessSuccessionFlag | null>(null);
   const [meetings, setMeetings] = useState<HeritageMeetingRequest[]>([]);
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -101,6 +103,11 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
         const mine = holdings.filter((h) => h.clientId === client.id);
         const liquid = mine.reduce((s, h) => s + h.evalAmount, 0);
         setClientHoldings(mine);
+        const myProps = realEstate.properties.filter((p) => p.ownerPartyId === client.id);
+        setDebtInfo({
+          propertyCount: myProps.length,
+          debtRecordCount: myProps.filter((p) => realEstate.debtByPropertyId.has(p.id)).length,
+        });
         const gapResult = result.taxRange
           ? computePaymentGap({ liquidAssetsWon: liquid, minTaxWon: result.taxRange.minTaxWon, maxTaxWon: result.taxRange.maxTaxWon })
           : null;
@@ -290,6 +297,7 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
           gap={gap}
           liquidAssetsWon={liquidAssetsWon}
           holdings={clientHoldings}
+          realEstateDebtInfo={debtInfo}
         />
       )}
     </div>

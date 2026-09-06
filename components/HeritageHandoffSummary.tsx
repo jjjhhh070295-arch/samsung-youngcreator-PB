@@ -22,13 +22,22 @@ interface Props {
    * 넘기지 않으면 종목 표만 빠지고 나머지는 그대로 동작한다.
    */
   holdings?: BookHolding[];
+  /**
+   * 채무 0원이 "무차입"인지 "미입력"인지 구분하기 위한 원자료 개수.
+   *
+   * debtWon 값만으로는 둘을 구분할 수 없다. client_real_estate_debt 는 현재 전 행이
+   * 비어 있어(2026-09-06 실측 0건) 모든 고객의 채무가 0원으로 인계되는데, 채무는
+   * 상속세 과세가액에서 차감되는 핵심 항목이라 "빚이 없다"로 읽히면 세액이 과대 추정된다.
+   * 부동산은 있는데 채무 기록이 하나도 없으면 그 사실을 문서에 적는다.
+   */
+  realEstateDebtInfo?: { propertyCount: number; debtRecordCount: number };
 }
 
 // 세무사에게 그대로 인쇄·캡처해서 넘기는 화면. window.print()는 이 컴포넌트 안에서만
 // heritage-print-mode 클래스를 body에 잠깐 붙였다 떼는 방식으로 이 카드 하나만 인쇄되게
 // 한다(app/globals.css의 body.heritage-print-mode 규칙) — 기존 PDF 출력 허가 게이트는
 // 건드리지 않는다(이 화면은 별도 승인 절차가 필요 없는 개략 자료 인계용).
-export default function HeritageHandoffSummary({ open, onClose, client, input, assessment, gap, liquidAssetsWon, holdings }: Props) {
+export default function HeritageHandoffSummary({ open, onClose, client, input, assessment, gap, liquidAssetsWon, holdings, realEstateDebtInfo }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -77,6 +86,22 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
   const realEstateWeightLabel =
     input.realEstateWeightPct != null ? `${input.realEstateWeightPct.toFixed(1)}%` : null;
   const debtWon = assessment.taxRange?.breakdown.debtWon ?? input.debtWon ?? 0;
+  // 채무 0원의 의미를 셋으로 나눈다. 금액만 보면 "빚이 없다"로 읽히는데, 실제로는
+  // client_real_estate_debt 에 행이 없어서 0인 경우가 대부분이다(2026-09-06 기준 전 행 0건).
+  // 채무는 상속세 과세가액에서 차감되는 항목이라, 없는 것과 모르는 것을 섞으면 세액이
+  // 과대 추정된다.
+  //   recorded   — 채무 기록이 실제로 있다(금액이 0이든 아니든 입력된 값이다)
+  //   missing    — 부동산은 있는데 채무 기록이 하나도 없다 → 미입력일 가능성이 높다
+  //   no_property— 부동산 자체가 없다 → 부동산 담보채무가 없는 게 자연스럽다
+  //   unknown    — 호출부가 원자료 개수를 넘기지 않았다(구분 불가)
+  const debtStatus: "recorded" | "missing" | "no_property" | "unknown" =
+    !realEstateDebtInfo
+      ? "unknown"
+      : realEstateDebtInfo.debtRecordCount > 0
+        ? "recorded"
+        : realEstateDebtInfo.propertyCount > 0
+          ? "missing"
+          : "no_property";
   const recentGifts = (input.givenGiftEvents ?? []).slice().sort((a, b) => (a.eventDate < b.eventDate ? 1 : -1));
 
   return (
@@ -144,8 +169,38 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
                 <p className="mt-0.5 text-sm font-bold text-fg">{eok(liquidAssetsWon)}</p>
                 <p className="text-[10px] font-semibold text-amber-700">시가 아님</p>
               </div>
-              <div><p className="text-[11px] text-fg-muted">채무</p><p className="mt-0.5 text-sm font-bold text-fg">{eok(debtWon)}</p></div>
+              <div>
+                <p className="text-[11px] text-fg-muted">채무</p>
+                {/* 미입력 가능성이 높을 때는 금액 대신 그 사실을 쓴다. "0억원"이라고 적어 두면
+                    세무사가 무차입으로 읽어 버리고, 그 오해를 되돌릴 단서가 문서에 없다. */}
+                {debtStatus === "missing" ? (
+                  <p className="mt-0.5 text-sm font-bold text-amber-700">미입력</p>
+                ) : (
+                  <p className="mt-0.5 text-sm font-bold text-fg">{eok(debtWon)}</p>
+                )}
+                {debtStatus === "missing" && (
+                  <p className="text-[10px] font-semibold text-amber-700">채무 기록 없음</p>
+                )}
+                {debtStatus === "no_property" && (
+                  <p className="text-[10px] text-fg-muted">부동산 없음</p>
+                )}
+                {debtStatus === "unknown" && (
+                  <p className="text-[10px] text-fg-muted">확인 필요</p>
+                )}
+              </div>
             </div>
+            {debtStatus === "missing" && (
+              <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+                <span className="font-bold">부동산 {realEstateDebtInfo?.propertyCount}건이 등록돼 있으나 채무 기록은 한 건도 없습니다.</span>{" "}
+                무차입인지 아직 입력하지 않은 것인지 이 자료로는 구분할 수 없습니다. 담보대출·임대보증금 등
+                채무는 상속세 과세가액에서 차감되는 항목이므로 반드시 확인해 주십시오.
+              </p>
+            )}
+            {debtStatus === "unknown" && (
+              <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+                채무 금액이 입력값인지 미입력인지 확인되지 않았습니다. 원자료로 재확인해 주십시오.
+              </p>
+            )}
             {/* 라벨이 "금융자산(현금성)"이던 시절, 이 값은 실제로는 Σ(수량 × 평균매입단가)였다.
                 listBookHoldings 가 client_holdings 에서 quantity·avg_price 만 읽고 lastPrice 를
                 null 로 두기 때문에 evalAmount 가 avgPrice 로 폴백한다(current_price 컬럼은
@@ -292,6 +347,17 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
                 {gap && (
                   <p className="mt-3 border-t border-border pt-3 text-sm text-fg">
                     {gap.reasons.find((r) => r.code.startsWith("payment_gap"))?.text}
+                  </p>
+                )}
+                {/* 자산 구성에는 "채무 미입력"이라 적어 놓고 세액은 채무 0 으로 계산된
+                    값을 나란히 두면, 둘을 함께 본 세무사가 어느 쪽을 믿어야 할지 알 수 없다.
+                    계산 자체는 lib/heritage/tax.ts 소관이라 바꾸지 않고, 무엇을 전제로 나온
+                    숫자인지 세액 옆에 밝힌다. 채무가 실제로 있으면 이 구간은 과대 추정이다. */}
+                {debtStatus === "missing" && (
+                  <p className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold leading-relaxed text-red-700">
+                    이 세액 구간은 <span className="underline">채무를 0원으로 놓고</span> 계산된 값입니다.
+                    위 자산 구성의 채무가 미입력 상태이며, 채무가 실제로 있다면 과세가액이 줄어
+                    세액도 이보다 낮아집니다.
                   </p>
                 )}
                 <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
