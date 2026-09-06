@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import type { Holding, ExtractResult, Confidence } from "@/lib/validate-holdings";
 import { computeRow } from "@/lib/pricing/types";
 import { formatKRWShort } from "@/lib/format";
+import { pickAutoSelection, type LookupHit } from "@/lib/instruments/lookup";
 
 interface Props {
   clientId: string;
@@ -81,9 +82,23 @@ export default function HoldingsExtractor({ clientId }: Props) {
   const [form, setForm] = useState(emptyForm());
   const [manualSaving, setManualSaving] = useState(false);
   const [manualMsg, setManualMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  // 종목명 → 코드 자동 조회 상태(직접 추가 폼). idle=아직 조회 안 함, checking=조회 중,
-  // found=코드 찾음(코드·시장·통화 입력란 숨김), not_found=매핑에 없음(입력란 펼침).
-  const [nameResolve, setNameResolve] = useState<"idle" | "checking" | "found" | "not_found">("idle");
+  // 종목명 → 코드 조회 상태(직접 추가 폼).
+  // idle=아직 조회 안 함, checking=조회 중, found=코드 확정, choose=후보 여러 개,
+  // not_found=검색 결과 없음.
+  //
+  // 예전에는 onBlur 로 한 번만 조회하고 코드가 잡히면 코드 입력란을 숨겼다. 두 가지가
+  // 문제였다 — ① 후보가 여러 개일 때 고를 방법이 없다 ② 자동 매핑이 틀려도 고칠 수 없다.
+  // 이제 타이핑 중 검색해 후보를 보여주고, 코드 입력란은 항상 열어 둔다.
+  const [nameResolve, setNameResolve] = useState<
+    "idle" | "checking" | "found" | "choose" | "not_found"
+  >("idle");
+  const [hits, setHits] = useState<LookupHit[]>([]);
+  /** 실시간 검색이 죽어 정적 맵으로 답한 경우 사용자에게 한계를 알린다. */
+  const [lookupSource, setLookupSource] = useState<"naver" | "static" | "none">("none");
+  // 타이핑마다 요청이 나가지 않게 디바운스하고, 늦게 온 이전 응답이 최신 결과를
+  // 덮어쓰지 않게 이전 요청을 취소한다. 상대가 비공식 엔드포인트라 특히 조심한다.
+  const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lookupAbort = useRef<AbortController | null>(null);
 
   // ── 저장된 종목 ──
   const [saved, setSaved] = useState<SavedHolding[]>([]);
@@ -367,30 +382,65 @@ export default function HoldingsExtractor({ clientId }: Props) {
     setError(null);
   };
 
-  // 종목명 입력란에서 포커스를 벗어나면 /api/resolve-tickers 로 코드 자동 조회.
-  // 찾으면 코드·통화(KRW)를 채우고 확인 문구만 보여준다. 못 찾으면 코드·시장·통화 입력란을 펼친다.
-  const resolveNameOnBlur = async () => {
-    const name = form.name.trim();
-    if (!name) { setNameResolve("idle"); return; }
+  /** 후보 1건을 폼에 반영한다. 목록에서 고르거나 정확 일치로 자동 확정될 때 쓴다. */
+  const applyHit = (hit: LookupHit) => {
+    setForm((p) => ({
+      ...p,
+      name: hit.name,           // 네이버 표기로 정규화한다("jyp" → "JYP Ent.")
+      ticker: hit.code,
+      market: hit.market,
+      currency: hit.currency,
+    }));
+    setHits([]);
+    setNameResolve("found");
+  };
+
+  // 종목명 입력 중 실시간 검색(/api/instruments/lookup). 디바운스 300ms.
+  //
+  // 코드만 받고 시세는 건드리지 않는다 — 현재가는 저장 후 기존 KIS 경로(/api/prices)가
+  // 계산한다. 검색 단계에서 시세를 섞으면 타이핑 한 번에 시세 API 가 수십 번 나간다.
+  const runLookup = useCallback((raw: string) => {
+    const q = raw.trim();
+    if (lookupTimer.current) clearTimeout(lookupTimer.current);
+    lookupAbort.current?.abort();
+
+    if (q.length < 2) { setHits([]); setNameResolve("idle"); return; }
+
     setNameResolve("checking");
-    try {
-      const res = await fetch("/api/resolve-tickers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names: [name] }),
-      });
-      const json = await res.json();
-      const code: string | null = json?.tickers?.[name] ?? null;
-      if (code) {
-        setForm((p) => ({ ...p, ticker: code, currency: "KRW" }));
-        setNameResolve("found");
-      } else {
+    lookupTimer.current = setTimeout(async () => {
+      const ac = new AbortController();
+      lookupAbort.current = ac;
+      try {
+        const res = await fetch(`/api/instruments/lookup?q=${encodeURIComponent(q)}`, {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const json = await res.json();
+        const results: LookupHit[] = Array.isArray(json?.results) ? json.results : [];
+        setLookupSource(json?.source ?? "none");
+
+        // 고를 여지가 없으면 자동 확정한다 — 후보가 1건이거나, 정확 일치가 1건일 때.
+        // "삼성전자"는 관련 ETF 9건과 같이 와도 정확 일치는 보통주 1건이고,
+        // "두산퓨얼셀"도 우선주가 같이 오지만 정확 일치는 보통주뿐이라 바로 잡힌다.
+        const exact = pickAutoSelection(q, results);
+        if (exact) { applyHit(exact); return; }
+
+        setHits(results);
+        setNameResolve(results.length > 0 ? "choose" : "not_found");
+      } catch (e: any) {
+        if (e?.name === "AbortError") return; // 다음 타이핑이 이어받는다
+        // 라우트가 폴백까지 실패해도 코드 직접 입력 경로는 열려 있다.
+        setHits([]);
         setNameResolve("not_found");
       }
-    } catch {
-      setNameResolve("not_found");
-    }
-  };
+    }, 300);
+  }, []);
+
+  // 언마운트 시 예약된 조회와 진행 중 요청을 정리한다.
+  useEffect(() => () => {
+    if (lookupTimer.current) clearTimeout(lookupTimer.current);
+    lookupAbort.current?.abort();
+  }, []);
 
   const handleManualSave = async () => {
     if (!form.name.trim() || !form.quantity) return;
@@ -419,6 +469,8 @@ export default function HoldingsExtractor({ clientId }: Props) {
       setManualMsg({ ok: true, text: "저장 완료" });
       setForm(emptyForm());
       setNameResolve("idle");
+      setHits([]);
+      setLookupSource("none");
       await loadSaved();
       setTimeout(() => { setManualMsg(null); setTab("saved"); }, 800);
     }
@@ -620,38 +672,68 @@ export default function HoldingsExtractor({ clientId }: Props) {
                 placeholder="예: 삼성전자"
                 value={form.name}
                 onChange={(e) => {
-                  setForm((p) => ({ ...p, name: e.target.value }));
-                  setNameResolve("idle");
+                  const v = e.target.value;
+                  setForm((p) => ({ ...p, name: v }));
+                  runLookup(v);
                 }}
-                onBlur={resolveNameOnBlur}
               />
               {nameResolve === "checking" && (
-                <p className="mt-1 text-xs text-fg-muted">조회 중…</p>
+                <p className="mt-1 text-xs text-fg-muted">검색 중…</p>
               )}
               {nameResolve === "found" && (
                 <p className="mt-1 text-xs text-fg-muted">
                   {form.name.trim()} · {form.ticker} · {form.currency}
+                  {form.market ? ` · ${form.market}` : ""}
                 </p>
               )}
               {nameResolve === "not_found" && (
-                <p className="mt-1 text-xs text-amber-600">매핑에 없는 종목입니다. 종목코드를 직접 입력해주세요</p>
+                <p className="mt-1 text-xs text-amber-600">
+                  검색 결과가 없습니다. 아래에 종목코드를 직접 입력해주세요
+                </p>
+              )}
+              {/* 후보가 여럿이면 고르게 한다. 접두사가 겹치는 다른 회사를 임의로
+                  집어 버리는 사고(두산퓨얼셀 → 두산)를 UI 에서도 막는다. */}
+              {nameResolve === "choose" && hits.length > 0 && (
+                <div className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-white">
+                  {hits.slice(0, 8).map((h) => (
+                    <button
+                      key={`${h.nation}-${h.code}`}
+                      type="button"
+                      onClick={() => applyHit(h)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2"
+                    >
+                      <span className="truncate font-medium text-fg">
+                        {h.name}
+                        {h.kind === "우선주" && (
+                          <span className="ml-1 text-[10px] text-amber-600">우선주</span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-fg-muted">
+                        {h.code} · {h.market}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {lookupSource === "static" && nameResolve !== "idle" && (
+                <p className="mt-1 text-xs text-amber-600">
+                  실시간 검색에 연결하지 못해 간이 목록에서 찾았습니다. 결과가 없으면 코드를 직접 입력해주세요
+                </p>
               )}
             </div>
             {field("quantity", "수량 *", "number", "0")}
             {field("avg_price", "평균단가", "number", "0")}
-            {nameResolve === "not_found" && (
-              <>
-                {field("ticker", "종목코드 *", "text", "예: 005930 / NVDA")}
-                {field("market", "시장", "text", "KOSPI / KOSDAQ / NASDAQ")}
-                <div>
-                  <label className="label">통화</label>
-                  <select className="input" value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))}>
-                    <option value="KRW">KRW</option>
-                    <option value="USD">USD</option>
-                  </select>
-                </div>
-              </>
-            )}
+            {/* 코드·시장·통화는 항상 열어 둔다. 예전에는 자동 매핑이 성공하면 숨겼는데,
+                그러면 매핑이 틀렸을 때 사용자가 고칠 방법이 없었다. */}
+            {field("ticker", "종목코드 *", "text", "예: 005930 / NVDA")}
+            {field("market", "시장", "text", "KOSPI / KOSDAQ / NASDAQ")}
+            <div>
+              <label className="label">통화</label>
+              <select className="input" value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))}>
+                <option value="KRW">KRW</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
           </div>
           <p className="text-xs text-fg-muted/70">※ 현재가 · 평가금액 · 손익은 저장 시 생략되며, 조회 시 KIS API로 실시간 계산됩니다.</p>
 
