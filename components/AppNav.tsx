@@ -24,10 +24,10 @@ import { getLoggedInPbId, getLoggedInPbName, clearLoggedInPbId, onSessionChanged
 import type { Client } from "@/lib/types";
 import SessionCountdown from "@/components/SessionCountdown";
 
-/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 2 → IPS */
+/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 → IPS */
 const CLIENT_WORKFLOW_TABS = [
   { id: "basic", icon: "👤", label: "기본 정보", view: "home" as const },
-  { id: "portfolio2", icon: "📊", label: "포트폴리오 2", view: "analysis" as const, tab: "portfolio2" },
+  { id: "portfolio2", icon: "📊", label: "포트폴리오", view: "analysis" as const, tab: "portfolio2" },
   { id: "ips", icon: "📄", label: "IPS", view: "analysis" as const, tab: "ips" },
 ];
 
@@ -256,7 +256,7 @@ export default function AppNav() {
             </div>
           </div>
 
-          {/* 2행 — 기본 정보 / 포트폴리오 2 / IPS */}
+          {/* 2행 — 기본 정보 / 포트폴리오 / IPS */}
           <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
             {CLIENT_WORKFLOW_TABS.map((s) => {
               const isActive =
