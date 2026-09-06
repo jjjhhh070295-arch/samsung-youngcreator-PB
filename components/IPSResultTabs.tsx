@@ -39,6 +39,7 @@ interface Props {
   onToggleStage: (key: StageKey) => Promise<void> | void;
   onApprovePortfolioWorkflow: () => Promise<void> | void;
   onApproveIpsWorkflow: () => Promise<void> | void;
+  onPortfolioDraftChanged?: () => void;
   linkedClient?: Client | null;
 }
 
@@ -67,6 +68,7 @@ export default function IPSResultTabs({
   onToggleStage,
   onApprovePortfolioWorkflow,
   onApproveIpsWorkflow,
+  onPortfolioDraftChanged,
   linkedClient,
 }: Props) {
   const router = useRouter();
@@ -221,6 +223,7 @@ export default function IPSResultTabs({
     isPortfolioWorkflowApproved(client) && isIpsWorkflowApproved(client) && pdfReady,
   );
   const ipsMissing = ipsExtractionMissingReasons(client);
+  const draftAllowed = isPortfolioWorkflowApproved(client);
   const ipsReady = isBasicWorkflowApproved(client) && ipsMissing.length === 0;
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
@@ -430,7 +433,11 @@ export default function IPSResultTabs({
 
       {tab === "portfolio2" && (
         <div className="space-y-4">
-          <ManualPortfolioBuilder clientId={clientId} totalAssetWon={client.assetSize} />
+          <ManualPortfolioBuilder
+            clientId={clientId}
+            totalAssetWon={client.assetSize}
+            onDraftChanged={onPortfolioDraftChanged}
+          />
 
           <div className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -523,12 +530,21 @@ export default function IPSResultTabs({
             <StageToggle k="ips" />
           </div>
 
-          {!ipsReady ? (
+          {!draftAllowed ? (
+            <div className="card flex flex-col items-center gap-2 p-8 text-center">
+              <span className="text-2xl">🔒</span>
+              <p className="text-sm font-medium text-fg">
+                IPS 작성을 위해 기본정보 승인과 포트폴리오 승인이 필요합니다.
+              </p>
+            </div>
+          ) : !ipsReady ? (
             <div className="card flex flex-col items-center gap-2 p-8 text-center">
               <span className="text-2xl">⚠️</span>
-              <p className="text-sm font-medium text-fg">IPS 추출에 필요한 정보가 부족합니다</p>
+              <p className="text-sm font-medium text-fg">
+                IPS 작성에 필요한 고객 정보가 부족합니다
+              </p>
               <ul className="mt-1 max-w-md list-disc space-y-1 pl-5 text-left text-xs text-fg-muted">
-                {(ipsMissing.length ? ipsMissing : ["기본정보 승인 후 IPS가 생성됩니다."]).map((r) => (
+                {ipsMissing.map((r) => (
                   <li key={r}>{r}</li>
                 ))}
               </ul>
@@ -536,10 +552,10 @@ export default function IPSResultTabs({
           ) : (
             <div className="card space-y-4 p-5">
               <div>
-                <p className="decision-kicker">IPS extract</p>
-                <h3 className="mt-1 text-lg font-bold text-fg">추출된 투자정책 (RRTTLLU)</h3>
+                <p className="decision-kicker">IPS draft</p>
+                <h3 className="mt-1 text-lg font-bold text-fg">IPS 초안 미리보기</h3>
                 <p className="mt-1 text-xs text-fg-muted">
-                  기본정보 승인 시 고객 프로필·설문·현금흐름·세금 플래그로 확정된 요인입니다.
+                  최종 PDF 발행 전 검토용 화면입니다.
                 </p>
               </div>
               <IPSRadar ips={client.ips} />
@@ -581,19 +597,26 @@ export default function IPSResultTabs({
               <span className={done.portfolio ? "badge-success" : "badge-muted"}>포트폴리오 {done.portfolio ? "확정" : "대기"}</span>
               <span className={done.stress ? "badge-success" : "badge-muted"}>스트레스 테스트 {done.stress ? "완료" : "대기"}</span>
             </div>
-            {!done.portfolio && (
-              <p className="text-xs text-fg-muted">
-                💡 포트폴리오에서 「포트폴리오 승인」을 완료하면 문서에 포트폴리오 내역도 함께 채워집니다.
-              </p>
-            )}
             {!pdfReady && (
-              <p className="text-xs font-semibold text-red-600">
-                {workflowPdfBlockReason(client, advisoryBundle)}
+              <p className="text-xs font-semibold text-[#1428A0]">
+                {workflowPdfBlockReason(client, advisoryBundle) || "IPS 승인 후 최종 PDF를 발행할 수 있습니다."}
               </p>
             )}
             <div className="flex flex-wrap justify-center gap-2">
-              <button className="btn-outline px-6 py-2.5" onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}>IPS 미리보기</button>
-              <button className="btn-primary px-6 py-2.5" disabled={!pdfReady} onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}>PDF 발행</button>
+              <button
+                className="btn-outline px-6 py-2.5"
+                disabled={!draftAllowed}
+                onClick={() => router.push(`/pb/${pbId}/${clientId}/ips?mode=draft`)}
+              >
+                IPS 초안 미리보기
+              </button>
+              <button
+                className="btn-primary px-6 py-2.5"
+                disabled={!pdfReady}
+                onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}
+              >
+                PDF 발행
+              </button>
             </div>
           </div>
         </div>

@@ -3,7 +3,7 @@
 // 투자정책서(IPS) 문서 — 인쇄/PDF 저장용. 고객 데이터로 자동 생성.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   Bar,
   BarChart,
@@ -242,6 +242,8 @@ function humanizePdfReason(reason: string) {
 export default function IPSDocumentPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isDraftPreview = searchParams?.get("mode") === "draft";
   const [client, setClient] = useState<Client | null>(null);
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
@@ -770,16 +772,23 @@ export default function IPSDocumentPage() {
   if (status === "error" || !client)
     return <ErrorView message="고객 정보를 불러올 수 없습니다." onRetry={load} />;
 
-  if (pdfBlocked || !printPermit || client.id !== clientId || !verifiedEvidenceIsCurrent(printPermit)) {
+  const canShowFinalDocument =
+    !isDraftPreview &&
+    !pdfBlocked &&
+    !!printPermit &&
+    client.id === clientId &&
+    verifiedEvidenceIsCurrent(printPermit);
+
+  if (!isDraftPreview && !canShowFinalDocument) {
     return (
       <div className="pdf-output-gate mx-auto max-w-3xl">
         <div className="mb-4 print:hidden">
           <button
             type="button"
             className="btn-outline text-sm"
-            onClick={() => router.push(`/pb/${pbId}/${clientId}`)}
+            onClick={() => router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=ips`)}
           >
-            ← 고객 상세
+            ← IPS 탭으로
           </button>
         </div>
         <section
@@ -795,22 +804,22 @@ export default function IPSDocumentPage() {
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-fg-muted">{pdfReason}</p>
           <p className="mt-3 rounded-lg bg-[#F0F3FA] p-3 text-xs leading-relaxed text-fg">
-            Ctrl/Cmd+P는 차단됩니다. 브라우저 인쇄 메뉴를 열어도 고객 정보나 투자정책서 본문은 출력되지 않고 이 차단 안내만 표시됩니다.
+            최종 고객용 PDF 발행 화면입니다. 초안 검토는 IPS 탭의 「IPS 초안 미리보기」를 이용해 주세요.
           </p>
           <button
             type="button"
-            className="mt-4 min-h-11 rounded-lg bg-[#2C3EE8] px-5 py-3 text-sm font-bold text-white opacity-60"
-            disabled
+            className="btn-outline mt-4 text-sm"
+            onClick={() => router.push(`/pb/${pbId}/${clientId}/ips?mode=draft`)}
           >
-            인쇄·PDF 저장 차단
+            IPS 초안 미리보기로 이동
           </button>
         </section>
       </div>
     );
   }
 
-  const documentClient = printPermit.clientSnapshot;
-  const documentPbDisplay = printPermit.pbSnapshot.name;
+  const documentClient = isDraftPreview ? client : printPermit!.clientSnapshot;
+  const documentPbDisplay = isDraftPreview ? pbDisplay : printPermit!.pbSnapshot.name;
   const today = new Date();
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
   const pf = documentClient.portfolios[0];
@@ -851,25 +860,37 @@ export default function IPSDocumentPage() {
       <div className="mb-4 flex items-center justify-between print:hidden">
         <button
           className="btn-outline text-sm"
-          onClick={() => router.push(`/pb/${pbId}/${clientId}`)}
+          onClick={() => router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=ips`)}
         >
-          ← 고객 상세
+          ← IPS 탭으로
         </button>
         <button
           className="btn-primary text-sm disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={pdfBlocked || printBusy}
+          disabled={isDraftPreview || pdfBlocked || printBusy}
           onClick={() => void printWithOneUsePermit()}
           aria-busy={printBusy}
         >
-          {pdfBlocked ? "최종 PDF 비활성" : printBusy ? "출력 허가 확인 중…" : "🖨️ 인쇄 / PDF로 저장"}
+          {isDraftPreview
+            ? "초안 — 인쇄 비활성"
+            : pdfBlocked
+              ? "최종 PDF 비활성"
+              : printBusy
+                ? "출력 허가 확인 중…"
+                : "🖨️ 인쇄 / PDF로 저장"}
         </button>
       </div>
-      {printPermit?.mode === "local-self-consistency" && (
+      {isDraftPreview && (
+        <div className="mb-3 rounded-lg border border-[#DCE4F5] bg-[#F0F3FA] px-4 py-3 print:hidden">
+          <p className="text-sm font-bold text-[#1428A0]">IPS 초안 미리보기</p>
+          <p className="mt-0.5 text-xs text-fg-muted">최종 PDF 발행 전 검토용 화면입니다.</p>
+        </div>
+      )}
+      {!isDraftPreview && printPermit?.mode === "local-self-consistency" && (
         <p className="mb-3 rounded-lg border border-[#DCE4F5] bg-[#F0F3FA] px-3 py-2 text-xs font-semibold text-[#1428A0]">
           로컬 자기일치 데모 · 운영 서버 검증이 아닙니다. 출력할 때 30초짜리 1회용 허가를 다시 확인합니다.
         </p>
       )}
-      {pdfBlocked && (
+      {!isDraftPreview && pdfBlocked && (
         <p className="mb-3 text-xs font-semibold text-red-600 print:hidden">{pdfReason}</p>
       )}
 

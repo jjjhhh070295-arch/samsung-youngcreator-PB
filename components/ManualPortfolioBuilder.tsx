@@ -105,7 +105,15 @@ function bondEntryToInstrument(entry: BondCatalogEntry): Instrument {
   };
 }
 
-export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { clientId: string; totalAssetWon: number }) {
+export default function ManualPortfolioBuilder({
+  clientId,
+  totalAssetWon,
+  onDraftChanged,
+}: {
+  clientId: string;
+  totalAssetWon: number;
+  onDraftChanged?: () => void;
+}) {
   const [allocation, setAllocation] = useState<Allocation>(EMPTY_ALLOCATION);
   const [selected, setSelected] = useState<SelectedInstrument[]>([]);
   const [existing, setExisting] = useState<ExistingHolding[]>([]);
@@ -266,7 +274,8 @@ export default function ManualPortfolioBuilder({ clientId, totalAssetWon }: { cl
       savedAt: now,
     }));
     setSavedAt(now);
-  }, [allocation, allocatableWon, clientId, finalAllocation, investableWon, selected]);
+    onDraftChanged?.();
+  }, [allocation, allocatableWon, clientId, finalAllocation, investableWon, onDraftChanged, selected]);
 
   const updateAllocation = (assetClass: AssetClass, value: number) => {
     if (assetClass === "cash") return;

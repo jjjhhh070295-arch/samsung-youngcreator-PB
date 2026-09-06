@@ -28,6 +28,7 @@ import type {
 } from "./types";
 import { emptyIPS } from "./types";
 import { SAMPLE_BOOK_CLIENTS } from "./advisory/sampleBook";
+import { mergeStagesPayload, splitStagesPayload } from "./advisory/approvalSnapshots";
 import type { PbScheduleItem, PbScheduleStatus } from "./advisory/pbScheduleStorage";
 import {
   addConsultationSchedule,
@@ -91,7 +92,10 @@ function rowToClient(r: any): Client {
     ips: (r.ips && Object.keys(r.ips).length ? r.ips : emptyIPS()) as IPS,
     cashFlows: (r.cash_flows ?? []) as CashFlow[],
     portfolios: (r.portfolios ?? []) as Portfolio[],
-    stages: (r.stages ?? {}) as Client["stages"],
+    ...(() => {
+      const split = splitStagesPayload(r.stages);
+      return { stages: split.stages, approvalHashes: split.approvalHashes };
+    })(),
     createdAt: r.created_at,
     // 모닝 브리핑 1단계 컬럼 — 마이그레이션 전이면 r.email 등이 아예 없어 undefined/false로 빠진다.
     email: r.email ?? undefined,
@@ -114,7 +118,11 @@ function clientToPartyRow(c: Partial<Client>): any {
   if (c.ips !== undefined) row.ips = c.ips;
   if (c.cashFlows !== undefined) row.cash_flows = c.cashFlows;
   if (c.portfolios !== undefined) row.portfolios = c.portfolios;
-  if (c.stages !== undefined) row.stages = c.stages;
+  if (c.stages !== undefined || c.approvalHashes !== undefined) {
+    // stages jsonb에 플래그+해시를 함께 저장. 해시 미지정이면 플래그만 기록(해시 키 생략).
+    // 스테일 해제·승인 시에는 호출측에서 approvalHashes를 항상 같이 넘긴다.
+    row.stages = mergeStagesPayload(c.stages, c.approvalHashes);
+  }
   // 모닝 브리핑 1단계 — 마이그레이션 미실행 시 withMissingColumnFallback이 이 키들을 뺀다.
   if (c.email !== undefined) row.email = c.email || null;
   if (c.emailOptIn !== undefined) row.email_opt_in = c.emailOptIn;
@@ -1125,14 +1133,35 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
   if (usingLocalFallback || localClientExists(id)) {
     const db = loadLocal();
     const idx = db.clients.findIndex((c) => c.id === id);
-    if (idx >= 0) db.clients[idx] = { ...db.clients[idx], ...patch };
-    saveLocal(db);
+    if (idx >= 0) {
+      const prev = db.clients[idx];
+      const next: Client = { ...prev, ...patch };
+      if (patch.stages !== undefined && patch.approvalHashes === undefined) {
+        next.approvalHashes = prev.approvalHashes;
+      }
+      if (patch.approvalHashes !== undefined && patch.stages === undefined) {
+        next.stages = prev.stages;
+      }
+      db.clients[idx] = next;
+      saveLocal(db);
+    }
     return;
+  }
+
+  let partyPatch = patch;
+  if (patch.stages !== undefined || patch.approvalHashes !== undefined) {
+    const prev = await getClient(id);
+    partyPatch = {
+      ...patch,
+      stages: { ...(prev?.stages ?? {}), ...(patch.stages ?? {}) },
+      approvalHashes:
+        patch.approvalHashes !== undefined ? patch.approvalHashes : prev?.approvalHashes ?? {},
+    };
   }
 
   // parties 업데이트 — email/email_opt_in/email_opt_out_at은 마이그레이션 미실행 시
   // withMissingColumnFallback이 자동으로 빼고 재시도한다.
-  const partyRow = clientToPartyRow(patch);
+  const partyRow = clientToPartyRow(partyPatch);
   if (Object.keys(partyRow).length > 0) {
     const { error } = await withMissingColumnFallback(
       (row) => supabase!.from("parties").update(row).eq("id", id).then((res) => ({ data: null, error: res.error })),
@@ -1143,17 +1172,17 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
   }
 
   // clients 동기 업데이트 (backward compat)
-  const clientRow = clientToRow(patch);
+  const clientRow = clientToRow(partyPatch);
   if (Object.keys(clientRow).length > 0) {
     await supabase!.from("clients").update(clientRow).eq("id", id);
   }
 
   // 서브테이블 업데이트
-  const indRow = clientToIndividualRow(patch);
+  const indRow = clientToIndividualRow(partyPatch);
   if (Object.keys(indRow).length > 0) {
     await supabase!.from("individuals").update(indRow).eq("party_id", id);
   }
-  const corpRow = clientToCorporateRow(patch);
+  const corpRow = clientToCorporateRow(partyPatch);
   if (Object.keys(corpRow).length > 0) {
     await supabase!.from("corporates").update(corpRow).eq("party_id", id);
   }
