@@ -25,7 +25,7 @@ const T = {
     pbView: "PB 화면 →",
     backToPb: "← PB 화면으로",
     disclaimer: "본 화면은 상담 내용 요약입니다. 투자 권유가 아니며, 참고용입니다.",
-    assets: "자산규모",
+    assets: "투자가능자산",
     dob: "생년월일",
     established: "설립일",
     profileTitle: "나의 투자성향 한눈에 보기",
@@ -54,7 +54,7 @@ const T = {
     pbView: "PB View →",
     backToPb: "← Back to PB View",
     disclaimer: "This screen summarizes the consultation. Not investment advice; for reference only.",
-    assets: "Assets",
+    assets: "Investable Assets",
     dob: "Date of Birth",
     established: "Established",
     profileTitle: "My Investment Profile at a Glance",
@@ -108,9 +108,15 @@ interface Props {
   client: Client;
   /** PB 상세 탭에 임베드할 때 true — PB 전환 버튼 숨김 */
   embedded?: boolean;
+  /**
+   * 부동산 제외 투자가능자산(원). 부모가 이미 resolveAssetBreakdown 을 부르고 있으면
+   * 그 값을 넘겨 중복 조회를 피한다. 없으면 총자산(assetSize)으로 폴백한다 —
+   * 고객이 직접 보는 화면이라 PB 화면과 다른 숫자가 뜨면 바로 질문이 된다.
+   */
+  investableWon?: number | null;
 }
 
-export default function ClientFacingView({ client, embedded = false }: Props) {
+export default function ClientFacingView({ client, embedded = false, investableWon = null }: Props) {
   const router = useRouter();
   const [lang, setLang] = useState<Lang>("ko");
 
@@ -190,7 +196,7 @@ export default function ClientFacingView({ client, embedded = false }: Props) {
         </h1>
         <p className="mt-2 text-fg-muted">
           {t.assets}{" "}
-          <b className="text-2xl text-gold-500 dark:text-gold-300">{formatKRW(client.assetSize)}</b>
+          <b className="text-2xl text-gold-500 dark:text-gold-300">{formatKRW(investableWon ?? client.assetSize)}</b>
         </p>
         <p className="mt-1 text-xs text-fg-muted">
           {en ? "Type" : "구분"} {CLIENT_TYPE_LABEL[client.clientType]} · {dateLabel}{" "}

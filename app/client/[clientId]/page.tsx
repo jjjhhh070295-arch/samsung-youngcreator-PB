@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type { Client } from "@/lib/types";
 import { getClient } from "@/lib/store";
+import { resolveAssetBreakdown } from "@/lib/assets";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import ClientFacingView from "@/components/ClientFacingView";
 
@@ -12,6 +13,9 @@ export default function ClientViewPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const [client, setClient] = useState<Client | null>(null);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
+  // 표시 자산은 부동산 제외(투자가능자산) 기준 — PB 화면들과 같은 숫자여야 한다.
+  // 조회 실패 시 ClientFacingView 가 총자산으로 폴백한다.
+  const [investableWon, setInvestableWon] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -30,13 +34,22 @@ export default function ClientViewPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!clientId) return;
+    let cancelled = false;
+    resolveAssetBreakdown(clientId)
+      .then((br) => { if (!cancelled) setInvestableWon(br?.investableKrw ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [clientId]);
+
   if (status === "loading") return <LoadingView />;
   if (status === "error" || !client)
     return <ErrorView message="고객 정보를 불러올 수 없습니다." onRetry={load} />;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
-      <ClientFacingView client={client} />
+      <ClientFacingView client={client} investableWon={investableWon} />
     </div>
   );
 }

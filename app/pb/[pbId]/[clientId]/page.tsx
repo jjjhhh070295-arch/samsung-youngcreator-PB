@@ -830,7 +830,7 @@ export default function ClientDetailPage() {
 
       {/* 분석 */}
       {activeView === "analysis" && activeTab === "customer" && client && (
-        <ClientFacingView client={client} embedded />
+        <ClientFacingView client={client} embedded investableWon={investableWon} />
       )}
       {activeView === "analysis" && activeTab !== "customer" && (
         <IPSResultTabs

@@ -154,13 +154,15 @@ function buildCashflowSummary(cashFlows: Client["cashFlows"]) {
   };
 }
 
-// 7요인 값을 엮어 PB 종합 분석 문장 생성
-function buildSummary(client: Client): string {
+// 7요인 값을 엮어 PB 종합 분석 문장 생성.
+// investableWon(부동산 제외)을 받는 이유: 이 문서의 세금 원금(:846)이 이미 그 기준이라,
+// 요약 문장만 총자산으로 두면 같은 문서 안에서 두 숫자가 어긋난다. 못 구했으면 총자산으로 폴백.
+function buildSummary(client: Client, investableWon: number | null): string {
   const ips = client.ips;
   const t = CLIENT_TYPE_LABEL[client.clientType];
   const seg: string[] = [];
   seg.push(
-    `${client.name} 고객은 ${t} 고객으로, 자산규모 ${formatKRW(client.assetSize)} 수준입니다.`,
+    `${client.name} 고객은 ${t} 고객으로, 투자가능자산 ${formatKRW(investableWon ?? client.assetSize)} 수준입니다.`,
   );
 
   const profile: string[] = [];
@@ -927,7 +929,7 @@ export default function IPSDocumentPage() {
                 documentClient.clientType === "corporate" ? "설립일" : "생년월일",
                 formatDate(documentClient.birthDate),
               ],
-              ["자산규모", formatKRW(documentClient.assetSize)],
+              ["투자가능자산", formatKRW(investableWon ?? documentClient.assetSize)],
               ["담당 PB", documentPbDisplay],
               ["연동 고객 ID", documentClient.linkedClientId ?? "없음"],
               [
@@ -947,7 +949,7 @@ export default function IPSDocumentPage() {
           {/* PB 종합 분석 의견 */}
           <div className="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
             <p className="mb-1 font-semibold text-gray-800">PB 종합 분석</p>
-            {buildSummary(documentClient)}
+            {buildSummary(documentClient, investableWon)}
           </div>
 
           <table className="w-full border-collapse text-xs">

@@ -263,9 +263,12 @@ export default function IPSResultTabs({
               <p className="text-sm font-semibold text-fg">{client.name}</p>
             </div>
             <div>
-              <p className="text-xs text-fg-muted">자산규모</p>
+              {/* 부동산 제외 기준 — 같은 고객 상세 화면의 프로필 카드·AUM 헤더와 같은 값이어야
+                  한다. stressInvestableKrw 는 이 탭이 세금·스트레스 원금으로 이미 쓰는 값이라
+                  새 조회를 만들지 않는다(assetLayer 가 아직 없으면 총자산으로 폴백). */}
+              <p className="text-xs text-fg-muted">투자가능자산</p>
               <p className="text-sm font-semibold text-fg">
-                {(client.assetSize / 1_0000_0000).toLocaleString("ko-KR")}억
+                {(stressInvestableKrw / 1_0000_0000).toLocaleString("ko-KR")}억
               </p>
             </div>
             <div>
