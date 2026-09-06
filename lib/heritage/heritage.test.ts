@@ -165,10 +165,19 @@ describe("assessHeritageDemand — 저자산 컷은 배우자 유무로 분리",
 });
 
 describe("assessHeritageDemand — 구조 신호가 주 신호", () => {
-  it("공제 초과가 크면 hasNeed=true", () => {
-    const result = assessHeritageDemand(baseInput({ assetSizeWon: 3_200_000_000 }));
+  // 임계값이 30 → 40 으로 오르면서 "자산만으로 수요가 성립하는" 지점도 올라갔다.
+  // 자산 축(로그)만으로 40점에 닿으려면 과세초과 약 126억(자산 약 131억)이 필요하다.
+  // 예전 기준(32억)은 이제 다른 신호 없이는 켜지지 않는다 — 의도된 변화다.
+  it("자산만으로도 충분히 크면 hasNeed=true", () => {
+    const result = assessHeritageDemand(baseInput({ assetSizeWon: 15_000_000_000 }));
     assert.equal(result.hasNeed, true);
     assert.ok(result.taxableExcessWon > 0);
+  });
+
+  it("자산이 중간 규모면 다른 신호 없이는 hasNeed=false", () => {
+    const result = assessHeritageDemand(baseInput({ assetSizeWon: 3_200_000_000 }));
+    assert.equal(result.hasNeed, false);
+    assert.ok(result.taxableExcessWon > 0, "과세초과 자체는 있다 — 수요 판정만 보류한다");
   });
 
   it("키워드만으로는(구조 신호 없이) 수요를 만들지 못한다", () => {
@@ -179,8 +188,19 @@ describe("assessHeritageDemand — 구조 신호가 주 신호", () => {
   });
 });
 
-describe("assessHeritageDemand — 자산 규모가 상향요인 가산점을 압도한다 (초고액자산가 재조정)", () => {
-  it("F(150억, 상향요인 없음) score가 J(35억, 상향요인 3개→2개)보다 높다", () => {
+// ── 폐기된 불변식: "자산 규모가 상향요인 가산점을 압도한다" ──────────────────
+// 예전 자산 축은 과세초과 30억에서 60점 만점을 찍고 그 위로 1억당 0.3점(최대 +30)을
+// 더 주는 구조였다. 자산 하나가 다른 모든 신호를 눌렀고, 그 결과 이 태그는 사실상
+// 자산 순위표가 됐다 — 실측에서 개인 고객 5명 중 4명이 동점 90점이었고, 부동산 비중도
+// 증여 이력도 키워드도 순위를 전혀 바꾸지 못했다. 게다가 135억 위로는 전부 90점이라
+// 200억과 1조를 구분하지도 못했다.
+//
+// 로그 스케일로 바꾸면서 이 원칙을 폐기한다. 상속 상담 수요는 자산에 비례하지 않는다 —
+// 부동산이 80%고 최근 증여까지 있는 35억 고객이, 아무 신호 없는 150억 고객보다 먼저
+// 상담해야 한다. 자산은 여전히 가장 큰 단일 축(60점)이지만, 이제 다른 신호가 모이면
+// 자산 차이를 뒤집을 수 있다. 아래 두 테스트가 그 새 기준을 못박는다.
+describe("assessHeritageDemand — 상향요인이 자산 차이를 뒤집을 수 있다", () => {
+  it("J(35억, 부동산·증여·키워드 3종) score가 F(150억, 상향요인 없음)보다 높다", () => {
     const F = assessHeritageDemand(
       baseInput({ birthDate: birthDateForAge(50), assetSizeWon: 15_000_000_000, hasSpouse: false, childrenCount: 0 }),
     );
@@ -195,7 +215,67 @@ describe("assessHeritageDemand — 자산 규모가 상향요인 가산점을 �
         taxTagIds: ["inheritance", "trust"],
       }),
     );
-    assert.ok(F.score > J.score, `F.score=${F.score} should be > J.score=${J.score}`);
+    assert.ok(J.score > F.score, `J.score=${J.score} should be > F.score=${F.score}`);
+  });
+
+  it("상향요인이 하나도 없으면 자산이 큰 쪽이 여전히 높다", () => {
+    const big = assessHeritageDemand(
+      baseInput({ birthDate: birthDateForAge(50), assetSizeWon: 15_000_000_000, hasSpouse: false, childrenCount: 0 }),
+    );
+    const small = assessHeritageDemand(
+      baseInput({ birthDate: birthDateForAge(50), assetSizeWon: 3_500_000_000, hasSpouse: false, childrenCount: 0 }),
+    );
+    assert.ok(big.score > small.score, `big=${big.score} small=${small.score}`);
+  });
+});
+
+describe("assessHeritageDemand — 자산 축은 포화되지 않는다", () => {
+  // 예전 방식의 실제 결함: 135억 위로 전부 90점이라 200억과 1조가 동점이었다.
+  it("200억 < 1000억 < 1조 순으로 점수가 계속 벌어진다", () => {
+    const at = (won: number) =>
+      assessHeritageDemand(baseInput({ assetSizeWon: won, hasSpouse: false, childrenCount: 0, birthDate: null })).score;
+    const a200 = at(20_000_000_000);
+    const a1000 = at(100_000_000_000);
+    const a10000 = at(1_000_000_000_000);
+    assert.ok(a200 < a1000, `200억=${a200} < 1000억=${a1000}`);
+    assert.ok(a1000 < a10000, `1000억=${a1000} < 1조=${a10000}`);
+  });
+});
+
+describe("assessHeritageDemand — 나이 축", () => {
+  const asset = { assetSizeWon: 10_000_000_000, hasSpouse: false, childrenCount: 0 };
+
+  it("같은 자산이면 나이가 많을수록 점수가 높다", () => {
+    const young = assessHeritageDemand(baseInput({ ...asset, birthDate: birthDateForAge(40) }));
+    const mid = assessHeritageDemand(baseInput({ ...asset, birthDate: birthDateForAge(60) }));
+    const old = assessHeritageDemand(baseInput({ ...asset, birthDate: birthDateForAge(80) }));
+    assert.ok(young.score < mid.score && mid.score < old.score);
+  });
+
+  it("생년월일이 없으면 나이 가산이 없다 — 모르는 것을 신호로 세지 않는다", () => {
+    const known = assessHeritageDemand(baseInput({ ...asset, birthDate: birthDateForAge(80) }));
+    const unknown = assessHeritageDemand(baseInput({ ...asset, birthDate: null }));
+    assert.ok(unknown.score < known.score);
+    assert.equal(unknown.reasons.some((r) => r.code === "age_band"), false);
+  });
+});
+
+describe("assessHeritageDemand — 자녀 수는 확인된 값일 때만 가산한다", () => {
+  // 가정값(관계 데이터 부재 → 2명)에 가산하면 전원이 같은 점수를 더 받아 변별력은
+  // 그대로인데 점수만 부풀고, "추정"임을 표시하는 dataAssumptionsUsed 설계와도 어긋난다.
+  const asset = { assetSizeWon: 10_000_000_000, hasSpouse: false };
+
+  it("확인된 자녀 3명 이상이면 가산한다", () => {
+    const two = assessHeritageDemand(baseInput({ ...asset, childrenCount: 2 }));
+    const four = assessHeritageDemand(baseInput({ ...asset, childrenCount: 4 }));
+    assert.ok(four.score > two.score);
+    assert.equal(four.reasons.some((r) => r.code === "many_heirs"), true);
+  });
+
+  it("자녀 수가 미상(가정값)이면 가산하지 않는다", () => {
+    const unknown = assessHeritageDemand(baseInput({ ...asset, childrenCount: null }));
+    assert.equal(unknown.childrenCountAssumed, true);
+    assert.equal(unknown.reasons.some((r) => r.code === "many_heirs"), false);
   });
 });
 
@@ -211,7 +291,10 @@ describe("assessHeritageUrgency — 미성년 자녀는 더 이상 상향 요인
 });
 
 describe("assessHeritageUrgency — 나이 구간별 기본 등급", () => {
-  const bigAsset = { assetSizeWon: 5_000_000_000, hasSpouse: false, childrenCount: 0 };
+  // 긴급도는 demand.hasNeed 를 전제로 한다. 나이가 demand 점수에도 들어오면서, 가장 어린
+  // 구간(45세, 가산 +4)까지 자산만으로 임계값(40)을 넘기려면 예전 50억으로는 부족하다.
+  // 나이 밴드 매핑 자체를 검증하는 것이 목적이므로 자산을 100억으로 올려 고정한다.
+  const bigAsset = { assetSizeWon: 10_000_000_000, hasSpouse: false, childrenCount: 0 };
 
   it("75세 이상 → 즉시", () => {
     const input = baseInput({ ...bigAsset, birthDate: birthDateForAge(75) });

@@ -7,6 +7,7 @@
 // 쓰지 않는다 — PB가 고객에게 그대로 읽을 수 있는 문장이어야 한다.
 
 import { HERITAGE_URGENCY } from "./constants";
+import { calcAgeAt } from "./demand";
 import { eok } from "./format";
 import type {
   HeritageAssessmentInput,
@@ -24,16 +25,6 @@ const RECOMMENDATION_TEXT: Record<Exclude<HeritageUrgencyLevel, "해당없음">,
   "6개월 내": "따라서 상담을 6개월 안에 진행하시길 권합니다.",
   "1년 내": "따라서 상담을 1년 안에 진행하시길 권합니다.",
 };
-
-function calcAge(birthDate: string, asOf: Date): number | null {
-  const d = new Date(birthDate);
-  if (isNaN(d.getTime())) return null;
-  let age = asOf.getFullYear() - d.getFullYear();
-  const beforeBirthday =
-    asOf.getMonth() < d.getMonth() || (asOf.getMonth() === d.getMonth() && asOf.getDate() < d.getDate());
-  if (beforeBirthday) age -= 1;
-  return age;
-}
 
 function ageFactText(age: number, level: HeritageUrgencyLevel): string {
   if (level === "즉시") {
@@ -68,7 +59,7 @@ export function assessHeritageUrgency(
     return { level: "해당없음", reasons: [], ageAtAssessment: null };
   }
 
-  const age = calcAge(input.birthDate, asOf);
+  const age = calcAgeAt(input.birthDate, asOf);
   if (age == null) {
     return {
       level: "해당없음",

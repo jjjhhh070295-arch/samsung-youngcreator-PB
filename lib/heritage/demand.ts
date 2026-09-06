@@ -7,6 +7,18 @@ import { HERITAGE_DEMAND, HERITAGE_EXEMPTION, HERITAGE_TAX_ASSUMPTIONS } from ".
 import { eok } from "./format";
 import type { HeritageAssessmentInput, HeritageDemandResult, HeritageReason } from "./types";
 
+/** 만 나이. 파싱 불가면 null. urgency.ts 도 이 함수를 쓴다 — 나이 축이 demand/urgency
+ *  두 곳에서 갈라지지 않게 한 곳에 둔다. */
+export function calcAgeAt(birthDate: string, asOf: Date): number | null {
+  const d = new Date(birthDate);
+  if (isNaN(d.getTime())) return null;
+  let age = asOf.getFullYear() - d.getFullYear();
+  const beforeBirthday =
+    asOf.getMonth() < d.getMonth() || (asOf.getMonth() === d.getMonth() && asOf.getDate() < d.getDate());
+  if (beforeBirthday) age -= 1;
+  return age;
+}
+
 // tax.ts가 사전증여 10년 합산 가산에 그대로 재사용한다 — 커트오프 로직이 두 곳에서 갈라지지 않게.
 export function isWithinYears(dateStr: string, years: number, asOf: Date): boolean {
   const d = new Date(dateStr);
@@ -21,6 +33,18 @@ export function isWithinYears(dateStr: string, years: number, asOf: Date): boole
 export function personalOrBlanketDeductionWon(childrenCount: number): number {
   const personalWon = HERITAGE_EXEMPTION.basicWon + childrenCount * HERITAGE_EXEMPTION.perChildWon;
   return Math.max(personalWon, HERITAGE_EXEMPTION.baseWon);
+}
+
+/**
+ * 과세초과액 → 자산 축 점수(0~60). 로그 스케일이라 1조까지 점수가 계속 벌어진다.
+ * 곡선을 고정한 두 기준점과 상수 유도는 constants.ts 의 assetLogScaleWon 주석 참고.
+ */
+export function assetAxisScore(taxableExcessWon: number): number {
+  if (taxableExcessWon <= 0) return 0;
+  const k = HERITAGE_DEMAND.assetLogScaleWon;
+  const denominator = Math.log(1 + HERITAGE_DEMAND.assetLogCeilingWon / k);
+  const ratio = Math.log(1 + taxableExcessWon / k) / denominator;
+  return Math.round(Math.min(1, ratio) * HERITAGE_DEMAND.assetScoreMax);
 }
 
 /** party_relationships에 배우자 관계 행이 없는 것은 "확인된 배우자 없음"이 아니라 "미입력"일
@@ -95,18 +119,9 @@ export function assessHeritageDemand(input: HeritageAssessmentInput): HeritageDe
 
   let score = 0;
 
-  // ── 구조 신호 1: 예상 공제 대비 초과 자산 (주 신호) ──
-  const excessRatio = Math.min(1, taxableExcessWon / HERITAGE_DEMAND.excessScoreFullWon);
-  score += Math.round(excessRatio * HERITAGE_DEMAND.excessScoreMax);
-
-  // 30억을 넘는 초과분은 추가로 가산 — 초고액자산가가 상향요인 가산점에 밀리지 않게 한다.
-  if (taxableExcessWon > HERITAGE_DEMAND.excessScoreFullWon) {
-    const extraEok = (taxableExcessWon - HERITAGE_DEMAND.excessScoreFullWon) / 100_000_000;
-    score += Math.min(
-      HERITAGE_DEMAND.extraLargeExcessMaxBonus,
-      Math.round(extraEok * HERITAGE_DEMAND.extraLargeExcessPerEokWon),
-    );
-  }
+  // ── 구조 신호 1: 예상 공제 대비 초과 자산 (주 신호, 로그 스케일) ──
+  // 곡선 근거는 constants.ts 의 assetLogScaleWon 주석 참고.
+  score += assetAxisScore(taxableExcessWon);
 
   if (taxableExcessWon > 0) {
     const personalDeductionWon = personalOrBlanketDeductionWon(childrenCount);
@@ -128,7 +143,28 @@ export function assessHeritageDemand(input: HeritageAssessmentInput): HeritageDe
     });
   }
 
-  // ── 구조 신호 2: 부동산 비중 (주 신호) ──
+  // ── 구조 신호 2: 나이 (사전증여 10년 룰까지 남은 시간) ──
+  const age = input.birthDate ? calcAgeAt(input.birthDate, asOf) : null;
+  const ageBand = age == null ? undefined : HERITAGE_DEMAND.ageBonusBands.find((b) => age >= b.minAge);
+  if (age != null && ageBand) {
+    score += ageBand.bonus;
+    reasons.push({
+      code: "age_band",
+      text: `만 ${age}세입니다 — 사전증여는 10년이 지나야 상속재산에서 빠지므로, 설계를 시작할 시간이 그만큼 줄어듭니다.`,
+    });
+  }
+
+  // ── 구조 신호 3: 상속인(자녀) 수 — 확인된 값일 때만 ──
+  // 가정값에는 가산하지 않는다(근거는 constants.ts 의 childrenManyBonus 주석).
+  if (!childrenCountAssumed && childrenCount >= HERITAGE_DEMAND.childrenManyThreshold) {
+    score += HERITAGE_DEMAND.childrenManyBonus;
+    reasons.push({
+      code: "many_heirs",
+      text: `자녀가 ${childrenCount}명으로 확인됩니다 — 상속인이 많을수록 분할 협의와 유류분 검토가 복잡해집니다.`,
+    });
+  }
+
+  // ── 구조 신호 4: 부동산 비중 (주 신호) ──
   if (input.realEstateWeightPct != null && input.realEstateWeightPct >= HERITAGE_DEMAND.realEstateHighWeightPct) {
     score += HERITAGE_DEMAND.realEstateBonus;
     reasons.push({
@@ -137,7 +173,7 @@ export function assessHeritageDemand(input: HeritageAssessmentInput): HeritageDe
     });
   }
 
-  // ── 구조 신호 3: 최근 10년 내 증여 이력 (주 신호) ──
+  // ── 구조 신호 5: 최근 10년 내 증여 이력 (주 신호) ──
   const recentGifts = input.givenGiftEvents.filter(
     (e) => e.eventType === "gift" && isWithinYears(e.eventDate, HERITAGE_DEMAND.giftHistoryWithinYears, asOf),
   );
