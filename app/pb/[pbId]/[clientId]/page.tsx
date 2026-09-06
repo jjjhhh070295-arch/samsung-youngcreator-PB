@@ -401,7 +401,7 @@ export default function ClientDetailPage() {
               <span>📊</span> 보유종목 (MTS 캡쳐 추출)
             </h2>
             <div className="card p-5">
-              <HoldingsExtractor clientId={clientId} />
+              <HoldingsExtractor clientId={clientId} onAssetsChanged={bumpAssetRefresh} />
             </div>
           </section>
 

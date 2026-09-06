@@ -9,6 +9,11 @@ import { pickAutoSelection, type LookupHit } from "@/lib/instruments/lookup";
 
 interface Props {
   clientId: string;
+  /**
+   * 보유종목 구성이 바뀌었을 때 호출. 상단 자산 비중 바를 다시 그리게 한다.
+   * (RealEstateModule 의 onAssetsChanged 와 같은 역할)
+   */
+  onAssetsChanged?: () => void;
 }
 
 // Supabase에서 가져오는 정적 데이터
@@ -73,7 +78,7 @@ function toRows(holdings: Holding[]): Row[] {
 const fmt = (n: number | null, decimals = 0) =>
   n == null ? "—" : n.toLocaleString("ko-KR", { maximumFractionDigits: decimals });
 
-export default function HoldingsExtractor({ clientId }: Props) {
+export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<"saved" | "extract" | "manual">("saved");
 
@@ -249,6 +254,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
     await supabase.from("client_holdings").delete().eq("id", id);
     setSaved((prev) => prev.filter((h) => h.id !== id));
     setDeleting(null);
+    onAssetsChanged?.();
   };
 
   // ── 추출 상태 ──
@@ -366,6 +372,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
     } else {
       setSaveMsg({ ok: true, text: `${inserts.length}개 종목 저장 완료` });
       await loadSaved();
+      onAssetsChanged?.();
       setTimeout(() => { reset(); setTab("saved"); }, 800);
     }
     setSaving(false);
@@ -472,6 +479,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
       setHits([]);
       setLookupSource("none");
       await loadSaved();
+      onAssetsChanged?.();
       setTimeout(() => { setManualMsg(null); setTab("saved"); }, 800);
     }
     setManualSaving(false);
@@ -561,6 +569,7 @@ export default function HoldingsExtractor({ clientId }: Props) {
                       setSaved([]);
                       setDeleting(null);
                       setDeleteAllOpen(false);
+                      onAssetsChanged?.();
                     }}
                   >
                     {deleting === "all" ? "삭제 중…" : "전체 삭제"}
