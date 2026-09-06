@@ -17,6 +17,7 @@
 //   · 유틸 링크·외부 바로가기 → 우측 "메뉴" 드롭다운. 이동 빈도가 낮아 한 단계 숨겨도 된다.
 
 import Link from "next/link";
+import { openPbManage } from "@/lib/pbManage";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getClient, listPbs } from "@/lib/store";
@@ -60,8 +61,11 @@ interface MoreMenuItem {
   key: string;
   label: string;
   icon: string;
+  /** action 항목에는 이동이 없으므로 빈 문자열을 넣는다. */
   href: string;
   external?: boolean;
+  /** 이동 대신 실행할 동작. 있으면 링크가 아니라 버튼으로 그린다(예: PB 계정 관리 모달). */
+  action?: () => void;
 }
 
 interface MoreMenuGroup {
@@ -113,7 +117,20 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
                 {g.title}
               </p>
               {g.items.map((item) =>
-                item.external ? (
+                item.action ? (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      item.action!();
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-fg hover:bg-surface-2"
+                  >
+                    <span aria-hidden="true">{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ) : item.external ? (
                   <a
                     key={item.key}
                     href={item.href}
@@ -248,6 +265,9 @@ export default function AppNav() {
     ...(pbId ? [{ key: "book", label: "다고객 북", icon: "📒", href: `/pb/${pbId}` }] : []),
     ...(pbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${pbId}/ticker` }] : []),
     { key: "research", label: "리서치", icon: "📊", href: "/research" },
+    // PB 계정 관리 — 예전에는 홈 화면 카드로만 열 수 있어 관리하려면 홈으로 돌아가야 했다.
+    // 이동이 아니라 모달을 여는 항목이라 action 을 쓴다(lib/pbManage.ts 주석 참고).
+    { key: "pb-manage", label: "PB 계정 관리", icon: "👤", href: "", action: openPbManage },
   ];
   const externalItems: MoreMenuItem[] = EXTERNAL_LINKS.map((l) => ({
     key: l.href,

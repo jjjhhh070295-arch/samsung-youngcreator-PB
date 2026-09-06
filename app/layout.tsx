@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import AppNav from "@/components/AppNav";
 import SplashScreen from "@/components/SplashScreen";
 import SessionGuard from "@/components/SessionGuard";
+import PBManageHost from "@/components/PBManageHost";
 
 export const metadata: Metadata = {
   title: "삼성증권 PB센터 · 상담 지원",
@@ -23,6 +24,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <SplashScreen />
           <SessionGuard />
+          {/* PB 계정 관리 모달 — 상단 네비에서 여는 신호를 받아 어느 화면에서든 뜬다. */}
+          <PBManageHost />
           <div className="flex flex-col">
             <Suspense fallback={<AppNavFallback />}>
               <AppNav />

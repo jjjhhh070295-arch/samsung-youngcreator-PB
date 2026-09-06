@@ -1,12 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PB, Client } from "@/lib/types";
-import { listPbs, listClients, createPb, updatePb, deletePb, usingLocalFallback, DEMO_PB_CREDENTIALS, authenticatePb } from "@/lib/store";
-import { getLoggedInPbId, getLoggedInPbName, onSessionChanged, setLoggedInPbId } from "@/lib/auth";
-import PBManageModal from "@/components/PBManageModal";
-import { LoadingView, ErrorView } from "@/components/StateViews";
+import { usingLocalFallback, DEMO_PB_CREDENTIALS, authenticatePb } from "@/lib/store";
+import { getLoggedInPbId, onSessionChanged, setLoggedInPbId } from "@/lib/auth";
 import HomeMarketBoard from "@/components/HomeMarketBoard";
 
 const valueItems = [
@@ -69,33 +66,21 @@ function LoginExperience({ loginEmpId, password, loginError, loginBusy, onEmploy
 
 export default function HomePage() {
   const router = useRouter();
-  const [pbs, setPbs] = useState<PB[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
-  const [pbManageOpen, setPbManageOpen] = useState(false);
-  const [loadError, setLoadError] = useState("");
   const [loginEmpId, setLoginEmpId] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [loggedInPbId, setLoggedInPbIdState] = useState<string | null>(null);
-  const [loggedInPbName, setLoggedInPbNameState] = useState<string | null>(null);
 
   useEffect(() => {
-    const syncSession = () => { setLoggedInPbIdState(getLoggedInPbId()); setLoggedInPbNameState(getLoggedInPbName()); };
+    const syncSession = () => setLoggedInPbIdState(getLoggedInPbId());
     syncSession();
     return onSessionChanged(syncSession);
   }, []);
 
-  const load = useCallback(async () => {
-    if (!loggedInPbId) { setPbs([]); setClients([]); setStatus("ready"); return; }
-    setStatus("loading");
-    try { const [p, c] = await Promise.all([listPbs(), listClients()]); setPbs(p); setClients(c); setStatus("ready"); }
-    catch (e: any) { console.error(e); setLoadError(e?.message ?? String(e)); setStatus("error"); }
-  }, [loggedInPbId]);
-
-  useEffect(() => { load(); }, [load]);
-  const clientCount = (pbId: string) => clients.filter((client) => client.assignedPbId === pbId).length;
+  // listPbs()/listClients() 호출을 걷어냈다. 두 카드만 쓰던 데이터라, 카드가 사라진
+  // 지금은 홈을 열 때마다 쿼리 두 개를 날릴 이유가 없다. PB 목록은 관리 모달을 실제로
+  // 열 때 PBManageHost 가 읽는다.
 
   const handleLogin = async () => {
     setLoginError(""); setLoginBusy(true);
@@ -107,25 +92,28 @@ export default function HomePage() {
     } finally { setLoginBusy(false); }
   };
 
-  const handleCreatePb = async (data: { name: string; employeeId: string; password: string; email?: string; title?: string; phone?: string }) => { const pb = await createPb(data); await load(); return pb; };
-  const handleUpdatePb = async (id: string, data: { name?: string; employeeId?: string; password?: string; email?: string; title?: string; phone?: string }) => { await updatePb(id, data); await load(); };
-  const handleDeletePb = async (id: string) => { await deletePb(id); await load(); };
-
   if (!loggedInPbId) return <LoginExperience loginEmpId={loginEmpId} password={password} loginError={loginError} loginBusy={loginBusy} onEmployeeChange={(value) => { setLoginEmpId(value); setLoginError(""); }} onPasswordChange={(value) => { setPassword(value); setLoginError(""); }} onLogin={handleLogin} />;
 
   return (
     <div className="px-6 py-6">
       <div className="mb-6"><p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[#1428A0]"><span className="h-px w-6 bg-[#1428A0]" />SAMSUNG SECURITIES · PRIVATE BANKING</p><p className="mt-2 text-sm text-fg-muted">삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.</p><p className="mt-1 text-[11px] text-fg-muted/70">※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.</p></div>
+      {/* 카드 두 장("PB 로그인 상태", "관리자")을 걷어냈다.
+          전자는 상단 네비에 PB 이름·세션·로그아웃이 이미 있어 중복이었고, 후자는
+          PB 계정 관리를 쓰려면 홈으로 돌아와야 한다는 제약을 만들었다 —
+          관리는 상단 네비 ☰ 메뉴로 옮겼고(components/PBManageHost.tsx), 어느 화면에서든 열린다.
+
+          아래를 다른 것으로 채우지 않고 비운다. 홈은 로그인 직후 잠깐 거치는 화면이고
+          실제 작업은 전부 /pb/[pbId] 에서 일어난다. 시세 보드는 그 자체로 볼 값이 있어
+          남기지만, 빈자리를 메우려고 새 위젯을 넣으면 지나가는 화면에 체류 이유만 늘린다.
+          "PB 고객관리로 돌아가기" 버튼도 네비의 다고객 북 링크와 겹쳐 되살리지 않았다. */}
       <HomeMarketBoard />
-      {status === "loading" && <LoadingView />}
-      {status === "error" && <ErrorView message={loadError || "불러오기에 실패했습니다."} onRetry={load} />}
-      {status === "ready" && (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_1fr]">
-          <div className="rounded-2xl border border-border bg-surface p-8 shadow-card"><div className="mb-6"><div className="mb-1 flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-sm font-black text-white">✓</span><span className="text-base font-bold text-fg">PB 로그인 상태</span></div><p className="text-xs text-fg-muted">홈 화면을 둘러보는 동안에도 로그인 상태가 유지됩니다.</p></div><div className="space-y-3"><div className="rounded-lg bg-surface-2 px-4 py-4"><p className="text-xs text-fg-muted">현재 로그인</p><p className="mt-1 text-base font-bold text-fg">{pbs.find((pb) => pb.id === loggedInPbId)?.name ?? loggedInPbName ?? "PB 사용자"}</p></div><button className="w-full rounded-lg bg-[#1428A0] py-3 text-sm font-bold text-white transition-colors hover:bg-[#1020c0]" onClick={() => router.push(`/pb/${loggedInPbId}`)}>PB 고객관리로 돌아가기</button></div></div>
-          <div className="rounded-2xl border border-border bg-surface p-8 shadow-card"><div className="mb-6"><p className="text-base font-bold text-fg">관리자</p><p className="text-xs text-fg-muted">PB 계정 등록 및 관리</p></div><div className="space-y-3"><div className="flex items-center justify-between rounded-lg bg-surface-2 px-4 py-3"><span className="text-sm text-fg">등록된 PB</span><span className="text-lg font-black text-[#1428A0]">{pbs.length}명</span></div><button className="w-full rounded-lg border border-[#1428A0] py-3 text-sm font-bold text-[#1428A0] transition-colors hover:bg-[#1428A0] hover:text-white" onClick={() => setPbManageOpen(true)}>PB 계정 관리</button></div>{usingLocalFallback && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.</p>}</div>
-        </div>
+      {/* 로컬 모드 경고는 관리자 카드 안에 있었다. 데이터가 브라우저에만 저장된다는
+          경고라 관리 기능과 무관하게 계속 보여야 한다. */}
+      {usingLocalFallback && (
+        <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+          ⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.
+        </p>
       )}
-      <PBManageModal open={pbManageOpen} pbs={pbs} clientCountOf={clientCount} onCreate={handleCreatePb} onUpdate={handleUpdatePb} onDelete={handleDeletePb} onClose={() => setPbManageOpen(false)} />
     </div>
   );
 }
