@@ -28,11 +28,12 @@ import {
 } from "@/lib/advisory/workflowApprovals";
 import SessionCountdown from "@/components/SessionCountdown";
 
-/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 2 → IPS */
+/** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 2 → IPS → 고객화면 */
 const CLIENT_WORKFLOW_TABS = [
   { id: "basic", icon: "👤", label: "기본 정보", view: "home" as const },
   { id: "portfolio2", icon: "📊", label: "포트폴리오 2", view: "analysis" as const, tab: "portfolio2" },
   { id: "ips", icon: "📄", label: "IPS", view: "analysis" as const, tab: "ips" },
+  { id: "customer", icon: "🖥️", label: "고객화면", view: "analysis" as const, tab: "customer" },
 ] as const;
 
 const EXTERNAL_LINKS = [
@@ -234,8 +235,12 @@ export default function AppNav() {
       alert("기본정보 승인 후 포트폴리오를 진행할 수 있습니다.");
       return;
     }
-    if (tab === "ips" && !portfolioApproved) {
-      alert("포트폴리오 승인 후 IPS를 확정할 수 있습니다.");
+    if ((tab === "ips" || tab === "customer") && !portfolioApproved) {
+      alert(
+        tab === "customer"
+          ? "고객화면을 표시하려면 포트폴리오 승인과 IPS 검토가 필요합니다."
+          : "포트폴리오 승인 후 IPS를 확정할 수 있습니다.",
+      );
       return;
     }
     const next = new URLSearchParams({ view });
@@ -291,7 +296,7 @@ export default function AppNav() {
             </div>
           </div>
 
-          {/* 2행 — 기본 정보 / 포트폴리오 2 / IPS (승인 전 후속 탭 비활성) */}
+          {/* 2행 — 기본 정보 / 포트폴리오 2 / IPS / 고객화면 */}
           <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
             {CLIENT_WORKFLOW_TABS.map((s) => {
               const isActive =
@@ -301,7 +306,7 @@ export default function AppNav() {
               const disabled =
                 s.id === "portfolio2"
                   ? !basicApproved
-                  : s.id === "ips"
+                  : s.id === "ips" || s.id === "customer"
                     ? !portfolioApproved
                     : false;
               return (
@@ -320,7 +325,9 @@ export default function AppNav() {
                     disabled
                       ? s.id === "portfolio2"
                         ? "기본정보 승인 후 포트폴리오를 진행할 수 있습니다."
-                        : "포트폴리오 승인 후 IPS를 확정할 수 있습니다."
+                        : s.id === "customer"
+                          ? "고객화면을 표시하려면 포트폴리오 승인과 IPS 검토가 필요합니다."
+                          : "포트폴리오 승인 후 IPS를 확정할 수 있습니다."
                       : undefined
                   }
                 >

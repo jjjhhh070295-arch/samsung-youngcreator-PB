@@ -50,7 +50,8 @@ export type Tab =
   | "portfolio2"
   | "taxProjection"
   | "stress"
-  | "ips";
+  | "ips"
+  | "customer";
 
 // 상담 전 과정을 하나의 탭 바로 — 현금흐름/포트폴리오/세전세후/스트레스/IPS
 // (7요인은 기본 정보 화면으로 이동 — components/FactorsSummary.tsx)
