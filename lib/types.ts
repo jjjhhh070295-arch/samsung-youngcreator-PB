@@ -260,6 +260,12 @@ export interface Client {
   cashFlows: CashFlow[]; // 현금흐름 (포트폴리오 입력)
   portfolios: Portfolio[]; // 7요인·현금흐름·리서치 기반 포트폴리오 후보
   stages: Stages; // 단계별 PB 확정 상태
+  /** 승인 시점 입력 해시 — 스테일 승인 감지용 (stages JSON에 함께 저장) */
+  approvalHashes?: {
+    basic?: string;
+    portfolio?: string;
+    ips?: string;
+  };
   createdAt: string;
   // 모닝 브리핑 1단계 — parties.email/email_opt_in/email_opt_out_at 마이그레이션
   // 실행 전에는 email은 항상 undefined, emailOptIn은 항상 false로 읽힌다.

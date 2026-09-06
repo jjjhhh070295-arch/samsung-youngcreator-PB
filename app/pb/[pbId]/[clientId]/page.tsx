@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL } from "@/lib/types";
 import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey, Stages, FinancialIncomeProfile } from "@/lib/types";
@@ -16,15 +16,46 @@ import {
 } from "@/lib/store";
 import {
   basicApprovalStagePatch,
+  basicUnapprovalStagePatch,
   ipsApprovalStagePatch,
+  ipsUnapprovalStagePatch,
   isBasicWorkflowApproved,
   isIpsWorkflowApproved,
   isPortfolioWorkflowApproved,
+  MSG_BASIC_APPROVED,
+  MSG_BASIC_UNAPPROVED,
+  MSG_IPS_APPROVED,
+  MSG_IPS_UNAPPROVED,
+  MSG_PORTFOLIO_APPROVED,
+  MSG_PORTFOLIO_UNAPPROVED,
   portfolioApprovalStagePatch,
+  portfolioUnapprovalStagePatch,
   validateBasicWorkflowApproval,
   validateIpsWorkflowApproval,
   validatePortfolioWorkflowApproval,
 } from "@/lib/advisory/workflowApprovals";
+import {
+  extractIpsFromClientProfile,
+  ipsExtractionMissingReasons,
+  markIpsExtractionStale,
+} from "@/lib/advisory/ipsExtraction";
+import {
+  syncEvidenceAfterBasicApproval,
+  syncEvidenceAfterBasicUnapproval,
+  syncEvidenceAfterIpsApproval,
+  syncEvidenceAfterIpsUnapproval,
+  syncEvidenceAfterPortfolioApproval,
+  syncEvidenceAfterPortfolioUnapproval,
+} from "@/lib/advisory/workflowEvidenceSync";
+import {
+  bumpBasicAssetRevision,
+  computeBasicApprovalHash,
+  computeIpsApprovalHash,
+  computePortfolioApprovalHash,
+  detectApprovalInvalidation,
+  MSG_BASIC_STALE,
+  MSG_PORTFOLIO_STALE,
+} from "@/lib/advisory/approvalSnapshots";
 import { loadBundle } from "@/lib/advisory/control";
 import { loadManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
@@ -45,6 +76,9 @@ import FactorsSummary from "@/components/FactorsSummary";
 import SimpleCashflowPanel from "@/components/SimpleCashflowPanel";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 import { resolveAssetBreakdown } from "@/lib/assets";
+
+const MSG_NEED_BASIC = "기본정보 승인 후 포트폴리오를 진행할 수 있습니다.";
+const MSG_NEED_PORTFOLIO = "포트폴리오 승인 후 IPS를 확정할 수 있습니다.";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
@@ -119,22 +153,198 @@ export default function ClientDetailPage() {
     }
   }, [activeView, searchParams, router, pbId, clientId]);
 
+  // URL/쿼리로 후속 탭을 직접 열면 승인 게이트로 되돌린다.
+  const gateToastKey = useRef("");
+  const skipGateToast = useRef(false);
+  useEffect(() => {
+    if (status !== "ready" || !client) return;
+    if (activeView !== "analysis") return;
+
+    const warn = (msg: string, key: string) => {
+      if (skipGateToast.current) {
+        skipGateToast.current = false;
+        return;
+      }
+      if (gateToastKey.current === key) return;
+      gateToastKey.current = key;
+      alert(msg);
+    };
+
+    if ((activeTab === "portfolio2" || activeTab === "ips") && !isBasicWorkflowApproved(client)) {
+      warn(MSG_NEED_BASIC, `${client.id}:need-basic`);
+      router.replace(`/pb/${pbId}/${clientId}?view=home`);
+      return;
+    }
+    if (activeTab === "ips" && !isPortfolioWorkflowApproved(client)) {
+      warn(MSG_NEED_PORTFOLIO, `${client.id}:need-portfolio`);
+      router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
+    }
+  }, [status, client, activeView, activeTab, router, pbId, clientId]);
+
+  // 이미 IPS까지 승인됐는데 Evidence가 오래된 blocked면 복구(PDF 게이트)
+  useEffect(() => {
+    if (!client || typeof window === "undefined") return;
+    if (!isIpsWorkflowApproved(client)) return;
+    const bundle = loadBundle(client.id);
+    if (bundle.status === "blocked" || bundle.status !== "locked") {
+      syncEvidenceAfterIpsApproval(client);
+    }
+  }, [client]);
+
   const handleSetTab = (t: Tab) => {
+    if ((t === "portfolio2" || t === "portfolio" || t === "taxProjection" || t === "stress") && client && !isBasicWorkflowApproved(client)) {
+      alert(MSG_NEED_BASIC);
+      return;
+    }
+    if (t === "ips" && client && !isPortfolioWorkflowApproved(client)) {
+      alert(MSG_NEED_PORTFOLIO);
+      return;
+    }
     router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=${t}`, { scroll: false });
   };
+
+  const notifyClientUpdated = () => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("pb-client-updated"));
+      window.dispatchEvent(new Event("pb-evidence-updated"));
+    }
+  };
+
+  const applyInvalidation = async (
+    current: Client,
+    level: "basic" | "portfolio",
+    message: string,
+  ) => {
+    if (level === "basic") {
+      const stages = { ...(current.stages ?? {}), ...basicUnapprovalStagePatch() };
+      const ips = markIpsExtractionStale(current.ips);
+      const portfolios = (current.portfolios ?? []).map((p) => ({
+        ...p,
+        confirmedAt: undefined,
+      }));
+      const approvalHashes = {};
+      await updateClient(current.id, { stages, ips, portfolios, approvalHashes });
+      const nextClient = { ...current, stages, ips, portfolios, approvalHashes };
+      setClient(nextClient);
+      syncEvidenceAfterBasicUnapproval(nextClient);
+      notifyClientUpdated();
+      skipGateToast.current = true;
+      gateToastKey.current = "";
+      if (activeView === "analysis") {
+        router.replace(`/pb/${pbId}/${clientId}?view=home`);
+      }
+      alert(message);
+      return;
+    }
+
+    const stages = { ...(current.stages ?? {}), ...portfolioUnapprovalStagePatch() };
+    const portfolios = (current.portfolios ?? []).map((p) => ({
+      ...p,
+      confirmedAt: undefined,
+    }));
+    const approvalHashes = {
+      basic: current.approvalHashes?.basic,
+    };
+    await updateClient(current.id, { stages, portfolios, approvalHashes });
+    const nextClient = { ...current, stages, portfolios, approvalHashes };
+    setClient(nextClient);
+    syncEvidenceAfterPortfolioUnapproval(nextClient);
+    notifyClientUpdated();
+    skipGateToast.current = true;
+    gateToastKey.current = "";
+    if (activeView === "analysis" && activeTab === "ips") {
+      router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
+    }
+    alert(message);
+  };
+
+  /** 승인 후 입력 변경 시 스테일 승인 해제 */
+  const invalidateAfterEdit = async (
+    nextPartial: Partial<Client>,
+    prefer: "basic" | "portfolio" | "auto" = "auto",
+  ) => {
+    if (!client) return;
+    const probe: Client = { ...client, ...nextPartial };
+    if (prefer === "basic" && isBasicWorkflowApproved(client)) {
+      await applyInvalidation(probe, "basic", MSG_BASIC_STALE);
+      return;
+    }
+    if (prefer === "portfolio" && isPortfolioWorkflowApproved(client)) {
+      await applyInvalidation(probe, "portfolio", MSG_PORTFOLIO_STALE);
+      return;
+    }
+    const hit = detectApprovalInvalidation(probe);
+    if (!hit) return;
+    if (hit.level === "ips") {
+      const stages = { ...(probe.stages ?? {}), ...hit.stages };
+      await updateClient(probe.id, { stages, approvalHashes: hit.hashes });
+      const nextClient = { ...probe, stages, approvalHashes: hit.hashes };
+      setClient(nextClient);
+      syncEvidenceAfterIpsUnapproval(nextClient);
+      notifyClientUpdated();
+      alert(hit.message);
+      return;
+    }
+    await applyInvalidation(probe, hit.level, hit.message);
+  };
+
+  // 새로고침 후 스테일 승인 정리 (+ 해시 없는 기존 승인 마이그레이션)
+  useEffect(() => {
+    if (status !== "ready" || !client) return;
+    void (async () => {
+      const hashes = { ...(client.approvalHashes ?? {}) };
+      let stamped = false;
+      if (isBasicWorkflowApproved(client) && !hashes.basic) {
+        hashes.basic = computeBasicApprovalHash(client);
+        stamped = true;
+      }
+      if (isPortfolioWorkflowApproved(client) && !hashes.portfolio) {
+        hashes.portfolio = computePortfolioApprovalHash(client);
+        stamped = true;
+      }
+      if (isIpsWorkflowApproved(client) && !hashes.ips) {
+        hashes.ips = computeIpsApprovalHash(client);
+        stamped = true;
+      }
+      if (stamped) {
+        await updateClient(client.id, { stages: client.stages, approvalHashes: hashes });
+        setClient({ ...client, approvalHashes: hashes });
+        return;
+      }
+
+      const hit = detectApprovalInvalidation(client);
+      if (!hit) return;
+      if (hit.level === "ips") {
+        const stages = { ...(client.stages ?? {}), ...hit.stages };
+        await updateClient(client.id, { stages, approvalHashes: hit.hashes });
+        const nextClient = { ...client, stages, approvalHashes: hit.hashes };
+        setClient(nextClient);
+        syncEvidenceAfterIpsUnapproval(nextClient);
+        notifyClientUpdated();
+        alert(hit.message);
+        return;
+      }
+      await applyInvalidation(client, hit.level, hit.message);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 로드 직후 1회 보정
+  }, [status, clientId]);
 
   const saveCashFlows = async (flows: CashFlow[], periodType?: CashflowPeriodType) => {
     if (!client) return;
     const patch: Partial<Client> = { cashFlows: flows };
     if (periodType) patch.cashflowPeriodType = periodType;
     await updateClient(client.id, patch);
-    setClient({ ...client, cashFlows: flows, ...(periodType ? { cashflowPeriodType: periodType } : {}) });
+    const next = { ...client, cashFlows: flows, ...(periodType ? { cashflowPeriodType: periodType } : {}) };
+    setClient(next);
+    await invalidateAfterEdit(next, "basic");
   };
 
   const savePortfolios = async (portfolios: Portfolio[]) => {
     if (!client) return;
     await updateClient(client.id, { portfolios });
-    setClient({ ...client, portfolios });
+    const next = { ...client, portfolios };
+    setClient(next);
+    await invalidateAfterEdit(next, "portfolio");
   };
 
   const finalizePortfolio = async (portfolio: Portfolio) => {
@@ -162,34 +372,76 @@ export default function ClientDetailPage() {
     if (!client) return;
     const stages = { ...(client.stages ?? {}), ...patch };
     const next = portfolios ? { stages, portfolios } : { stages };
-    await updateClient(client.id, next);
+    await updateClient(client.id, { ...next, approvalHashes: client.approvalHashes });
     setClient({ ...client, ...next });
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("pb-evidence-updated"));
-    }
+    notifyClientUpdated();
+  };
+
+  const onBasicAssetsChanged = () => {
+    bumpAssetRefresh();
+    bumpBasicAssetRevision(clientId);
+    if (!client || !isBasicWorkflowApproved(client)) return;
+    void invalidateAfterEdit(client, "basic");
+  };
+
+  const onPortfolioDraftChanged = () => {
+    if (!client || !isPortfolioWorkflowApproved(client)) return;
+    void invalidateAfterEdit(client, "portfolio");
   };
 
   const approveBasicInfo = async () => {
     if (!client) return;
+
     if (isBasicWorkflowApproved(client)) {
-      alert("기본정보가 이미 승인되어 있습니다.");
+      if (
+        !confirm(
+          "기본정보 승인을 취소할까요?\n포트폴리오·IPS 승인도 함께 초기화됩니다.",
+        )
+      ) {
+        return;
+      }
+      await applyInvalidation(client, "basic", MSG_BASIC_UNAPPROVED);
       return;
     }
-    const reasons = validateBasicWorkflowApproval(client);
+
+    const reasons = [
+      ...validateBasicWorkflowApproval(client),
+      ...ipsExtractionMissingReasons(client),
+    ].filter((r, i, arr) => arr.indexOf(r) === i);
     if (reasons.length) {
       alert(`검토 필요\n\n${reasons.join("\n")}`);
       return;
     }
     if (!confirm("기본정보·7요인·현금흐름 입력을 승인할까요?\n(상담 진행 1~3단계가 완료됩니다)")) return;
-    await patchStages(basicApprovalStagePatch());
+
+    const ips = extractIpsFromClientProfile(client);
+    const stages = { ...(client.stages ?? {}), ...basicApprovalStagePatch() };
+    const approvalHashes = {
+      basic: computeBasicApprovalHash({ ...client, ips }),
+    };
+    await updateClient(client.id, { stages, ips, approvalHashes });
+    const nextClient = { ...client, stages, ips, approvalHashes };
+    setClient(nextClient);
+    syncEvidenceAfterBasicApproval(nextClient);
+    notifyClientUpdated();
+    alert(MSG_BASIC_APPROVED);
   };
 
   const approvePortfolioWorkflow = async () => {
     if (!client) return;
+
     if (isPortfolioWorkflowApproved(client)) {
-      alert("포트폴리오가 이미 승인되어 있습니다.");
+      if (
+        !confirm(
+          "포트폴리오 승인을 취소할까요?\nIPS 승인도 함께 초기화됩니다.",
+        )
+      ) {
+        return;
+      }
+      await applyInvalidation(client, "portfolio", MSG_PORTFOLIO_UNAPPROVED);
       return;
     }
+
     const reasons = validatePortfolioWorkflowApproval(client, clientId);
     if (reasons.length) {
       alert(`검토 필요\n\n${reasons.join("\n")}`);
@@ -225,15 +477,39 @@ export default function ClientDetailPage() {
       editedByPb: true,
       confirmedAt: new Date().toISOString(),
     };
-    await patchStages(portfolioApprovalStagePatch(), [portfolio]);
+    const stages = { ...(client.stages ?? {}), ...portfolioApprovalStagePatch() };
+    const nextClientBase = { ...client, stages, portfolios: [portfolio] };
+    const approvalHashes = {
+      basic: client.approvalHashes?.basic ?? computeBasicApprovalHash(client),
+      portfolio: computePortfolioApprovalHash(nextClientBase, draft),
+    };
+    await updateClient(client.id, { stages, portfolios: [portfolio], approvalHashes });
+    const nextClient = { ...nextClientBase, approvalHashes };
+    setClient(nextClient);
+    syncEvidenceAfterPortfolioApproval(nextClient);
+    notifyClientUpdated();
+    alert(MSG_PORTFOLIO_APPROVED);
   };
 
   const approveIpsWorkflow = async () => {
     if (!client) return;
+
     if (isIpsWorkflowApproved(client)) {
-      alert("IPS가 이미 승인되어 있습니다.");
+      if (!confirm("IPS 승인을 취소할까요?\n최종 PDF 발행이 비활성화됩니다.")) return;
+      const stages = { ...(client.stages ?? {}), ...ipsUnapprovalStagePatch() };
+      const approvalHashes = {
+        basic: client.approvalHashes?.basic,
+        portfolio: client.approvalHashes?.portfolio,
+      };
+      await updateClient(client.id, { stages, approvalHashes });
+      const nextClient = { ...client, stages, approvalHashes };
+      setClient(nextClient);
+      syncEvidenceAfterIpsUnapproval(nextClient);
+      notifyClientUpdated();
+      alert(MSG_IPS_UNAPPROVED);
       return;
     }
+
     const bundle = loadBundle(clientId);
     const reasons = validateIpsWorkflowApproval(client, bundle);
     if (reasons.length) {
@@ -241,39 +517,59 @@ export default function ClientDetailPage() {
       return;
     }
     if (!confirm("IPS·PDF 단계를 승인할까요?\n(상담 진행 7단계가 완료됩니다)")) return;
-    await patchStages(ipsApprovalStagePatch());
+    const stages = { ...(client.stages ?? {}), ...ipsApprovalStagePatch() };
+    const ips = client.ips?.return?.reviewed
+      ? client.ips
+      : extractIpsFromClientProfile(client);
+    const nextBase = { ...client, stages, ips };
+    const approvalHashes = {
+      basic: client.approvalHashes?.basic ?? computeBasicApprovalHash(client),
+      portfolio: client.approvalHashes?.portfolio ?? computePortfolioApprovalHash(client),
+      ips: computeIpsApprovalHash(nextBase),
+    };
+    await updateClient(client.id, { stages, ips, approvalHashes });
+    const nextClient = { ...nextBase, approvalHashes };
+    setClient(nextClient);
+    syncEvidenceAfterIpsApproval(nextClient);
+    notifyClientUpdated();
+    alert(MSG_IPS_APPROVED);
   };
 
   const saveComprehensiveTaxFlag = async (value: boolean) => {
     if (!client) return;
     await updateClient(client.id, { financialIncomeComprehensiveTax: value });
-    setClient({
+    const next = {
       ...client,
       financialIncomeComprehensiveTax: value,
       financialIncomeProfile: value
         ? client.financialIncomeProfile ?? null
         : client.financialIncomeProfile,
-    });
+    };
+    setClient(next);
+    await invalidateAfterEdit(next, "basic");
   };
 
   const saveFinancialIncomeProfile = async (profile: FinancialIncomeProfile) => {
     if (!client) return;
     await updateClient(client.id, { financialIncomeProfile: profile });
-    setClient({ ...client, financialIncomeProfile: profile });
+    const next = { ...client, financialIncomeProfile: profile };
+    setClient(next);
+    await invalidateAfterEdit(next, "basic");
   };
 
   const applySurvey = async (ips: IPS, result: InvestmentSurveyResult) => {
     if (!client) return;
     await updateClient(client.id, { ips });
-    setClient({ ...client, ips });
-    // 설문 원본(답변·점수·최종 성향)을 이력으로 남긴다 — 가공된 7요인(ips)과 별개로,
-    // party_id 기준으로 담당 PB가 바뀌어도 지난 설문을 조회할 수 있게 한다.
+    const next = { ...client, ips };
+    setClient(next);
     await saveInvestmentSurvey(client.id, pbId, result);
+    await invalidateAfterEdit(next, "basic");
   };
+
 
   const submitEdit = async (v: ClientFormValue) => {
     if (!client) return;
-    await updateClient(client.id, {
+    const patch = {
       code: v.code,
       clientType: v.clientType,
       name: v.name,
@@ -286,7 +582,11 @@ export default function ClientDetailPage() {
       accountSeparation: v.accountSeparation,
       email: v.email,
       emailOptIn: v.emailOptIn,
-    });
+    };
+    await updateClient(client.id, patch);
+    const next = { ...client, ...patch };
+    setClient(next);
+    await invalidateAfterEdit(next, "basic");
     await load();
     if (v.assignedPbId && v.assignedPbId !== pbId) {
       router.replace(`/pb/${v.assignedPbId}/${client.id}`);
@@ -386,7 +686,7 @@ export default function ClientDetailPage() {
                   className={isBasicWorkflowApproved(client) ? "btn-outline text-sm" : "btn-primary text-sm"}
                   onClick={() => void approveBasicInfo()}
                 >
-                  {isBasicWorkflowApproved(client) ? "기본정보 승인됨 ✓" : "기본정보 승인"}
+                  {isBasicWorkflowApproved(client) ? "기본정보 승인 취소" : "기본정보 승인"}
                 </button>
               </div>
             </div>
@@ -401,7 +701,7 @@ export default function ClientDetailPage() {
               <span>📊</span> 보유종목 (MTS 캡쳐 추출)
             </h2>
             <div className="card p-5">
-              <HoldingsExtractor clientId={clientId} onAssetsChanged={bumpAssetRefresh} />
+              <HoldingsExtractor clientId={clientId} onAssetsChanged={onBasicAssetsChanged} />
             </div>
           </section>
 
@@ -411,7 +711,7 @@ export default function ClientDetailPage() {
               <span>🏠</span> 부동산 자산
             </h2>
             <div className="card p-5">
-              <RealEstateModule clientId={clientId} onAssetsChanged={bumpAssetRefresh} />
+              <RealEstateModule clientId={clientId} onAssetsChanged={onBasicAssetsChanged} />
             </div>
           </section>
         </div>
@@ -525,6 +825,7 @@ export default function ClientDetailPage() {
           onToggleStage={toggleStage}
           onApprovePortfolioWorkflow={approvePortfolioWorkflow}
           onApproveIpsWorkflow={approveIpsWorkflow}
+          onPortfolioDraftChanged={onPortfolioDraftChanged}
           linkedClient={linkedClient}
         />
       )}

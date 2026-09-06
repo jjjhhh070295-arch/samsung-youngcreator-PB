@@ -17,11 +17,13 @@ import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import { loadBundle } from "@/lib/advisory/control";
 import {
+  isBasicWorkflowApproved,
   isIpsWorkflowApproved,
   isPortfolioWorkflowApproved,
   workflowPdfBlockReason,
   workflowPdfReady,
 } from "@/lib/advisory/workflowApprovals";
+import { ipsExtractionMissingReasons } from "@/lib/advisory/ipsExtraction";
 
 interface Props {
   client: Client;
@@ -37,6 +39,7 @@ interface Props {
   onToggleStage: (key: StageKey) => Promise<void> | void;
   onApprovePortfolioWorkflow: () => Promise<void> | void;
   onApproveIpsWorkflow: () => Promise<void> | void;
+  onPortfolioDraftChanged?: () => void;
   linkedClient?: Client | null;
 }
 
@@ -65,6 +68,7 @@ export default function IPSResultTabs({
   onToggleStage,
   onApprovePortfolioWorkflow,
   onApproveIpsWorkflow,
+  onPortfolioDraftChanged,
   linkedClient,
 }: Props) {
   const router = useRouter();
@@ -218,6 +222,9 @@ export default function IPSResultTabs({
   const consultationComplete = Boolean(
     isPortfolioWorkflowApproved(client) && isIpsWorkflowApproved(client) && pdfReady,
   );
+  const ipsMissing = ipsExtractionMissingReasons(client);
+  const draftAllowed = isPortfolioWorkflowApproved(client);
+  const ipsReady = isBasicWorkflowApproved(client) && ipsMissing.length === 0;
 
   // 단계 완료 토글 버튼 (모든 단계 공통)
   const StageToggle = ({ k }: { k: StageKey }) => (
@@ -426,7 +433,11 @@ export default function IPSResultTabs({
 
       {tab === "portfolio2" && (
         <div className="space-y-4">
-          <ManualPortfolioBuilder clientId={clientId} totalAssetWon={client.assetSize} />
+          <ManualPortfolioBuilder
+            clientId={clientId}
+            totalAssetWon={client.assetSize}
+            onDraftChanged={onPortfolioDraftChanged}
+          />
 
           <div className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -442,7 +453,7 @@ export default function IPSResultTabs({
                 className={isPortfolioWorkflowApproved(client) ? "btn-outline px-5 py-2.5 text-sm" : "btn-primary px-5 py-2.5 text-sm"}
                 onClick={() => void onApprovePortfolioWorkflow()}
               >
-                {isPortfolioWorkflowApproved(client) ? "포트폴리오 승인됨 ✓" : "포트폴리오 승인"}
+                {isPortfolioWorkflowApproved(client) ? "포트폴리오 승인 취소" : "포트폴리오 승인"}
               </button>
             </div>
           </div>
@@ -507,17 +518,66 @@ export default function IPSResultTabs({
 
       {/* IPS — 투자정책서 문서 생성 + 단계 확정 */}
       {tab === "ips" && (
-        <div>
-          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <div className="space-y-4">
+          <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               className={isIpsWorkflowApproved(client) ? "btn-outline whitespace-nowrap text-xs" : "btn-primary whitespace-nowrap text-xs"}
               onClick={() => void onApproveIpsWorkflow()}
             >
-              {isIpsWorkflowApproved(client) ? "IPS 승인됨 ✓" : "IPS 승인"}
+              {isIpsWorkflowApproved(client) ? "IPS 승인 취소" : "IPS 승인"}
             </button>
             <StageToggle k="ips" />
           </div>
+
+          {!draftAllowed ? (
+            <div className="card flex flex-col items-center gap-2 p-8 text-center">
+              <span className="text-2xl">🔒</span>
+              <p className="text-sm font-medium text-fg">
+                IPS 작성을 위해 기본정보 승인과 포트폴리오 승인이 필요합니다.
+              </p>
+            </div>
+          ) : !ipsReady ? (
+            <div className="card flex flex-col items-center gap-2 p-8 text-center">
+              <span className="text-2xl">⚠️</span>
+              <p className="text-sm font-medium text-fg">
+                IPS 작성에 필요한 고객 정보가 부족합니다
+              </p>
+              <ul className="mt-1 max-w-md list-disc space-y-1 pl-5 text-left text-xs text-fg-muted">
+                {ipsMissing.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="card space-y-4 p-5">
+              <div>
+                <p className="decision-kicker">IPS draft</p>
+                <h3 className="mt-1 text-lg font-bold text-fg">IPS 초안 미리보기</h3>
+                <p className="mt-1 text-xs text-fg-muted">
+                  최종 PDF 발행 전 검토용 화면입니다.
+                </p>
+              </div>
+              <IPSRadar ips={client.ips} />
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {FACTOR_META.map((m) => {
+                  const f = client.ips[m.key];
+                  return (
+                    <div key={m.key} className="rounded-lg border border-border bg-surface-2/40 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                        {m.label} ({m.labelEn})
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-fg">{f?.value?.trim() || "—"}</p>
+                      {f?.notes?.trim() && (
+                        <p className="mt-1 text-[11px] text-fg-muted">{f.notes}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="card flex flex-col items-center gap-4 p-8 text-center">
             <span className="text-3xl">{consultationComplete ? "✓" : "📄"}</span>
             <div>
@@ -537,19 +597,26 @@ export default function IPSResultTabs({
               <span className={done.portfolio ? "badge-success" : "badge-muted"}>포트폴리오 {done.portfolio ? "확정" : "대기"}</span>
               <span className={done.stress ? "badge-success" : "badge-muted"}>스트레스 테스트 {done.stress ? "완료" : "대기"}</span>
             </div>
-            {!done.portfolio && (
-              <p className="text-xs text-fg-muted">
-                💡 포트폴리오에서 「포트폴리오 승인」을 완료하면 문서에 포트폴리오 내역도 함께 채워집니다.
-              </p>
-            )}
             {!pdfReady && (
-              <p className="text-xs font-semibold text-red-600">
-                {workflowPdfBlockReason(client, advisoryBundle)}
+              <p className="text-xs font-semibold text-[#1428A0]">
+                {workflowPdfBlockReason(client, advisoryBundle) || "IPS 승인 후 최종 PDF를 발행할 수 있습니다."}
               </p>
             )}
             <div className="flex flex-wrap justify-center gap-2">
-              <button className="btn-outline px-6 py-2.5" onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}>IPS 미리보기</button>
-              <button className="btn-primary px-6 py-2.5" disabled={!pdfReady} onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}>PDF 발행</button>
+              <button
+                className="btn-outline px-6 py-2.5"
+                disabled={!draftAllowed}
+                onClick={() => router.push(`/pb/${pbId}/${clientId}/ips?mode=draft`)}
+              >
+                IPS 초안 미리보기
+              </button>
+              <button
+                className="btn-primary px-6 py-2.5"
+                disabled={!pdfReady}
+                onClick={() => router.push(`/pb/${pbId}/${clientId}/ips`)}
+              >
+                PDF 발행
+              </button>
             </div>
           </div>
         </div>
