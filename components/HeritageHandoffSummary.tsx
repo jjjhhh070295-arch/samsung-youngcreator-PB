@@ -64,6 +64,11 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
 
   const realEstateValueWon =
     input.realEstateWeightPct != null ? Math.round((input.assetSizeWon * input.realEstateWeightPct) / 100) : null;
+  // realEstateWeightPct 는 (부동산시가 / 총자산) × 100 을 반올림 없이 담고 있어, 그대로
+  // 찍으면 "8.447142857142858%" 처럼 나온다. 종이에 그 자릿수가 남을 이유가 없다.
+  // 금액(realEstateValueWon)은 반올림한 이 값이 아니라 원래 실수로 역산하므로 오차가 없다.
+  const realEstateWeightLabel =
+    input.realEstateWeightPct != null ? `${input.realEstateWeightPct.toFixed(1)}%` : null;
   const debtWon = assessment.taxRange?.breakdown.debtWon ?? input.debtWon ?? 0;
   const recentGifts = (input.givenGiftEvents ?? []).slice().sort((a, b) => (a.eventDate < b.eventDate ? 1 : -1));
 
@@ -126,7 +131,7 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
             <h3 className="text-xs font-bold uppercase tracking-wide text-fg-muted">자산 구성</h3>
             <div className="decision-card mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div><p className="text-[11px] text-fg-muted">총자산</p><p className="mt-0.5 text-sm font-bold text-fg">{eok(input.assetSizeWon)}</p></div>
-              <div><p className="text-[11px] text-fg-muted">부동산</p><p className="mt-0.5 text-sm font-bold text-fg">{realEstateValueWon != null ? `${eok(realEstateValueWon)} (${input.realEstateWeightPct}%)` : "미입력"}</p></div>
+              <div><p className="text-[11px] text-fg-muted">부동산</p><p className="mt-0.5 text-sm font-bold text-fg">{realEstateValueWon != null ? `${eok(realEstateValueWon)} (${realEstateWeightLabel})` : "미입력"}</p></div>
               <div><p className="text-[11px] text-fg-muted">금융자산(현금성)</p><p className="mt-0.5 text-sm font-bold text-fg">{eok(liquidAssetsWon)}</p></div>
               <div><p className="text-[11px] text-fg-muted">채무</p><p className="mt-0.5 text-sm font-bold text-fg">{eok(debtWon)}</p></div>
             </div>
