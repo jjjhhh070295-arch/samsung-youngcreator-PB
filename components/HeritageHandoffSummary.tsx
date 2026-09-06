@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import type { Client, TransferEvent } from "@/lib/types";
+import type { BookHolding } from "@/lib/advisory/types";
 import { CLIENT_TYPE_LABEL } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { eok } from "@/lib/heritage";
@@ -15,13 +16,19 @@ interface Props {
   assessment: HeritageAssessment;
   gap: HeritagePaymentGapResult | null;
   liquidAssetsWon: number;
+  /**
+   * 이 고객의 보유종목. 합계(liquidAssetsWon)만으로는 세무사가 재산 목록을 만들 수 없어
+   * 종목별로도 싣는다 — 호출부가 이미 listBookHoldings 로 읽어 둔 값을 그대로 넘긴다.
+   * 넘기지 않으면 종목 표만 빠지고 나머지는 그대로 동작한다.
+   */
+  holdings?: BookHolding[];
 }
 
 // 세무사에게 그대로 인쇄·캡처해서 넘기는 화면. window.print()는 이 컴포넌트 안에서만
 // heritage-print-mode 클래스를 body에 잠깐 붙였다 떼는 방식으로 이 카드 하나만 인쇄되게
 // 한다(app/globals.css의 body.heritage-print-mode 규칙) — 기존 PDF 출력 허가 게이트는
 // 건드리지 않는다(이 화면은 별도 승인 절차가 필요 없는 개략 자료 인계용).
-export default function HeritageHandoffSummary({ open, onClose, client, input, assessment, gap, liquidAssetsWon }: Props) {
+export default function HeritageHandoffSummary({ open, onClose, client, input, assessment, gap, liquidAssetsWon, holdings }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -151,6 +158,60 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
               이 금액을 그대로 쓰지 마시고 평가기준일 시세로 재산정해 주십시오.
             </p>
           </section>
+
+          {/* 2-1. 보유종목 내역 — 합계 한 줄로는 세무사가 재산 목록을 만들 수 없다.
+              client_holdings 에 종목명·티커·수량·단가가 이미 있으므로 그대로 싣는다.
+              금액은 여기서도 취득원가다(수량 × 평균매입단가) — 위 각주와 같은 한계다. */}
+          {holdings && holdings.length > 0 && (
+            <section>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-fg-muted">보유종목 내역 (취득원가 기준)</h3>
+              <div className="decision-card mt-2 overflow-x-auto">
+                <table className="w-full min-w-[520px] border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-border text-left text-fg-muted">
+                      <th className="py-1.5 pr-2 font-semibold">종목명</th>
+                      <th className="py-1.5 pr-2 font-semibold">종목코드</th>
+                      <th className="py-1.5 pr-2 text-right font-semibold">수량</th>
+                      <th className="py-1.5 pr-2 text-right font-semibold">평균매입단가</th>
+                      <th className="py-1.5 text-right font-semibold">취득원가</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdings.map((h) => (
+                      <tr key={h.id} className="border-b border-border/60 last:border-0">
+                        <td className="py-1.5 pr-2 font-semibold text-fg">
+                          {h.name}
+                          {/* 원화가 아니면 통화를 밝힌다 — 단가·취득원가의 단위가 달라진다. */}
+                          {h.currency && h.currency !== "KRW" && (
+                            <span className="ml-1 text-[10px] font-bold text-amber-700">{h.currency}</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-2 text-fg-muted">{h.ticker ?? "미입력"}</td>
+                        <td className="py-1.5 pr-2 text-right text-fg">{h.quantity.toLocaleString("ko-KR")}</td>
+                        <td className="py-1.5 pr-2 text-right text-fg">
+                          {h.avgPrice == null ? "미입력" : h.avgPrice.toLocaleString("ko-KR")}
+                        </td>
+                        <td className="py-1.5 text-right font-bold text-fg">{eok(h.evalAmount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border">
+                      <td className="py-1.5 pr-2 font-bold text-fg" colSpan={4}>합계</td>
+                      <td className="py-1.5 text-right font-black text-fg">{eok(liquidAssetsWon)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              {/* 외화 종목이 섞이면 합계가 통화를 섞어 더한 값이 된다. 세무사가 그대로
+                  쓰면 안 되므로, 실제로 섞였을 때만 경고한다. */}
+              {holdings.some((h) => h.currency && h.currency !== "KRW") && (
+                <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
+                  외화 종목이 포함돼 있습니다. 합계는 환산 없이 단순 합산한 값이므로 평가기준일 환율로 재환산해야 합니다.
+                </p>
+              )}
+            </section>
+          )}
 
           {/* 3. 가족관계 */}
           <section>

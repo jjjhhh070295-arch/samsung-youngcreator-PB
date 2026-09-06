@@ -29,6 +29,7 @@ import {
   listHeritageMeetingRequests,
 } from "@/lib/store";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
+import type { BookHolding } from "@/lib/advisory/types";
 import { resolveHeritageInputsBulk, assessHeritage, computePaymentGap } from "@/lib/heritage";
 import type { HeritageAssessment, HeritageAssessmentInput, HeritagePaymentGapResult } from "@/lib/heritage";
 import { expertForHeritage } from "@/lib/wmExperts";
@@ -45,6 +46,8 @@ export default function HeritageHandoffBlock({ client }: { client: Client }) {
   const [assessment, setAssessment] = useState<HeritageAssessment | null>(null);
   const [gap, setGap] = useState<HeritagePaymentGapResult | null>(null);
   const [liquidAssetsWon, setLiquidAssetsWon] = useState(0);
+  // 인계 요약의 종목별 표에 쓴다. 합계만으로는 세무사가 재산 목록을 못 만든다.
+  const [clientHoldings, setClientHoldings] = useState<BookHolding[]>([]);
   const [meetings, setMeetings] = useState<HeritageMeetingRequest[]>([]);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -90,7 +93,9 @@ export default function HeritageHandoffBlock({ client }: { client: Client }) {
         }
 
         const result = assessHeritage(resolved);
-        const liquid = holdings.filter((h) => h.clientId === client.id).reduce((s, h) => s + h.evalAmount, 0);
+        const mine = holdings.filter((h) => h.clientId === client.id);
+        const liquid = mine.reduce((s, h) => s + h.evalAmount, 0);
+        setClientHoldings(mine);
 
         setInput(resolved);
         setAssessment(result);
@@ -215,6 +220,7 @@ export default function HeritageHandoffBlock({ client }: { client: Client }) {
           assessment={assessment}
           gap={gap}
           liquidAssetsWon={liquidAssetsWon}
+          holdings={clientHoldings}
         />
       )}
     </section>

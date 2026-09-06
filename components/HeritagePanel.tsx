@@ -11,6 +11,7 @@ import {
   listHeritageMeetingRequests,
 } from "@/lib/store";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
+import type { BookHolding } from "@/lib/advisory/types";
 import {
   resolveHeritageInputsBulk,
   assessHeritage,
@@ -51,6 +52,8 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
   const [assessment, setAssessment] = useState<HeritageAssessment | null>(null);
   const [gap, setGap] = useState<HeritagePaymentGapResult | null>(null);
   const [liquidAssetsWon, setLiquidAssetsWon] = useState(0);
+  // 인계 요약의 종목별 표에 쓴다. 합계만으로는 세무사가 재산 목록을 못 만든다.
+  const [clientHoldings, setClientHoldings] = useState<BookHolding[]>([]);
   const [successionFlag, setSuccessionFlag] = useState<BusinessSuccessionFlag | null>(null);
   const [meetings, setMeetings] = useState<HeritageMeetingRequest[]>([]);
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -95,7 +98,9 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
         }
 
         const result = assessHeritage(resolvedInput);
-        const liquid = holdings.filter((h) => h.clientId === client.id).reduce((s, h) => s + h.evalAmount, 0);
+        const mine = holdings.filter((h) => h.clientId === client.id);
+        const liquid = mine.reduce((s, h) => s + h.evalAmount, 0);
+        setClientHoldings(mine);
         const gapResult = result.taxRange
           ? computePaymentGap({ liquidAssetsWon: liquid, minTaxWon: result.taxRange.minTaxWon, maxTaxWon: result.taxRange.maxTaxWon })
           : null;
@@ -284,6 +289,7 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
           assessment={assessment}
           gap={gap}
           liquidAssetsWon={liquidAssetsWon}
+          holdings={clientHoldings}
         />
       )}
     </div>
