@@ -88,7 +88,7 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
         ? "기본정보 승인 후 진행"
         : portfolioApproved
           ? client.portfolios[0]?.label || "포트폴리오 승인 완료"
-          : "포트폴리오 2에서 구성 후 「포트폴리오 승인」",
+          : "포트폴리오에서 구성 후 「포트폴리오 승인」",
     },
     {
       id: "risk",
@@ -112,7 +112,7 @@ export function buildPipeline(client: Client, bundle: EvidenceBundle): PipelineS
       ),
       note: portfolioApproved
         ? "세전·세후 결과 확인·승인 완료"
-        : "포트폴리오 2 하단 세전·세후 결과 확인 후 승인",
+        : "포트폴리오 하단 세전·세후 결과 확인 후 승인",
     },
     {
       id: "pdf",

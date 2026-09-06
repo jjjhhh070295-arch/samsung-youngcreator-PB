@@ -51,7 +51,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeView = searchParams?.get("view") ?? "home";
-  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "portfolio2"; // 기본 탭은 포트폴리오 2 — factors/cashflow는 기본 정보로 통합
+  const activeTab: Tab = (["basic", "cashflow", "portfolio", "portfolio2", "taxProjection", "stress", "ips"] as const).find((t) => t === searchParams?.get("tab")) ?? "portfolio2"; // 기본 탭은 포트폴리오 — factors/cashflow는 기본 정보로 통합
 
   const [client, setClient] = useState<Client | null>(null);
   const [allClients, setAllClients] = useState<Client[]>([]);
@@ -207,7 +207,7 @@ export default function ClientDetailPage() {
       cash: "현금성",
     };
     const allocations = draft
-      ? (Object.entries(draft.allocation) as [string, number][])
+      ? (Object.entries(draft.finalAllocation ?? draft.allocation) as [string, number][])
           .filter(([, weight]) => weight > 0)
           .map(([assetClass, weight]) => ({
             assetClass: labelMap[assetClass] ?? assetClass,
@@ -220,7 +220,7 @@ export default function ClientDetailPage() {
       allocations,
       expectedReturn: client.portfolios[0]?.expectedReturn ?? 0,
       expectedRisk: client.portfolios[0]?.expectedRisk ?? 0,
-      taxNote: "포트폴리오 2 승인 구성",
+      taxNote: "포트폴리오 승인 구성",
       rationale: "PB 맞춤 배분·종목 선택 승인",
       editedByPb: true,
       confirmedAt: new Date().toISOString(),

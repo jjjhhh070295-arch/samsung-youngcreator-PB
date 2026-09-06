@@ -15,7 +15,6 @@ import ScoreRubricButton from "./ScoreRubricButton";
 import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
-import ConsultationHub from "./advisory/ConsultationHub";
 import { loadBundle } from "@/lib/advisory/control";
 import {
   isIpsWorkflowApproved,
@@ -232,8 +231,6 @@ export default function IPSResultTabs({
 
   return (
     <div className="space-y-5">
-      {tab === "portfolio2" && <ConsultationHub key={`consultation-${client.id}`} client={client} />}
-
       {/* 기본정보 */}
       {tab === "basic" && (
         <div>
@@ -468,12 +465,12 @@ export default function IPSResultTabs({
         </div>
       )}
 
-      {/* 세전·세후 — 포트폴리오 2로 통합됨. 딥링크는 리다이렉트 */}
+      {/* 세전·세후 — 포트폴리오로 통합됨. 딥링크는 리다이렉트 */}
       {tab === "taxProjection" && (
         <div className="card p-6 text-center">
-          <p className="text-sm font-bold text-fg">세전·세후는 포트폴리오 2 하단에 통합되었습니다.</p>
+          <p className="text-sm font-bold text-fg">세전·세후는 포트폴리오 하단에 통합되었습니다.</p>
           <button type="button" className="btn-primary mt-3 text-sm" onClick={() => onSetTab("portfolio2")}>
-            포트폴리오 2로 이동
+            포트폴리오로 이동
           </button>
         </div>
       )}
@@ -542,7 +539,7 @@ export default function IPSResultTabs({
             </div>
             {!done.portfolio && (
               <p className="text-xs text-fg-muted">
-                💡 포트폴리오 2에서 「포트폴리오 승인」을 완료하면 문서에 포트폴리오 내역도 함께 채워집니다.
+                💡 포트폴리오에서 「포트폴리오 승인」을 완료하면 문서에 포트폴리오 내역도 함께 채워집니다.
               </p>
             )}
             {!pdfReady && (

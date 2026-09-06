@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mergeTrendConfirmedIntoSelected } from "./mergeTrendInstruments";
+import { mergeTrendConfirmedIntoSelected, redistributeAssetClassWeights } from "./mergeTrendInstruments";
 
 describe("mergeTrendConfirmedIntoSelected", () => {
   it("adds confirmed stocks to domesticEquity without duplicates", () => {
@@ -44,5 +44,21 @@ describe("mergeTrendConfirmedIntoSelected", () => {
     assert.equal(next.length, 2);
     assert.ok(next.some((row) => row.assetClass === "domesticBond"));
     assert.ok(next.some((row) => row.assetClass === "domesticEquity"));
+  });
+});
+
+describe("redistributeAssetClassWeights", () => {
+  it("keeps every selected representative bond reflected by totaling 100%", () => {
+    const base = {
+      exchange: "KRX", currency: "KRW", kind: "채권 ETF", price: null,
+      changePct: null, asOf: null, source: "catalog", assetClass: "domesticBond" as const,
+    };
+    const result = redistributeAssetClassWeights([
+      { ...base, symbol: "273130.KS", name: "단기채", weightWithinClass: 100 },
+      { ...base, symbol: "114260.KS", name: "중기채", weightWithinClass: 0 },
+      { ...base, symbol: "148070.KS", name: "장기채", weightWithinClass: 0 },
+    ], "domesticBond");
+    assert.deepEqual(result.map((item) => item.weightWithinClass), [33.33, 33.33, 33.34]);
+    assert.equal(result.reduce((sum, item) => sum + item.weightWithinClass, 0), 100);
   });
 });

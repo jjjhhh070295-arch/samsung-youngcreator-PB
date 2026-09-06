@@ -34,13 +34,13 @@ export default function PortfolioEvidenceWarning({ holdings, coverage, assumptio
   }, [signature]);
   return <>
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-      <p>근거가 부족한 종목이 있어 전체 기대수익률을 산출하지 않았습니다. 추정 가능한 자산 비중: {(coverage * 100).toFixed(1)}%</p>
+      <p>근거가 부족한 종목이 있어 PB 입력이 필요합니다. 추정 가능한 자산 비중: {(coverage * 100).toFixed(1)}%</p>
       <button type="button" className="mt-2 font-bold underline" onClick={() => { setDrafts({}); setError(""); dialog.current?.showModal(); }}>근거 부족 종목 확인 · PB 가정 입력</button>
     </div>
     <dialog ref={dialog} aria-labelledby={titleId} aria-describedby={descriptionId} className="m-auto max-h-[85vh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border border-amber-200 bg-white p-5 text-fg shadow-xl backdrop:bg-black/40">
       <h3 id={titleId} className="text-lg font-black text-amber-800">기대수익률 산출 근거가 부족합니다</h3>
-      <p id={descriptionId} className="mt-3 text-sm leading-relaxed">아래 종목은 기대수익률을 산출할 데이터가 부족합니다. 임시 가정값으로 채우지 않으며, 전체 포트폴리오 기대수익률도 산출을 보류합니다.</p>
-      <p className="mt-2 text-sm">PB가 직접 연 기대수익률과 근거를 입력하면 <strong>PB 가정 기반 시나리오</strong>로 별도 계산할 수 있습니다. 수익률은 포트폴리오 기준통화 기준으로 입력하세요.</p>
+      <p id={descriptionId} className="mt-3 text-sm leading-relaxed">아래 종목은 기대수익률을 산출할 데이터가 부족합니다. PB가 직접 연 기대수익률과 근거를 입력하면 메인 포트폴리오 지표에 즉시 반영됩니다.</p>
+      <p className="mt-2 text-sm">수익률은 포트폴리오 기준통화 기준으로 입력하세요.</p>
       <ul className="my-4 space-y-3">{holdings.map((h, i) => <li key={`${h.ticker}-${i}`} className="rounded-lg bg-amber-50 p-3 text-sm">
         <p className="font-bold">{h.name} ({h.ticker}) · 비중 {(h.weight * 100).toFixed(1)}%</p>
         <p className="mt-1 text-xs leading-relaxed text-amber-900">{h.expectedReturn.assumptions.join(" ")}</p>
@@ -54,9 +54,9 @@ export default function PortfolioEvidenceWarning({ holdings, coverage, assumptio
         </label>
       </li>)}</ul>
       {error && <p role="alert" className="mb-3 text-sm text-rose-700">{error}</p>}
-      <p className="text-xs text-fg-muted">과거 CAGR·MDD·변동성은 확보된 실제 가격 데이터 범위에서 별도로 계산합니다.</p>
+      <p className="text-xs text-fg-muted">MDD·변동성은 기대수익률에서 임의 추정하지 않고, 확보된 실제 가격 데이터로 계산합니다.</p>
       <p className="mt-1 text-xs text-fg-muted">PB 가정은 현재 화면에서만 유지되며 새로고침 시 초기화됩니다.</p>
-      <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" autoFocus className="rounded-lg border border-border px-4 py-2 text-sm" onClick={() => dialog.current?.close()}>입력 없이 닫기</button><button type="button" className="btn-primary px-5 py-2 text-sm" onClick={apply}>PB 가정으로 별도 계산</button></div>
+      <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" autoFocus className="rounded-lg border border-border px-4 py-2 text-sm" onClick={() => dialog.current?.close()}>입력 없이 닫기</button><button type="button" className="btn-primary px-5 py-2 text-sm" onClick={apply}>입력값을 메인 지표에 반영</button></div>
     </dialog>
   </>;
 }

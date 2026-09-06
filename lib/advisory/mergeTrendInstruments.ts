@@ -25,6 +25,25 @@ export type ManualSelectedInstrument = ManualInstrument & {
   weightWithinClass: number;
 };
 
+/** 새 종목 추가·삭제 뒤 해당 자산군의 내부 비중을 균등하게 다시 100%로 맞춘다. */
+export function redistributeAssetClassWeights(
+  items: ManualSelectedInstrument[],
+  assetClass: ManualAssetClass,
+): ManualSelectedInstrument[] {
+  const classItems = items.filter((item) => item.assetClass === assetClass);
+  if (classItems.length === 0) return items;
+  const base = Math.floor((100 / classItems.length) * 100) / 100;
+  let index = 0;
+  return items.map((item) => {
+    if (item.assetClass !== assetClass) return item;
+    const weightWithinClass = index === classItems.length - 1
+      ? Math.round((100 - base * (classItems.length - 1)) * 100) / 100
+      : base;
+    index += 1;
+    return { ...item, weightWithinClass };
+  });
+}
+
 export function normalizeTicker(symbol: string) {
   return symbol.replace(/\.(KS|KQ)$/i, "").toUpperCase();
 }

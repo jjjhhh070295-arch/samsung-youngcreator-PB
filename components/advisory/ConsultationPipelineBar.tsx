@@ -54,7 +54,7 @@ export default function ConsultationPipelineBar({
           <p className="text-sm font-bold text-[#0F1E7A]">기본정보 승인 필요</p>
           <p className="mt-1 text-[11px] leading-relaxed text-[#334155]">
             「기본 정보」탭에서 고객·7요인·현금흐름을 확인한 뒤 「기본정보 승인」을 누르면 1~3단계가 완료됩니다.
-            이어서 포트폴리오 2에서 「포트폴리오 승인」, IPS 탭에서 「IPS 승인」을 진행하세요.
+            이어서 포트폴리오에서 「포트폴리오 승인」, IPS 탭에서 「IPS 승인」을 진행하세요.
           </p>
         </div>
       )}
