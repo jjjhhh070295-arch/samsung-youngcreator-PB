@@ -78,6 +78,12 @@ export function updateAllocationWithCash(
   };
 }
 
+/** 전체 기준 목표 비중에서 기존 고정 보유분을 제외해 잔여자산 내부 비중으로 환산한다. */
+export function remainingPctForFinalTarget(finalPct: number, fixedPct: number, allocationScale: number): number {
+  if (!Number.isFinite(allocationScale) || allocationScale <= 0) return 0;
+  return Math.max(0, finalPct - fixedPct) / allocationScale;
+}
+
 /** 포트폴리오 승인 전 점검 — 배분 100%·종목 내부 비중 완료 여부. */
 export function validateManualPortfolioForApproval(clientId: string): string[] {
   const draft = loadManualPortfolioDraft(clientId);
