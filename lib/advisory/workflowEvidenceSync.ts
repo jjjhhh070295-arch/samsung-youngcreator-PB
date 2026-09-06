@@ -193,3 +193,78 @@ export function syncEvidenceAfterIpsApproval(client: Client): EvidenceBundle {
   };
   return persist(bundle);
 }
+
+/** locked/blocked → 새 검토본. 실패 시 draft로 강제 해제해 PDF를 막는다. */
+function unlockEvidenceForWorkflow(clientId: string, note: string): EvidenceBundle {
+  let bundle = loadBundle(clientId);
+  if (bundle.status !== "locked" && bundle.status !== "blocked") {
+    return persist({
+      ...bundle,
+      pendingReasons: [note],
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  const started = startNewReviewVersion(bundle, "PB-workflow");
+  if (started.ok) {
+    return persist({
+      ...started.bundle,
+      pendingReasons: [note],
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  const now = new Date().toISOString();
+  const fresh = emptyBundle(clientId);
+  return persist(
+    migrateBundle(
+      {
+        ...fresh,
+        consultationInput: bundle.consultationInput || "",
+        ipsExtract: bundle.ipsExtract,
+        version: (bundle.version || 1) + 1,
+        previousBundleId: bundle.id,
+        blockReasons: [],
+        pendingReasons: [note],
+        status: "draft",
+        updatedAt: now,
+      },
+      clientId,
+    ),
+  );
+}
+
+/** 기본정보 승인 취소 — IPS 추출·PDF 잠금 해제, 후속 승인 무효화 */
+export function syncEvidenceAfterBasicUnapproval(client: Client): EvidenceBundle {
+  const note = "기본정보 승인 취소 — IPS 추출·포트폴리오·PDF를 다시 확인하세요.";
+  unlockEvidenceForWorkflow(client.id, note);
+  const now = new Date().toISOString();
+  return persist({
+    ...loadBundle(client.id),
+    ipsExtract: null,
+    status: "draft",
+    blockReasons: [],
+    pendingReasons: [note],
+    updatedAt: now,
+  });
+}
+
+/** 포트폴리오 승인 취소 — PDF 잠금 해제, IPS 최종 확정 무효화 */
+export function syncEvidenceAfterPortfolioUnapproval(client: Client): EvidenceBundle {
+  const note = "포트폴리오 승인 취소 — 세전·세후·IPS·PDF를 다시 확인하세요.";
+  unlockEvidenceForWorkflow(client.id, note);
+  const now = new Date().toISOString();
+  return persist({
+    ...loadBundle(client.id),
+    status: "review",
+    blockReasons: [],
+    pendingReasons: [note],
+    updatedAt: now,
+  });
+}
+
+/** IPS 승인 취소 — 최종 PDF만 비활성 (locked 해제) */
+export function syncEvidenceAfterIpsUnapproval(_client: Client): EvidenceBundle {
+  const note = "IPS 승인 취소 — 최종 PDF 발행이 비활성화되었습니다.";
+  return unlockEvidenceForWorkflow(_client.id, note);
+}

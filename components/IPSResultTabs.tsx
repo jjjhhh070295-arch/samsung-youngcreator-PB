@@ -446,7 +446,7 @@ export default function IPSResultTabs({
                 className={isPortfolioWorkflowApproved(client) ? "btn-outline px-5 py-2.5 text-sm" : "btn-primary px-5 py-2.5 text-sm"}
                 onClick={() => void onApprovePortfolioWorkflow()}
               >
-                {isPortfolioWorkflowApproved(client) ? "포트폴리오 승인됨 ✓" : "포트폴리오 승인"}
+                {isPortfolioWorkflowApproved(client) ? "포트폴리오 승인 취소" : "포트폴리오 승인"}
               </button>
             </div>
           </div>
@@ -518,7 +518,7 @@ export default function IPSResultTabs({
               className={isIpsWorkflowApproved(client) ? "btn-outline whitespace-nowrap text-xs" : "btn-primary whitespace-nowrap text-xs"}
               onClick={() => void onApproveIpsWorkflow()}
             >
-              {isIpsWorkflowApproved(client) ? "IPS 승인됨 ✓" : "IPS 승인"}
+              {isIpsWorkflowApproved(client) ? "IPS 승인 취소" : "IPS 승인"}
             </button>
             <StageToggle k="ips" />
           </div>

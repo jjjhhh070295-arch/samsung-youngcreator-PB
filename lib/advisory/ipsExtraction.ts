@@ -84,3 +84,20 @@ export function ipsExtractionMissingReasons(client: Client): string[] {
   }
   return reasons;
 }
+
+/** 기본정보 승인 취소 시 — 값은 유지하되 추출 확정 상태를 무효화 */
+export function markIpsExtractionStale(ips: IPS): IPS {
+  const stale = (factor: IPSFactor): IPSFactor => ({
+    ...factor,
+    reviewed: false,
+  });
+  return {
+    return: stale(ips.return),
+    risk: stale(ips.risk),
+    timeHorizon: stale(ips.timeHorizon),
+    tax: stale(ips.tax),
+    liquidity: stale(ips.liquidity),
+    legal: stale(ips.legal),
+    unique: stale(ips.unique),
+  };
+}

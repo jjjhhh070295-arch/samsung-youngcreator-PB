@@ -3,6 +3,8 @@
  * 1) 기본정보 승인 → stages basic/factors/cashflow (파이프라인 1~3)
  * 2) 포트폴리오 승인 → stages portfolio/stress (파이프라인 4~6)
  * 3) IPS 승인 → stages ips (파이프라인 7)
+ *
+ * 승인은 토글 가능. 앞 단계 취소 시 종속 후속 승인도 함께 해제한다.
  */
 
 import type { Client, Stages } from "../types";
@@ -35,6 +37,37 @@ export function portfolioApprovalStagePatch(): Stages {
 export function ipsApprovalStagePatch(): Stages {
   return { ips: true };
 }
+
+/** 기본정보 취소 → 1~3 + 종속 포트폴리오(4~6)·IPS(7) 해제 */
+export function basicUnapprovalStagePatch(): Stages {
+  return {
+    basic: false,
+    factors: false,
+    cashflow: false,
+    portfolio: false,
+    stress: false,
+    ips: false,
+  };
+}
+
+/** 포트폴리오 취소 → 4~6 + 종속 IPS(7) 해제 (기본정보 유지) */
+export function portfolioUnapprovalStagePatch(): Stages {
+  return { portfolio: false, stress: false, ips: false };
+}
+
+/** IPS 취소 → 7만 해제 */
+export function ipsUnapprovalStagePatch(): Stages {
+  return { ips: false };
+}
+
+export const MSG_BASIC_APPROVED = "기본정보 승인 완료";
+export const MSG_BASIC_UNAPPROVED =
+  "기본정보 승인 취소됨. 포트폴리오와 IPS 승인이 초기화되었습니다.";
+export const MSG_PORTFOLIO_APPROVED = "포트폴리오 승인 완료";
+export const MSG_PORTFOLIO_UNAPPROVED =
+  "포트폴리오 승인 취소됨. IPS 승인이 초기화되었습니다.";
+export const MSG_IPS_APPROVED = "IPS 승인 완료";
+export const MSG_IPS_UNAPPROVED = "IPS 승인 취소됨. 최종 PDF 발행이 비활성화되었습니다.";
 
 export function validateBasicWorkflowApproval(client: Client): string[] {
   const reasons: string[] = [];

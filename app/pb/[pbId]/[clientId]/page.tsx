@@ -16,20 +16,36 @@ import {
 } from "@/lib/store";
 import {
   basicApprovalStagePatch,
+  basicUnapprovalStagePatch,
   ipsApprovalStagePatch,
+  ipsUnapprovalStagePatch,
   isBasicWorkflowApproved,
   isIpsWorkflowApproved,
   isPortfolioWorkflowApproved,
+  MSG_BASIC_APPROVED,
+  MSG_BASIC_UNAPPROVED,
+  MSG_IPS_APPROVED,
+  MSG_IPS_UNAPPROVED,
+  MSG_PORTFOLIO_APPROVED,
+  MSG_PORTFOLIO_UNAPPROVED,
   portfolioApprovalStagePatch,
+  portfolioUnapprovalStagePatch,
   validateBasicWorkflowApproval,
   validateIpsWorkflowApproval,
   validatePortfolioWorkflowApproval,
 } from "@/lib/advisory/workflowApprovals";
-import { extractIpsFromClientProfile, ipsExtractionMissingReasons } from "@/lib/advisory/ipsExtraction";
+import {
+  extractIpsFromClientProfile,
+  ipsExtractionMissingReasons,
+  markIpsExtractionStale,
+} from "@/lib/advisory/ipsExtraction";
 import {
   syncEvidenceAfterBasicApproval,
+  syncEvidenceAfterBasicUnapproval,
   syncEvidenceAfterIpsApproval,
+  syncEvidenceAfterIpsUnapproval,
   syncEvidenceAfterPortfolioApproval,
+  syncEvidenceAfterPortfolioUnapproval,
 } from "@/lib/advisory/workflowEvidenceSync";
 import { loadBundle } from "@/lib/advisory/control";
 import { loadManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
@@ -130,11 +146,16 @@ export default function ClientDetailPage() {
 
   // URL/쿼리로 후속 탭을 직접 열면 승인 게이트로 되돌린다.
   const gateToastKey = useRef("");
+  const skipGateToast = useRef(false);
   useEffect(() => {
     if (status !== "ready" || !client) return;
     if (activeView !== "analysis") return;
 
     const warn = (msg: string, key: string) => {
+      if (skipGateToast.current) {
+        skipGateToast.current = false;
+        return;
+      }
       if (gateToastKey.current === key) return;
       gateToastKey.current = key;
       alert(msg);
@@ -226,10 +247,35 @@ export default function ClientDetailPage() {
 
   const approveBasicInfo = async () => {
     if (!client) return;
+
     if (isBasicWorkflowApproved(client)) {
-      alert("기본정보가 이미 승인되어 있습니다.");
+      if (
+        !confirm(
+          "기본정보 승인을 취소할까요?\n포트폴리오·IPS 승인도 함께 초기화됩니다.",
+        )
+      ) {
+        return;
+      }
+      const stages = { ...(client.stages ?? {}), ...basicUnapprovalStagePatch() };
+      const ips = markIpsExtractionStale(client.ips);
+      const portfolios = (client.portfolios ?? []).map((p) => ({
+        ...p,
+        confirmedAt: undefined,
+      }));
+      await updateClient(client.id, { stages, ips, portfolios });
+      const nextClient = { ...client, stages, ips, portfolios };
+      setClient(nextClient);
+      syncEvidenceAfterBasicUnapproval(nextClient);
+      notifyClientUpdated();
+      skipGateToast.current = true;
+      gateToastKey.current = "";
+      if (activeView === "analysis") {
+        router.replace(`/pb/${pbId}/${clientId}?view=home`);
+      }
+      alert(MSG_BASIC_UNAPPROVED);
       return;
     }
+
     const reasons = [
       ...validateBasicWorkflowApproval(client),
       ...ipsExtractionMissingReasons(client),
@@ -247,14 +293,39 @@ export default function ClientDetailPage() {
     setClient(nextClient);
     syncEvidenceAfterBasicApproval(nextClient);
     notifyClientUpdated();
+    alert(MSG_BASIC_APPROVED);
   };
 
   const approvePortfolioWorkflow = async () => {
     if (!client) return;
+
     if (isPortfolioWorkflowApproved(client)) {
-      alert("포트폴리오가 이미 승인되어 있습니다.");
+      if (
+        !confirm(
+          "포트폴리오 승인을 취소할까요?\nIPS 승인도 함께 초기화됩니다.",
+        )
+      ) {
+        return;
+      }
+      const stages = { ...(client.stages ?? {}), ...portfolioUnapprovalStagePatch() };
+      const portfolios = (client.portfolios ?? []).map((p) => ({
+        ...p,
+        confirmedAt: undefined,
+      }));
+      await updateClient(client.id, { stages, portfolios });
+      const nextClient = { ...client, stages, portfolios };
+      setClient(nextClient);
+      syncEvidenceAfterPortfolioUnapproval(nextClient);
+      notifyClientUpdated();
+      skipGateToast.current = true;
+      gateToastKey.current = "";
+      if (activeView === "analysis" && activeTab === "ips") {
+        router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
+      }
+      alert(MSG_PORTFOLIO_UNAPPROVED);
       return;
     }
+
     const reasons = validatePortfolioWorkflowApproval(client, clientId);
     if (reasons.length) {
       alert(`검토 필요\n\n${reasons.join("\n")}`);
@@ -296,14 +367,24 @@ export default function ClientDetailPage() {
     setClient(nextClient);
     syncEvidenceAfterPortfolioApproval(nextClient);
     notifyClientUpdated();
+    alert(MSG_PORTFOLIO_APPROVED);
   };
 
   const approveIpsWorkflow = async () => {
     if (!client) return;
+
     if (isIpsWorkflowApproved(client)) {
-      alert("IPS가 이미 승인되어 있습니다.");
+      if (!confirm("IPS 승인을 취소할까요?\n최종 PDF 발행이 비활성화됩니다.")) return;
+      const stages = { ...(client.stages ?? {}), ...ipsUnapprovalStagePatch() };
+      await updateClient(client.id, { stages });
+      const nextClient = { ...client, stages };
+      setClient(nextClient);
+      syncEvidenceAfterIpsUnapproval(nextClient);
+      notifyClientUpdated();
+      alert(MSG_IPS_UNAPPROVED);
       return;
     }
+
     const bundle = loadBundle(clientId);
     const reasons = validateIpsWorkflowApproval(client, bundle);
     if (reasons.length) {
@@ -320,6 +401,7 @@ export default function ClientDetailPage() {
     setClient(nextClient);
     syncEvidenceAfterIpsApproval(nextClient);
     notifyClientUpdated();
+    alert(MSG_IPS_APPROVED);
   };
 
   const saveComprehensiveTaxFlag = async (value: boolean) => {
@@ -464,7 +546,7 @@ export default function ClientDetailPage() {
                   className={isBasicWorkflowApproved(client) ? "btn-outline text-sm" : "btn-primary text-sm"}
                   onClick={() => void approveBasicInfo()}
                 >
-                  {isBasicWorkflowApproved(client) ? "기본정보 승인됨 ✓" : "기본정보 승인"}
+                  {isBasicWorkflowApproved(client) ? "기본정보 승인 취소" : "기본정보 승인"}
                 </button>
               </div>
             </div>

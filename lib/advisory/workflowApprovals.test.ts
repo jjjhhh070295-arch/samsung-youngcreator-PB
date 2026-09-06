@@ -4,9 +4,12 @@ import { emptyIPS } from "../types";
 import type { Client } from "../types";
 import { emptyBundle } from "./control";
 import {
+  basicUnapprovalStagePatch,
   isBasicWorkflowApproved,
   isIpsWorkflowApproved,
   isPortfolioWorkflowApproved,
+  ipsUnapprovalStagePatch,
+  portfolioUnapprovalStagePatch,
   validateBasicWorkflowApproval,
   validateIpsWorkflowApproval,
   workflowPdfReady,
@@ -65,5 +68,32 @@ describe("workflowApprovals", () => {
     assert.equal(isPortfolioWorkflowApproved(done), true);
     assert.equal(isIpsWorkflowApproved(done), true);
     assert.equal(workflowPdfReady(done, emptyBundle(done.id)), true);
+  });
+
+  it("승인 취소 패치가 종속 단계를 연쇄 해제한다", () => {
+    const allOn = {
+      basic: true,
+      factors: true,
+      cashflow: true,
+      portfolio: true,
+      stress: true,
+      ips: true,
+    };
+    const afterBasicCancel = { ...allOn, ...basicUnapprovalStagePatch() };
+    assert.equal(isBasicWorkflowApproved(sampleClient(afterBasicCancel)), false);
+    assert.equal(isPortfolioWorkflowApproved(sampleClient(afterBasicCancel)), false);
+    assert.equal(isIpsWorkflowApproved(sampleClient(afterBasicCancel)), false);
+    assert.equal(workflowPdfReady(sampleClient(afterBasicCancel), emptyBundle("c1")), false);
+
+    const afterPortfolioCancel = { ...allOn, ...portfolioUnapprovalStagePatch() };
+    assert.equal(isBasicWorkflowApproved(sampleClient(afterPortfolioCancel)), true);
+    assert.equal(isPortfolioWorkflowApproved(sampleClient(afterPortfolioCancel)), false);
+    assert.equal(isIpsWorkflowApproved(sampleClient(afterPortfolioCancel)), false);
+
+    const afterIpsCancel = { ...allOn, ...ipsUnapprovalStagePatch() };
+    assert.equal(isBasicWorkflowApproved(sampleClient(afterIpsCancel)), true);
+    assert.equal(isPortfolioWorkflowApproved(sampleClient(afterIpsCancel)), true);
+    assert.equal(isIpsWorkflowApproved(sampleClient(afterIpsCancel)), false);
+    assert.equal(workflowPdfReady(sampleClient(afterIpsCancel), emptyBundle("c1")), false);
   });
 });
