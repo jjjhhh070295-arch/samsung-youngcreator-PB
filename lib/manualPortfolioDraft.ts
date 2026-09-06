@@ -1,6 +1,10 @@
 /**
- * 포트폴리오(수동 배분) 초안 — localStorage 키와 승인 전 검증.
+ * 포트폴리오(수동 배분) 초안 — localStorage 키(폴백)와 승인 전 검증.
+ * DB 우선 저장/조회는 lib/store.ts의 savePortfolioDraft/getPortfolioDraft가 담당하고,
+ * 이 파일의 함수들은 그 폴백(마이그레이션 미실행·데모 고객)으로만 쓰인다.
  */
+
+import type { PbSelectedKoreanStock } from "./advisory/krTrendPortfolio";
 
 export type ManualAssetClass =
   | "domesticEquity"
@@ -28,6 +32,10 @@ export type ManualPortfolioDraft = {
   selected: ManualSelectedInstrument[];
   investableWon?: number;
   allocatableWon?: number;
+  /** KoreanStockTrendFilter의 체크 상태(티커 목록) — 이 초안 안에 함께 저장한다. */
+  trendChecked?: string[];
+  /** KoreanStockTrendFilter의 「후보 확정」 결과 — 이 초안 안에 함께 저장한다. */
+  trendConfirmed?: PbSelectedKoreanStock[];
   savedAt?: string;
 };
 
@@ -53,6 +61,25 @@ export function loadManualPortfolioDraft(clientId: string): ManualPortfolioDraft
     return parsed;
   } catch {
     return null;
+  }
+}
+
+/** DB 저장 실패(마이그레이션 미실행)·오프라인 폴백용. lib/store.ts의 savePortfolioDraft가 항상 함께 호출한다. */
+export function saveManualPortfolioDraft(clientId: string, draft: ManualPortfolioDraft): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(manualPortfolioStorageKey(clientId), JSON.stringify(draft));
+  } catch {
+    /* 용량 초과·프라이빗 모드 등 — 저장 실패해도 화면은 그대로 동작한다 */
+  }
+}
+
+export function deleteManualPortfolioDraft(clientId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(manualPortfolioStorageKey(clientId));
+  } catch {
+    /* ignore */
   }
 }
 

@@ -438,6 +438,7 @@ export default function IPSResultTabs({
       {tab === "portfolio2" && (
         <div className="space-y-4">
           <ManualPortfolioBuilder
+            pbId={pbId}
             clientId={clientId}
             totalAssetWon={client.assetSize}
             onDraftChanged={onPortfolioDraftChanged}

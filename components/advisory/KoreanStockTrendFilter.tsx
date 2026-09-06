@@ -52,6 +52,9 @@ function fmtWon(n: number) {
   return `${Math.round(n).toLocaleString("ko-KR")}원`;
 }
 
+// standalone(자체 관리) 모드 전용 — onCheckedConfirmedChange 없이 clientId만 받는 기존
+// 호출부(PortfolioPanel.tsx, "포트폴리오" 탭)를 위한 레거시 키. ManualPortfolioBuilder는
+// 더 이상 이 키를 쓰지 않고 부모 초안(draft) 하나에 합류한다.
 function checkedKey(clientId: string) {
   return `pb-kr-trend-checked-${clientId}`;
 }
@@ -64,14 +67,31 @@ export default function KoreanStockTrendFilter({
   equityWeightPct,
   onSelectionChange,
   embedded = false,
+  initialChecked,
+  initialConfirmed,
+  onCheckedConfirmedChange,
 }: {
-  clientId: string;
+  /** standalone 모드(onCheckedConfirmedChange 미전달)에서만 자체 localStorage 키로 쓰인다. */
+  clientId?: string;
   equityWeightPct: number;
   /** 확정된 종목만 전달. 미확정이면 selected=[] equityPending=true */
   onSelectionChange: (selected: PbSelectedKoreanStock[], equityPending: boolean) => void;
   /** 자산군별 종목 검색·선택 안에 넣을 때 true */
   embedded?: boolean;
+  /**
+   * 체크·확정 상태의 초기값. onCheckedConfirmedChange를 함께 전달하는 "제어" 모드
+   * (ManualPortfolioBuilder)에서 부모가 DB/로컬 초안에서 복원해 넣어준다.
+   */
+  initialChecked?: string[];
+  initialConfirmed?: PbSelectedKoreanStock[];
+  /**
+   * 전달하면 "제어" 모드로 동작 — 체크·확정 상태를 자체 저장하지 않고 매 변경마다 이
+   * 콜백으로만 알린다(부모의 초안에 합류). 전달하지 않으면 기존처럼 clientId 기준
+   * 자체 localStorage에 복원·저장한다("standalone" 모드, PortfolioPanel.tsx).
+   */
+  onCheckedConfirmedChange?: (checked: string[], confirmed: PbSelectedKoreanStock[]) => void;
 }) {
+  const standalone = !onCheckedConfirmedChange;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [confirmError, setConfirmError] = useState("");
@@ -84,33 +104,42 @@ export default function KoreanStockTrendFilter({
   } | null>(null);
   const [candidates, setCandidates] = useState<KrTrendCandidateView[]>([]);
   const [unverifiable, setUnverifiable] = useState<KrTrendCandidateView[]>([]);
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const [confirmed, setConfirmed] = useState<PbSelectedKoreanStock[]>([]);
+  const [checked, setChecked] = useState<Record<string, boolean>>(() => {
+    const next: Record<string, boolean> = {};
+    for (const t of initialChecked ?? []) next[t] = true;
+    return next;
+  });
+  const [confirmed, setConfirmed] = useState<PbSelectedKoreanStock[]>(() => initialConfirmed ?? []);
   const [rr, setRr] = useState<Record<string, RrDraft>>({});
   const [onlyFinal, setOnlyFinal] = useState(true);
-  const [hydrated, setHydrated] = useState(false);
+  const [hydrated, setHydrated] = useState(!standalone);
 
+  // standalone 모드에서만 자체 localStorage에서 복원한다 — 제어 모드는 initialChecked/
+  // initialConfirmed의 lazy 초기값으로 이미 준비돼 있다.
   useEffect(() => {
-    try {
-      const rawChecked = localStorage.getItem(checkedKey(clientId));
-      if (rawChecked) {
-        const parsed = JSON.parse(rawChecked) as { tickers?: string[] };
-        if (parsed.tickers?.length) {
-          const next: Record<string, boolean> = {};
-          for (const t of parsed.tickers) next[t] = true;
-          setChecked(next);
+    if (!standalone) return;
+    if (clientId) {
+      try {
+        const rawChecked = localStorage.getItem(checkedKey(clientId));
+        if (rawChecked) {
+          const parsed = JSON.parse(rawChecked) as { tickers?: string[] };
+          if (parsed.tickers?.length) {
+            const next: Record<string, boolean> = {};
+            for (const t of parsed.tickers) next[t] = true;
+            setChecked(next);
+          }
         }
+        const rawConfirmed = localStorage.getItem(confirmedKey(clientId));
+        if (rawConfirmed) {
+          const parsed = JSON.parse(rawConfirmed) as { stocks?: PbSelectedKoreanStock[] };
+          if (parsed.stocks?.length) setConfirmed(parsed.stocks);
+        }
+      } catch {
+        /* ignore */
       }
-      const rawConfirmed = localStorage.getItem(confirmedKey(clientId));
-      if (rawConfirmed) {
-        const parsed = JSON.parse(rawConfirmed) as { stocks?: PbSelectedKoreanStock[] };
-        if (parsed.stocks?.length) setConfirmed(parsed.stocks);
-      }
-    } catch {
-      /* ignore */
     }
     setHydrated(true);
-  }, [clientId]);
+  }, [clientId, standalone]);
 
   const checkedList = useMemo((): PbSelectedKoreanStock[] => {
     return candidates
@@ -133,8 +162,16 @@ export default function KoreanStockTrendFilter({
     onSelectionChange(confirmed, pending);
   }, [confirmed, equityWeightPct, hydrated, onSelectionChange]);
 
+  // 제어 모드: 체크·확정 상태를 부모(ManualPortfolioBuilder)의 초안 하나에 합류시킨다 —
+  // 여기서 직접 localStorage에 쓰지 않는다(실제 저장은 부모의 "배분 확정 저장" 흐름).
+  // standalone 모드: 기존처럼 자체 localStorage 키에 즉시 저장한다.
   useEffect(() => {
     if (!hydrated) return;
+    if (!standalone) {
+      onCheckedConfirmedChange?.(Object.keys(checked).filter((t) => checked[t]), confirmed);
+      return;
+    }
+    if (!clientId) return;
     try {
       localStorage.setItem(
         checkedKey(clientId),
@@ -144,7 +181,7 @@ export default function KoreanStockTrendFilter({
     } catch {
       /* ignore */
     }
-  }, [checked, confirmed, clientId, hydrated]);
+  }, [checked, confirmed, clientId, standalone, hydrated, onCheckedConfirmedChange]);
 
   const load = useCallback(async () => {
     setLoading(true);

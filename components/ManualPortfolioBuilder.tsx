@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import PortfolioAnalyticsCards from "./PortfolioAnalyticsCards";
 import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
@@ -12,6 +12,8 @@ import {
   sameInstrument,
 } from "@/lib/advisory/mergeTrendInstruments";
 import { remainingPctForFinalTarget, updateAllocationWithCash } from "@/lib/manualPortfolioDraft";
+import type { ManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
+import { getPortfolioDraft, savePortfolioDraft } from "@/lib/store";
 
 type AssetClass =
   | "domesticEquity"
@@ -76,10 +78,6 @@ const EMPTY_ALLOCATION: Allocation = {
   cash: 100,
 };
 
-function storageKey(clientId: string) {
-  return `pb-manual-portfolio-v1-${clientId}`;
-}
-
 function formatWon(value: number) {
   if (value >= 100_000_000) return `${(value / 100_000_000).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}억원`;
   if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만원`;
@@ -106,10 +104,12 @@ function bondEntryToInstrument(entry: BondCatalogEntry): Instrument {
 }
 
 export default function ManualPortfolioBuilder({
+  pbId,
   clientId,
   totalAssetWon,
   onDraftChanged,
 }: {
+  pbId: string;
   clientId: string;
   totalAssetWon: number;
   onDraftChanged?: () => void;
@@ -120,7 +120,12 @@ export default function ManualPortfolioBuilder({
   const [realEstateWon, setRealEstateWon] = useState(0);
   const [loadingHoldings, setLoadingHoldings] = useState(true);
   const [hydrated, setHydrated] = useState(false);
+  const hasDraftRef = useRef(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [savedTo, setSavedTo] = useState<"db" | "local" | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [trendChecked, setTrendChecked] = useState<string[]>([]);
+  const [trendConfirmed, setTrendConfirmed] = useState<PbSelectedKoreanStock[]>([]);
   const [inputMode, setInputMode] = useState<"percent" | "amount">("percent");
   const [activeClass, setActiveClass] = useState<AssetClass>("domesticEquity");
   const [query, setQuery] = useState("");
@@ -150,35 +155,44 @@ export default function ManualPortfolioBuilder({
     setActiveClass("domesticEquity");
   }, [ensureClassActive]);
 
+  const handleTrendCheckedConfirmedChange = useCallback((nextChecked: string[], nextConfirmed: PbSelectedKoreanStock[]) => {
+    setTrendChecked(nextChecked);
+    setTrendConfirmed(nextConfirmed);
+  }, []);
+
+  // DB(portfolio_drafts) 우선 복원, 마이그레이션 미실행·오프라인이면 localStorage로 폴백.
+  // DB에 값이 있으면 그 값이 최신이라고 보고 로컬 캐시도 그 값으로 맞춘다(store.ts에서 처리).
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey(clientId));
-      if (raw) {
-        const parsed = JSON.parse(raw) as { allocation?: Allocation; selected?: SelectedInstrument[]; savedAt?: string };
-        if (parsed.allocation) {
-          const restored = { ...EMPTY_ALLOCATION, ...parsed.allocation };
-          const nonCashTotal = ASSET_CLASSES
-            .filter((item) => item.id !== "cash")
-            .reduce((sum, item) => sum + Math.max(0, Number(restored[item.id]) || 0), 0);
-          if (nonCashTotal <= 100) {
-            restored.cash = Math.round((100 - nonCashTotal) * 100) / 100;
-          } else {
-            const scale = 100 / nonCashTotal;
-            ASSET_CLASSES.filter((item) => item.id !== "cash").forEach((item) => {
-              restored[item.id] = Math.round(restored[item.id] * scale * 100) / 100;
-            });
-            restored.cash = 0;
-          }
-          setAllocation(restored);
+    let cancelled = false;
+    (async () => {
+      const { draft, source } = await getPortfolioDraft(pbId, clientId);
+      if (cancelled) return;
+      if (draft?.allocation) {
+        const restored = { ...EMPTY_ALLOCATION, ...draft.allocation } as Allocation;
+        const nonCashTotal = ASSET_CLASSES
+          .filter((item) => item.id !== "cash")
+          .reduce((sum, item) => sum + Math.max(0, Number(restored[item.id]) || 0), 0);
+        if (nonCashTotal <= 100) {
+          restored.cash = Math.round((100 - nonCashTotal) * 100) / 100;
+        } else {
+          const scale = 100 / nonCashTotal;
+          ASSET_CLASSES.filter((item) => item.id !== "cash").forEach((item) => {
+            restored[item.id] = Math.round(restored[item.id] * scale * 100) / 100;
+          });
+          restored.cash = 0;
         }
-        if (Array.isArray(parsed.selected)) setSelected(parsed.selected);
-        if (parsed.savedAt) setSavedAt(parsed.savedAt);
+        setAllocation(restored);
       }
-    } catch {
-      // 손상된 로컬 초안은 기본값으로 시작합니다.
-    }
-    setHydrated(true);
-  }, [clientId]);
+      if (draft && Array.isArray(draft.selected)) setSelected(draft.selected as SelectedInstrument[]);
+      if (draft?.savedAt) setSavedAt(draft.savedAt);
+      if (draft?.trendChecked) setTrendChecked(draft.trendChecked);
+      if (draft?.trendConfirmed) setTrendConfirmed(draft.trendConfirmed);
+      setSavedTo(draft ? source : null);
+      hasDraftRef.current = Boolean(draft);
+      setHydrated(true);
+    })();
+    return () => { cancelled = true; };
+  }, [clientId, pbId]);
 
   useEffect(() => {
     if (!supabase) {
@@ -225,8 +239,10 @@ export default function ManualPortfolioBuilder({
         if (!cancelled) {
           setExisting(priced.filter((row) => row.valueKrw > 0));
           setRealEstateWon(propertyValue);
-          if (!localStorage.getItem(storageKey(clientId))) {
+          if (!hasDraftRef.current) {
             // 보유주식은 고정 편입으로 유지하고, 신규 배분은 남은 자산 100%에서 시작한다.
+            // hasDraftRef: DB/로컬 초안 복원(비동기)이 이 효과보다 늦게 끝나도 마지막에 실행되는
+            // 쪽이 최종 상태를 결정하므로(복원이 끝나면 항상 restored 값으로 덮어씀) 순서 무관 안전하다.
             setAllocation(EMPTY_ALLOCATION);
           }
         }
@@ -262,20 +278,30 @@ export default function ManualPortfolioBuilder({
   }), [allocation, allocationScale, existingByClass, investableWon]);
   const finalTotal = Object.values(finalAllocation).reduce((sum, value) => sum + value, 0);
 
-  const save = useCallback(() => {
+  const save = useCallback(async () => {
     const now = new Date().toISOString();
-    localStorage.setItem(storageKey(clientId), JSON.stringify({
+    const draft: ManualPortfolioDraft = {
       version: 2,
       allocation,
       finalAllocation,
       selected,
       investableWon,
       allocatableWon,
+      trendChecked,
+      trendConfirmed,
       savedAt: now,
-    }));
-    setSavedAt(now);
-    onDraftChanged?.();
-  }, [allocation, allocatableWon, clientId, finalAllocation, investableWon, onDraftChanged, selected]);
+    };
+    setSaving(true);
+    try {
+      const { source } = await savePortfolioDraft(pbId, clientId, draft);
+      hasDraftRef.current = true;
+      setSavedAt(now);
+      setSavedTo(source);
+      onDraftChanged?.();
+    } finally {
+      setSaving(false);
+    }
+  }, [allocation, allocatableWon, clientId, finalAllocation, investableWon, onDraftChanged, pbId, selected, trendChecked, trendConfirmed]);
 
   const updateAllocation = (assetClass: AssetClass, value: number) => {
     if (assetClass === "cash") return;
@@ -507,8 +533,15 @@ export default function ManualPortfolioBuilder({
       </div>
 
       <div className={`flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between ${isComplete ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-        <div><p className={`text-sm font-black ${isComplete ? "text-emerald-800" : "text-amber-800"}`}>{isComplete ? "100% 배분이 완료되었습니다." : remainingPct > 0 ? `${remainingPct.toFixed(1)}% (${formatWon(Math.max(0, remainingWon))})를 더 배분하세요.` : `${Math.abs(remainingPct).toFixed(1)}% (${formatWon(Math.abs(remainingWon))})가 초과되었습니다.`}</p><p className="mt-0.5 text-[10px] text-fg-muted">{savedAt ? `마지막 저장 ${new Date(savedAt).toLocaleString("ko-KR")}` : "아직 저장되지 않은 초안입니다."}</p></div>
-        <button type="button" onClick={save} disabled={!isComplete || loadingHoldings} className="btn-primary px-6 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40">{loadingHoldings ? "보유자산 확인 중…" : "배분 확정 저장"}</button>
+        <div>
+          <p className={`text-sm font-black ${isComplete ? "text-emerald-800" : "text-amber-800"}`}>{isComplete ? "100% 배분이 완료되었습니다." : remainingPct > 0 ? `${remainingPct.toFixed(1)}% (${formatWon(Math.max(0, remainingWon))})를 더 배분하세요.` : `${Math.abs(remainingPct).toFixed(1)}% (${formatWon(Math.abs(remainingWon))})가 초과되었습니다.`}</p>
+          <p className="mt-0.5 text-[10px] text-fg-muted">
+            {savedAt
+              ? `마지막 저장 ${new Date(savedAt).toLocaleString("ko-KR")} · ${savedTo === "db" ? "다른 기기와 공유됨" : "이 브라우저에만 저장됨(DB 마이그레이션 필요)"}`
+              : "아직 저장되지 않은 초안입니다."}
+          </p>
+        </div>
+        <button type="button" onClick={save} disabled={!isComplete || loadingHoldings || saving} className="btn-primary px-6 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40">{loadingHoldings ? "보유자산 확인 중…" : saving ? "저장 중…" : "배분 확정 저장"}</button>
       </div>
 
       {isComplete && (
@@ -638,12 +671,14 @@ export default function ManualPortfolioBuilder({
         </div>
       )}
 
-      {isComplete && (
+      {isComplete && hydrated && (
         <div className="space-y-3 border-t border-border pt-4">
           <KoreanStockTrendFilter
-            clientId={clientId}
             equityWeightPct={allocation.domesticEquity}
             onSelectionChange={handleTrendSelection}
+            initialChecked={trendChecked}
+            initialConfirmed={trendConfirmed}
+            onCheckedConfirmedChange={handleTrendCheckedConfirmedChange}
           />
         </div>
       )}

@@ -42,6 +42,12 @@ import {
   saveInvestmentSurvey as saveLocalInvestmentSurvey,
   loadInvestmentSurvey as loadLocalInvestmentSurvey,
 } from "./investmentSurveyStorage";
+import type { ManualPortfolioDraft } from "./manualPortfolioDraft";
+import {
+  loadManualPortfolioDraft,
+  saveManualPortfolioDraft as saveManualPortfolioDraftLocal,
+  deleteManualPortfolioDraft as deleteManualPortfolioDraftLocal,
+} from "./manualPortfolioDraft";
 
 export const usingLocalFallback = !isSupabaseConfigured;
 
@@ -1952,6 +1958,108 @@ export async function getLatestInvestmentSurvey(
     return loadLocalInvestmentSurvey(pbId, partyId);
   }
   return data ? rowToInvestmentSurveyResult(data) : loadLocalInvestmentSurvey(pbId, partyId);
+}
+
+// ───────────────────────── 포트폴리오 초안 (portfolio_drafts) ─────────────────────────
+//
+// ManualPortfolioBuilder·KoreanStockTrendFilter의 "선택 종목·자산군 비중·추세 필터
+// 체크/확정" 작업 중 초안은 지금까지 브라우저 localStorage에만 있었다
+// (pb-manual-portfolio-v1-{clientId}, pb-kr-trend-checked-{clientId},
+// pb-kr-trend-confirmed-{clientId}). 다른 기기·브라우저에서 열면 통째로 사라졌다.
+// DB를 우선 쓰고, supabase-migration-portfolio-drafts.sql 미실행 환경에서는 예전대로
+// localStorage로 폴백한다 — investment_surveys/pb_schedules와 같은 방식이다.
+//
+// 승인된 확정본(parties.portfolios, approvePortfolioWorkflow)과는 다른 테이블이다.
+// 이 테이블은 "지금 작업 중인 초안" 하나만 고객당 1행으로 덮어쓴다(UNIQUE client_id,
+// upsert) — 이력이 아니다. 승인 로직은 이 변경의 범위 밖이며 손대지 않았다.
+
+const PORTFOLIO_DRAFT_TABLE = "portfolio_drafts";
+
+export type PortfolioDraftSource = "db" | "local";
+
+function portfolioDraftUseLocal(clientId: string): boolean {
+  return usingLocalFallback || localClientExists(clientId);
+}
+
+function warnPortfolioDraftFallback(action: string, error: { code?: string; message?: string }): void {
+  if (MISSING_TABLE_ERROR_CODES.has(error.code ?? "")) {
+    console.warn(
+      `[store] portfolio_drafts 테이블 없음 — supabase-migration-portfolio-drafts.sql 미실행으로 보고 localStorage 로 ${action}`,
+    );
+  } else {
+    console.warn(`[store] portfolio_drafts ${action} 실패 — localStorage 로 폴백:`, error.message);
+  }
+}
+
+/**
+ * DB 우선 조회. DB에 행이 있으면 그 값으로 로컬 캐시를 덮어쓴다(다른 기기에서 작업한
+ * 게 최신이라는 전제). 테이블 없음(마이그레이션 미실행)·행 없음·에러 시 로컬로 폴백한다.
+ */
+export async function getPortfolioDraft(
+  pbId: string,
+  clientId: string,
+): Promise<{ draft: ManualPortfolioDraft | null; source: PortfolioDraftSource }> {
+  if (!clientId) return { draft: null, source: "local" };
+  if (portfolioDraftUseLocal(clientId)) {
+    return { draft: loadManualPortfolioDraft(clientId), source: "local" };
+  }
+
+  const { data, error } = await supabase!
+    .from(PORTFOLIO_DRAFT_TABLE)
+    .select("draft")
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) {
+    warnPortfolioDraftFallback("조회", error);
+    return { draft: loadManualPortfolioDraft(clientId), source: "local" };
+  }
+  if (data?.draft) {
+    const draft = data.draft as ManualPortfolioDraft;
+    saveManualPortfolioDraftLocal(clientId, draft);
+    return { draft, source: "db" };
+  }
+  return { draft: loadManualPortfolioDraft(clientId), source: "local" };
+}
+
+/**
+ * localStorage에는 항상 먼저 쓴다(오프라인·폴백용 사본). 테이블이 있으면 DB에도 upsert하고,
+ * 실패하면(마이그레이션 미실행 포함) 조용히 로컬 저장만 인정한다 — 호출자는 반환된
+ * source로 실제 어디에 반영됐는지 표시할 수 있다.
+ */
+export async function savePortfolioDraft(
+  pbId: string,
+  clientId: string,
+  draft: ManualPortfolioDraft,
+): Promise<{ source: PortfolioDraftSource }> {
+  if (!clientId) return { source: "local" };
+  saveManualPortfolioDraftLocal(clientId, draft);
+  if (portfolioDraftUseLocal(clientId)) return { source: "local" };
+
+  const { error } = await supabase!
+    .from(PORTFOLIO_DRAFT_TABLE)
+    .upsert(
+      {
+        client_id: clientId,
+        pb_id: pbId || null,
+        draft,
+        saved_at: draft.savedAt ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "client_id" },
+    );
+  if (error) {
+    warnPortfolioDraftFallback("저장", error);
+    return { source: "local" };
+  }
+  return { source: "db" };
+}
+
+export async function deletePortfolioDraft(clientId: string): Promise<void> {
+  if (!clientId) return;
+  deleteManualPortfolioDraftLocal(clientId);
+  if (portfolioDraftUseLocal(clientId)) return;
+  const { error } = await supabase!.from(PORTFOLIO_DRAFT_TABLE).delete().eq("client_id", clientId);
+  if (error) warnPortfolioDraftFallback("삭제", error);
 }
 
 // ───────────────────────── 가문 §4 CRUD ─────────────────────────
