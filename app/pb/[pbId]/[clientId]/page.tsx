@@ -673,9 +673,13 @@ export default function ClientDetailPage() {
                     {formatDate(client.birthDate)}
                   </span>
                   <span className="text-fg-muted/40">·</span>
+                  {/* 부동산 제외 기준 — 바로 아래 AUM 헤더(:639)와 같은 값이다.
+                      기준이 다르면 같은 화면에 350억과 345억이 나란히 뜬다.
+                      "부동산 제외"라고 덧붙이지 않는 이유: 바로 뒤 AssetAllocationBar 가
+                      "· 부동산 5.0억"을 따로 찍어 주므로 기준이 저절로 드러난다. */}
                   <span>
-                    자산규모{" "}
-                    <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>
+                    투자가능자산{" "}
+                    <b className="text-[#1428A0]">{formatKRW(investableWon ?? client.assetSize)}</b>
                   </span>
                   <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} refreshKey={assetRefreshKey} />
                 </div>

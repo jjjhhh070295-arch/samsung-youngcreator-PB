@@ -3,9 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+// ⚠️ 알려진 한계 — 부모의 "투자가능자산" 금액과 이 바의 분모가 갈라질 수 있다.
+//   이 컴포넌트의 주식 평가액은 KIS 실시간 시세(/api/prices)로 구하고, 부모가 쓰는
+//   lib/assets.ts 의 resolveAssetBreakdown 은 평균단가(avg_price)로 구한다.
+//   두 값은 base = max(assetSize, 주식 + 부동산) 안에서만 쓰이므로 assetSize 가 더 큰
+//   일반적인 경우에는 base 가 양쪽 다 assetSize 라 investable 이 같은 값으로 나온다.
+//   그러나 주식 + 부동산이 assetSize 를 넘는 고객에서는 base 가 갈라져 분모가 달라진다.
+//   2026-09-07 실데이터 기준으로 그런 고객은 없다(김석진이 부동산 108.5억 / assetSize
+//   150.0억으로 가장 가깝다). 실제로 어긋나는 고객이 나오면 그때 기준을 하나로 모은다.
 interface Props {
   clientId: string;
-  totalAsset: number; // assetSize (원 단위)
+  /** assetSize(원 단위, 부동산 포함 총자산). 분모로 쓸 투자가능자산은 여기서 부동산을 빼 만든다. */
+  totalAsset: number;
   /**
    * 값이 바뀌면 다시 읽는다. 보유종목·부동산이 추가/삭제/수정될 때 부모가 올린다.
    * 예전에는 deps 가 [clientId, totalAsset] 뿐이라, 종목을 지워도 이 바는 그대로였고
@@ -165,25 +174,37 @@ export default function AssetAllocationBar({ clientId, totalAsset, refreshKey = 
 
   if (loading || !alloc || alloc.total === 0) return null;
 
+  // 분모는 총자산이 아니라 투자가능자산(총자산 − 부동산)이다. 부모가 같은 줄 앞에 찍는
+  // "투자가능자산" 금액과 기준이 같아야 비중과 금액이 서로 맞는다. 예전에는 분모가
+  // 총자산이라, 부동산을 뺀 금액 옆에 부동산을 포함한 분모의 비중이 나란히 붙었다.
+  const investable = Math.max(0, alloc.total - alloc.realEstate);
+
+  // 부동산은 비중 계산에서 빼고 아래에서 금액만 따로 보인다 — 화면에서 없애지는 않는다.
+  // 분모에 없는 항목에 퍼센트를 붙이면 합이 100%를 넘는다.
   // 비중 큰 순으로 정렬 후 0%(반올림 결과 0.0% 포함)는 아예 뺀다.
   const sortedByValue = [
     { label: "주식", value: alloc.stocks, color: "#1428A0" },
-    { label: "부동산", value: alloc.realEstate, color: "#f59e0b" },
     { label: "현금·기타", value: alloc.cash, color: "#9ca3af" },
   ]
     .filter((s) => s.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  const withPct = sortedByValue.map((s) => ({ ...s, pct: Math.round((s.value / alloc.total) * 1000) / 10 }));
+  const withPct = sortedByValue.map((s) => ({
+    ...s,
+    pct: investable > 0 ? Math.round((s.value / investable) * 1000) / 10 : 0,
+  }));
   const segments = withPct.filter((s) => s.pct > 0);
 
-  if (segments.length === 0) return null;
+  // 비중 조각이 하나도 없어도 부동산이 있으면 그건 보여준다(부동산만 가진 고객).
+  if (segments.length === 0 && alloc.realEstate <= 0) return null;
 
-  // 반올림 오차(예: 1.0+48.4+50.7=100.1%)는 가장 비중이 큰 항목(정렬상 첫 번째)에서 흡수해
+  // 반올림 오차(예: 48.4+50.7=99.1%)는 가장 비중이 큰 항목(정렬상 첫 번째)에서 흡수해
   // 합이 정확히 100.0%가 되게 한다.
-  const sumPct = segments.reduce((acc, s) => acc + s.pct, 0);
-  const diff = Math.round((100 - sumPct) * 10) / 10;
-  if (diff !== 0) segments[0].pct = Math.round((segments[0].pct + diff) * 10) / 10;
+  if (segments.length > 0) {
+    const sumPct = segments.reduce((acc, s) => acc + s.pct, 0);
+    const diff = Math.round((100 - sumPct) * 10) / 10;
+    if (diff !== 0) segments[0].pct = Math.round((segments[0].pct + diff) * 10) / 10;
+  }
 
   // 폴백 종목이 있으면 주식 범례에 표시
   const hasFallback = alloc.stocksFallback > 0;
@@ -207,6 +228,15 @@ export default function AssetAllocationBar({ clientId, totalAsset, refreshKey = 
           </span>
         </span>
       ))}
+      {alloc.realEstate > 0 && (
+        <span className="flex items-center gap-1" title="투자가능자산에 포함되지 않습니다">
+          <span className="text-fg-muted/40">·</span>
+          <span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: "#f59e0b" }} />
+          <span>
+            부동산 <span className="font-semibold text-fg">{formatW(alloc.realEstate)}</span>
+          </span>
+        </span>
+      )}
     </>
   );
 }
