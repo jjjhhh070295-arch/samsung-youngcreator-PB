@@ -62,8 +62,18 @@ export async function listBookHoldings(clientIds?: string[]): Promise<BookHoldin
       if (clientIds && clientIds.length > 0) q = q.in("client_id", clientIds);
       const { data, error } = await q;
       if (error) throw error;
-      const rows = (data ?? []).map((r: any) =>
-        toBookHolding(
+      // client_holdings 에는 현재가 컬럼이 없다. 예전에는 lastPrice 자리에 avg_price 를
+      // 그대로 넣었는데, 그러면 returnPct = (avg - avg)/avg = 정확히 0 이 되어
+      //   · 북 화면의 "총수익률"이 전 고객 +0.0% 로 고정되고(수익률이 0이라는 오정보),
+      //   · "수익률 저조"(returnPct < 0) 태그가 구조적으로 절대 켜지지 않았다.
+      // 시세를 모르면 모른다고 표시하는 게 맞다 — lastPrice·returnPct 를 null 로 둔다.
+      // evalAmount 는 evalHolding 이 avgPrice 로 폴백해 계산하므로 그대로 유지된다.
+      //
+      // toBookHolding 이 내부에서 lastPrice ?? avgPrice 로 다시 메우기 때문에
+      // 여기서 반환값을 덮어쓴다. 그 폴백 자체는 book.ts(다른 작업이 점유 중)에 있어
+      // 이번에는 건드리지 않았다.
+      const rows = (data ?? []).map((r: any) => {
+        const holding = toBookHolding(
           {
             id: String(r.id),
             clientId: String(r.client_id ?? r.owner_party_id ?? ""),
@@ -73,12 +83,13 @@ export async function listBookHoldings(clientIds?: string[]): Promise<BookHoldin
             currency: r.currency ?? "KRW",
             quantity: Number(r.quantity ?? 0),
             avgPrice: r.avg_price == null ? null : Number(r.avg_price),
-            lastPrice: r.avg_price == null ? null : Number(r.avg_price),
+            lastPrice: null,
           },
           asOf,
           "supabase:client_holdings",
-        ),
-      );
+        );
+        return { ...holding, lastPrice: null, returnPct: null };
+      });
       if (rows.length > 0) return rows;
     } catch {
       /* fall through to local sample so 북 화면이 비지 않게 */
