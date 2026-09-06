@@ -12,6 +12,7 @@ import {
 } from "@/lib/store";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
 import type { BookHolding } from "@/lib/advisory/types";
+import { listRealEstateHandoffDetail, type RealEstateHandoffItem } from "@/lib/realestate/handoffDetail";
 import {
   resolveHeritageInputsBulk,
   assessHeritage,
@@ -56,6 +57,9 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
   const [clientHoldings, setClientHoldings] = useState<BookHolding[]>([]);
   // 채무 0원이 "무차입"인지 "미입력"인지 인계 요약이 구분할 수 있게 원자료 개수를 넘긴다.
   const [debtInfo, setDebtInfo] = useState<{ propertyCount: number; debtRecordCount: number }>({ propertyCount: 0, debtRecordCount: 0 });
+  // 인계 요약의 부동산 물건별 표. 판정 경로(listRealEstateWithDebtBulk)는 4개 컬럼만 읽어
+  // 소재지·공시가격 등이 없으므로 문서용으로 따로 조회한다.
+  const [reItems, setReItems] = useState<RealEstateHandoffItem[]>([]);
   const [successionFlag, setSuccessionFlag] = useState<BusinessSuccessionFlag | null>(null);
   const [meetings, setMeetings] = useState<HeritageMeetingRequest[]>([]);
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -67,7 +71,7 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
     async function run() {
       setLoading(true);
       try {
-        const [ownershipRelationships, familyRelationships, realEstate, giftEvents, holdings, meetingList] =
+        const [ownershipRelationships, familyRelationships, realEstate, giftEvents, holdings, meetingList, reDetail] =
           await Promise.all([
             listOwnershipRelationshipsBulk([client.id]),
             listFamilyRelationshipsBulk([client.id]),
@@ -75,6 +79,7 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
             listGiftEventsBulk([client.id]),
             listBookHoldings([client.id]),
             listHeritageMeetingRequests(client.id),
+            listRealEstateHandoffDetail(client.id),
           ]);
         if (cancelled) return;
 
@@ -103,6 +108,7 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
         const mine = holdings.filter((h) => h.clientId === client.id);
         const liquid = mine.reduce((s, h) => s + h.evalAmount, 0);
         setClientHoldings(mine);
+        setReItems(reDetail);
         const myProps = realEstate.properties.filter((p) => p.ownerPartyId === client.id);
         setDebtInfo({
           propertyCount: myProps.length,
@@ -298,6 +304,7 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
           liquidAssetsWon={liquidAssetsWon}
           holdings={clientHoldings}
           realEstateDebtInfo={debtInfo}
+          realEstateItems={reItems}
         />
       )}
     </div>

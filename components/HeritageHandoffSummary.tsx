@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import type { Client, TransferEvent } from "@/lib/types";
 import type { BookHolding } from "@/lib/advisory/types";
+import type { RealEstateHandoffItem } from "@/lib/realestate/handoffDetail";
 import { CLIENT_TYPE_LABEL } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { eok } from "@/lib/heritage";
@@ -31,13 +32,24 @@ interface Props {
    * 부동산은 있는데 채무 기록이 하나도 없으면 그 사실을 문서에 적는다.
    */
   realEstateDebtInfo?: { propertyCount: number; debtRecordCount: number };
+  /**
+   * 부동산 물건별 명세. 상속재산 평가는 물건 하나하나에 대해 기준시가·매매사례가 중
+   * 무엇을 쓸지 판단해야 해서, 합계 한 줄로는 세무사가 시작조차 할 수 없다.
+   * 넘기지 않으면 물건 표만 빠진다.
+   */
+  realEstateItems?: RealEstateHandoffItem[];
+}
+
+/** 값이 없으면 "미입력"으로. 0 과 null 을 구분해 찍는다. */
+function wonOrMissing(won: number | null): string {
+  return won == null ? "미입력" : eok(won);
 }
 
 // 세무사에게 그대로 인쇄·캡처해서 넘기는 화면. window.print()는 이 컴포넌트 안에서만
 // heritage-print-mode 클래스를 body에 잠깐 붙였다 떼는 방식으로 이 카드 하나만 인쇄되게
 // 한다(app/globals.css의 body.heritage-print-mode 규칙) — 기존 PDF 출력 허가 게이트는
 // 건드리지 않는다(이 화면은 별도 승인 절차가 필요 없는 개략 자료 인계용).
-export default function HeritageHandoffSummary({ open, onClose, client, input, assessment, gap, liquidAssetsWon, holdings, realEstateDebtInfo }: Props) {
+export default function HeritageHandoffSummary({ open, onClose, client, input, assessment, gap, liquidAssetsWon, holdings, realEstateDebtInfo, realEstateItems }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -213,6 +225,83 @@ export default function HeritageHandoffSummary({ open, onClose, client, input, a
               이 금액을 그대로 쓰지 마시고 평가기준일 시세로 재산정해 주십시오.
             </p>
           </section>
+
+          {/* 2-0. 부동산 물건별 내역 — 상속재산 평가는 물건 단위로 한다. 기준시가로 갈지
+              매매사례가로 갈지가 물건마다 다르므로 소재지·면적·공시가격·취득내역이 필요하다.
+              합계 한 줄로는 세무사가 평가를 시작할 수 없다. */}
+          {realEstateItems && realEstateItems.length > 0 && (
+            <section>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-fg-muted">
+                부동산 물건별 내역 ({realEstateItems.length}건)
+              </h3>
+              <div className="decision-card mt-2 space-y-3">
+                {realEstateItems.map((p, i) => (
+                  <div key={p.id} className="border-b border-border/60 pb-3 last:border-0 last:pb-0">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-sm font-bold text-fg">
+                        {i + 1}. {p.complexName ?? p.address ?? "물건명 미입력"}
+                        {p.propertyType && (
+                          <span className="ml-1.5 text-[10px] font-semibold text-fg-muted">{p.propertyType}</span>
+                        )}
+                        {/* 공동소유면 지분율을 밝힌다 — 상속재산은 지분만큼만 잡힌다. */}
+                        {p.ownershipShare !== 1 && (
+                          <span className="ml-1.5 text-[10px] font-bold text-amber-700">
+                            지분 {(p.ownershipShare * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-fg-muted">
+                      소재지 {p.address ?? "미입력"}
+                      {p.areaM2 != null && ` · 면적 ${p.areaM2}㎡`}
+                    </p>
+                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] sm:grid-cols-3">
+                      <div>
+                        <span className="text-fg-muted">시가</span>{" "}
+                        <span className="font-bold text-fg">{wonOrMissing(p.marketValueWon)}</span>
+                        {p.marketSource && (
+                          <span className="ml-1 text-[10px] text-fg-muted">({p.marketSource})</span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-fg-muted">공시가격</span>{" "}
+                        <span className={`font-bold ${p.officialPriceWon == null ? "text-amber-700" : "text-fg"}`}>
+                          {wonOrMissing(p.officialPriceWon)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-fg-muted">담보채무</span>{" "}
+                        <span className={`font-bold ${p.debtWon == null ? "text-amber-700" : "text-fg"}`}>
+                          {wonOrMissing(p.debtWon)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-fg-muted">취득일</span>{" "}
+                        <span className="font-bold text-fg">{p.acquiredAt ? formatDate(p.acquiredAt) : "미입력"}</span>
+                      </div>
+                      <div>
+                        <span className="text-fg-muted">취득가</span>{" "}
+                        <span className="font-bold text-fg">{wonOrMissing(p.acquiredPriceWon)}</span>
+                      </div>
+                      <div>
+                        <span className="text-fg-muted">임대보증금</span>{" "}
+                        <span className="font-bold text-fg">{wonOrMissing(p.depositWon)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* 공시가격이 하나라도 비면 기준시가 평가를 이 자료로는 할 수 없다.
+                  임대보증금도 채무성 공제 대상이라 함께 짚는다. */}
+              {realEstateItems.some((p) => p.officialPriceWon == null || p.depositWon == null) && (
+                <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+                  <span className="font-bold">공시가격 또는 임대보증금이 입력되지 않은 물건이 있습니다.</span>{" "}
+                  공시가격은 기준시가 평가의 기초이고 임대보증금은 반환 의무가 있어 채무성 공제 대상이 될 수 있으므로,
+                  등기부·공시가격 열람으로 원자료를 확인해 주십시오. 시가는 국토부 실거래가에서 조회한 참고값입니다.
+                </p>
+              )}
+            </section>
+          )}
 
           {/* 2-1. 보유종목 내역 — 합계 한 줄로는 세무사가 재산 목록을 만들 수 없다.
               client_holdings 에 종목명·티커·수량·단가가 이미 있으므로 그대로 싣는다.
