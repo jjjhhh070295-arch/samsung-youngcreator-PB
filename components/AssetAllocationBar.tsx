@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 interface Props {
   clientId: string;
   totalAsset: number; // assetSize (원 단위)
+  /**
+   * 값이 바뀌면 다시 읽는다. 보유종목·부동산이 추가/삭제/수정될 때 부모가 올린다.
+   * 예전에는 deps 가 [clientId, totalAsset] 뿐이라, 종목을 지워도 이 바는 그대로였고
+   * 새로고침하거나 다른 고객으로 갔다 와야 반영됐다.
+   */
+  refreshKey?: number;
 }
 
 interface Alloc {
@@ -32,12 +38,28 @@ function formatW(n: number) {
   return n.toLocaleString("ko-KR");
 }
 
-export default function AssetAllocationBar({ clientId, totalAsset }: Props) {
+export default function AssetAllocationBar({ clientId, totalAsset, refreshKey = 0 }: Props) {
   const [alloc, setAlloc] = useState<Alloc | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // 시세·종목코드 캐시.
+  // 종목을 지웠을 때처럼 "구성만 바뀌고 시세는 그대로"인 갱신에서 /api/prices 와
+  // /api/resolve-tickers 를 다시 부르지 않기 위한 것이다. 캐시에 없는 종목만 조회하므로
+  // 추가할 때도 새 종목 하나만 물어본다. 고객이 바뀌면 통째로 버린다.
+  const cacheRef = useRef<{
+    clientId: string;
+    prices: Map<string, number | null>;
+    names: Map<string, string | null>;
+    fx: number;
+  }>({ clientId, prices: new Map(), names: new Map(), fx: 1350 });
+
   useEffect(() => {
     if (!supabase) { setLoading(false); return; }
+
+    if (cacheRef.current.clientId !== clientId) {
+      cacheRef.current = { clientId, prices: new Map(), names: new Map(), fx: 1350 };
+    }
+    const cache = cacheRef.current;
 
     (async () => {
       setLoading(true);
@@ -55,37 +77,39 @@ export default function AssetAllocationBar({ clientId, totalAsset }: Props) {
 
         const holdings: HoldingRow[] = holdingData ?? [];
 
-        // ① 코드 없는 종목 자동 매핑
-        let resolvedHoldings = [...holdings];
-        const noTicker = holdings.filter((h) => !h.ticker);
-        if (noTicker.length > 0) {
+        // ① 코드 없는 종목 자동 매핑 — 아직 물어본 적 없는 이름만
+        const unresolved = Array.from(
+          new Set(holdings.filter((h) => !h.ticker && !cache.names.has(h.name)).map((h) => h.name)),
+        );
+        if (unresolved.length > 0) {
           try {
             const res = await fetch("/api/resolve-tickers", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ names: noTicker.map((h) => h.name) }),
+              body: JSON.stringify({ names: unresolved }),
             });
             const json = await res.json();
             const tickerMap: Record<string, string | null> = json.tickers ?? {};
-            resolvedHoldings = holdings.map((h) =>
-              tickerMap[h.name] ? { ...h, ticker: tickerMap[h.name] } : h,
-            );
+            // 못 찾은 이름도 null 로 기록해 다음 갱신 때 또 묻지 않는다.
+            for (const name of unresolved) cache.names.set(name, tickerMap[name] ?? null);
           } catch {
-            // 매핑 실패 시 avg_price 폴백 사용
+            // 매핑 실패 시 avg_price 폴백 사용. 캐시에 넣지 않아 다음에 다시 시도한다.
           }
         }
+        const resolvedHoldings: HoldingRow[] = holdings.map((h) =>
+          h.ticker ? h : { ...h, ticker: cache.names.get(h.name) ?? null },
+        );
 
-        // ② KIS 실시간 현재가 조회
-        const tickerRequests = resolvedHoldings
-          .filter((h) => h.ticker)
-          .map((h) => ({
-            ticker: h.ticker!,
-            currency: (h.currency === "USD" ? "USD" : "KRW") as "KRW" | "USD",
-          }));
+        // ② KIS 실시간 현재가 조회 — 캐시에 없는 종목만. 삭제만 한 갱신이면 여기서
+        //    부를 게 없어 API 호출이 아예 일어나지 않는다.
+        const wanted = new Map<string, "KRW" | "USD">();
+        for (const h of resolvedHoldings) {
+          if (!h.ticker || cache.prices.has(h.ticker)) continue;
+          wanted.set(h.ticker, h.currency === "USD" ? "USD" : "KRW");
+        }
 
-        const liveMap = new Map<string, number | null>();
-        let fxUsdKrw = 1350;
-        if (tickerRequests.length > 0) {
+        if (wanted.size > 0) {
+          const tickerRequests = Array.from(wanted, ([ticker, currency]) => ({ ticker, currency }));
           try {
             const res = await fetch("/api/prices", {
               method: "POST",
@@ -93,12 +117,18 @@ export default function AssetAllocationBar({ clientId, totalAsset }: Props) {
               body: JSON.stringify({ tickers: tickerRequests }),
             });
             const json = await res.json();
-            fxUsdKrw = json.fxUsdKrw ?? 1350;
-            for (const q of json.quotes ?? []) liveMap.set(q.ticker, q.price ?? null);
+            cache.fx = json.fxUsdKrw ?? cache.fx;
+            for (const q of json.quotes ?? []) cache.prices.set(q.ticker, q.price ?? null);
+            // 응답에 없던 종목은 null 로 못박아 매 갱신마다 다시 묻지 않게 한다.
+            for (const t of Array.from(wanted.keys())) {
+              if (!cache.prices.has(t)) cache.prices.set(t, null);
+            }
           } catch {
-            // 시세 조회 실패 — avg_price 폴백 사용
+            // 시세 조회 실패 — avg_price 폴백 사용. 캐시에 넣지 않아 다음에 다시 시도한다.
           }
         }
+        const liveMap = cache.prices;
+        const fxUsdKrw = cache.fx;
 
         // ③ 주식 평가금액 계산
         // 우선순위: 실시간 현재가 > 평균단가 > 0
@@ -131,7 +161,7 @@ export default function AssetAllocationBar({ clientId, totalAsset }: Props) {
         setLoading(false);
       }
     })();
-  }, [clientId, totalAsset]);
+  }, [clientId, totalAsset, refreshKey]);
 
   if (loading || !alloc || alloc.total === 0) return null;
 

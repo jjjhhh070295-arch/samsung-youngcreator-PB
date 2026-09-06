@@ -8,6 +8,11 @@ import { searchLawd } from "@/lib/realestate/lawd-codes";
 
 interface Props {
   clientId: string;
+  /**
+   * 부동산 평가액 합계가 바뀌었을 때 호출. 상단 자산 비중 바를 다시 그리게 한다.
+   * 대출(debt) 변경은 비중 계산에 안 들어가므로 알리지 않는다.
+   */
+  onAssetsChanged?: () => void;
 }
 
 type PropertyType = "apartment" | "officetel" | "house" | "land" | "presale_right";
@@ -109,7 +114,7 @@ function emptyDebtForm() {
   return { lender: "", balance: "", interest_rate: "", rate_type: "fixed" as RateType, maturity_date: "", confidence: "medium" as MarketConf };
 }
 
-export default function RealEstateModule({ clientId }: Props) {
+export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
   const [tab, setTab] = useState<"saved" | "add">("saved");
   const [properties, setProperties] = useState<Property[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
@@ -297,6 +302,7 @@ export default function RealEstateModule({ clientId }: Props) {
 
     setMsg({ ok: true, text: "부동산 자산이 저장되었습니다." });
     await load();
+    onAssetsChanged?.();
     setTimeout(() => { setMsg(null); resetAddWizard(); setTab("saved"); }, 800);
     setSaving(false);
   };
@@ -308,6 +314,7 @@ export default function RealEstateModule({ clientId }: Props) {
     setProperties((p) => p.filter((x) => x.id !== id));
     setDebts((d) => d.filter((x) => x.property_id !== id));
     setDeletingProp(null);
+    onAssetsChanged?.();
   };
 
   const handleAddDebt = async (propertyId: string) => {
@@ -397,6 +404,7 @@ export default function RealEstateModule({ clientId }: Props) {
       console.log("[handleAreaPick] Supabase 저장 성공 — load() 호출");
       await load();
       console.log("[handleAreaPick] load() 완료");
+      onAssetsChanged?.();
     }
   };
 
@@ -426,6 +434,7 @@ export default function RealEstateModule({ clientId }: Props) {
           market_confidence: data.confidence,
         }).eq("id", p.id);
         await load();
+        onAssetsChanged?.();
       }
     } catch {
       setLookupResult((prev) => ({ ...prev, [p.id]: { value: null, low: null, high: null, confidence: "low", source: "molit_realtxn", sampleSize: 0, note: "네트워크 오류", connected: false, freshness: "참고용" as const, areaBreakdown: [] } }));

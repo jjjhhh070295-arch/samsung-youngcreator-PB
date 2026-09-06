@@ -62,6 +62,9 @@ export default function ClientDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [investableWon, setInvestableWon] = useState<number | null>(null);
+  // 보유종목·부동산이 바뀌면 올려서 상단 자산 비중 바를 다시 읽게 한다.
+  const [assetRefreshKey, setAssetRefreshKey] = useState(0);
+  const bumpAssetRefresh = useCallback(() => setAssetRefreshKey((k) => k + 1), []);
   const load = useCallback(async () => {
     setStatus("loading");
     try {
@@ -357,7 +360,7 @@ export default function ClientDetailPage() {
                     자산규모{" "}
                     <b className="text-[#1428A0]">{formatKRW(client.assetSize)}</b>
                   </span>
-                  <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} />
+                  <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} refreshKey={assetRefreshKey} />
                 </div>
                 {(linkedClient || client.accountSeparation) && (
                   <p className="mt-1 text-xs text-fg-muted">
@@ -406,7 +409,7 @@ export default function ClientDetailPage() {
               <span>🏠</span> 부동산 자산
             </h2>
             <div className="card p-5">
-              <RealEstateModule clientId={clientId} />
+              <RealEstateModule clientId={clientId} onAssetsChanged={bumpAssetRefresh} />
             </div>
           </section>
         </div>
