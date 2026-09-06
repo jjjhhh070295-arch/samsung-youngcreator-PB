@@ -52,9 +52,9 @@ function pillClass(active: boolean, disabled = false): string {
     ].join(" ");
   }
   return [
-    "shrink-0 whitespace-nowrap rounded-md px-3.5 py-1.5 text-[15px] transition-colors",
+    "shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[13px] transition-colors",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]",
-    active ? "bg-[#1428A0] font-semibold text-white" : "text-fg hover:bg-white",
+    active ? "bg-[#1428A0] font-bold text-white shadow-[0_4px_12px_rgba(20,40,160,0.18)]" : "font-medium text-slate-600 hover:bg-slate-100 hover:text-[#1428A0]",
   ].join(" ");
 }
 
@@ -284,7 +284,45 @@ export default function AppNav() {
   }));
 
   // 헤더가 사라졌으므로 네비가 최상단(top-0)에 붙는다. 헤더의 z-40을 그대로 물려받는다.
-  const shell = "sticky top-0 z-40 border-b border-border bg-[#f0f4fa]";
+  const shell = "sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-[0_1px_8px_rgba(15,23,42,0.04)] backdrop-blur";
+
+  const isPbHome = !!pbId && !clientId && pathname === `/pb/${pbId}`;
+
+  if (isPbHome) {
+    const pbHomeLinks = [
+      { label: "PB Home", href: `/pb/${pbId}`, active: true },
+      { label: "고객", href: `#customer-book` },
+      { label: "상담", href: `#today-schedule` },
+      { label: "포트폴리오", href: `/pb/${pbId}/ticker` },
+      { label: "리서치", href: "/research" },
+    ];
+    return (
+      <nav className="sticky top-0 z-40 border-b border-[#0D57BA] bg-[#1769D2] text-white" aria-label="PB Home 주요 메뉴">
+        <div className="mx-auto flex h-14 max-w-[1440px] items-center px-3 sm:px-4 lg:px-8">
+          <Link href="/" className="shrink-0 text-lg font-black tracking-[-0.04em] text-white">삼성증권</Link>
+          <span className="mx-3 hidden h-5 w-px bg-white/30 sm:block" aria-hidden="true" />
+          <span className="hidden shrink-0 text-[10px] font-medium text-white/80 sm:block">PRIVATE BANKING</span>
+          <div className="ml-4 flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto [scrollbar-width:none] sm:ml-8">
+            {pbHomeLinks.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                aria-current={item.active ? "page" : undefined}
+                className={`relative flex h-14 shrink-0 items-center px-3 text-[13px] font-semibold transition-colors ${item.active ? "text-white after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-white" : "text-white/80 hover:text-white"}`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          <div className="ml-3 hidden shrink-0 items-center gap-2 text-xs text-white/90 md:flex">
+            <span className="h-2 w-2 rounded-full bg-[#8BE0BE]" aria-hidden="true" />
+            <span>{pbName ? `${pbName} PB` : "PB"}</span>
+            <button type="button" onClick={handleLogout} className="rounded px-2 py-1 text-[11px] text-white/75 hover:bg-white/10 hover:text-white">로그아웃</button>
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   // ── 고객 상세 페이지: 2행 (통합 1행 + 탭 행) ──
   if (isClientPage) {

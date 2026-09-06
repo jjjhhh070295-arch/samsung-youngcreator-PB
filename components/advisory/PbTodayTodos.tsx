@@ -89,32 +89,32 @@ export function PbTodayTodos({ pbId, refreshKey = 0 }: Props) {
   };
 
   return (
-    <section className="card p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <section id="today-schedule" className="overflow-hidden border border-border bg-white">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
         <div>
-          <h2 className="text-sm font-black text-fg">오늘 PB의 할일</h2>
-          <p className="mt-0.5 text-[11px] text-fg-muted">{header}</p>
+          <h2 className="text-[15px] font-black tracking-tight text-fg">오늘의 일정</h2>
+          <p className="text-[11px] text-fg-muted">{header}</p>
         </div>
         <span className="badge-navy">{loading ? "…" : `${items.length}건`}</span>
       </div>
 
-      <div className="grid min-h-[220px] grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_220px] md:items-start">
-        <div className="flex min-h-[180px] flex-col">
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_356px] md:items-stretch">
+        <div className="flex min-h-[128px] flex-col border-b border-border md:border-b-0 md:border-r">
           {loading || items.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-surface-2/50 px-4 py-8 text-sm text-fg-muted">
+            <div className="flex flex-1 items-center justify-center bg-[#F9FBFF] px-4 py-5 text-xs text-fg-muted">
               {loading ? "일정을 불러오는 중…" : emptyLabel}
             </div>
           ) : (
-            <ul className="space-y-2">
-              {items.map((item) => (
+            <ul>
+              {items.map((item, index) => (
                 <li
                   key={item.id}
-                  className="flex items-start gap-3 rounded-lg border border-border bg-white px-3 py-2.5"
+                  className={`relative flex min-h-10 items-center gap-3 border-b border-border px-4 py-2 last:border-0 ${index === 0 ? "bg-[#EAF2FF] before:absolute before:left-0 before:top-1.5 before:h-7 before:w-[3px] before:rounded-r before:bg-[#1769D2]" : "bg-white"}`}
                 >
                   <span
                     className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
                       item.type === "consultation"
-                        ? "bg-[#1428A0]/10 text-[#1428A0]"
+                        ? "bg-[#EAF2FF] text-[#0D57BA]"
                         : "bg-surface-2 text-fg-muted"
                     }`}
                   >
@@ -122,7 +122,7 @@ export function PbTodayTodos({ pbId, refreshKey = 0 }: Props) {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-fg">
-                      <span className="mr-2 font-mono text-[#1428A0]">{item.time}</span>
+                      <span className="mr-2 font-mono text-[#0D57BA]">{item.time}</span>
                       {item.type === "consultation"
                         ? `${item.clientName} 고객님 상담`
                         : item.title}
@@ -137,7 +137,7 @@ export function PbTodayTodos({ pbId, refreshKey = 0 }: Props) {
           )}
         </div>
 
-        <div className="rounded-xl border border-border bg-surface-2/30 p-3 md:w-[220px] md:shrink-0">
+        <div className="bg-white p-2.5 md:shrink-0">
           <div className="mb-2 flex items-center justify-between gap-1">
             <button
               type="button"
@@ -175,11 +175,11 @@ export function PbTodayTodos({ pbId, refreshKey = 0 }: Props) {
                   onClick={() => selectDate(dateStr)}
                   aria-label={formatKstDateLabel(dateStr)}
                   aria-pressed={selectedDate === dateStr}
-                  className={`relative flex h-8 flex-col items-center justify-center rounded-md text-[11px] font-semibold transition-colors ${
+                  className={`relative flex h-5 flex-col items-center justify-center rounded-md text-[10px] font-semibold transition-colors ${
                     selectedDate === dateStr
-                      ? "bg-[#1428A0] text-white shadow-sm"
+                      ? "bg-[#1769D2] text-white"
                       : dateStr === today
-                        ? "bg-[#1428A0]/8 text-[#1428A0] ring-1 ring-[#1428A0]/25"
+                        ? "bg-[#EAF2FF] text-[#0D57BA] ring-1 ring-[#1769D2]/25"
                         : "text-fg hover:bg-white"
                   }`}
                 >
@@ -187,13 +187,13 @@ export function PbTodayTodos({ pbId, refreshKey = 0 }: Props) {
                   {scheduleDates.has(dateStr) ? (
                     <span
                       className={`absolute bottom-0.5 h-1 w-1 rounded-full ${
-                        selectedDate === dateStr ? "bg-white" : "bg-[#1428A0]"
+                        selectedDate === dateStr ? "bg-white" : "bg-[#1769D2]"
                       }`}
                     />
                   ) : null}
                 </button>
               ) : (
-                <span key={`pad-${idx}`} className="h-8" aria-hidden />
+                <span key={`pad-${idx}`} className="h-5" aria-hidden />
               ),
             )}
           </div>

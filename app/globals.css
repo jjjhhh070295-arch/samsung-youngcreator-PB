@@ -4,15 +4,15 @@
 
 /* ── CSS 변수 기반 테마 토큰 ── */
 :root {
-  --bg: 245 247 252;          /* 본문 배경 (거의 흰색) */
+  --bg: 243 246 251;          /* Samsung PB workstation canvas */
   --surface: 255 255 255;     /* 카드·패널 흰색 */
-  --surface-2: 240 243 250;
-  --border: 220 228 245;
-  --fg: 15 23 42;             /* 본문 텍스트 (거의 검정) */
-  --fg-muted: 100 116 139;
+  --surface-2: 242 246 252;
+  --border: 220 227 236;
+  --fg: 22 26 34;
+  --fg-muted: 102 112 133;
   --font-sans: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic";
-  --primary: 20 40 160;
-  --primary-strong: 12 32 122;
+  --primary: 23 105 210;
+  --primary-strong: 13 87 186;
 }
 
 .dark {
@@ -84,9 +84,12 @@ body {
   .login-building i:nth-child(5) { right: 79%; height: 46%; }
   .login-wave { position: absolute; z-index: 1; left: -3%; bottom: -3%; width: 64%; height: 49%; opacity: .3; fill: none; stroke: #20B9FF; stroke-width: .7; }
 
-  .card {
-    @apply rounded-xl border border-border bg-surface shadow-sm;
-  }
+  .card { @apply rounded-md border border-border bg-surface shadow-none; }
+  .pb-console .card { @apply overflow-hidden; }
+  .pb-console button, .pb-console a { -webkit-tap-highlight-color: transparent; }
+  .pb-surface { @apply border border-border bg-white; }
+  .pb-control { @apply inline-flex h-8 items-center justify-center rounded border border-border bg-white px-3 text-xs font-semibold text-fg transition-colors hover:border-[#1769D2] hover:text-[#0D57BA]; }
+  .pb-control-active { @apply border-[#1769D2] bg-[#1769D2] text-white hover:text-white; }
   .decision-section { @apply space-y-4; }
   .decision-card { @apply rounded-xl border border-border bg-surface p-5 shadow-sm; }
   .decision-kicker { @apply text-[11px] font-bold uppercase tracking-[0.12em] text-[#1428A0]; }

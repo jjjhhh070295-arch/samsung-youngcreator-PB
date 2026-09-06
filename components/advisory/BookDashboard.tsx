@@ -8,12 +8,9 @@ import { CLIENT_TYPE_LABEL, type ClientType } from "@/lib/types";
 import { formatKRW, formatKRWShort, formatDate } from "@/lib/format";
 import ClientAvatar from "@/components/ClientAvatar";
 
-import { PbTodayTodos } from "./PbTodayTodos";
-
 interface Props {
   pbId: string;
   rows: ClientBookRow[];
-  scheduleRefreshKey: number;
 }
 
 type View = "table" | "card";
@@ -106,7 +103,7 @@ function SortTh({
   );
 }
 
-export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props) {
+export default function BookDashboard({ pbId, rows }: Props) {
   const router = useRouter();
   const [view, setView] = useState<View>("table");
   const [q, setQ] = useState("");
@@ -166,7 +163,6 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
       }
     });
   }, [rows, q, typeFilter, flag, sortKey]);
-
   const goClient = (id: string) => router.push(`/pb/${pbId}/${id}`);
 
   const toggleHeaderSort = (asc: SortKey, desc: SortKey, primary: "asc" | "desc") => {
@@ -178,40 +174,42 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
   };
 
   return (
-    <div className="space-y-4">
-      <PbTodayTodos pbId={pbId} refreshKey={scheduleRefreshKey} />
-
-      <section className="card p-3">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-black text-fg">고객 리스트</h2><p className="text-[10px] text-fg-muted">검색·필터·정렬 후 고객을 선택하세요.</p></div><span className="badge-navy">{filtered.length}명</span></div>
-        <div className="relative mb-2">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted">🔍</span>
-          <input
-            className="input py-1.5 pl-9"
-            placeholder="이름 또는 식별코드로 검색"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+    <section id="customer-book" className="relative overflow-hidden border border-border bg-white">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5 lg:px-4">
+        <div className="mr-auto flex items-baseline gap-2">
+          <h2 className="text-base font-black text-[#0D57BA]">고객 Book</h2>
+          <span className="text-[11px] font-medium text-fg-muted">{filtered.length} Clients</span>
         </div>
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="grid w-full gap-2 lg:w-auto lg:grid-cols-[minmax(280px,304px)_auto] lg:items-center">
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-fg-muted" aria-hidden="true">⌕</span>
+            <input
+              className="h-8 w-full rounded border border-[#BAC7D8] bg-white pl-8 pr-3 text-xs outline-none placeholder:text-slate-400 focus:border-[#1769D2] focus:ring-2 focus:ring-[#1769D2]/15"
+              placeholder="이름 또는 식별코드로 검색"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-1">
             {(["all", "individual", "corporate", "sole_proprietor"] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setTypeFilter(f)}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                  typeFilter === f ? "bg-[#1428A0] text-white" : "bg-surface-2 text-fg-muted hover:text-fg"
+                className={`pb-control ${
+                  typeFilter === f ? "pb-control-active" : ""
                 }`}
               >
                 {f === "all" ? "전체" : CLIENT_TYPE_LABEL[f]}
               </button>
             ))}
-            <span className="mx-1 hidden h-4 w-px bg-border sm:inline" />
+            <span className="mx-1 hidden h-5 w-px bg-border sm:inline" />
             {(["all", "high_risk", "low_return", "low_liquidity"] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setFlag(f)}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                  flag === f ? "bg-[#0a0a0a] text-white" : "bg-surface-2 text-fg-muted hover:text-fg"
+                className={`pb-control ${
+                  flag === f ? "pb-control-active" : ""
                 }`}
               >
                 {f === "all" ? "태그 전체" : CLIENT_FLAG_LABEL[f]}
@@ -222,7 +220,7 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
             <label className="flex min-w-0 w-full items-center gap-2 text-xs text-fg-muted sm:max-w-xs">
               <span className="shrink-0 font-semibold text-fg">정렬</span>
               <select
-                className="sort-select min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-semibold text-fg"
+                className="sort-select h-8 min-w-0 flex-1 rounded border border-border bg-surface px-2 text-xs font-semibold text-fg"
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as SortKey)}
                 aria-label="고객 테이블 정렬"
@@ -236,34 +234,31 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
             </label>
             <div className="flex items-center justify-between gap-2 sm:ml-auto sm:justify-end">
               <span className="text-xs text-fg-muted">{filtered.length}명</span>
-              <div className="flex overflow-hidden rounded-lg border border-border">
-                <button className={`px-3 py-1.5 text-xs ${view === "table" ? "bg-[#1428A0] text-white" : "bg-surface text-fg-muted"}`} onClick={() => setView("table")}>테이블</button>
-                <button className={`px-3 py-1.5 text-xs ${view === "card" ? "bg-[#1428A0] text-white" : "bg-surface text-fg-muted"}`} onClick={() => setView("card")}>카드</button>
+              <div className="flex h-8 overflow-hidden rounded border border-border">
+                <button className={`px-3 text-xs ${view === "table" ? "bg-[#1769D2] font-semibold text-white" : "bg-surface text-fg-muted"}`} onClick={() => setView("table")}>표</button>
+                <button className={`px-3 text-xs ${view === "card" ? "bg-[#1769D2] font-semibold text-white" : "bg-surface text-fg-muted"}`} onClick={() => setView("card")}>카드</button>
               </div>
             </div>
           </div>
         </div>
-        <p className="mt-2 text-xs font-semibold text-[#1428A0]">
-          현재 정렬: {sortLabel}
-          <span className="ml-2 font-normal text-fg-muted">· 검색·구분·태그 필터 후 정렬됩니다</span>
-        </p>
-      </section>
+        </div>
+      </div>
 
       {filtered.length === 0 ? (
-        <div className="card px-3 py-10 text-center text-sm text-fg-muted">
-          {q ? `"${q}" 검색 결과가 없어요` : "표시할 고객이 없어요"}
+        <div className="card px-3 py-8 text-center text-sm text-fg-muted">
+          <p className="font-bold text-slate-700">{q ? `"${q}" 조건에 맞는 고객이 없습니다.` : "조건에 맞는 고객이 없습니다."}</p>
+          <p className="mt-1 text-xs">필터를 변경하거나 고객을 추가해보세요.</p>
         </div>
       ) : view === "table" ? (
-        <div className="card overflow-x-auto">
-          <div className="flex flex-wrap items-center justify-between gap-1 border-b border-border bg-surface-2 px-3 py-2">
+        <div className="overflow-x-auto border-t border-border">
+          <div className="flex flex-wrap items-center justify-between gap-1 border-b border-border bg-[#F2F6FC] px-3 py-1.5">
             <p className="text-xs font-semibold text-[#1428A0]">현재 정렬: {sortLabel}</p>
-            <p className="text-[10px] text-fg-muted">헤더를 눌러 같은 기준으로 오름/내림차순을 바꿀 수 있습니다</p>
           </div>
           {/* 열 10개 기준 실제 필요 폭이 960px 을 넘어, 남는 폭을 고객명·구분이 떠안아
               "박달리"가 두 글자씩 쪼개졌다. 최소 폭을 올리고 부족하면 가로 스크롤한다
               (감싸는 div 가 overflow-x-auto). 좁은 화면용 대안은 상단의 [카드] 뷰다. */}
-          <table className="w-full min-w-[1180px] text-sm">
-            <thead className="border-b border-border bg-surface-2 text-xs text-fg-muted">
+          <table className="w-full min-w-[1180px] text-[13px]">
+            <thead className="border-b border-border bg-[#F2F6FC] text-[11px] text-[#52647C]">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold">식별코드</th>
                 <SortTh
@@ -311,7 +306,7 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
                 <tr
                   key={r.clientId}
                   onClick={() => goClient(r.clientId)}
-                  className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-2"
+                  className="h-14 cursor-pointer border-b border-border last:border-0 transition-colors hover:bg-[#F7FAFF]"
                 >
                   <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-[#1428A0]">{r.code}</td>
                   <td className="whitespace-nowrap px-3 py-2"><div className="flex items-center gap-2"><ClientAvatar name={r.name} type={r.clientType} size="sm" /><span className="font-bold text-fg">{r.name}</span></div></td>
@@ -406,6 +401,6 @@ export default function BookDashboard({ pbId, rows, scheduleRefreshKey }: Props)
         </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
