@@ -863,6 +863,15 @@ export default function RealEstateModule({ clientId }: Props) {
           >
             {searching ? "조회 중…" : "조회"}
           </button>
+          {/* 지역은 타이핑만으로는 확정되지 않는다(드롭다운 항목을 눌러야 코드가 잡힌다).
+              그 전까지 버튼이 비활성인데 이유가 화면에 없어 "검색이 안 된다"로 보였다. */}
+          {!searching && (!form.legal_dong_code || !searchComplexName.trim()) && (
+            <p className="text-xs text-fg-muted">
+              {!form.legal_dong_code
+                ? "지역을 목록에서 선택하세요 — 입력만으로는 법정동코드가 확정되지 않습니다."
+                : "단지명을 입력하세요."}
+            </p>
+          )}
         </div>
       )}
 

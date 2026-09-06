@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { estimateMarketValue } from "@/lib/realestate/fetch-market-value";
+import {
+  MOLIT_KEY_MISSING_NOTE,
+  estimateMarketValue,
+  readMolitServiceKey,
+} from "@/lib/realestate/fetch-market-value";
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
@@ -19,12 +23,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const serviceKey = process.env.DATA_GO_KR_SERVICE_KEY;
-  if (!serviceKey || serviceKey === "발급받은인증키여기에") {
+  // 자리표시자("[SENSITIVE]" 등)도 미설정으로 본다 — 판정은 라이브러리와 공유한다.
+  if (!readMolitServiceKey()) {
     return NextResponse.json({
       value: null, low: null, high: null, confidence: "low",
       source: "molit_realtxn", sampleSize: 0,
-      note: "DATA_GO_KR_SERVICE_KEY 미설정",
+      note: MOLIT_KEY_MISSING_NOTE,
       connected: false,
       freshness: "참고용",
       areaBreakdown: [],
