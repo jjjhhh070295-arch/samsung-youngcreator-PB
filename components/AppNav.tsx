@@ -270,6 +270,7 @@ export default function AppNav() {
     ...(pbId ? [{ key: "book", label: "고객조회", icon: "📒", href: `/pb/${pbId}` }] : []),
     ...(pbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${pbId}/ticker` }] : []),
     { key: "research", label: "리서치", icon: "📊", href: "/research" },
+    { key: "research-links", label: "스몰캡 리서치", icon: "🔎", href: "/research-links" },
     // PB 계정 관리 — 예전에는 홈 화면 카드로만 열 수 있어 관리하려면 홈으로 돌아가야 했다.
     // 이동이 아니라 모달을 여는 항목이라 action 을 쓴다(lib/pbManage.ts 주석 참고).
     { key: "pb-manage", label: "PB 계정 관리", icon: "👤", href: "", action: openPbManage },
