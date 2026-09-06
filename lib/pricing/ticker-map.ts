@@ -368,12 +368,27 @@ for (const [name, code] of RAW_MAP) {
 export function lookupTicker(name: string): string | null {
   const key = normalizeKrName(name);
   if (NORMALIZED_MAP.has(key)) return NORMALIZED_MAP.get(key)!;
+  if (key.length < 2) return null;
 
-  // 부분 매칭: 입력 이름이 저장된 이름을 포함하거나 반대일 때
+  // 접두 매칭은 "입력이 저장된 이름보다 짧을 때"만 인정한다(k.startsWith(key)).
+  // 사용자가 이름을 줄여 친 경우이므로 같은 회사일 여지가 있다.
+  //
+  // 반대 방향(key.startsWith(k) — 입력이 더 긴 경우)은 쓰지 않는다. 한국 기업명은
+  // "그룹명 + 사업명" 꼴이라 뒤에 뭔가 붙으면 대개 다른 회사다:
+  //   두산퓨얼셀(336260)  → "두산"(000150) 에 걸림
+  //   SK오션플랜트(100090) → "SK"(034730) 에 걸림
+  //   LG씨엔에스(064400)  → "LG"(003550) 에 걸림
+  // 예전 구현은 이 방향을 허용하고 첫 매치를 즉시 반환해서, 못 찾았다고 알리는 대신
+  // 조용히 다른 회사 코드를 돌려줬다. 그 코드로 시세까지 조회되므로 화면에는
+  // 정상처럼 보이고 값만 틀린다 — 검색 실패보다 나쁘다.
+  //
+  // 후보가 여러 회사면 null 이다. 추측해서 하나를 고르느니 "못 찾음"으로 두고
+  // 사용자가 코드를 직접 넣게 하는 편이 안전하다("한국" → 한국전력·한국가스공사·…).
+  let found: string | null = null;
   for (const [k, code] of Array.from(NORMALIZED_MAP.entries())) {
-    if (key.length >= 2 && (key.startsWith(k) || k.startsWith(key))) {
-      return code;
-    }
+    if (!k.startsWith(key)) continue;
+    if (found !== null && found !== code) return null; // 서로 다른 회사 → 모호
+    found = code;
   }
-  return null;
+  return found;
 }
