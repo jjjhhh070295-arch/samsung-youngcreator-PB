@@ -446,7 +446,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
     <div className="flex gap-1 mb-4 border-b border-border">
       {([["saved", `저장된 부동산${properties.length > 0 ? ` (${properties.length})` : ""}`], ["add", "부동산 추가"]] as const).map(([t, label]) => (
         <button key={t} onClick={() => setTab(t as "saved" | "add")}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${tab === t ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${tab === t ? "border-[#1769D2] text-[#0D57BA]" : "border-transparent text-fg-muted hover:text-fg"}`}>
           {label}
         </button>
       ))}
@@ -524,7 +524,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
         ) : (
           <div className="space-y-4">
             {/* 압축 요약 바 — 평소엔 이것만 보임. 좌: 금액·건수 / 가운데: 물건명 / 우: 버튼 */}
-            <div className="rounded-xl border border-border bg-surface-2 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="rounded-md border border-border bg-[#F2F6FC] px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
               <div className="shrink-0">
                 <span className="text-lg font-bold text-fg">{formatW(totals.totalValue)}</span>
                 <span className="ml-1.5 text-sm text-fg-muted">· {properties.length}채</span>
@@ -553,7 +553,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                   const isAddingDebt = debtFormProp === p.id;
 
                   return (
-                    <div key={p.id} className="rounded-xl border border-border bg-card overflow-hidden">
+                    <div key={p.id} className="rounded-md border border-border bg-card overflow-hidden">
                       {/* 카드 헤더 */}
                       <div className="px-4 py-3">
                         <div className="flex items-start justify-between gap-3">
@@ -582,7 +582,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                               <button
                                 onClick={() => lookupMarketValue(p)}
                                 disabled={lookingUp === p.id}
-                                className="text-xs font-semibold px-2 py-1 rounded-lg bg-[#1428A0] text-white hover:bg-[#0f1e7a] disabled:opacity-50 transition-colors"
+                                className="rounded bg-[#1769D2] px-2 py-1 text-xs font-semibold text-white transition-colors hover:bg-[#0D57BA] disabled:opacity-50"
                               >
                                 {lookingUp === p.id ? (
                                   <span className="flex items-center gap-1">
@@ -641,11 +641,11 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                                     <button
                                       key={area.area}
                                       onClick={() => handleAreaPick(p, area)}
-                                      className="flex flex-col items-start text-xs rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 hover:bg-[#1428A0] hover:text-white hover:border-[#1428A0] transition-colors group"
+                                      className="group flex flex-col items-start rounded border border-amber-300 bg-white px-2.5 py-1.5 text-xs transition-colors hover:border-[#1769D2] hover:bg-[#1769D2] hover:text-white"
                                     >
                                       <span className="font-bold text-fg group-hover:text-white">{area.area}㎡ ({area.pyeong}평)</span>
                                       <span className="text-fg-muted group-hover:text-white/80">{badge} {area.freshness} · {area.sampleSize}건</span>
-                                      <span className="text-[#1428A0] font-semibold group-hover:text-white">{formatW(area.median)}</span>
+                                      <span className="font-semibold text-[#0D57BA] group-hover:text-white">{formatW(area.median)}</span>
                                     </button>
                                   );
                                 })}
@@ -675,14 +675,14 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                             tiles.push(["LTV", pct(m.ltv), m.ltv != null && m.ltv > 0.8 ? "text-red-500" : m.ltv != null && m.ltv > 0.6 ? "text-amber-600" : "text-fg-muted"]);
                           }
                           if (hasRentalYield) {
-                            tiles.push(["임대수익률", pct(m.rentalYield), "text-[#1428A0]"]);
+                            tiles.push(["임대수익률", pct(m.rentalYield), "text-[#0D57BA]"]);
                           }
                           // Tailwind JIT는 소스에 리터럴로 존재하는 클래스만 생성한다 — 템플릿 보간 금지.
                           const GRID_COLS: Record<number, string> = { 3: "grid-cols-3", 4: "grid-cols-4", 5: "grid-cols-5" };
                           return (
                             <div className={`mt-2 grid gap-1.5 text-center ${GRID_COLS[tiles.length] ?? "grid-cols-3"}`}>
                               {tiles.map(([label, val, cls]) => (
-                                <div key={label} className="rounded-lg bg-surface-2 px-1 py-1.5">
+                                <div key={label} className="rounded bg-surface-2 px-1 py-1.5">
                                   <p className="text-[8px] text-fg-muted mb-0.5 leading-tight">{label}</p>
                                   <p className={`text-xs font-bold ${cls}`}>{val}</p>
                                 </div>
@@ -738,7 +738,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                               ))}
 
                               {isAddingDebt ? debtAddForm(p.id) : (
-                                <button className="text-xs text-[#1428A0] hover:underline font-medium"
+                                <button className="text-xs font-medium text-[#0D57BA] hover:underline"
                                   onClick={() => { setDebtFormProp(p.id); setExpandedDebt(p.id); }}>
                                   + 대출 추가
                                 </button>
@@ -749,7 +749,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                       ) : (
                         <div className="border-t border-border px-4 py-2">
                           {isAddingDebt ? debtAddForm(p.id) : (
-                            <button className="text-xs text-[#1428A0] hover:underline font-medium"
+                            <button className="text-xs font-medium text-[#0D57BA] hover:underline"
                               onClick={() => setDebtFormProp(p.id)}>
                               + 대출 추가
                             </button>
@@ -806,7 +806,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
         {STEP_LABEL.map(([step, label], i) => (
           <div key={step} className="flex items-center gap-2">
             {i > 0 && <span className="text-fg-muted">→</span>}
-            <span className={`rounded-full px-3 py-1 font-semibold ${addStep === step ? "bg-[#1428A0] text-white" : "bg-surface-2 text-fg-muted"}`}>
+            <span className={`rounded px-3 py-1 font-semibold ${addStep === step ? "bg-[#1769D2] text-white" : "bg-surface-2 text-fg-muted"}`}>
               {label}
             </span>
           </div>
@@ -851,7 +851,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
               </div>
             )}
             {form.legal_dong_code && (
-              <p className="text-xs text-[#1428A0] mt-0.5">코드 확정: {form.legal_dong_code}</p>
+              <p className="mt-0.5 text-xs text-[#0D57BA]">코드 확정: {form.legal_dong_code}</p>
             )}
           </div>
 
@@ -890,7 +890,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
           <button type="button" className="text-xs text-fg-muted hover:text-fg" onClick={() => setAddStep("search")}>← 다시 검색</button>
 
           {searchResult.areaBreakdown.length > 0 ? (
-            <div className="overflow-x-auto rounded-xl border border-border">
+            <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-surface-2 text-xs text-fg-muted">
                   <tr>
@@ -909,7 +909,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                         <td className="px-4 py-3 font-semibold text-fg whitespace-nowrap">
                           {area.area}㎡ <span className="font-normal text-fg-muted">({area.pyeong}평)</span>
                         </td>
-                        <td className="px-4 py-3 text-right font-bold text-[#1428A0] whitespace-nowrap">{formatW(area.median)}</td>
+                        <td className="px-4 py-3 text-right font-bold text-[#0D57BA] whitespace-nowrap">{formatW(area.median)}</td>
                         <td className="px-4 py-3 text-right text-fg-muted whitespace-nowrap">{area.sampleSize}건</td>
                         <td className="px-4 py-3 text-center">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${confidence === "high" ? "bg-green-50 text-green-700" : confidence === "low" ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-600"}`}>
@@ -948,7 +948,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
             ← {manualEntry ? "다시 검색" : "다른 평형 선택"}
           </button>
 
-          <div className="rounded-xl border border-border bg-surface-2 px-4 py-3">
+          <div className="rounded-md border border-border bg-surface-2 px-4 py-3">
             <p className="text-sm font-semibold text-fg">{form.complex_name || "단지명 미입력"}</p>
             <p className="text-xs text-fg-muted mt-0.5">{lawdSearch || form.legal_dong_code}</p>
           </div>
@@ -960,7 +960,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                 <div className="flex overflow-hidden rounded-lg border border-border text-[11px] font-semibold">
                   {(["m2", "pyeong"] as const).map((u) => (
                     <button key={u} type="button"
-                      className={`px-2 py-0.5 transition-colors ${areaUnit === u ? "bg-[#1428A0] text-white" : "bg-white text-fg-muted hover:bg-surface-2"}`}
+                      className={`px-2 py-0.5 transition-colors ${areaUnit === u ? "bg-[#1769D2] text-white" : "bg-white text-fg-muted hover:bg-surface-2"}`}
                       onClick={() => setAreaUnit(u)}>
                       {u === "m2" ? "m²" : "평"}
                     </button>
@@ -1021,7 +1021,7 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
           </div>
 
           {/* 직접 입력 (접이식) — 나머지 필드는 지우지 않고 기본값으로 채운 채 접어둔다 */}
-          <div className="rounded-xl border border-border">
+          <div className="rounded-md border border-border">
             <button
               type="button"
               className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-fg hover:bg-surface-2"

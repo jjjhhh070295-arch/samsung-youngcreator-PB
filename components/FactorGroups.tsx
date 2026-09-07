@@ -74,14 +74,14 @@ const PAIR_DESC_OVERRIDE: Partial<Record<FactorKey, string>> = {
 
 function scoreBand(score: number | null): { label: string; cls: string } | null {
   if (score == null) return null;
-  if (score >= 4) return { label: "상", cls: "bg-gold-200 text-gold-900 dark:bg-gold-700/60 dark:text-gold-100" };
-  if (score === 3) return { label: "중", cls: "bg-navy-100 text-navy-800 dark:bg-navy-700 dark:text-navy-100" };
+  if (score >= 4) return { label: "상", cls: "bg-[#EAF2FF] text-[#0D57BA]" };
+  if (score === 3) return { label: "중", cls: "bg-surface-2 text-fg" };
   return { label: "하", cls: "bg-surface-2 text-fg-muted" };
 }
 
 function StatusBadge({ f }: { f: IPSFactor }) {
-  if (f.status === "explicit") return <span className="badge-gold">명시</span>;
-  if (f.status === "inferred") return <span className="badge-navy">추론 🔍</span>;
+  if (f.status === "explicit") return <span className="badge-muted">명시</span>;
+  if (f.status === "inferred") return <span className="badge-navy">추론</span>;
   return <span className="badge-muted">미언급</span>;
 }
 
@@ -97,7 +97,7 @@ function FactorLine({ factorKey, ips, flags }: { factorKey: FactorKey; ips: IPS;
   const flag = factorFlag(flags, m.label);
   const valueTone =
     f.status === "explicit"
-      ? "text-lg font-bold text-navy-700 dark:text-gold-200"
+      ? "text-lg font-bold text-[#0D57BA]"
       : f.status === "inferred"
         ? "text-base font-semibold text-fg"
         : "text-base font-normal text-fg-muted";
@@ -116,8 +116,8 @@ function FactorLine({ factorKey, ips, flags }: { factorKey: FactorKey; ips: IPS;
       <p className={`mt-2 line-clamp-2 break-words ${valueTone}`} title={valueText}>{valueText}</p>
       {(f.evidence || f.inferenceHint) && (
         <details className="mt-2">
-          <summary className="cursor-pointer text-[11px] font-bold text-[#1428A0]">▸ 근거 상세 보기</summary>
-          <div className="mt-2 border-l-2 border-[#1428A0] pl-3">
+          <summary className="cursor-pointer text-[11px] font-bold text-[#0D57BA]">▸ 근거 상세 보기</summary>
+          <div className="mt-2 border-l-2 border-[#1769D2] pl-3">
             <p className="text-xs leading-relaxed text-fg-muted">
               {f.evidence || `참고: ${f.inferenceHint}`}
             </p>
@@ -157,7 +157,7 @@ function FactorLineCompact({
   const desc = PAIR_DESC_OVERRIDE[factorKey] ?? m.desc;
   const valueTone =
     f.status === "explicit"
-      ? "text-base font-bold leading-snug text-navy-700 dark:text-gold-200"
+      ? "text-base font-bold leading-snug text-[#0D57BA]"
       : f.status === "inferred"
         ? "text-sm font-semibold leading-snug text-fg"
         : "text-sm font-normal leading-snug text-fg-muted";
@@ -181,7 +181,7 @@ function FactorLineCompact({
           type="button"
           onClick={onToggleEvidence}
           aria-expanded={evidenceOpen}
-          className="mt-2 cursor-pointer text-[11px] font-bold text-[#1428A0]"
+          className="mt-2 cursor-pointer text-[11px] font-bold text-[#0D57BA]"
         >
           {evidenceOpen ? "▾" : "▸"} 근거
         </button>
@@ -203,7 +203,7 @@ function PairEvidence({ factorKey, ips, flags }: { factorKey: FactorKey; ips: IP
   const flag = factorFlag(flags, m.label);
   const heading = flag ? `[${flag.code}] ${m.label}` : m.label;
   return (
-    <div className="mt-2 border-l-2 border-[#1428A0] pl-3">
+    <div className="mt-2 border-l-2 border-[#1769D2] pl-3">
       <p className="text-xs leading-relaxed text-fg-muted">
         <b className="text-fg">{heading}</b> — {f.evidence || `참고: ${f.inferenceHint}`}
       </p>
@@ -247,14 +247,11 @@ export default function FactorGroups({ ips, flags }: Props) {
         const missing = missingByGroup[g.id] ?? 0;
         const factorCount = flatKeys(g.rows).length;
         return (
-          // 그룹 박스 — 박스 경계가 분명히 보이게 기존 border-border보다 진한
-          // 남색(#1428A0, ControlStatusBar 등 다른 강조 박스와 동일 톤)을 쓴다.
-          <section key={g.id} className="min-w-0 overflow-hidden rounded-xl border-[1.5px] border-[#1428A0] bg-white">
-            {/* 헤더 띠 — 박스 안에 꽉 채운 남색 바 */}
-            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 bg-[#1428A0] px-4 py-2.5">
+          <section key={g.id} className="relative min-w-0 overflow-hidden rounded-md border border-border bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-border bg-[#F2F6FC] px-4 py-2.5 before:absolute before:left-0 before:top-0 before:h-10 before:w-[3px] before:bg-[#1769D2]">
               <div className="flex items-baseline gap-1.5">
-                <h3 className="text-sm font-black text-white">{g.label}</h3>
-                <span className="text-[10px] text-white/60">{factorCount}</span>
+                <h3 className="text-[15px] font-semibold text-fg">{g.label}</h3>
+                <span className="text-[10px] text-fg-muted">{factorCount}</span>
               </div>
               {missing > 0 && (
                 <span title={`미언급 ${missing}개 — 상담으로 채울 수 있습니다`} className="badge-warning">

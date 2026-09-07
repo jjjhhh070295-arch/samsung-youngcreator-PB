@@ -91,20 +91,20 @@ body {
   .pb-control { @apply inline-flex h-8 items-center justify-center rounded border border-border bg-white px-3 text-xs font-semibold text-fg transition-colors hover:border-[#1769D2] hover:text-[#0D57BA]; }
   .pb-control-active { @apply border-[#1769D2] bg-[#1769D2] text-white hover:text-white; }
   .decision-section { @apply space-y-4; }
-  .decision-card { @apply rounded-xl border border-border bg-surface p-5 shadow-sm; }
-  .decision-kicker { @apply text-[11px] font-bold uppercase tracking-[0.12em] text-[#1428A0]; }
+  .decision-card { @apply rounded-md border border-border bg-surface p-5 shadow-none; }
+  .decision-kicker { @apply text-[11px] font-bold uppercase tracking-[0.12em] text-[#0D57BA]; }
   .decision-title { @apply text-lg font-bold tracking-tight text-fg; }
   .decision-copy { @apply text-xs leading-relaxed text-fg-muted; }
   .metric-value { @apply text-2xl font-black tracking-tight text-fg; }
-  .console-panel { @apply rounded-xl border border-border bg-white shadow-sm; }
+  .console-panel { @apply rounded-md border border-border bg-white shadow-none; }
   .console-panel-header { @apply flex items-center justify-between border-b border-border px-4 py-3; }
-  .console-metric { @apply rounded-xl border border-border bg-white px-4 py-3; }
+  .console-metric { @apply rounded border border-border bg-[#F2F6FC] px-4 py-3; }
   .console-label { @apply text-[10px] font-bold uppercase tracking-wide text-fg-muted; }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-navy-500 text-white hover:bg-navy-600 dark:bg-navy-500 dark:hover:bg-navy-400;
+    @apply btn bg-[#1769D2] text-white hover:bg-[#0D57BA];
   }
   .btn-gold {
     @apply btn bg-white text-navy-900 hover:bg-gold-100 font-semibold dark:bg-white dark:text-navy-900 dark:hover:bg-gold-100;
@@ -119,7 +119,7 @@ body {
     @apply btn bg-red-600 text-white hover:bg-red-700;
   }
   .input {
-    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition-shadow placeholder:text-fg-muted/60 focus:ring-2 focus:ring-navy-500/60 disabled:bg-surface-2 disabled:opacity-70;
+    @apply w-full rounded border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition-shadow placeholder:text-fg-muted/60 focus:border-[#1769D2] focus:ring-2 focus:ring-[#1769D2]/20 disabled:bg-surface-2 disabled:opacity-70;
   }
   /* OS 다크모드에서 native select가 흰 글자로 뒤집히지 않게, 실제 토큰 색을 강제 */
   .sort-select,
@@ -143,7 +143,7 @@ body {
     @apply badge bg-gold-100 text-gold-800 dark:bg-gold-900/40 dark:text-gold-200;
   }
   .badge-navy {
-    @apply badge bg-navy-100 text-navy-800 dark:bg-navy-700 dark:text-navy-100;
+    @apply badge bg-[#EAF2FF] text-[#0D57BA];
   }
   .badge-muted {
     @apply badge bg-surface-2 text-fg-muted;

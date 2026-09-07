@@ -131,7 +131,7 @@ export default function HomeMarketBoard() {
   }, [indicatorIds]);
 
   return (
-    <div className="mb-10 grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.4fr_1fr]">
+    <div className="mb-8 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
       {/* 좌 — 당일 미니차트 */}
       <div className="grid grid-cols-2 gap-3">
         <MarketMiniChart data={chartData.kospi.points} prevClose={chartData.kospi.prevClose} label="코스피 (KOSPI)" loading={chartLoading} delayMinutes={chartData.kospi.delayMinutes} startTime={chartData.kospi.startTime} endTime={chartData.kospi.endTime} />
@@ -139,7 +139,7 @@ export default function HomeMarketBoard() {
       </div>
 
       {/* 우 — 시세 전광판 */}
-        <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
+        <div className="rounded-md border border-border bg-surface p-4 shadow-none">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex gap-1">
               <button
@@ -183,7 +183,7 @@ export default function HomeMarketBoard() {
                   aria-label="전광판 지표 선택"
                   title="전광판 지표 선택"
                   onClick={() => setPickerOpen(true)}
-                  className="rounded-md px-1.5 py-0.5 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+                  className="rounded px-1.5 py-0.5 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1769D2]/30"
                 >
                   ⚙
                 </button>
@@ -200,7 +200,7 @@ export default function HomeMarketBoard() {
               {market.map((m) => (
                 <div
                   key={m.id ?? m.label}
-                  className="flex items-center justify-between rounded-lg px-2 py-2 transition-colors hover:bg-surface-2"
+                  className="flex items-center justify-between border-b border-border px-2 py-2 transition-colors last:border-b-0 hover:bg-surface-2"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-fg">{m.label}</p>
@@ -251,7 +251,7 @@ export default function HomeMarketBoard() {
                     href={`https://finance.naver.com/item/main.naver?code=${e.code}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-surface-2"
+                    className="flex items-center justify-between gap-2 border-b border-border px-2 py-2 transition-colors last:border-b-0 hover:bg-surface-2"
                   >
                     <p className="min-w-0 truncate text-sm font-semibold text-fg">{e.name}</p>
                     <div className="shrink-0 text-right">

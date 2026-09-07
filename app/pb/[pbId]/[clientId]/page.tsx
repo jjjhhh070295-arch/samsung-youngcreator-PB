@@ -626,21 +626,21 @@ export default function ClientDetailPage() {
   const riskProfile = client.ips?.risk?.value?.trim();
 
   return (
-    <div className="mx-auto max-w-[1680px] space-y-5 px-4 py-4 lg:px-6">
-      <section className="console-panel overflow-hidden bg-gradient-to-r from-white via-white to-[#F2F5FF]">
+    <div className="pb-console mx-auto max-w-[1440px] space-y-5 px-3 py-4 sm:px-4 lg:px-8">
+      <section className="console-panel overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div className="flex min-w-0 items-center gap-4">
             <ClientAvatar name={client.name} type={client.clientType} size="lg" />
             <div className="min-w-0">
               <div className="flex flex-wrap gap-1.5"><span className="badge-navy font-mono">{client.code}</span><span className="badge-muted">{CLIENT_TYPE_LABEL[client.clientType]}</span>{client.isMajorityShareholder && <span className="badge-warning">최대주주</span>}</div>
               <h1 className="mt-2 truncate text-2xl font-black tracking-tight text-fg">{client.name}</h1>
-              <p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#1428A0]">{formatKRW(investableWon ?? client.assetSize)}</b> (총자산 {formatKRW(client.assetSize)}){riskProfile ? ` · ${riskProfile}` : ""}</p>
+              <p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#0D57BA]">{formatKRW(investableWon ?? client.assetSize)}</b> (총자산 {formatKRW(client.assetSize)}){riskProfile ? ` · ${riskProfile}` : ""}</p>
             </div>
           </div>
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto lg:min-w-[480px]">
             <div className="console-metric">
-              <div className="flex items-center justify-between"><p className="console-label">상담 진행률</p><p className="text-sm font-black text-[#1428A0]">{completedStages}/{totalStages || "—"}</p></div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE4F5]"><div className="h-full rounded-full bg-[#1428A0]" style={{ width: `${totalStages ? Math.round((completedStages / totalStages) * 100) : 0}%` }} /></div>
+              <div className="flex items-center justify-between"><p className="console-label">상담 진행률</p><p className="text-sm font-black text-[#0D57BA]">{completedStages}/{totalStages || "—"}</p></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#DCE3EC]"><div className="h-full rounded-full bg-[#1769D2]" style={{ width: `${totalStages ? Math.round((completedStages / totalStages) * 100) : 0}%` }} /></div>
             </div>
             <div className="console-metric"><p className="console-label">마지막 상담</p><p className="mt-1 text-sm font-bold text-fg">{lastConsultedAt ? formatDate(lastConsultedAt) : "기록 없음"}</p></div>
             <div className="console-metric"><p className="console-label">현재 상태</p><p className="mt-1 text-sm font-bold text-fg">{client.stages?.portfolio ? "포트폴리오 확정" : "분석 진행 중"}</p></div>
@@ -651,8 +651,8 @@ export default function ClientDetailPage() {
       {/* 기본 정보 */}
       {activeView === "home" && <>
         <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>👤</span> 기본 정보
+          <h2 className="mb-3 text-base font-semibold text-fg">
+            기본 정보
           </h2>
           <div className="console-panel p-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -677,7 +677,7 @@ export default function ClientDetailPage() {
                       "· 부동산 5.0억"을 따로 찍어 주므로 기준이 저절로 드러난다. */}
                   <span>
                     투자가능자산{" "}
-                    <b className="text-[#1428A0]">{formatKRW(investableWon ?? client.assetSize)}</b>
+                    <b className="text-[#0D57BA]">{formatKRW(investableWon ?? client.assetSize)}</b>
                   </span>
                   <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} refreshKey={assetRefreshKey} />
                 </div>
@@ -714,20 +714,20 @@ export default function ClientDetailPage() {
         <div className="grid grid-cols-[60%_40%] items-start gap-[18px] max-[1280px]:grid-cols-1">
           {/* MTS 보유종목 추출 */}
           <section className="min-w-0">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-              <span>📊</span> 보유종목 (MTS 캡쳐 추출)
+            <h2 className="mb-3 text-base font-semibold text-fg">
+              보유종목 (MTS 캡쳐 추출)
             </h2>
-            <div className="card p-5">
+            <div className="card p-4">
               <HoldingsExtractor clientId={clientId} onAssetsChanged={onBasicAssetsChanged} />
             </div>
           </section>
 
           {/* 부동산 자산 */}
           <section className="min-w-0">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-              <span>🏠</span> 부동산 자산
+            <h2 className="mb-3 text-base font-semibold text-fg">
+              부동산 자산
             </h2>
-            <div className="card p-5">
+            <div className="card p-4">
               <RealEstateModule clientId={clientId} onAssetsChanged={onBasicAssetsChanged} />
             </div>
           </section>
@@ -741,8 +741,8 @@ export default function ClientDetailPage() {
 
         {/* 7요인 */}
         <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>🎯</span> 7요인
+          <h2 className="mb-3 text-base font-semibold text-fg">
+            7요인
           </h2>
           <FactorsSummary
             client={client}
@@ -754,8 +754,8 @@ export default function ClientDetailPage() {
         </section>
 
         <section id="cashflow">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>💰</span> 현금흐름
+          <h2 className="mb-3 text-base font-semibold text-fg">
+            현금흐름
           </h2>
           <SimpleCashflowPanel
             cashFlows={client.cashFlows}
@@ -768,8 +768,8 @@ export default function ClientDetailPage() {
 
         {/* 관계 네트워크 */}
         <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>🔗</span> 관계 네트워크
+          <h2 className="mb-3 text-base font-semibold text-fg">
+            관계 네트워크
           </h2>
           <div className="card p-5">
             <PartyRelationshipModule
@@ -785,8 +785,8 @@ export default function ClientDetailPage() {
       {activeView === "consultation" && (<>
         {/* 1. 상담 현황 바 */}
         <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>📝</span> 상담 진행
+          <h2 className="mb-3 text-base font-semibold text-fg">
+            상담 진행
           </h2>
           <div className="card p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -807,8 +807,8 @@ export default function ClientDetailPage() {
 
         {/* 2. 성향 변화 추세 그래프 */}
         <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-            <span>📈</span> 성향 변화 추세
+          <h2 className="mb-3 text-base font-semibold text-fg">
+            성향 변화 추세
           </h2>
           <div className="card p-4">
             <TrendChart consultations={consultations} />
@@ -818,8 +818,8 @@ export default function ClientDetailPage() {
         {/* 3. 상담 이력 — 항상 펼쳐서 카드 나열 */}
         {consultations.length > 0 && (
           <section>
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-3 flex items-center gap-2">
-              <span>📋</span> 상담 이력 ({consultations.length}건)
+            <h2 className="mb-3 text-base font-semibold text-fg">
+              상담 이력 ({consultations.length}건)
             </h2>
             <ConsultationHistory consultations={consultations} client={client} onSaved={load} />
           </section>

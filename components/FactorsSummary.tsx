@@ -85,10 +85,10 @@ export default function FactorsSummary({
         </button>
         <ScoreRubricButton
           label="요인 점수 기준표 확인"
-          className="shrink-0 whitespace-nowrap rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-gold-400 hover:text-gold-700"
+          className="shrink-0 whitespace-nowrap rounded border border-border bg-surface px-2.5 py-1 text-[11px] font-bold text-fg-muted transition-colors hover:border-[#1769D2] hover:text-[#0D57BA]"
         />
         <button
-          className={client.stages?.factors ? "btn-outline whitespace-nowrap text-xs" : "btn-gold whitespace-nowrap text-xs"}
+          className={client.stages?.factors ? "btn-outline whitespace-nowrap text-xs" : "btn-primary whitespace-nowrap text-xs"}
           onClick={() => onToggleStage("factors")}
         >
           {client.stages?.factors ? "단계 완료됨 ✓ (해제)" : "이 단계 완료로 표시"}
@@ -96,7 +96,7 @@ export default function FactorsSummary({
       </div>
 
       {savedSurvey ? (
-        <div className="mb-4 rounded-xl border border-[#1428A0]/20 bg-[#1428A0]/5 px-4 py-3 text-xs text-fg">
+        <div className="mb-4 rounded-md border border-[#C9DAF2] bg-[#EAF2FF] px-4 py-3 text-xs text-fg">
           <p className="font-bold text-fg">
             최근 설문 결과 · {savedSurvey.finalTendency}
           </p>
@@ -144,7 +144,7 @@ export default function FactorsSummary({
 
       <section className="mb-4 grid gap-4 lg:grid-cols-[360px_1fr]">
         <div className="console-panel p-4"><p className="decision-kicker">RRTTLLU profile</p><h2 className="mt-1 text-lg font-black text-fg">고객 투자성향 요약</h2><IPSRadar ips={ips} height={230} /></div>
-        <div className="console-panel p-4"><div className="flex items-center justify-between"><div><p className="console-label">최종 투자성향</p><p className="mt-1 text-2xl font-black text-[#1428A0]">{ips.risk.value || "검토 필요"}</p></div><span className="badge-navy">7요인 분석</span></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="console-metric"><p className="console-label">목표수익률</p><p className="mt-1 text-sm font-bold text-fg">{ips.return.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">위험허용도</p><p className="mt-1 text-sm font-bold text-fg">{ips.risk.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">투자기간</p><p className="mt-1 text-sm font-bold text-fg">{ips.timeHorizon.value || "미입력"}</p></div></div><p className="mt-4 text-xs leading-relaxed text-fg-muted">설문조사 결과를 반영해 7요인 점수를 산출합니다. 세부 근거는 아래 요인 카드에서 확인하세요.</p></div>
+        <div className="console-panel p-4"><div className="flex items-center justify-between"><div><p className="console-label">최종 투자성향</p><p className="mt-1 text-2xl font-black text-[#0D57BA]">{ips.risk.value || "검토 필요"}</p></div><span className="badge-navy">7요인 분석</span></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="console-metric"><p className="console-label">목표수익률</p><p className="mt-1 text-sm font-bold text-fg">{ips.return.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">위험허용도</p><p className="mt-1 text-sm font-bold text-fg">{ips.risk.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">투자기간</p><p className="mt-1 text-sm font-bold text-fg">{ips.timeHorizon.value || "미입력"}</p></div></div><p className="mt-4 text-xs leading-relaxed text-fg-muted">설문조사 결과를 반영해 7요인 점수를 산출합니다. 세부 근거는 아래 요인 카드에서 확인하세요.</p></div>
       </section>
       {/* 7요인 카드 — 성격별 3열 나란히. 카드 내용(배지·근거 상세·추론 단서)은 그대로다. */}
       <FactorGroups ips={ips} flags={flags} />

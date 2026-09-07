@@ -27,7 +27,7 @@ export default function MarketMiniChart({ data, prevClose, label, loading, delay
   const padding = (maxVal - minVal) * 0.1 || 1;
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
+    <div className="rounded-md border border-border bg-surface p-4 shadow-none">
       <div className="mb-1 flex items-center justify-between">
         <p className="text-xs font-semibold text-fg-muted">{label}</p>
         <div className="flex items-center gap-2">

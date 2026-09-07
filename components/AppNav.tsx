@@ -43,18 +43,20 @@ const EXTERNAL_LINKS = [
 ];
 
 // 가로 네비 항목 공통 스타일 — shrink-0 + whitespace-nowrap 이 가로 스크롤의 전제다.
-function pillClass(active: boolean, disabled = false): string {
+function pillClass(active: boolean, disabled = false, onBlue = false): string {
   if (disabled) {
     return [
       "shrink-0 whitespace-nowrap rounded-md px-3.5 py-1.5 text-[15px]",
-      "cursor-not-allowed opacity-40 text-fg-muted",
+      `cursor-not-allowed opacity-40 ${onBlue ? "text-white" : "text-fg-muted"}`,
       "focus-visible:outline-none",
     ].join(" ");
   }
   return [
-    "shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[13px] transition-colors",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]",
-    active ? "bg-[#1428A0] font-bold text-white shadow-[0_4px_12px_rgba(20,40,160,0.18)]" : "font-medium text-slate-600 hover:bg-slate-100 hover:text-[#1428A0]",
+    "shrink-0 whitespace-nowrap rounded px-3.5 py-1.5 text-[13px] transition-colors",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1769D2]/30",
+    onBlue
+      ? active ? "bg-white/15 font-bold text-white" : "font-medium text-white/80 hover:bg-white/10 hover:text-white"
+      : active ? "bg-[#EAF2FF] font-bold text-[#0D57BA]" : "font-medium text-slate-600 hover:bg-slate-100 hover:text-[#0D57BA]",
   ].join(" ");
 }
 
@@ -103,7 +105,7 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
         aria-haspopup="true"
         aria-label="메뉴 및 바로가기"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-fg transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+        className="flex items-center gap-1 rounded px-2 py-1 text-sm text-current transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
         <span aria-hidden="true">☰</span>
         <span aria-hidden="true" className="text-[10px] text-fg-muted">{open ? "▲" : "▼"}</span>
@@ -128,7 +130,6 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
                     }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-fg hover:bg-surface-2"
                   >
-                    <span aria-hidden="true">{item.icon}</span>
                     <span>{item.label}</span>
                   </button>
                 ) : item.external ? (
@@ -140,7 +141,6 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
                     onClick={() => setOpen(false)}
                     className="flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-surface-2"
                   >
-                    <span aria-hidden="true">{item.icon}</span>
                     <span>{item.label}</span>
                   </a>
                 ) : (
@@ -150,7 +150,6 @@ function MoreMenu({ groups }: { groups: MoreMenuGroup[] }) {
                     onClick={() => setOpen(false)}
                     className="flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-surface-2"
                   >
-                    <span aria-hidden="true">{item.icon}</span>
                     <span>{item.label}</span>
                   </Link>
                 ),
@@ -168,14 +167,14 @@ function AccountArea({ pbName, onLogout }: { pbName: string | null; onLogout: ()
   if (!pbName) return null;
   return (
     <>
-      <span className="hidden whitespace-nowrap text-xs text-fg-muted md:inline">{pbName} PB</span>
+      <span className="hidden whitespace-nowrap text-xs text-current opacity-90 md:inline">{pbName} PB</span>
       {/* 이름(누구) → 세션 잔여(상태) → 로그아웃(조작) 순서. 두 네비 레이아웃이
           모두 AccountArea 를 쓰므로 여기 한 곳만 손보면 된다. */}
       <SessionCountdown />
       <button
         type="button"
         onClick={onLogout}
-        className="shrink-0 whitespace-nowrap rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+        className="shrink-0 whitespace-nowrap rounded border border-current/30 px-2 py-1 text-[11px] text-current opacity-80 transition-colors hover:bg-white/10 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
         로그아웃
       </button>
@@ -293,7 +292,7 @@ export default function AppNav() {
   }));
 
   // 헤더가 사라졌으므로 네비가 최상단(top-0)에 붙는다. 헤더의 z-40을 그대로 물려받는다.
-  const shell = "sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-[0_1px_8px_rgba(15,23,42,0.04)] backdrop-blur";
+  const shell = "sticky top-0 z-40 border-b border-[#0D57BA] bg-[#1769D2] text-white";
 
   const isPbHome = !!pbId && !clientId && pathname === `/pb/${pbId}`;
 
@@ -337,20 +336,21 @@ export default function AppNav() {
   if (isClientPage) {
     return (
       <nav className={shell} aria-label="고객 상세 메뉴">
-        <div className="mx-auto flex max-w-[1800px] flex-col">
+        <div className="mx-auto flex max-w-[1440px] flex-col">
           {/* 1행 — 로고 · 뒤로가기 · 고객 식별 · 계정 · 메뉴 */}
-          <div className="flex h-11 items-center gap-2 px-4 lg:px-6">
+          <div className="flex h-14 items-center gap-2 px-3 sm:px-4 lg:px-8">
+            <Link href="/" className="mr-2 shrink-0 text-lg font-black tracking-[-0.04em] text-white">삼성증권</Link>
             <button
               type="button"
               onClick={() => router.push(`/pb/${pbId}`)}
-              className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-1 text-xs text-fg-muted transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]"
+              className="shrink-0 whitespace-nowrap rounded px-1.5 py-1 text-xs text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
             >
               ← PB 페이지
             </button>
             {client && (
               <div className="flex min-w-0 items-baseline gap-1.5">
-                <span className="hidden shrink-0 text-[10px] text-fg-muted sm:inline">{client.code}</span>
-                <span className="truncate text-sm font-bold text-fg">{client.name}</span>
+                <span className="hidden shrink-0 text-[10px] text-white/65 sm:inline">{client.code}</span>
+                <span className="truncate text-sm font-bold text-white">{client.name}</span>
               </div>
             )}
             <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -365,7 +365,7 @@ export default function AppNav() {
           </div>
 
           {/* 2행 — 기본 정보 / 포트폴리오 / IPS / 고객화면 */}
-          <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 lg:px-6 [scrollbar-width:thin] sm:gap-3">
+          <div className="flex items-center gap-2 overflow-x-auto border-t border-white/15 bg-white px-4 py-2 lg:px-8 [scrollbar-width:thin] sm:gap-3">
             {CLIENT_WORKFLOW_TABS.map((s) => {
               const isActive =
                 s.view === "home"
@@ -399,7 +399,6 @@ export default function AppNav() {
                       : undefined
                   }
                 >
-                  <span className="mr-1" aria-hidden="true">{s.icon}</span>
                   {s.label}
                 </button>
               );
@@ -413,16 +412,16 @@ export default function AppNav() {
   // ── 일반 페이지: 1행 ──
   return (
     <nav className={shell} aria-label="주요 메뉴">
-      <div className="mx-auto flex h-11 max-w-[1800px] items-center gap-2 px-4 lg:px-6">
+      <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-2 px-3 sm:px-4 lg:px-8">
+        <Link href="/" className="mr-4 shrink-0 text-lg font-black tracking-[-0.04em] text-white">삼성증권</Link>
         <div className="flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:thin]">
           {utilityItems.map((item) => (
             <Link
               key={item.key}
               href={item.href}
               aria-current={pathname === item.href ? "page" : undefined}
-              className={pillClass(pathname === item.href)}
+              className={pillClass(pathname === item.href, false, true)}
             >
-              <span className="mr-1" aria-hidden="true">{item.icon}</span>
               {item.label}
             </Link>
           ))}

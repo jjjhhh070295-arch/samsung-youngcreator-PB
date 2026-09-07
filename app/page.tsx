@@ -97,8 +97,8 @@ export default function HomePage() {
   if (!loggedInPbId) return <LoginExperience loginEmpId={loginEmpId} password={password} loginError={loginError} loginBusy={loginBusy} onEmployeeChange={(value) => { setLoginEmpId(value); setLoginError(""); }} onPasswordChange={(value) => { setPassword(value); setLoginError(""); }} onLogin={handleLogin} />;
 
   return (
-    <div className="px-6 py-6">
-      <div className="mb-6"><p className="flex items-center gap-2 text-xs font-semibold tracking-widest text-[#1428A0]"><span className="h-px w-6 bg-[#1428A0]" />SAMSUNG SECURITIES · PRIVATE BANKING</p><p className="mt-2 text-sm text-fg-muted">삼성증권의 노하우로 <b className="text-fg">고객의 상황에 맞춰 최적의 솔루션</b>을 제공합니다.</p><p className="mt-1 text-[11px] text-fg-muted/70">※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.</p></div>
+    <div className="mx-auto max-w-[1440px] px-3 py-4 sm:px-4 lg:px-8">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4"><div><p className="text-[11px] font-bold tracking-[0.14em] text-[#0D57BA]">SAMSUNG SECURITIES · PRIVATE BANKING</p><h1 className="mt-1 text-[26px] font-black tracking-[-0.035em] text-fg">Market Home</h1><p className="mt-1 text-sm text-fg-muted">삼성증권의 노하우로 고객의 상황에 맞춘 시장 정보와 솔루션을 제공합니다.</p><p className="mt-1 text-[11px] text-fg-muted/70">※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.</p></div><button className="btn-primary h-9 px-4 text-xs" onClick={() => router.push(`/pb/${loggedInPbId}`)}>PB Home 바로가기</button></div>
       {/* 카드 두 장("PB 로그인 상태", "관리자")을 걷어냈다.
           전자는 상단 네비에 PB 이름·세션·로그아웃이 이미 있어 중복이었고, 후자는
           PB 계정 관리를 쓰려면 홈으로 돌아와야 한다는 제약을 만들었다 —

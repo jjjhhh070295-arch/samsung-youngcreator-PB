@@ -494,7 +494,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${t === tab ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${t === tab ? "border-[#1769D2] text-[#0D57BA]" : "border-transparent text-fg-muted hover:text-fg"}`}
           >
             {labels[t]}
           </button>
@@ -578,10 +578,10 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
               </div>
             )}
 
-            <div className="overflow-x-auto rounded-xl border border-border">
+              <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-surface-2 text-fg-muted">
+                  <tr className="bg-[#F2F6FC] text-fg-muted">
                     <th className="px-3 py-2 text-left font-semibold whitespace-nowrap min-w-[100px]">종목</th>
                     <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">수량</th>
                     <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">평균단가</th>
@@ -771,7 +771,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
         <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
           onChange={(e) => e.target.files && addFiles(e.target.files)} />
         <button
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-border text-xs text-fg-muted hover:border-[#1428A0] hover:text-[#1428A0] transition-colors"
+          className="flex items-center gap-1.5 rounded border border-dashed border-border px-3 py-1.5 text-xs text-fg-muted transition-colors hover:border-[#1769D2] hover:text-[#0D57BA]"
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -803,7 +803,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
             <img
               src={img.url}
               alt={`캡쳐 ${i + 1}`}
-              className="w-full rounded-xl border border-border bg-surface-2 cursor-zoom-in shadow-card"
+              className="w-full cursor-zoom-in rounded-md border border-border bg-surface-2 shadow-none"
               onClick={() => window.open(img.url, "_blank")}
             />
             {/* 삭제 버튼: 항상 표시, 이미지 우상단 */}
@@ -863,7 +863,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
               </div>
             )}
 
-            <div className="overflow-x-auto rounded-xl border border-border">
+            <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-xs table-fixed">
                 <colgroup>
                   <col className="w-[40%]" />
@@ -894,7 +894,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
                       <tr key={row._key} className={`border-t border-border transition-colors ${rowCls}`}>
                         <td className="px-2 py-1.5">
                           <input
-                            className="w-full bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg font-medium truncate"
+                            className="w-full truncate border-b border-transparent bg-transparent font-medium text-fg outline-none focus:border-[#1769D2]"
                             value={row.name}
                             onChange={(e) => updateRow(row._key, "name", e.target.value)}
                           />
@@ -911,7 +911,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
                         </td>
                         <td className="px-2 py-1.5 text-right">
                           <input
-                            className="w-full bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg text-right"
+                            className="w-full border-b border-transparent bg-transparent text-right text-fg outline-none focus:border-[#1769D2]"
                             value={row.quantity != null ? String(row.quantity) : ""}
                             onChange={(e) => updateRow(row._key, "quantity", e.target.value === "" ? 0 : Number(e.target.value))}
                             type="number"
@@ -919,7 +919,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
                         </td>
                         <td className="px-2 py-1.5 text-right">
                           <input
-                            className="w-full bg-transparent outline-none border-b border-transparent focus:border-[#1428A0] text-fg text-right"
+                            className="w-full border-b border-transparent bg-transparent text-right text-fg outline-none focus:border-[#1769D2]"
                             value={row.avg_price != null ? String(row.avg_price) : ""}
                             onChange={(e) => updateRow(row._key, "avg_price", e.target.value === "" ? null : Number(e.target.value))}
                             placeholder="—"
@@ -969,7 +969,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
         <div className="w-full md:flex-1 flex flex-col gap-4 justify-center" style={{ minHeight: "300px" }}>
           {images.length === 0 ? (
             <div
-              className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center py-16 gap-3 cursor-pointer transition-colors ${dragOver ? "border-[#1428A0] bg-blue-50" : "border-border bg-surface-2"}`}
+              className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-md border-2 border-dashed py-16 transition-colors ${dragOver ? "border-[#1769D2] bg-[#EAF2FF]" : "border-border bg-surface-2"}`}
               onClick={() => inputRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}

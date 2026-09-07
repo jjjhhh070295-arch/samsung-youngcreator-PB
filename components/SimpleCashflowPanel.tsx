@@ -258,13 +258,13 @@ export default function SimpleCashflowPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <SummaryCard label="표시기간 총유입 합계" value={totals.netInflow} tone="text-[#1428A0]" />
+        <SummaryCard label="표시기간 총유입 합계" value={totals.netInflow} tone="text-[#0D57BA]" />
         <SummaryCard label="표시기간 총유출 합계(세금 제외)" value={totals.netOutflowExTax} />
         <SummaryCard label="표시기간 총세금" value={totals.totalTax} />
         <SummaryCard
           label="표시기간 순자금"
           value={totals.netCash}
-          tone={totals.netCash >= 0 ? "text-[#1428A0]" : "text-red-600"}
+          tone={totals.netCash >= 0 ? "text-[#0D57BA]" : "text-red-600"}
         />
       </div>
 
@@ -300,11 +300,11 @@ export default function SimpleCashflowPanel({
           </div>
 
           {rows.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border bg-surface-2/40 px-4 py-10 text-center text-sm text-fg-muted">
+            <div className="rounded-md border border-dashed border-border bg-surface-2/40 px-4 py-10 text-center text-sm text-fg-muted">
               등록된 현금흐름이 없습니다. &quot;+ 기간 추가&quot;로 첫 행을 만드세요.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border">
+            <div className="overflow-x-auto rounded-md border border-border">
               <table className="min-w-full border-collapse text-left text-xs">
                 <thead className="bg-surface-2 text-fg-muted">
                   <tr>
@@ -344,7 +344,7 @@ export default function SimpleCashflowPanel({
                             />
                           </td>
                         ))}
-                        <td className={`px-3 py-2 font-semibold ${net >= 0 ? "text-[#1428A0]" : "text-red-600"}`}>
+                        <td className={`px-3 py-2 font-semibold ${net >= 0 ? "text-[#0D57BA]" : "text-red-600"}`}>
                           {formatKRW(net)}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -365,7 +365,7 @@ export default function SimpleCashflowPanel({
           )}
 
           {chartSeries.length > 0 ? (
-            <div className="rounded-xl border border-border bg-surface-2/30 p-3">
+            <div className="rounded-md border border-border bg-surface-2/30 p-3">
               <p className="mb-2 text-xs font-bold text-fg">현금흐름 추이</p>
               <PeriodCashflowLineChart series={chartSeries} periodType={periodType} className="h-72" />
             </div>

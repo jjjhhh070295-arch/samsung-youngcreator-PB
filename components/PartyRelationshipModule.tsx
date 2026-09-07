@@ -35,11 +35,11 @@ function formatW(n: number) {
 
 function RelBadge({ type }: { type: RelationType }) {
   const colors: Record<RelationType, string> = {
-    owns:    "bg-[#1428A0]/10 text-[#1428A0]",
+    owns:    "bg-[#EAF2FF] text-[#0D57BA]",
     child:   "bg-green-50 text-green-700",
     parent:  "bg-green-50 text-green-700",
-    spouse:  "bg-pink-50 text-pink-700",
-    sibling: "bg-purple-50 text-purple-700",
+    spouse:  "bg-slate-100 text-slate-700",
+    sibling: "bg-slate-100 text-slate-700",
     heir:    "bg-amber-50 text-amber-700",
   };
   return (
@@ -195,7 +195,7 @@ export default function PartyRelationshipModule({ partyId, partyType }: Props) {
     <div className="flex gap-1 mb-4 border-b border-border">
       {([["list", `등록된 관계${rels.length > 0 ? ` (${rels.length})` : ""}`], ["add", "관계 추가"]] as const).map(([t, label]) => (
         <button key={t} onClick={() => setTab(t)}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${tab === t ? "border-[#1428A0] text-[#1428A0]" : "border-transparent text-fg-muted hover:text-fg"}`}>
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors ${tab === t ? "border-[#1769D2] text-[#0D57BA]" : "border-transparent text-fg-muted hover:text-fg"}`}>
           {label}
         </button>
       ))}
@@ -221,8 +221,8 @@ export default function PartyRelationshipModule({ partyId, partyType }: Props) {
           <div className="space-y-4">
             {/* 실질 지배자산 (owns 관계 있을 때) */}
             {effective && (effective.directTotal > 0 || effective.indirectTotal > 0) && (
-              <div className="rounded-xl border border-[#1428A0]/20 bg-[#1428A0]/5 px-5 py-4">
-                <p className="text-xs font-semibold text-[#1428A0] mb-3 uppercase tracking-wide">실질 지배자산 (§7-1)</p>
+              <div className="rounded-md border border-border bg-[#F2F6FC] px-5 py-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#0D57BA]">실질 지배자산 (§7-1)</p>
                 <div className="grid grid-cols-3 gap-3 text-center mb-3">
                   {[
                     ["직접 보유 주식", formatW(effective.directStocks), "text-fg"],
@@ -242,18 +242,18 @@ export default function PartyRelationshipModule({ partyId, partyType }: Props) {
                       <div key={item.corporatePartyId} className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-1.5 mb-1">
                         <span className="text-fg">{item.corporateName}</span>
                         <span className="text-fg-muted">{item.ownershipPct}% × {formatW(item.totalAssets)}</span>
-                        <span className="font-semibold text-[#1428A0]">= {formatW(item.effectiveAssets)}</span>
+                        <span className="font-semibold text-[#0D57BA]">= {formatW(item.effectiveAssets)}</span>
                       </div>
                     ))}
-                    <div className="mt-3 pt-3 border-t border-[#1428A0]/20 flex justify-between items-center">
+                    <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                       <span className="text-xs font-semibold text-fg-muted">간접 소계</span>
                       <span className="text-sm font-bold text-fg">{formatW(effective.indirectTotal)}</span>
                     </div>
                   </>
                 )}
-                <div className="mt-2 pt-2 border-t border-[#1428A0]/30 flex justify-between items-center">
-                  <span className="text-sm font-bold text-[#1428A0]">실질 지배자산 합계</span>
-                  <span className="text-base font-extrabold text-[#1428A0]">{formatW(effective.grandTotal)}</span>
+                <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
+                  <span className="text-sm font-bold text-[#0D57BA]">실질 지배자산 합계</span>
+                  <span className="text-base font-extrabold text-[#0D57BA]">{formatW(effective.grandTotal)}</span>
                 </div>
                 <p className="text-[9px] text-fg-muted/60 mt-1">※ 주식은 평균단가 기준. 시세 연결 후 정확도 높아집니다.</p>
               </div>
@@ -268,7 +268,7 @@ export default function PartyRelationshipModule({ partyId, partyType }: Props) {
             ) : (
               <div className="space-y-2">
                 {displayed.map((rel) => (
-                  <div key={rel.id} className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${rel.validTo ? "border-border bg-surface-2 opacity-60" : "border-border bg-card"}`}>
+                  <div key={rel.id} className={`flex items-center gap-3 rounded-md border px-4 py-3 ${rel.validTo ? "border-border bg-surface-2 opacity-60" : "border-border bg-card"}`}>
                     <RelBadge type={rel.relationType} />
                     <span className="flex-1 text-sm text-fg">{getRelLabel(rel)}</span>
                     {rel.relationType === "owns" && rel.fromPartyId === partyId && (
@@ -338,7 +338,7 @@ export default function PartyRelationshipModule({ partyId, partyType }: Props) {
             onBlur={() => setTimeout(() => setTargetDropdown(false), 150)}
           />
           {targetDropdown && targetResults.length > 0 && (
-            <div className="absolute z-50 top-full left-0 right-0 bg-white border border-border rounded-xl shadow-lg mt-1 overflow-hidden">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-white shadow-sm">
               {targetResults.map((r) => (
                 <button key={r.id} type="button"
                   className="w-full text-left px-3 py-2 text-sm hover:bg-surface-2 flex items-center gap-2"
@@ -348,7 +348,7 @@ export default function PartyRelationshipModule({ partyId, partyType }: Props) {
                     setTargetQuery(r.displayName);
                     setTargetDropdown(false);
                   }}>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${r.partyType === "corporate" ? "bg-[#1428A0]/10 text-[#1428A0]" : "bg-green-50 text-green-700"}`}>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${r.partyType === "corporate" ? "bg-[#EAF2FF] text-[#0D57BA]" : "bg-green-50 text-green-700"}`}>
                     {r.partyType === "corporate" ? "법인" : "개인"}
                   </span>
                   {r.displayName}
@@ -357,7 +357,7 @@ export default function PartyRelationshipModule({ partyId, partyType }: Props) {
             </div>
           )}
           {selectedTarget && (
-            <p className="text-xs text-[#1428A0] mt-0.5">선택됨: {selectedTarget.displayName}</p>
+            <p className="mt-0.5 text-xs text-[#0D57BA]">선택됨: {selectedTarget.displayName}</p>
           )}
         </div>
 

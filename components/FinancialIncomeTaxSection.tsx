@@ -80,20 +80,20 @@ export default function FinancialIncomeTaxSection({
   return (
     <section className="console-panel space-y-4 p-4">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Tax profile</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#0D57BA]">Tax profile</p>
         <h3 className="mt-1 text-base font-bold text-fg">금융소득 종합과세</h3>
         <p className="mt-1 text-[11px] text-fg-muted">
           고객 기본정보에 저장되며, 세전·세후 계산과 포트폴리오 승인 조건에 반영됩니다.
         </p>
       </div>
 
-      <div className="rounded-xl border border-border bg-white p-4">
+      <div className="rounded-md border border-border bg-white p-4">
         <p className="text-sm font-bold text-fg">금융소득 종합과세 대상자입니까?</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
-            className={`rounded-lg border px-4 py-2 text-sm font-bold ${
-              !comprehensive ? "border-[#1428A0] bg-[#1428A0] text-white" : "border-border bg-surface-2 text-fg-muted"
+            className={`rounded border px-4 py-2 text-sm font-bold ${
+              !comprehensive ? "border-[#1769D2] bg-[#1769D2] text-white" : "border-border bg-white text-fg-muted"
             }`}
             onClick={() => void onChangeComprehensiveTax(false)}
           >
@@ -101,8 +101,8 @@ export default function FinancialIncomeTaxSection({
           </button>
           <button
             type="button"
-            className={`rounded-lg border px-4 py-2 text-sm font-bold ${
-              comprehensive ? "border-[#1428A0] bg-[#1428A0] text-white" : "border-border bg-surface-2 text-fg-muted"
+            className={`rounded border px-4 py-2 text-sm font-bold ${
+              comprehensive ? "border-[#1769D2] bg-[#1769D2] text-white" : "border-border bg-white text-fg-muted"
             }`}
             onClick={() => void onChangeComprehensiveTax(true)}
           >
@@ -116,7 +116,7 @@ export default function FinancialIncomeTaxSection({
       </div>
 
       {comprehensive && (
-        <div className="space-y-3 rounded-xl border border-[#1428A0]/20 bg-[#F7F9FF] p-4">
+        <div className="space-y-3 rounded-md border border-border bg-[#F2F6FC] p-4">
           <div>
             <p className="text-sm font-bold text-fg">원천징수영수증 PDF 첨부</p>
             <p className="mt-1 text-[11px] text-fg-muted">
