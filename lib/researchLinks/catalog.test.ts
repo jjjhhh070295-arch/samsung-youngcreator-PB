@@ -28,7 +28,7 @@ test("unreviewed or modified destinations remain disabled", () => {
 
 test("name/search/category filters preserve independent versus broker distinction", () => {
   assert.equal(filterResearchSources("  그로쓰  ", "all")[0]?.id, "growth");
-  assert.equal(filterResearchSources("ＦＳ", "independent")[0]?.id, "fs-research");
+  assert.equal(filterResearchSources(" ＣＭＩＲ ", "independent")[0]?.id, "cmir");
   assert.ok(filterResearchSources("", "broker").every((source) => source.kind === "broker"));
   assert.equal(filterResearchSources("알 수 없는 기관", "all").length, 0);
   assert.equal(filterResearchSources("밸류파인더", "broker").length, 0);
@@ -42,11 +42,59 @@ test("swapped approved URLs or publisher names fail closed", () => {
   assert.equal(getResearchSourceHref({ ...growth, id: "unapproved-publisher" }), null);
 });
 
-test("ambiguous ValueResearch is not confused with ValueFinder", () => {
-  const sources = filterResearchSources("밸류", "independent");
-  assert.equal(sources.length, 2);
-  assert.ok(getResearchSourceHref(sources.find((source) => source.id === "valuefinder")!));
-  assert.equal(getResearchSourceHref(sources.find((source) => source.id === "value-research")!), null);
+test("requested removals do not remove ValueFinder or other existing destinations", () => {
+  for (const id of ["value-research", "fs-research"]) assert.equal(RESEARCH_SOURCES.some(source => source.id === id), false);
+  assert.equal(filterResearchSources("FS리서치", "all").length, 0);
+  assert.equal(RESEARCH_SOURCES.some(source => source.name === "밸류리서치"), false);
+  const preserved: Record<string, string> = {
+    growth: "https://www.growthresearch.co.kr/report",
+    arum: "https://researcharum.com/report/small-cap-research-list.php",
+    valuefinder: "https://contents.premium.naver.com/valuefinder/valuesmallcap",
+    kirs: "https://www.kirs.or.kr/",
+    daol: "https://www.daolsecurities.com/research/article/common.jspx?rGubun=I01&sctrGubun=I07&web=0",
+    heungkuk: "https://www.heungkuksec.co.kr/research/company/list.do?key=300",
+    hanyang: "https://www.hygood.co.kr/board/researchAnalyzeCompany/list",
+    "krx-kosdaq": "https://kosdaqglobal.krx.co.kr/02/02040000/KGS02040100.jsp",
+  };
+  for (const [id, url] of Object.entries(preserved)) assert.equal(getResearchSourceHref(RESEARCH_SOURCES.find(source => source.id === id)!), url);
+});
+
+test("only the eleven checked screenshot providers are added with exact destinations", () => {
+  const additions = [
+    ["morningstar", "모닝스타", "https://www.morningstar.com/company"],
+    ["buffett", "버핏연구소", "https://buffettlab.co.kr/"],
+    ["bulit", "불릿", "https://bulit.io/plus"],
+    ["smallinsight", "스몰인사이트리서치", "https://t.me/s/smallinsightresearch"],
+    ["stunningvalue", "스터닝밸류리서치", "https://t.me/s/stunningvalue"],
+    ["aris", "아리스", "https://t.me/s/aris1031"],
+    ["glresearch", "지엘리서치", "https://t.me/s/valjuman"],
+    ["konnect", "코넥트", "https://index.konnect-ai.net/about"],
+    ["finlit", "핀릿", "https://finlit.tovstock.com/"],
+    ["cmir", "CMIR", "https://www.cmir.co.kr/"],
+    ["hsacademy", "HS아카데미", "https://www.hs-academy.kr/"],
+  ];
+  assert.equal(RESEARCH_SOURCES.length, 19);
+  assert.equal(new Set(RESEARCH_SOURCES.map(source => source.url)).size, RESEARCH_SOURCES.length);
+  for (const [id, name, url] of additions) {
+    const source = RESEARCH_SOURCES.find(entry => entry.id === id)!;
+    assert.equal(source.name, name);
+    assert.equal(source.verifiedOn, "2026-09-07");
+    assert.equal(getResearchSourceHref(source), url);
+    assert.equal(getResearchSourceHref({ ...source, name: "unverified-publisher" }), null);
+    assert.equal(getResearchSourceHref({ ...source, url: url + "?redirect=unreviewed" }), null);
+  }
+});
+
+test("unresolved screenshot providers are not given guessed links or duplicated institutions", () => {
+  for (const name of ["브라이어스 인사이트", "아이브이리서치", "에이알씨리서치", "CTT리서치"]) {
+    assert.equal(RESEARCH_SOURCES.some(source => source.name === name), false);
+  }
+  assert.equal(RESEARCH_SOURCES.filter(source => source.name === "한국IR협의회").length, 1);
+  for (const id of ["smallinsight", "stunningvalue", "aris", "glresearch"]) {
+    const source = RESEARCH_SOURCES.find(entry => entry.id === id)!;
+    assert.match(source.description, /채널/);
+    assert.equal(new URL(source.url!).host, "t.me");
+  }
 });
 
 test("directory modules do not import auth, customer stores, APIs or background network", () => {
