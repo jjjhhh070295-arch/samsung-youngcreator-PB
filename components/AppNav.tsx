@@ -195,6 +195,8 @@ export default function AppNav() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [pbName, setPbName] = useState<string | null>(null);
+  // 세션의 PB id. 경로에 pbId 가 없는 화면(홈·리서치)에서도 PB 링크를 만들려고 둔다.
+  const [sessionPbId, setSessionPbId] = useState<string | null>(null);
 
   const activeView = searchParams?.get("view") ?? "home";
   const activeTab = searchParams?.get("tab") ?? "portfolio2";
@@ -221,15 +223,16 @@ export default function AppNav() {
   useEffect(() => {
     let cancelled = false;
     const sync = () => {
-      const sessionPbId = getLoggedInPbId();
-      if (!sessionPbId) { setPbName(null); return; }
+      const sid = getLoggedInPbId();
+      setSessionPbId(sid);
+      if (!sid) { setPbName(null); return; }
       // 세션에 저장된 이름으로 먼저 그린다 — 목록 조회를 기다리지 않고, 조회가
       // 실패해도(로컬 폴백엔 데모 PB만 있다) 이름이 사라지지 않는다.
       setPbName(getLoggedInPbName());
       listPbs()
         .then((pbs) => {
           if (cancelled) return;
-          setPbName(pbs.find((p) => p.id === sessionPbId)?.name ?? getLoggedInPbName());
+          setPbName(pbs.find((p) => p.id === sid)?.name ?? getLoggedInPbName());
         })
         .catch(() => {});
     };
@@ -265,10 +268,16 @@ export default function AppNav() {
     router.push(`/pb/${pbId}/${clientId}?${next.toString()}`);
   };
 
+  // PB 링크는 URL 의 pbId 가 없으면 세션 값으로 대신한다. 홈(/)·리서치처럼 경로에
+  // pbId 가 없는 화면에서는 "고객조회"·"티커 분석"이 통째로 빠져 PB 화면으로 돌아갈
+  // 길이 없었다. 세션에서 읽으므로 URL 에 남의 pbId 를 넣어 만드는 우회는 생기지 않는다
+  // (pbName 을 세션에서만 읽는 위 useEffect 와 같은 원칙이다).
+  const navPbId = pbId ?? sessionPbId;
+
   const utilityItems: MoreMenuItem[] = [
     { key: "home", label: "홈", icon: "🏠", href: "/" },
-    ...(pbId ? [{ key: "book", label: "고객조회", icon: "📒", href: `/pb/${pbId}` }] : []),
-    ...(pbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${pbId}/ticker` }] : []),
+    ...(navPbId ? [{ key: "book", label: "고객조회", icon: "📒", href: `/pb/${navPbId}` }] : []),
+    ...(navPbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${navPbId}/ticker` }] : []),
     { key: "research", label: "리서치", icon: "📊", href: "/research" },
     { key: "research-links", label: "스몰캡 리서치", icon: "🔎", href: "/research-links" },
     // PB 계정 관리 — 예전에는 홈 화면 카드로만 열 수 있어 관리하려면 홈으로 돌아가야 했다.

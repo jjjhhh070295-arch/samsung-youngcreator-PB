@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { usingLocalFallback, DEMO_PB_CREDENTIALS, authenticatePb } from "@/lib/store";
 import { getLoggedInPbId, onSessionChanged, setLoggedInPbId } from "@/lib/auth";
 import HomeMarketBoard from "@/components/HomeMarketBoard";
@@ -65,7 +65,6 @@ function LoginExperience({ loginEmpId, password, loginError, loginBusy, onEmploy
 }
 
 export default function HomePage() {
-  const router = useRouter();
   const [loginEmpId, setLoginEmpId] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -88,7 +87,10 @@ export default function HomePage() {
       const found = await authenticatePb(loginEmpId, password);
       if (!found) { setLoginError("사원번호 또는 비밀번호가 올바르지 않습니다."); return; }
       setLoggedInPbId(found.id, found.name);
-      router.push(`/pb/${found.id}`);
+      // 로그인 후에는 홈에 머문다. 예전에는 곧바로 /pb/{id} 로 보내서 홈이 사실상
+      // 로그인 화면 뒤에 가려져 있었다 — 시세 보드를 볼 기회가 없었고, 홈으로
+      // 되돌아오는 동선도 따로 없었다. 홈에서 「PB Home 바로가기」로 넘어간다.
+      setLoggedInPbIdState(found.id);
     } finally { setLoginBusy(false); }
   };
 
@@ -105,7 +107,24 @@ export default function HomePage() {
           아래를 다른 것으로 채우지 않고 비운다. 홈은 로그인 직후 잠깐 거치는 화면이고
           실제 작업은 전부 /pb/[pbId] 에서 일어난다. 시세 보드는 그 자체로 볼 값이 있어
           남기지만, 빈자리를 메우려고 새 위젯을 넣으면 지나가는 화면에 체류 이유만 늘린다.
-          "PB 고객관리로 돌아가기" 버튼도 네비의 다고객 북 링크와 겹쳐 되살리지 않았다. */}
+
+          정정: 그때 "PB 고객관리로 돌아가기" 버튼까지 "네비의 고객조회 링크와 겹친다"고
+          보고 지웠는데, 그 링크는 URL 에 pbId 가 있을 때만 그려진다(AppNav 의 utilityItems).
+          홈에는 pbId 가 없어 겹치지 않았고, 결과적으로 홈에서 PB 화면으로 가는 길이
+          사라졌다. 아래 버튼으로 되살리고, AppNav 쪽은 세션 pbId 로 폴백하게 고쳤다. */}
+      {/* PB Home 진입 — 홈에서 실제 업무 화면으로 넘어가는 유일한 주 동선이다.
+          네비 ☰ 메뉴에도 "고객조회"가 있지만 한 단계 숨어 있고, 로그인 직후 사용자가
+          가장 먼저 누를 것이 이것이라 시세 위 눈에 띄는 자리에 큰 버튼으로 둔다. */}
+      <Link
+        href={`/pb/${loggedInPbId}`}
+        className="mb-6 flex items-center justify-between gap-4 rounded-2xl border border-[#1428A0] bg-[#1428A0] px-6 py-5 text-white shadow-card transition-colors hover:bg-[#1020c0]"
+      >
+        <span>
+          <span className="block text-base font-bold">PB Home 바로가기</span>
+          <span className="mt-0.5 block text-xs text-white/80">담당 고객 조회 · 상담 일정 · 포트폴리오</span>
+        </span>
+        <span aria-hidden="true" className="shrink-0 text-xl">→</span>
+      </Link>
       <HomeMarketBoard />
       {/* 로컬 모드 경고는 관리자 카드 안에 있었다. 데이터가 브라우저에만 저장된다는
           경고라 관리 기능과 무관하게 계속 보여야 한다. */}
