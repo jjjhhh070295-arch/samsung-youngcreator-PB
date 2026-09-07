@@ -25,6 +25,17 @@ export type ManualSelectedInstrument = ManualInstrument & {
   weightWithinClass: number;
 };
 
+export type PortfolioPreviewRow = ManualSelectedInstrument & {
+  totalWeight: number;
+  amountWon: number;
+  fixed: boolean;
+  hasExisting: boolean;
+  hasNew: boolean;
+  fixedAmountWon: number;
+  newAmountWon: number;
+  newWeightWithinClass: number;
+};
+
 /** 새 종목 추가·삭제 뒤 해당 자산군의 내부 비중을 균등하게 다시 100%로 맞춘다. */
 export function redistributeAssetClassWeights(
   items: ManualSelectedInstrument[],
@@ -50,6 +61,36 @@ export function normalizeTicker(symbol: string) {
 
 export function sameInstrument(a: string, b: string) {
   return normalizeTicker(a) === normalizeTicker(b) || a.toUpperCase() === b.toUpperCase();
+}
+
+/** 기존 보유분과 신규 매수분이 같은 종목이면 최종 포트폴리오에서 한 포지션으로 합친다. */
+export function mergePortfolioPreviewRows(rows: PortfolioPreviewRow[]): PortfolioPreviewRow[] {
+  return rows.reduce<PortfolioPreviewRow[]>((merged, row) => {
+    const index = merged.findIndex(
+      (candidate) => candidate.assetClass === row.assetClass && sameInstrument(candidate.symbol, row.symbol),
+    );
+    if (index < 0) return [...merged, row];
+
+    const current = merged[index];
+    const sources = Array.from(new Set([current.source, row.source].filter(Boolean)));
+    const marketRow = row.hasNew ? row : current;
+    const combined: PortfolioPreviewRow = {
+      ...current,
+      ...marketRow,
+      name: current.hasExisting ? current.name : marketRow.name,
+      totalWeight: current.totalWeight + row.totalWeight,
+      amountWon: current.amountWon + row.amountWon,
+      fixed: current.hasExisting || row.hasExisting,
+      hasExisting: current.hasExisting || row.hasExisting,
+      hasNew: current.hasNew || row.hasNew,
+      fixedAmountWon: current.fixedAmountWon + row.fixedAmountWon,
+      newAmountWon: current.newAmountWon + row.newAmountWon,
+      newWeightWithinClass: current.newWeightWithinClass + row.newWeightWithinClass,
+      weightWithinClass: current.newWeightWithinClass + row.newWeightWithinClass,
+      source: sources.join(" + "),
+    };
+    return merged.map((candidate, candidateIndex) => candidateIndex === index ? combined : candidate);
+  }, []);
 }
 
 export function trendStockToInstrument(stock: PbSelectedKoreanStock): ManualInstrument {

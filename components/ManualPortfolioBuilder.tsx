@@ -7,9 +7,11 @@ import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
 import type { PbSelectedKoreanStock } from "@/lib/advisory/krTrendPortfolio";
 import { BOND_INSTRUMENT_CATALOG, type BondCatalogEntry } from "@/lib/advisory/bondInstrumentCatalog";
 import {
+  mergePortfolioPreviewRows,
   mergeTrendConfirmedIntoSelected,
   redistributeAssetClassWeights,
   sameInstrument,
+  type PortfolioPreviewRow,
 } from "@/lib/advisory/mergeTrendInstruments";
 import { remainingPctForFinalTarget, updateAllocationWithCash } from "@/lib/manualPortfolioDraft";
 import type { ManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
@@ -127,6 +129,7 @@ export default function ManualPortfolioBuilder({
   const [trendChecked, setTrendChecked] = useState<string[]>([]);
   const [trendConfirmed, setTrendConfirmed] = useState<PbSelectedKoreanStock[]>([]);
   const [inputMode, setInputMode] = useState<"percent" | "amount">("percent");
+  const [allocationInputDrafts, setAllocationInputDrafts] = useState<Partial<Record<AssetClass, string>>>({});
   const [activeClass, setActiveClass] = useState<AssetClass>("domesticEquity");
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -327,6 +330,19 @@ export default function ManualPortfolioBuilder({
     updateFinalAllocation(assetClass, finalPct);
   };
 
+  const commitAllocationInput = (assetClass: AssetClass, rawValue: string) => {
+    const value = Number(rawValue);
+    if (rawValue.trim() !== "" && Number.isFinite(value)) {
+      if (inputMode === "percent") updateFinalAllocation(assetClass, value);
+      else updateFinalAllocationAmount(assetClass, value);
+    }
+    setAllocationInputDrafts((current) => {
+      const next = { ...current };
+      delete next[assetClass];
+      return next;
+    });
+  };
+
   const applyExistingHoldings = () => {
     setAllocation(EMPTY_ALLOCATION);
   };
@@ -393,15 +409,20 @@ export default function ManualPortfolioBuilder({
   const otherResults = results.filter((item) => /OTHER|DR|WARRANT/i.test(item.kind));
   const stockResults = results.filter((item) => !/ETF|ETN|OTHER|DR|WARRANT/i.test(`${item.kind} ${item.name}`));
   const visibleResults = resultType === "stock" ? stockResults : resultType === "etf" ? etfResults : resultType === "etn" ? etnResults : otherResults;
-  const newPreviewRows = selected
+  const newPreviewRows: PortfolioPreviewRow[] = selected
     .filter((item) => allocation[item.assetClass] > 0)
     .map((item) => ({
       ...item,
       totalWeight: allocation[item.assetClass] * allocationScale * item.weightWithinClass / 100,
       amountWon: allocatableWon * allocation[item.assetClass] * item.weightWithinClass / 10_000,
       fixed: false,
+      hasExisting: false,
+      hasNew: true,
+      fixedAmountWon: 0,
+      newAmountWon: allocatableWon * allocation[item.assetClass] * item.weightWithinClass / 10_000,
+      newWeightWithinClass: item.weightWithinClass,
     }));
-  const existingPreviewRows = existing.map((item) => ({
+  const existingPreviewRows: PortfolioPreviewRow[] = existing.map((item) => ({
     symbol: item.ticker || `HOLDING-${item.id}`,
     name: item.name,
     exchange: item.market || "기존 보유",
@@ -416,8 +437,13 @@ export default function ManualPortfolioBuilder({
     totalWeight: investableWon > 0 ? item.valueKrw / investableWon * 100 : 0,
     amountWon: item.valueKrw,
     fixed: true,
+    hasExisting: true,
+    hasNew: false,
+    fixedAmountWon: item.valueKrw,
+    newAmountWon: 0,
+    newWeightWithinClass: 0,
   }));
-  const previewRows = [...existingPreviewRows, ...newPreviewRows];
+  const previewRows = mergePortfolioPreviewRows([...existingPreviewRows, ...newPreviewRows]);
   const analyticsSelected = previewRows.map((item) => ({
     ...item,
     weightWithinClass: finalAllocation[item.assetClass] > 0
@@ -493,8 +519,8 @@ export default function ManualPortfolioBuilder({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-border bg-surface-2 p-1">
-            <button type="button" onClick={() => setInputMode("percent")} className={`rounded-md px-4 py-1.5 text-xs font-black transition ${inputMode === "percent" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}>퍼센티지 %</button>
-            <button type="button" onClick={() => setInputMode("amount")} disabled={allocatableWon <= 0} className={`rounded-md px-4 py-1.5 text-xs font-black transition disabled:opacity-40 ${inputMode === "amount" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}>금액 억원</button>
+            <button type="button" onClick={() => { setAllocationInputDrafts({}); setInputMode("percent"); }} className={`rounded-md px-4 py-1.5 text-xs font-black transition ${inputMode === "percent" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}>퍼센티지 %</button>
+            <button type="button" onClick={() => { setAllocationInputDrafts({}); setInputMode("amount"); }} disabled={allocatableWon <= 0} className={`rounded-md px-4 py-1.5 text-xs font-black transition disabled:opacity-40 ${inputMode === "amount" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}>금액 억원</button>
           </div>
         </div>
       </div>
@@ -516,8 +542,16 @@ export default function ManualPortfolioBuilder({
                     min={inputMode === "percent" ? fixedPct : fixedWon / 100_000_000}
                     max={inputMode === "percent" ? 100 : investableWon / 100_000_000}
                     step="0.1"
-                    value={inputMode === "percent" ? Number(finalAllocation[item.id].toFixed(2)) : Number((investableWon * finalAllocation[item.id] / 100 / 100_000_000).toFixed(2))}
-                    onChange={(event) => inputMode === "percent" ? updateFinalAllocation(item.id, Number(event.target.value)) : updateFinalAllocationAmount(item.id, Number(event.target.value))}
+                    value={allocationInputDrafts[item.id] ?? (inputMode === "percent" ? Number(finalAllocation[item.id].toFixed(2)) : Number((investableWon * finalAllocation[item.id] / 100 / 100_000_000).toFixed(2)))}
+                    onFocus={(event) => setAllocationInputDrafts((current) => ({ ...current, [item.id]: event.currentTarget.value }))}
+                    onChange={(event) => setAllocationInputDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                    onBlur={(event) => commitAllocationInput(item.id, event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                    }}
                     disabled={item.id === "cash"}
                     className="w-24 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-lg font-black text-fg outline-none transition focus:border-[#1428A0] focus:bg-white focus:ring-2 focus:ring-[#1428A0]/10"
                   />
@@ -754,7 +788,7 @@ export default function ManualPortfolioBuilder({
                 const items = previewRows.filter((item) => item.assetClass === asset.id);
                 const classInternalTotal = allocation[asset.id] <= 0
                   ? 100
-                  : items.filter((item) => !item.fixed).reduce((sum, item) => sum + item.weightWithinClass, 0);
+                  : selected.filter((item) => item.assetClass === asset.id).reduce((sum, item) => sum + item.weightWithinClass, 0);
                 return (
                   <div key={asset.id} className="rounded-xl border border-border bg-surface-2 p-4">
                     <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
@@ -769,7 +803,7 @@ export default function ManualPortfolioBuilder({
                       <div className="mt-3 space-y-2">
                         {items.map((item) => (
                           <div key={`${item.fixed ? "fixed" : "new"}-${item.assetClass}-${item.symbol}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-white px-3 py-2">
-                            <div className="min-w-0"><p className="truncate text-xs font-bold text-fg">{item.name}({item.symbol}) {item.fixed ? <span className="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-[9px] text-blue-700">기존 보유 · 고정</span> : null}</p><p className="text-[10px] text-fg-muted">{item.fixed ? "기본정보에서 자동 반영" : `신규 배분 자산군 내 ${item.weightWithinClass}%`}{item.source ? ` · ${item.source}` : ""}</p></div>
+                            <div className="min-w-0"><p className="truncate text-xs font-bold text-fg">{item.name}({item.symbol}) {item.hasExisting ? <span className="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-[9px] text-blue-700">{item.hasNew ? "기존 보유 + 추가 매수" : "기존 보유 · 고정"}</span> : null}</p><p className="text-[10px] text-fg-muted">{item.hasExisting && item.hasNew ? `기존 ${formatWon(item.fixedAmountWon)} + 추가 ${formatWon(item.newAmountWon)} · 신규 배분 자산군 내 ${item.newWeightWithinClass}%` : item.hasExisting ? "기본정보에서 자동 반영" : `신규 배분 자산군 내 ${item.newWeightWithinClass}%`}{item.source ? ` · ${item.source}` : ""}</p></div>
                             <div className="text-right"><p className="text-xs font-black text-[#1428A0]">전체 {item.totalWeight.toFixed(2)}%</p><p className="text-[10px] text-fg-muted">{formatWon(item.amountWon)}</p></div>
                           </div>
                         ))}
@@ -781,7 +815,7 @@ export default function ManualPortfolioBuilder({
               })}
             </div>
 
-            {existing.length > 0 && <p className="mt-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-relaxed text-blue-700">기존 보유주식은 기본정보에서 고정 편입되며, 별도로 다시 검색하거나 선택하지 않아도 최종 구성과 분석에 계속 반영됩니다.</p>}
+            {existing.length > 0 && <p className="mt-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[10px] leading-relaxed text-blue-700">기존 보유주식은 기본정보에서 고정 편입됩니다. 같은 종목을 추가 매수 대상으로 선택하면 기존 보유분과 신규 배분액을 합산한 하나의 최종 포지션으로 표시·분석됩니다.</p>}
           </div>
         </section>
       )}

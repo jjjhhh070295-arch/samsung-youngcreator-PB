@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mergeTrendConfirmedIntoSelected, redistributeAssetClassWeights } from "./mergeTrendInstruments";
+import { mergePortfolioPreviewRows, mergeTrendConfirmedIntoSelected, redistributeAssetClassWeights, type PortfolioPreviewRow } from "./mergeTrendInstruments";
 
 describe("mergeTrendConfirmedIntoSelected", () => {
   it("adds confirmed stocks to domesticEquity without duplicates", () => {
@@ -60,5 +60,51 @@ describe("redistributeAssetClassWeights", () => {
     ], "domesticBond");
     assert.deepEqual(result.map((item) => item.weightWithinClass), [33.33, 33.33, 33.34]);
     assert.equal(result.reduce((sum, item) => sum + item.weightWithinClass, 0), 100);
+  });
+});
+
+describe("mergePortfolioPreviewRows", () => {
+  it("combines an existing holding and an additional purchase of the same ticker", () => {
+    const common = {
+      name: "삼성전자", exchange: "KOSPI", currency: "KRW", kind: "국내 종목",
+      price: 70000, changePct: null, asOf: null, assetClass: "domesticEquity" as const,
+    };
+    const rows: PortfolioPreviewRow[] = [
+      {
+        ...common, symbol: "005930", source: "기본정보 기존 보유", weightWithinClass: 0,
+        totalWeight: 8, amountWon: 2_800_000_000, fixed: true, hasExisting: true,
+        hasNew: false, fixedAmountWon: 2_800_000_000, newAmountWon: 0, newWeightWithinClass: 0,
+      },
+      {
+        ...common, symbol: "005930.KS", source: "검색", weightWithinClass: 22,
+        totalWeight: 22, amountWon: 7_700_000_000, fixed: false, hasExisting: false,
+        hasNew: true, fixedAmountWon: 0, newAmountWon: 7_700_000_000, newWeightWithinClass: 22,
+      },
+    ];
+
+    const result = mergePortfolioPreviewRows(rows);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].totalWeight, 30);
+    assert.equal(result[0].amountWon, 10_500_000_000);
+    assert.equal(result[0].fixedAmountWon, 2_800_000_000);
+    assert.equal(result[0].newAmountWon, 7_700_000_000);
+    assert.equal(result[0].newWeightWithinClass, 22);
+    assert.equal(result[0].hasExisting, true);
+    assert.equal(result[0].hasNew, true);
+  });
+
+  it("does not combine different tickers or asset classes", () => {
+    const base: PortfolioPreviewRow = {
+      symbol: "005930", name: "삼성전자", exchange: "KOSPI", currency: "KRW", kind: "국내 종목",
+      price: null, changePct: null, asOf: null, source: "test", assetClass: "domesticEquity",
+      weightWithinClass: 100, totalWeight: 10, amountWon: 1, fixed: false, hasExisting: false,
+      hasNew: true, fixedAmountWon: 0, newAmountWon: 1, newWeightWithinClass: 100,
+    };
+    const result = mergePortfolioPreviewRows([
+      base,
+      { ...base, symbol: "000660.KS", name: "SK하이닉스" },
+      { ...base, symbol: "005930.KS", assetClass: "globalEquity" },
+    ]);
+    assert.equal(result.length, 3);
   });
 });
