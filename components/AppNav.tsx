@@ -60,6 +60,16 @@ function pillClass(active: boolean, disabled = false, onBlue = false): string {
   ].join(" ");
 }
 
+function rootNavItemClass(active: boolean): string {
+  return [
+    "shrink-0 whitespace-nowrap rounded-md px-3.5 py-1.5 text-[13px] transition-colors",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1428A0]/30",
+    active
+      ? "bg-[#1428A0] font-bold text-white"
+      : "font-medium text-slate-600 hover:bg-slate-100 hover:text-[#1428A0]",
+  ].join(" ");
+}
+
 interface MoreMenuItem {
   key: string;
   label: string;
@@ -403,6 +413,47 @@ export default function AppNav() {
                 </button>
               );
             })}
+          </div>
+        </div>
+      </nav>
+    );
+  }
+
+  if (pathname === "/") {
+    const rootItems = utilityItems.filter((item) =>
+      ["home", "research", "research-links", "pb-manage"].includes(item.key),
+    );
+    return (
+      <nav className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 text-slate-700 shadow-[0_1px_8px_rgba(15,23,42,0.04)] backdrop-blur" aria-label="주요 메뉴">
+        <div className="mx-auto flex h-11 max-w-[1800px] items-center gap-2 px-4 lg:px-6">
+          <div className="flex min-w-0 items-center gap-2 overflow-x-auto [scrollbar-width:thin]">
+            {rootItems.map((item) =>
+              item.action ? (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={item.action}
+                  className={rootNavItemClass(false)}
+                >
+                  <span className="mr-1" aria-hidden="true">{item.icon}</span>
+                  {item.label}
+                </button>
+              ) : (
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  aria-current={pathname === item.href ? "page" : undefined}
+                  className={rootNavItemClass(pathname === item.href)}
+                >
+                  <span className="mr-1" aria-hidden="true">{item.icon}</span>
+                  {item.label}
+                </Link>
+              ),
+            )}
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-2 text-slate-600">
+            <AccountArea pbName={pbName} onLogout={handleLogout} />
+            <MoreMenu groups={[{ title: "바로가기", items: externalItems }]} />
           </div>
         </div>
       </nav>
