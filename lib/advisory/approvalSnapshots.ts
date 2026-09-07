@@ -26,28 +26,27 @@ export const MSG_PORTFOLIO_STALE =
   "포트폴리오가 수정되어 포트폴리오 승인이 해제되었습니다. 다시 승인해주세요.";
 export const MSG_IPS_STALE = "IPS 내용이 변경되어 IPS 승인이 해제되었습니다.";
 
-const ASSET_REV_KEY = (clientId: string) => `pb-basic-asset-rev-v1-${clientId}`;
-
-export function getBasicAssetRevision(clientId: string): string {
-  if (typeof window === "undefined") return "0";
-  try {
-    return window.localStorage.getItem(ASSET_REV_KEY(clientId)) || "0";
-  } catch {
-    return "0";
-  }
-}
-
-/** 보유종목·부동산 등 기본정보 자산이 바뀌면 호출 */
-export function bumpBasicAssetRevision(clientId: string): string {
-  if (typeof window === "undefined") return "0";
-  const next = String((Number(getBasicAssetRevision(clientId)) || 0) + 1);
-  try {
-    window.localStorage.setItem(ASSET_REV_KEY(clientId), next);
-  } catch {
-    /* ignore */
-  }
-  return next;
-}
+// 이 자리에 assetRevision(localStorage 카운터)이 있었다. 보유종목·부동산은 parties 가
+// 아니라 client_holdings / client_real_estate 에 있어서, 기본정보 해시가 parties 한 행만
+// 보는 한 자산 변경을 못 잡는다 — 그 공백을 메우려고 "변경이 있었다"는 사실만 숫자로
+// 넣었던 값이다.
+//
+// 그런데 그 카운터가 localStorage 에 있어서 기기마다 달랐다. 기기 A 에서 자산을 고치고
+// 재승인하면 해시에 rev=1 이 박히는데, 기기 B 에서는 같은 키가 "0" 이라 해시가 어긋난다.
+// 그러면 로드 직후 detectApprovalInvalidation 이 스테일로 판정하고 applyInvalidation 이
+// 승인을 해제해 DB 에 기록한다 — 자산을 전혀 건드리지 않아도 기기만 바꾸면 basic 이
+// 풀리고 portfolio·stress·ips 까지 연쇄로 해제되며, portfolios[].confirmedAt 도 지워진다.
+// 조용한 오판정이 아니라 공유 데이터를 망가뜨리는 쪽이라 걷어낸다.
+//
+// 자산 변경 감지 자체는 그대로 살아 있다. HoldingsExtractor·RealEstateModule 이
+// onAssetsChanged 로 onBasicAssetsChanged 를 부르고, 거기서 invalidateAfterEdit(_, "basic")
+// 이 해시 비교를 거치지 않고 곧바로 승인을 해제한다 — 실제 무효화는 처음부터 이쪽이 했다.
+// 잃는 것은 "다른 기기에서 자산을 고쳤을 때 이쪽 승인이 나중에 스테일로 잡히는" 경우인데,
+// 그건 지금까지도 제대로 동작한 적이 없다(오판정만 냈다).
+//
+// 제대로 하려면 카운터가 아니라 자산 실측값(client_holdings/client_real_estate 집계)을
+// payload 에 넣어야 한다. 다만 그러면 해시 계산이 async 가 되어 computeBasicApprovalHash
+// 호출부 전체가 바뀐다 — 승인 로직이 안정된 뒤 별건으로 다룬다.
 
 function djb2Hex(input: string): string {
   let h = 5381;
@@ -61,10 +60,7 @@ export function hashApprovalPayload(value: unknown): string {
   return djb2Hex(stableJsonStringify(value));
 }
 
-export function buildBasicApprovalPayload(
-  client: Client,
-  assetRevision = getBasicAssetRevision(client.id),
-) {
+export function buildBasicApprovalPayload(client: Client) {
   return {
     code: client.code,
     name: client.name,
@@ -80,7 +76,6 @@ export function buildBasicApprovalPayload(
     cashflowPeriodType: client.cashflowPeriodType ?? null,
     financialIncomeComprehensiveTax: !!client.financialIncomeComprehensiveTax,
     financialIncomeProfile: client.financialIncomeProfile ?? null,
-    assetRevision,
   };
 }
 
@@ -145,8 +140,8 @@ function simplifyPortfolio(p: Portfolio) {
   };
 }
 
-export function computeBasicApprovalHash(client: Client, assetRevision?: string): string {
-  return hashApprovalPayload(buildBasicApprovalPayload(client, assetRevision));
+export function computeBasicApprovalHash(client: Client): string {
+  return hashApprovalPayload(buildBasicApprovalPayload(client));
 }
 
 export function computePortfolioApprovalHash(

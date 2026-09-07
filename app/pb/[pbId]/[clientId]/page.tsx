@@ -48,7 +48,6 @@ import {
   syncEvidenceAfterPortfolioUnapproval,
 } from "@/lib/advisory/workflowEvidenceSync";
 import {
-  bumpBasicAssetRevision,
   computeBasicApprovalHash,
   computeIpsApprovalHash,
   computePortfolioApprovalHash,
@@ -394,7 +393,6 @@ export default function ClientDetailPage() {
 
   const onBasicAssetsChanged = () => {
     bumpAssetRefresh();
-    bumpBasicAssetRevision(clientId);
     if (!client || !isBasicWorkflowApproved(client)) return;
     void invalidateAfterEdit(client, "basic");
   };
