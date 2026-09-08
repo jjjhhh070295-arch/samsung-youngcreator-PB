@@ -143,8 +143,41 @@ export default function FactorsSummary({
       />
 
       <section className="mb-4 grid gap-4 lg:grid-cols-[360px_1fr]">
-        <div className="console-panel p-4"><p className="decision-kicker">RRTTLLU profile</p><h2 className="mt-1 text-lg font-black text-fg">고객 투자성향 요약</h2><IPSRadar ips={ips} height={230} /></div>
-        <div className="console-panel p-4"><div className="flex items-center justify-between"><div><p className="console-label">최종 투자성향</p><p className="mt-1 text-2xl font-black text-[#0D57BA]">{ips.risk.value || "검토 필요"}</p></div><span className="badge-navy">7요인 분석</span></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="console-metric"><p className="console-label">목표수익률</p><p className="mt-1 text-sm font-bold text-fg">{ips.return.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">위험허용도</p><p className="mt-1 text-sm font-bold text-fg">{ips.risk.value || "미입력"}</p></div><div className="console-metric"><p className="console-label">투자기간</p><p className="mt-1 text-sm font-bold text-fg">{ips.timeHorizon.value || "미입력"}</p></div></div><p className="mt-4 text-xs leading-relaxed text-fg-muted">설문조사 결과를 반영해 7요인 점수를 산출합니다. 세부 근거는 아래 요인 카드에서 확인하세요.</p></div>
+        <div className="console-panel p-4">
+          <p className="decision-kicker">RRTTLLU profile</p>
+          <h2 className="mt-1 text-lg font-black text-fg">고객 투자성향 요약</h2>
+          <IPSRadar ips={ips} height={230} />
+        </div>
+        <div className="console-panel p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="console-label">최종 투자성향</p>
+              <p className="mt-1 text-2xl font-black text-[#0D57BA]">{ips.risk.value || "검토 필요"}</p>
+            </div>
+            <span className="badge-navy">7요인 분석</span>
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="console-metric">
+              <p className="console-label">목표수익률</p>
+              <p className="mt-1 text-sm font-bold text-fg">{ips.return.value || "미입력"}</p>
+            </div>
+            <div className="console-metric">
+              <p className="console-label">위험허용도</p>
+              <p className="mt-1 text-sm font-bold text-fg">{ips.risk.value || "미입력"}</p>
+            </div>
+            <div className="console-metric">
+              <p className="console-label">투자기간</p>
+              <p className="mt-1 text-sm font-bold text-fg">{ips.timeHorizon.value || "미입력"}</p>
+            </div>
+          </div>
+          <p className="mt-4 text-xs leading-relaxed text-fg-muted">
+            설문조사 결과를 반영해 7요인(목표 수익률·위험 허용도·투자 기간·세금 요인·유동성·법적/규제·고유 상황) 점수를 산출합니다.
+            {ips.tax.status === "explicit" && (ips.tax.score ?? 0) >= 4
+              ? " 세금 복잡도가 높아 세금 민감 유동성·세무 플랜을 함께 검토하세요."
+              : ""}
+            {" "}세부 근거는 아래 요인 카드에서 확인하세요.
+          </p>
+        </div>
       </section>
       {/* 7요인 카드 — 성격별 3열 나란히. 카드 내용(배지·근거 상세·추론 단서)은 그대로다. */}
       <FactorGroups ips={ips} flags={flags} />

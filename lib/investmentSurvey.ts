@@ -11,7 +11,10 @@ export interface SurveyQuestion {
   id: keyof InvestmentSurveyAnswers;
   number: number;
   title: string;
+  /** 총점(72점)에는 미반영 — 참고용 문항 */
   referenceOnly?: boolean;
+  /** 총점에는 미반영 — 해당 RRTTLLU 요인 점수(1~5)로만 사용 */
+  factorOnly?: boolean;
   multiple?: boolean;
   options: SurveyOption[];
 }
@@ -26,6 +29,7 @@ export interface InvestmentSurveyAnswers {
   monthlyIncome: string;
   investmentPurpose: string;
   financialKnowledge: string;
+  taxConsideration: string;
   uniqueSituation: string;
 }
 
@@ -155,6 +159,39 @@ export const SURVEY_QUESTIONS: SurveyQuestion[] = [
       { id: "advanced", label: "파생상품을 포함한 대부분의 금융투자상품의 구조 및 위험을 이해하고 있음", score: 12 },
     ],
   },
+  {
+    id: "taxConsideration",
+    number: 10,
+    title: "세금 관련 고려사항은 어느 정도입니까?",
+    factorOnly: true,
+    options: [
+      {
+        id: "tax1",
+        label: "원천징수 외 특별한 세금 고려사항이 거의 없음",
+        score: 1,
+      },
+      {
+        id: "tax2",
+        label: "금융소득, 양도소득, 보유세 중 일부 확인이 필요함",
+        score: 2,
+      },
+      {
+        id: "tax3",
+        label: "금융소득 종합과세 가능성 또는 예정 세금 납부 일정이 있음",
+        score: 3,
+      },
+      {
+        id: "tax4",
+        label: "종합과세, 양도세, 증여세, 상속세, 종부세 중 복수 항목 검토가 필요함",
+        score: 4,
+      },
+      {
+        id: "tax5",
+        label: "대규모 세금 이벤트가 12개월 이내 예정되어 세무 전문가 검토가 필요함",
+        score: 5,
+      },
+    ],
+  },
 ];
 
 export function emptySurveyAnswers(): InvestmentSurveyAnswers {
@@ -168,12 +205,13 @@ export function emptySurveyAnswers(): InvestmentSurveyAnswers {
     monthlyIncome: "",
     investmentPurpose: "",
     financialKnowledge: "",
+    taxConsideration: "",
     uniqueSituation: "",
   };
 }
 
 function optionScore(question: SurveyQuestion, answer: string | string[]): number {
-  if (question.referenceOnly) return 0;
+  if (question.referenceOnly || question.factorOnly) return 0;
   if (question.multiple && Array.isArray(answer)) {
     if (answer.length === 0) return 0;
     return Math.max(
@@ -260,6 +298,22 @@ function mapOptionToFactor5(score: number, max: number): number {
   if (ratio <= 0.6) return 3;
   if (ratio <= 0.8) return 4;
   return 5;
+}
+
+function resolveTaxFromSurvey(
+  answers: InvestmentSurveyAnswers,
+  evidence: string,
+): IPSFactor | null {
+  const question = SURVEY_QUESTIONS.find((item) => item.id === "taxConsideration");
+  if (!question || !answers.taxConsideration) return null;
+  const selected = question.options.find((option) => option.id === answers.taxConsideration);
+  if (!selected) return null;
+  return buildFactor(
+    selected.label,
+    selected.score,
+    "설문 세금 요인 문항 기반 (1~5점)",
+    evidence,
+  );
 }
 
 function resolveTaxFactor(client: Client, currentTax: IPSFactor): IPSFactor {
@@ -414,7 +468,9 @@ export function mapSurveyToIPS(
       "투자예정기간 기반",
       evidence,
     ),
-    tax: resolveTaxFactor(client, client.ips.tax),
+    tax:
+      resolveTaxFromSurvey(answers, evidence) ??
+      resolveTaxFactor(client, client.ips.tax),
     liquidity: buildFactor(
       answers.investmentPurpose === "living_short"
         ? "단기 생계자금·소득 수준 고려"
@@ -450,7 +506,8 @@ export function isSurveyComplete(answers: InvestmentSurveyAnswers): boolean {
     !!answers.investableAssetRatio &&
     !!answers.monthlyIncome &&
     !!answers.investmentPurpose &&
-    !!answers.financialKnowledge
+    !!answers.financialKnowledge &&
+    !!answers.taxConsideration
   );
 }
 
@@ -458,8 +515,12 @@ export const SURVEY_FACTOR_MAPPING = [
   { factor: "목표 수익률", source: "투자목적 + 투자경험 + 금융지식" },
   { factor: "위험 허용도", source: "손실수준 + 투자경험 + 투자성자산 비중" },
   { factor: "투자 기간", source: "투자예정기간" },
+  {
+    factor: "세금 요인",
+    source:
+      "설문 문항 10 (1~5점): 원천징수 수준 → 일부 확인 → 종합과세/납부 일정 → 복수 세목 검토 → 12개월 내 대규모 세금 이벤트",
+  },
   { factor: "유동성", source: "월소득 + 투자예정기간 + 생계자금 목적" },
   { factor: "법적/규제", source: "연령대 + 파생상품 경험 + 적합성 제한" },
   { factor: "고유 상황", source: "고유상황 직접 입력" },
-  { factor: "세금 요인", source: "기존 세금·현금흐름·상담메모 유지, 없으면 미확정" },
 ] as const;

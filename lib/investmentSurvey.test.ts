@@ -22,6 +22,7 @@ const sampleAnswers = {
   monthlyIncome: "over5m",
   investmentPurpose: "market_avg",
   financialKnowledge: "deep",
+  taxConsideration: "tax3",
   uniqueSituation: "자녀 증여 예정",
 };
 
@@ -78,17 +79,27 @@ describe("investmentSurvey scoring", () => {
 });
 
 describe("investmentSurvey IPS mapping", () => {
-  it("maps completed survey to explicit IPS factors", () => {
+  it("maps completed survey to explicit IPS factors including tax", () => {
     const score = calculateSurveyScore(sampleAnswers);
     const ips = mapSurveyToIPS(sampleAnswers, score, sampleClient());
     assert.equal(ips.risk.value, score.finalTendency);
     assert.equal(ips.unique.value, "자녀 증여 예정");
-    assert.equal(ips.tax.value, "미확정/추가 확인 필요");
+    assert.equal(ips.tax.score, 3);
+    assert.match(ips.tax.value, /금융소득 종합과세/);
+    assert.equal(ips.tax.status, "explicit");
     assert.ok(ips.return.score != null);
     assert.ok(ips.timeHorizon.score != null);
   });
 
-  it("preserves existing explicit tax factor", () => {
+  it("maps high tax-complexity survey answers to score 5", () => {
+    const answers = { ...sampleAnswers, taxConsideration: "tax5" };
+    const score = calculateSurveyScore(answers);
+    const ips = mapSurveyToIPS(answers, score, sampleClient());
+    assert.equal(ips.tax.score, 5);
+    assert.match(ips.tax.value, /대규모 세금 이벤트/);
+  });
+
+  it("falls back to existing explicit tax when survey tax is empty", () => {
     const client = sampleClient();
     client.ips.tax = {
       value: "증여·상속 이벤트",
@@ -100,14 +111,16 @@ describe("investmentSurvey IPS mapping", () => {
       inferenceHint: "",
       reviewed: true,
     };
-    const score = calculateSurveyScore(sampleAnswers);
-    const ips = mapSurveyToIPS(sampleAnswers, score, client);
+    const answers = { ...sampleAnswers, taxConsideration: "" };
+    const score = calculateSurveyScore(answers);
+    const ips = mapSurveyToIPS(answers, score, client);
     assert.equal(ips.tax.value, "증여·상속 이벤트");
     assert.equal(ips.tax.score, 4);
   });
 
-  it("requires all scored questions before submit", () => {
+  it("requires all scored questions including tax before submit", () => {
     assert.equal(isSurveyComplete(emptySurveyAnswers()), false);
+    assert.equal(isSurveyComplete({ ...sampleAnswers, taxConsideration: "" }), false);
     assert.equal(isSurveyComplete(sampleAnswers), true);
   });
 });

@@ -72,13 +72,21 @@ export default function ScoreRubricButton({
                         {question.referenceOnly ? (
                           <span className="ml-2 text-[11px] font-semibold text-[#1428A0]">참고용</span>
                         ) : null}
+                        {question.factorOnly ? (
+                          <span className="ml-2 text-[11px] font-semibold text-[#1428A0]">
+                            요인 점수 1~5
+                          </span>
+                        ) : null}
                       </p>
                       <ul className="mt-2 space-y-1">
                         {question.options.map((option) => (
                           <li key={option.id} className="flex items-start justify-between gap-3 text-xs text-fg-muted">
                             <span>{option.label}</span>
-                            {!question.referenceOnly ? (
-                              <span className="shrink-0 font-bold text-[#1428A0]">{option.score}점</span>
+                            {!question.referenceOnly || question.factorOnly ? (
+                              <span className="shrink-0 font-bold text-[#1428A0]">
+                                {option.score}점
+                                {question.factorOnly ? " (요인)" : ""}
+                              </span>
                             ) : null}
                           </li>
                         ))}

@@ -39,7 +39,12 @@ export default function InvestmentSurveyModal({
   useEffect(() => {
     if (!open) return;
     const saved = loadInvestmentSurvey(pbId, client.id);
-    setAnswers(saved?.answers ?? emptySurveyAnswers());
+    setAnswers({
+      ...emptySurveyAnswers(),
+      ...(saved?.answers ?? {}),
+      investmentExperience: saved?.answers?.investmentExperience ?? [],
+      taxConsideration: saved?.answers?.taxConsideration ?? "",
+    });
     setError("");
   }, [open, pbId, client.id]);
 
@@ -115,7 +120,7 @@ export default function InvestmentSurveyModal({
         <div className="border-b border-border bg-surface-2 px-5 py-4">
           <p className="text-base font-black text-fg">고객 투자성향 설문조사</p>
           <p className="mt-1 text-xs text-fg-muted">
-            고객 투자성향 설문 내용 및 점수기준 · 총점 {SURVEY_MAX_SCORE}점 (문항 4는 참고용)
+            고객 투자성향 설문 내용 및 점수기준 · 총점 {SURVEY_MAX_SCORE}점 (문항 4·세금 요인은 총점 미반영)
           </p>
         </div>
 
@@ -131,6 +136,11 @@ export default function InvestmentSurveyModal({
                     {question.referenceOnly ? (
                       <p className="mt-0.5 text-[11px] font-semibold text-[#1428A0]">
                         참고용 (점수 미반영)
+                      </p>
+                    ) : null}
+                    {question.factorOnly ? (
+                      <p className="mt-0.5 text-[11px] font-semibold text-[#1428A0]">
+                        세금 요인 점수 (1~5) · 총점 미반영
                       </p>
                     ) : null}
                     {question.multiple ? (
@@ -166,7 +176,7 @@ export default function InvestmentSurveyModal({
                           className="mt-0.5"
                         />
                         <span className="min-w-0 flex-1 text-sm text-fg">{option.label}</span>
-                        {!question.referenceOnly ? (
+                        {!question.referenceOnly || question.factorOnly ? (
                           <span className="shrink-0 text-[11px] font-bold text-[#1428A0]">
                             {option.score}점
                           </span>

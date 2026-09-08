@@ -97,7 +97,7 @@ export default function HeritageSignalBadge({ client, allClients }: Props) {
       )}
       {dataAssumptionsUsed && (
         <p className="mt-1.5 text-[11px] text-fg-muted">
-          가족 정보 미입력 — 추정치입니다. 기본 정보 → 관계 네트워크에서 가족관계를 입력하면 더 정확해집니다.
+          가족 정보 미입력 — 추정치입니다. 배우자·자녀 등 가족관계가 확인되면 판정이 더 정확해집니다.
         </p>
       )}
     </div>

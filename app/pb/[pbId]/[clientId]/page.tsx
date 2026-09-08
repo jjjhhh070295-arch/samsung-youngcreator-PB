@@ -70,7 +70,6 @@ import HoldingsExtractor from "@/components/HoldingsExtractor";
 import RealEstateModule from "@/components/RealEstateModule";
 import AssetAllocationBar from "@/components/AssetAllocationBar";
 import FinancialIncomeTaxSection from "@/components/FinancialIncomeTaxSection";
-import PartyRelationshipModule from "@/components/PartyRelationshipModule";
 import ClientAvatar from "@/components/ClientAvatar";
 import FactorsSummary from "@/components/FactorsSummary";
 import SimpleCashflowPanel from "@/components/SimpleCashflowPanel";
@@ -764,19 +763,6 @@ export default function ClientDetailPage() {
             clientId={clientId}
             initialPeriodType={client.cashflowPeriodType ?? null}
           />
-        </section>
-
-        {/* 관계 네트워크 */}
-        <section>
-          <h2 className="mb-3 text-base font-semibold text-fg">
-            관계 네트워크
-          </h2>
-          <div className="card p-5">
-            <PartyRelationshipModule
-              partyId={clientId}
-              partyType={client.clientType === "corporate" ? "corporate" : "individual"}
-            />
-          </div>
         </section>
 
       </>}

@@ -172,7 +172,7 @@ export default function HeritagePanel({ client, allClients, pbId }: Props) {
           <p className="mt-2 text-xs text-amber-800">
             {demand.hasSpouseAssumed && "배우자 유무를 확인할 수 없어 '없음'으로 가정했습니다. "}
             {demand.childrenCountAssumed && `자녀 수를 확인할 수 없어 ${taxRange?.childrenCountUsed ?? 2}명으로 가정했습니다. `}
-            관계 네트워크 탭에서 가족관계를 입력하면 더 정확한 판정을 받을 수 있습니다.
+            가족관계 정보가 확인되면 더 정확한 판정을 받을 수 있습니다.
           </p>
         </div>
       )}

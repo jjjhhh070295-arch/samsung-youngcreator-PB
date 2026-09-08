@@ -22,7 +22,6 @@ import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import PBForm from "@/components/PBForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import { LoadingView, ErrorView } from "@/components/StateViews";
-import HouseholdModule from "@/components/HouseholdModule";
 import BookDashboard from "@/components/advisory/BookDashboard";
 import { PbTodayTodos } from "@/components/advisory/PbTodayTodos";
 import ConsultationScheduleModal from "@/components/advisory/ConsultationScheduleModal";
@@ -196,7 +195,7 @@ export default function PBPage() {
 
       <BookDashboard pbId={pbId} rows={bookRows} />
 
-      <div className="grid border border-border bg-white md:grid-cols-3">
+      <div className="grid border border-border bg-white md:grid-cols-2">
           <section className="relative border-b border-border p-4 md:border-b-0 md:border-r">
             <span className="absolute left-4 top-2 h-[3px] w-16 rounded bg-[#1769D2]" aria-hidden="true" />
             <div className="flex items-center justify-between">
@@ -216,25 +215,11 @@ export default function PBPage() {
               <span><i className="mr-1.5 inline-block h-2 w-2 rounded-full bg-slate-400" />개인사업자 {myClients.filter((c) => c.clientType === "sole_proprietor").length}명</span>
             </div>
           </section>
-          <section className="relative border-b border-border p-4 md:border-b-0 md:border-r">
+          <section className="relative p-4">
             <span className="absolute left-4 top-2 h-1.5 w-1.5 rounded-full bg-[#1769D2]" aria-hidden="true" />
             <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-fg">최근 상담 고객</h2><span className="text-[11px] text-fg-muted">최근 {Math.min(5, myConsultations.length)}건</span></div>
             {myConsultations.length > 0 ? <ul className="mt-3 space-y-2">{myConsultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1)).slice(0, 5).map((consultation) => { const target = myClients.find((client) => client.id === consultation.clientId); return target ? <li key={consultation.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"><button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => router.push(`/pb/${pbId}/${target.id}?view=consultation`)}><ClientAvatar name={target.name} type={target.clientType} size="sm" /><span className="min-w-0"><span className="block truncate text-xs font-bold text-fg">{target.name}</span><span className="text-[10px] text-fg-muted">{new Date(consultation.createdAt).toLocaleDateString("ko-KR")}</span></span></button><span className="badge-muted">상담 보기</span></li> : null; })}</ul> : <p className="mt-3 rounded-lg bg-slate-50 px-3 py-4 text-xs text-fg-muted">아직 기록된 상담이 없습니다.</p>}
           </section>
-          <section className="relative p-4">
-            <h2 className="text-sm font-bold text-fg">가문 관리</h2>
-            <p className="mt-2 text-sm font-black text-[#0D57BA]">가문 관리 열기 →</p>
-            <p className="mt-1 text-[11px] text-fg-muted">가문 구성과 연결 고객을 관리합니다.</p>
-            <a href="#household-management" className="absolute inset-0" aria-label="가문 관리로 이동" />
-          </section>
-      </div>
-
-      {/* 가문 관리 */}
-      <div id="household-management" className="pt-3">
-        <h2 className="text-sm font-semibold text-fg-muted mb-3">가문 관리</h2>
-        <div className="card p-5">
-          <HouseholdModule pbId={pbId} />
-        </div>
       </div>
 
       {/* 모달들 */}

@@ -6,23 +6,20 @@
 // 덮여 없어졌다.
 //
 // 그래서 요인을 두 부류로 나눈다.
-//   설문 소관(return·risk·timeHorizon) — 표준 문항으로 재현 가능하고, 금소법 적합성
-//     판단의 근거가 되는 값. 설문이 정본이므로 그대로 채택한다.
-//   상담 소관(tax·liquidity·legal·unique) — 설문 문항이 없거나(세금) 대리변수 추정에
-//     그치는(유동성·법적) 값. 상담에서 확정된 근거가 있으면 그게 이긴다.
-//
-// 이 규칙은 lib/investmentSurvey.ts 의 resolveTaxFactor 가 tax 하나에만 적용하던 것을
-// 나머지 세 요인으로 넓힌 것이다. 그 파일은 팀원 소유라 손대지 않고 호출부에서 처리한다.
+//   설문 소관(return·risk·timeHorizon·tax) — 표준 문항으로 재현 가능하고, 금소법 적합성
+//     판단의 근거가 되는 값. 설문이 정본이므로 그대로 채택한다. (세금 요인은 문항 10)
+//   상담 소관(liquidity·legal·unique) — 대리변수 추정에 그치는 값.
+//     상담에서 확정된 근거가 있으면 그게 이긴다.
 
 import { FACTOR_META } from "./types";
 import type { FactorKey, IPS, IPSFactor } from "./types";
 import { TENDENCY_LABELS } from "./investmentSurvey";
 
 /** 설문이 정본인 요인 — 설문 결과를 그대로 채택하고 reviewed:true 를 유지한다. */
-export const SURVEY_OWNED_KEYS: FactorKey[] = ["return", "risk", "timeHorizon"];
+export const SURVEY_OWNED_KEYS: FactorKey[] = ["return", "risk", "timeHorizon", "tax"];
 
 /** 상담이 정본인 요인 — 기존 explicit 근거가 있으면 설문이 덮지 못한다. */
-export const CONSULTATION_OWNED_KEYS: FactorKey[] = ["tax", "liquidity", "legal", "unique"];
+export const CONSULTATION_OWNED_KEYS: FactorKey[] = ["liquidity", "legal", "unique"];
 
 export type SurveyChangeKind =
   /** 설문 소관 — 설문 값으로 교체 */
