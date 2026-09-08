@@ -17,6 +17,7 @@ import { calculatePortfolioProxyReturn, type ProxyReturnEstimate } from '@/lib/p
 import { DEFAULT_EQUITY_REGION_SPLIT, setToMacroApiParams } from '@/lib/assetMapping';
 import type { HistoricalStressRangeResponse } from '@/lib/macroStress/types';
 import { supabase } from '@/lib/supabase';
+import { resolveAssetBreakdown } from '@/lib/assets';
 import {
   FALLBACK_MARKET_RESEARCH,
   type MarketResearchItem,
@@ -437,15 +438,17 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
     let cancelled = false;
     (async () => {
       try {
-        const [{ data: holdingData }, { data: propData }] = await Promise.all([
+        // AUM 과 부동산은 lib/assets.ts 한 곳에서 받는다. 예전에는 여기서
+        // client_real_estate 를 client_id 로 직접 읽었는데, lib/assets.ts 는
+        // owner_party_id 로 읽어 필터가 서로 달랐다 — 두 화면의 부동산 값이 갈라질 수 있다.
+        // 주식만 아래에서 KIS 실시간가로 따로 구한다(breakdown 의 stocksKrw 는 avg_price
+        // 기반이라 포트폴리오 화면에는 쓰지 않는다).
+        const [{ data: holdingData }, breakdown] = await Promise.all([
           supabase
             .from('client_holdings')
             .select('id, name, ticker, currency, quantity, avg_price')
             .eq('client_id', clientId),
-          supabase
-            .from('client_real_estate')
-            .select('market_value, ownership_share')
-            .eq('client_id', clientId),
+          resolveAssetBreakdown(clientId),
         ]);
         if (cancelled) return;
 
@@ -512,15 +515,20 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
         }
         existingHoldingsData.sort((a, b) => b.evalKrw - a.evalKrw);
 
-        // 부동산 평가금액
-        const realEstateKrw = (propData ?? []).reduce(
-          (s: number, p: { market_value: number | null; ownership_share: number }) =>
-            s + (p.market_value ?? 0) * (p.ownership_share ?? 1),
-          0,
-        );
+        // AUM = PB 가 입력한 확정값(부동산과 독립). 시세와 무관하므로 모든 화면이 같아야 한다.
+        const aumKrw = breakdown?.investableKrw ?? client.assetSize ?? 0;
+        const realEstateKrw = breakdown?.realEstateKrw ?? 0;
 
-        const totalKrw = Math.max(client.assetSize ?? 0, stocksKrw + realEstateKrw);
-        const cashKrw = Math.max(0, totalKrw - stocksKrw - realEstateKrw);
+        // computeAssetLayer(lib/portfolio.ts)는 investableKrw 를 totalKrw − realEstateKrw 로
+        // 구한다. 그 파일은 이번 범위 밖이라 손대지 않으므로, 여기서 totalKrw 를 새 모델의
+        // 총자산(AUM + 부동산)으로 넘겨 그 뺄셈이 AUM 을 돌려주게 한다.
+        //   investableKrw = (AUM + 부동산) − 부동산 = AUM
+        // buildPortfolioViewModel 안의 같은 식 두 곳(:1942 배분 원금, :2007 유동성 기준)도
+        // 동일하게 AUM 이 되므로, portfolio.ts 를 고치지 않고 세 곳이 함께 맞는다.
+        const totalKrw = aumKrw + realEstateKrw;
+
+        // AUM 잔차 — 실시간 주식평가액을 뺀 값이다. 부동산은 애초에 AUM 밖이라 빼지 않는다.
+        const cashKrw = Math.max(0, aumKrw - stocksKrw);
 
         if (!cancelled) {
           setHeldAssets({ stocksKrw, realEstateKrw, cashKrw, totalKrw });
@@ -1472,7 +1480,7 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <h3 className="text-base font-bold text-fg">실제 보유자산 구조</h3>
             </div>
             <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5">
-              이 SET은 투자가능자산 {formatWonShort(model.assetLayer.investableKrw)} 기준으로 산출됩니다
+              이 SET은 AUM {formatWonShort(model.assetLayer.investableKrw)} 기준으로 산출됩니다
             </span>
           </div>
 
@@ -1489,16 +1497,16 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
               <span className="block text-sm font-black text-fg mt-0.5">{formatWonShort(model.assetLayer.totalKrw)}</span>
             </div>
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
-              <span className="block text-[10px] font-medium text-blue-700">투자가능자산</span>
+              <span className="block text-[10px] font-medium text-blue-700">AUM</span>
               <span className="block text-sm font-black text-blue-800 mt-0.5">{formatWonShort(model.assetLayer.investableKrw)}</span>
-              <span className="block text-[9px] text-blue-500 mt-0.5">총자산 - 부동산</span>
+              <span className="block text-[9px] text-blue-500 mt-0.5">운용자산 (부동산 별도)</span>
             </div>
             <div className="rounded-lg border border-border bg-surface-2 p-3 text-center">
               <span className="block text-[10px] font-medium text-fg-muted">부동산</span>
               <span className={`block text-sm font-black mt-0.5 ${model.assetLayer.realEstateWarning ? 'text-amber-600' : 'text-fg'}`}>
                 {formatWonShort(model.assetLayer.totalKrw - model.assetLayer.investableKrw)}
               </span>
-              <span className="block text-[9px] text-fg-muted mt-0.5">운용 제외</span>
+              <span className="block text-[9px] text-fg-muted mt-0.5">AUM 별도</span>
             </div>
           </div>
 
@@ -1835,8 +1843,8 @@ export default function PortfolioPanel({ client, pbId, clientId, onSelectionChan
             <div>
               <p className="text-sm font-bold text-amber-800">{model.assetLayer.realEstateWarning}</p>
               <p className="mt-1 text-xs text-amber-700">
-                부동산은 SET 운용 대상에서 제외됩니다.
-                아래 3개 추천안은 <span className="font-bold">투자가능자산 {formatWonShort(model.assetLayer.investableKrw)}</span> 기준으로 산출되었으며,
+                부동산은 AUM 과 별도로 관리되며 SET 운용 대상이 아닙니다.
+                아래 3개 추천안은 <span className="font-bold">AUM {formatWonShort(model.assetLayer.investableKrw)}</span> 기준으로 산출되었으며,
                 부동산 관련 의사결정은 PB 자문 및 전문가 상담 영역입니다.
               </p>
             </div>

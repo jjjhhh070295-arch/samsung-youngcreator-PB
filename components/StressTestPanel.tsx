@@ -219,7 +219,7 @@ export default function StressTestPanel({portfolios,portfolioWeights,investableK
             <div>
               <h3 className="text-sm font-semibold text-fg">포트폴리오 예상 손실 금액</h3>
               <p className="mt-1 text-[11px] text-fg-muted">
-                투자가능자산 {formatKrw(assetBase)} 기준
+                AUM {formatKrw(assetBase)} 기준
                 <span aria-hidden="true" className="mx-1.5 text-fg-muted/40">&middot;</span>
                 분석 커버리지 {(coverage*100).toFixed(1)}%
               </p>

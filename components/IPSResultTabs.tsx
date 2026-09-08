@@ -263,10 +263,11 @@ export default function IPSResultTabs({
               <p className="text-sm font-semibold text-fg">{client.name}</p>
             </div>
             <div>
-              {/* 부동산 제외 기준 — 같은 고객 상세 화면의 프로필 카드·AUM 헤더와 같은 값이어야
-                  한다. stressInvestableKrw 는 이 탭이 세금·스트레스 원금으로 이미 쓰는 값이라
-                  새 조회를 만들지 않는다(assetLayer 가 아직 없으면 총자산으로 폴백). */}
-              <p className="text-xs text-fg-muted">투자가능자산</p>
+              {/* AUM — 같은 고객 상세 화면의 프로필 카드·헤더와 같은 값이어야 한다.
+                  stressInvestableKrw 는 이 탭이 세금·스트레스 원금으로 이미 쓰는 값이라
+                  새 조회를 만들지 않는다. assetLayer 가 없으면 client.assetSize 로 폴백하는데,
+                  새 모델에서는 그 값이 곧 AUM 이라 폴백 여부와 무관하게 같은 숫자가 나온다. */}
+              <p className="text-xs text-fg-muted">AUM</p>
               <p className="text-sm font-semibold text-fg">
                 {(stressInvestableKrw / 1_0000_0000).toLocaleString("ko-KR")}억
               </p>
