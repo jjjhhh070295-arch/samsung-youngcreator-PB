@@ -2031,14 +2031,24 @@ function warnPortfolioDraftFallback(action: string, error: { code?: string; mess
 /**
  * DB 우선 조회. DB에 행이 있으면 그 값으로 로컬 캐시를 덮어쓴다(다른 기기에서 작업한
  * 게 최신이라는 전제). 테이블 없음(마이그레이션 미실행)·행 없음·에러 시 로컬로 폴백한다.
+ *
+ * dbReadFailed 는 "DB를 못 읽었다"와 "DB에 초안이 없다"를 구분하려고 둔다. 둘 다
+ * source 가 "local" 로 같아서 반환값만으로는 갈라낼 수 없는데, 승인 무효화 판정처럼
+ * 없다는 사실 자체가 파괴적 동작(승인 해제)을 부르는 곳에서는 이 둘을 반드시 구분해야
+ * 한다 — 네트워크 실패를 "초안 없음"으로 읽으면 멀쩡한 승인을 지운다.
+ * 로컬 전용 모드(portfolioDraftUseLocal)는 애초에 DB를 보지 않으므로 실패가 아니다.
  */
 export async function getPortfolioDraft(
   pbId: string,
   clientId: string,
-): Promise<{ draft: ManualPortfolioDraft | null; source: PortfolioDraftSource }> {
-  if (!clientId) return { draft: null, source: "local" };
+): Promise<{
+  draft: ManualPortfolioDraft | null;
+  source: PortfolioDraftSource;
+  dbReadFailed: boolean;
+}> {
+  if (!clientId) return { draft: null, source: "local", dbReadFailed: false };
   if (portfolioDraftUseLocal(clientId)) {
-    return { draft: loadManualPortfolioDraft(clientId), source: "local" };
+    return { draft: loadManualPortfolioDraft(clientId), source: "local", dbReadFailed: false };
   }
 
   const { data, error } = await supabase!
@@ -2048,14 +2058,14 @@ export async function getPortfolioDraft(
     .maybeSingle();
   if (error) {
     warnPortfolioDraftFallback("조회", error);
-    return { draft: loadManualPortfolioDraft(clientId), source: "local" };
+    return { draft: loadManualPortfolioDraft(clientId), source: "local", dbReadFailed: true };
   }
   if (data?.draft) {
     const draft = data.draft as ManualPortfolioDraft;
     saveManualPortfolioDraftLocal(clientId, draft);
-    return { draft, source: "db" };
+    return { draft, source: "db", dbReadFailed: false };
   }
-  return { draft: loadManualPortfolioDraft(clientId), source: "local" };
+  return { draft: loadManualPortfolioDraft(clientId), source: "local", dbReadFailed: false };
 }
 
 /**

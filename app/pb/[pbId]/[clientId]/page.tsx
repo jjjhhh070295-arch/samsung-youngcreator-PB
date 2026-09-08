@@ -13,6 +13,7 @@ import {
   updateClient,
   deleteClient,
   saveInvestmentSurvey,
+  getPortfolioDraft,
 } from "@/lib/store";
 import {
   basicApprovalStagePatch,
@@ -56,7 +57,6 @@ import {
   MSG_PORTFOLIO_STALE,
 } from "@/lib/advisory/approvalSnapshots";
 import { loadBundle } from "@/lib/advisory/control";
-import { loadManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
 import { applyIpsHoldingsSync } from "@/lib/advisory/ipsHoldingsSync";
 import { requiresMarketQuote, type PriceSnapshot } from "@/lib/advisory/ipsPurchasePlan";
 import { findQuoteBySymbol } from "@/lib/pricing/instrumentIdentity";
@@ -316,7 +316,27 @@ export default function ClientDetailPage() {
   // 새로고침 후 스테일 승인 정리 (+ 해시 없는 기존 승인 마이그레이션)
   useEffect(() => {
     if (status !== "ready" || !client) return;
+    let cancelled = false;
     void (async () => {
+      // 포트폴리오 초안을 DB에서 먼저 끌어와 localStorage 캐시를 채운다.
+      //
+      //   아래 computePortfolioApprovalHash / detectApprovalInvalidation 은 초안을
+      //   localStorage 에서만 읽는다(approvalSnapshots 의 동기 체인이라 이번에도 그대로
+      //   둔다). 초안 자체는 2026-09-07 부터 portfolio_drafts 에 있고 localStorage 는
+      //   getPortfolioDraft 가 채워 주는 캐시인데, 그걸 채우는 유일한 지점이 Portfolio
+      //   Customizing 탭 마운트였다. 그래서 다른 기기에서 페이지를 열기만 하면 캐시가
+      //   비어 있어 해시가 어긋나고, 승인이 스테일로 판정돼 공유 DB 에서 해제됐다 —
+      //   포트폴리오뿐 아니라 stress·ips 와 portfolios[].confirmedAt 까지 연쇄로.
+      //   여기서 미리 한 번 읽어 두면 그 오판정이 사라진다.
+      const hydration = await getPortfolioDraft(pbId, clientId);
+      if (cancelled) return;
+
+      //   DB 를 못 읽었으면(네트워크·RLS·마이그레이션 미실행) 초안 유무를 알 수 없다.
+      //   그 상태로 판정을 돌리면 "못 읽음"을 "초안 없음"으로 오인해 멀쩡한 승인을
+      //   지운다. 판정을 건너뛴다 — 스테일 승인이 한 번 더 남는 쪽이, 남의 승인을
+      //   잘못 지우는 쪽보다 낫다. 다음 진입 때 다시 검사한다.
+      if (hydration.dbReadFailed) return;
+
       const hashes = { ...(client.approvalHashes ?? {}) };
       let stamped = false;
       if (isBasicWorkflowApproved(client) && !hashes.basic) {
@@ -351,6 +371,9 @@ export default function ClientDetailPage() {
       }
       await applyInvalidation(client, hit.level, hit.message);
     })();
+    // 초안 로드를 기다리는 동안 고객이 바뀌거나 화면을 떠나면 판정을 버린다 —
+    // 이전 고객의 초안으로 다음 고객의 승인을 판정하지 않기 위해서다.
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 로드 직후 1회 보정
   }, [status, clientId]);
 
@@ -466,6 +489,13 @@ export default function ClientDetailPage() {
       return;
     }
 
+    // 초안을 DB 기준으로 먼저 맞춘다. validatePortfolioWorkflowApproval 안의
+    // validateManualPortfolioForApproval 이 localStorage 만 보므로, 이 기기에서 Portfolio
+    // Customizing 탭을 한 번도 열지 않았으면 초안이 DB 에 있어도 "배분 초안이 없습니다"로
+    // 막힌다. getPortfolioDraft 는 읽으면서 로컬 캐시까지 채우므로 아래 검증·해시가 모두
+    // 같은 초안을 보게 된다.
+    const { draft } = await getPortfolioDraft(pbId, clientId);
+
     const reasons = validatePortfolioWorkflowApproval(client, clientId);
     if (reasons.length) {
       alert(`검토 필요\n\n${reasons.join("\n")}`);
@@ -473,7 +503,6 @@ export default function ClientDetailPage() {
     }
     if (!confirm("포트폴리오·리스크·세전·세후 결과를 승인할까요?\n(상담 진행 4~6단계가 완료됩니다)")) return;
 
-    const draft = loadManualPortfolioDraft(clientId);
     const labelMap: Record<string, string> = {
       domesticEquity: "국내주식",
       globalEquity: "해외주식",
@@ -556,7 +585,11 @@ export default function ClientDetailPage() {
     //   초안이 아예 없으면 막지 않는다 — availableFundsWon 이 0 이 되어 매수가 일어나지
     //   않으므로 잘못된 금액이 나갈 위험 자체가 없다. 반대로 초안은 있는데 investableWon
     //   이 없는 구버전 초안은 대조가 불가능하므로 막는 쪽(fail closed)을 택한다.
-    const draft = loadManualPortfolioDraft(clientId);
+    //
+    //   초안은 DB 에서 읽는다. 예전에는 localStorage 만 봐서, 이 기기에서 Portfolio
+    //   Customizing 탭을 한 번도 열지 않았으면 DB 에 초안이 있어도 null 을 받았다 —
+    //   그러면 예산이 0 이 되어 매수 0건으로 조용히 확정된다.
+    const { draft } = await getPortfolioDraft(pbId, clientId);
     const currentAumWon = Math.round(investableWon ?? client.assetSize ?? 0);
     const draftAumWon = draft?.investableWon != null ? Math.round(draft.investableWon) : null;
     if (draft && draftAumWon !== currentAumWon) {
