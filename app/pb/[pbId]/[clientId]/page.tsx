@@ -85,11 +85,10 @@ import FactorsSummary from "@/components/FactorsSummary";
 import SimpleCashflowPanel from "@/components/SimpleCashflowPanel";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 import { resolveAssetBreakdown } from "@/lib/assets";
+import { publishClientLiveSync } from "@/lib/clientLiveSync";
 
 const MSG_NEED_BASIC = "기본정보 승인 후 포트폴리오를 진행할 수 있습니다.";
 const MSG_NEED_PORTFOLIO = "포트폴리오 승인 후 IPS를 확정할 수 있습니다.";
-const MSG_NEED_CUSTOMER =
-  "고객화면을 표시하려면 포트폴리오 승인과 IPS 검토가 필요합니다.";
 
 export default function ClientDetailPage() {
   const { pbId, clientId } = useParams<{ pbId: string; clientId: string }>();
@@ -161,7 +160,7 @@ export default function ClientDetailPage() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [clientId]);
+  }, [clientId, assetRefreshKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -206,8 +205,10 @@ export default function ClientDetailPage() {
       router.replace(`/pb/${pbId}/${clientId}?view=home`);
       return;
     }
-    if ((activeTab === "ips" || activeTab === "customer") && !isPortfolioWorkflowApproved(client)) {
-      warn(activeTab === "customer" ? MSG_NEED_CUSTOMER : MSG_NEED_PORTFOLIO, `${client.id}:need-portfolio`);
+    // IPS 는 포트폴리오 승인 필수. 고객화면은 기본정보만 있으면 현재 상담본을 보여 주고,
+    // 미승인·스테일 시 「변경사항 검토 필요」로 표시한다(라이브 미리보기).
+    if (activeTab === "ips" && !isPortfolioWorkflowApproved(client)) {
+      warn(MSG_NEED_PORTFOLIO, `${client.id}:need-portfolio`);
       router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
     }
   }, [status, client, activeView, activeTab, router, pbId, clientId]);
@@ -227,18 +228,20 @@ export default function ClientDetailPage() {
       alert(MSG_NEED_BASIC);
       return;
     }
-    if ((t === "ips" || t === "customer") && client && !isPortfolioWorkflowApproved(client)) {
-      alert(t === "customer" ? MSG_NEED_CUSTOMER : MSG_NEED_PORTFOLIO);
+    if (t === "customer" && client && !isBasicWorkflowApproved(client)) {
+      alert(MSG_NEED_BASIC);
+      return;
+    }
+    if (t === "ips" && client && !isPortfolioWorkflowApproved(client)) {
+      alert(MSG_NEED_PORTFOLIO);
       return;
     }
     router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=${t}`, { scroll: false });
   };
 
-  const notifyClientUpdated = () => {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("pb-client-updated"));
-      window.dispatchEvent(new Event("pb-evidence-updated"));
-    }
+  const notifyClientUpdated = (reason: "save" | "holdings" | "draft" | "approval" | "assets" = "save") => {
+    if (typeof window === "undefined") return;
+    publishClientLiveSync(clientId, reason, "pb-detail");
   };
 
   const applyInvalidation = async (
@@ -433,11 +436,13 @@ export default function ClientDetailPage() {
 
   const onBasicAssetsChanged = () => {
     bumpAssetRefresh();
+    publishClientLiveSync(clientId, "assets", "holdings-or-estate");
     if (!client || !isBasicWorkflowApproved(client)) return;
     void invalidateAfterEdit(client, "basic");
   };
 
   const onPortfolioDraftChanged = () => {
+    publishClientLiveSync(clientId, "draft", "portfolio-draft");
     if (!client || !isPortfolioWorkflowApproved(client)) return;
     void invalidateAfterEdit(client, "portfolio");
   };
@@ -1066,7 +1071,14 @@ export default function ClientDetailPage() {
 
       {/* 분석 */}
       {activeView === "analysis" && activeTab === "customer" && client && (
-        <ClientFacingView client={client} embedded investableWon={investableWon} />
+        <ClientFacingView
+          client={client}
+          clientId={clientId}
+          pbId={pbId}
+          embedded
+          investableWon={investableWon}
+          allowPreviewWithoutPortfolioApproval
+        />
       )}
       {activeView === "analysis" && activeTab !== "customer" && (
         <IPSResultTabs

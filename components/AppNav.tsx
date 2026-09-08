@@ -264,12 +264,12 @@ export default function AppNav() {
       alert("기본정보 승인 후 포트폴리오를 진행할 수 있습니다.");
       return;
     }
-    if ((tab === "ips" || tab === "customer") && !portfolioApproved) {
-      alert(
-        tab === "customer"
-          ? "고객화면을 표시하려면 포트폴리오 승인과 IPS 검토가 필요합니다."
-          : "포트폴리오 승인 후 IPS를 확정할 수 있습니다.",
-      );
+    if (tab === "customer" && !basicApproved) {
+      alert("기본정보 승인 후 고객화면을 볼 수 있습니다.");
+      return;
+    }
+    if (tab === "ips" && !portfolioApproved) {
+      alert("포트폴리오 승인 후 IPS를 확정할 수 있습니다.");
       return;
     }
     const next = new URLSearchParams({ view });
@@ -388,9 +388,9 @@ export default function AppNav() {
                   ? activeView === "home"
                   : activeView === "analysis" && "tab" in s && activeTab === s.tab;
               const disabled =
-                s.id === "portfolio2"
+                s.id === "portfolio2" || s.id === "customer"
                   ? !basicApproved
-                  : s.id === "ips" || s.id === "customer"
+                  : s.id === "ips"
                     ? !portfolioApproved
                     : false;
               return (
@@ -410,7 +410,7 @@ export default function AppNav() {
                       ? s.id === "portfolio2"
                         ? "기본정보 승인 후 포트폴리오를 진행할 수 있습니다."
                         : s.id === "customer"
-                          ? "고객화면을 표시하려면 포트폴리오 승인과 IPS 검토가 필요합니다."
+                          ? "기본정보 승인 후 고객화면을 볼 수 있습니다."
                           : "포트폴리오 승인 후 IPS를 확정할 수 있습니다."
                       : undefined
                   }
