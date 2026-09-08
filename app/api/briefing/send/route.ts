@@ -11,6 +11,7 @@
 // 상태가 조용히 성공으로 보고되는 게 최악이라, 시작 전에 전부 막는다:
 //   ① Supabase 설정  ② RESEND_API_KEY  ③ 수신거부 서명키  ④ 오늘자 리포트 존재
 //   ⑤ briefing_sends 테이블(이력 없이는 중복 발송을 막을 수 없다)
+//   ⑥ 그 리포트가 승인 상태(status='approved') — 초안은 정의상 아직 내보낼 글이 아니다
 
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
@@ -44,6 +45,13 @@ export const maxDuration = 300;
 const SEND_INTERVAL_MS = 600;
 
 const MISSING_TABLE_ERROR_CODES = new Set(["42P01", "PGRST205"]);
+
+// daily_reports.status 의 어휘는 마이그레이션 정의가 유일한 기준이다:
+//   supabase-migration-daily-reports.sql:25
+//     status text not null default 'draft'   -- draft | approved
+// 이 두 값이 전부다. generate 라우트는 항상 'draft' 로 넣으므로, 승인은 사람이 명시적으로
+// status 를 'approved' 로 바꿔야만 성립한다 — 그게 이 게이트의 요점이다.
+const SENDABLE_REPORT_STATUS = "approved";
 
 function kstDateString(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -150,12 +158,46 @@ async function runSend(req: Request, opts: SendOptions) {
       ok: result.ok,
       mode: "test",
       reportDate: report.report_date,
+      // 테스트는 승인 게이트를 건너뛴다(아래 주석 참고). 초안으로 테스트했다는 사실이
+      // 응답에서 바로 보이도록 status 를 실어 준다.
+      reportStatus: report.status ?? null,
       to,
       from: buildFromHeader(null),
       verifiedSenderDomain: isVerifiedSenderConfigured(),
       messageId: result.messageId,
       error: result.error,
     });
+  }
+
+  // ── 승인 게이트 ──
+  // 초안(draft)은 정의상 아직 밖으로 내보낼 글이 아니다. 리포트 존재만 확인하고 보내면
+  // 검토 전 원고가 그대로 고객에게 나간다.
+  //
+  // 예외가 둘 있고, 둘 다 "고객에게 아무것도 가지 않는" 경로다:
+  //   · testEmail — 위에서 이미 반환됐다. 호출자가 직접 적은 주소 한 곳으로만 가고
+  //     고객 목록을 조회하지도, 이력을 남기지도 않는다. 여기를 막으면 승인 전에는
+  //     발송 배관(Resend 연결·렌더링·수신거부 링크)을 검증할 방법이 사라져서,
+  //     "검증 → 승인 → 발송" 순서가 뒤집힌다.
+  //   · dryRun — 대상 계산만 하고 0통 보낸다. 막는 대신 응답에 reportApproved 를
+  //     실어, 실발송이 막힐 상태라는 걸 미리 알려준다.
+  //
+  // 승인 화면은 아직 없다. 당분간 Supabase SQL Editor 에서 직접 바꾼다:
+  //   update daily_reports set status = 'approved' where report_date = '2026-09-04';
+  const reportApproved = report.status === SENDABLE_REPORT_STATUS;
+  if (!reportApproved && !opts.dryRun) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "REPORT_NOT_APPROVED",
+        reportDate: report.report_date,
+        reportStatus: report.status ?? null,
+        error:
+          `${report.report_date} 리포트가 아직 승인되지 않았습니다(status: ${report.status ?? "null"}). ` +
+          `발송은 status='${SENDABLE_REPORT_STATUS}' 인 리포트만 가능합니다. ` +
+          `검토 후 daily_reports.status 를 '${SENDABLE_REPORT_STATUS}' 로 바꾸세요.`,
+      },
+      { status: 200 },
+    );
   }
 
   // ── 실발송 대상 ──
@@ -180,6 +222,8 @@ async function runSend(req: Request, opts: SendOptions) {
       mode: "dryRun",
       reportDate: report.report_date,
       reportStatus: report.status,
+      // false 면 지금 confirm 을 붙여도 REPORT_NOT_APPROVED 로 막힌다.
+      reportApproved,
       verifiedSenderDomain: isVerifiedSenderConfigured(),
       totals: { targets: targets.length, alreadySent: alreadySent.size, wouldSend: capped.length },
       recipients: capped.map((t) => ({ clientId: t.clientId, email: t.email, pbId: t.assignedPbId })),
