@@ -258,7 +258,6 @@ export default function IpsA4Document({
           </h1>
           <p className="mt-0.5 text-[9px] text-gray-500">
             {dateStr} · 문서번호 IPS-{documentClient.code}
-            {pf?.compositionRevision ? ` · 구성 ${pf.compositionRevision}` : ""}
           </p>
         </header>
 
