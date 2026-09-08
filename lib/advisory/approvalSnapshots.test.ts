@@ -61,5 +61,6 @@ describe("approvalSnapshots", () => {
     const split = splitStagesPayload(merged);
     assert.equal(split.stages.basic, true);
     assert.equal(split.approvalHashes.basic, "abc");
+    assert.deepEqual(split.ipsPurchaseApps, {});
   });
 });

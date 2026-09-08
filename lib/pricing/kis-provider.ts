@@ -1,46 +1,80 @@
 import { PriceQuote, PricingProvider } from "./types";
 import { getKisToken } from "./kis-token";
+import { resolveInstrumentForPricing } from "./instrumentIdentity";
 
 const BASE = process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443";
 
-// ── 서버 메모리 가격 캐시 (TTL: 30초) ────────────────────────────────────
-// Next.js 단일 프로세스 개발 서버에서 유효. Vercel 서버리스 배포 시에는 cold-start마다 초기화됨.
 const PRICE_CACHE_TTL_MS = 30_000;
-const priceCache = new Map<string, { price: number | null; ts: number }>();
+const priceCache = new Map<string, { quote: Omit<PriceQuote, "ticker" | "as_of">; ts: number }>();
 let fxCache: { rate: number; ts: number } | null = null;
 
-function getCached(key: string): number | null | undefined {
-  const entry = priceCache.get(key);
+function getCached(cacheKey: string): Omit<PriceQuote, "ticker" | "as_of"> | undefined {
+  const entry = priceCache.get(cacheKey);
   if (!entry) return undefined;
   if (Date.now() - entry.ts > PRICE_CACHE_TTL_MS) return undefined;
-  return entry.price;
+  return entry.quote;
 }
-function setCache(key: string, price: number | null) {
-  priceCache.set(key, { price, ts: Date.now() });
+function setCache(cacheKey: string, quote: Omit<PriceQuote, "ticker" | "as_of">) {
+  if (quote.price == null) return; // 실패는 캐시하지 않음
+  priceCache.set(cacheKey, { quote, ts: Date.now() });
 }
 
-// ── KIS API 초당 1건 제한 대응: 순차 호출용 sleep ─────────────────────────
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const KIS_REQUEST_INTERVAL_MS = 600; // 초당 ~1.6건 — KIS 실전계좌 연속 조회 여유 확보
+const KIS_REQUEST_INTERVAL_MS = 600;
 
-// ── 환경변수 로드 ─────────────────────────────────────────────────────────
 interface KisEnv {
   appKey: string;
   appSecret: string;
 }
 
 function getEnv(): KisEnv | null {
-  const appKey    = process.env.KIS_APP_KEY;
+  const appKey = process.env.KIS_APP_KEY;
   const appSecret = process.env.KIS_APP_SECRET;
   if (!appKey || !appSecret) return null;
   return { appKey, appSecret };
 }
 
-// ── 국내 주식 현재가 ──────────────────────────────────────────────────────
-async function fetchKrwPrice(token: string, env: KisEnv, ticker: string): Promise<number | null> {
+/** 한국 장중(대략 09:00–15:30 KST)이면 live 후보. 시세 시각이 없으면 보수적으로 false. */
+function inferIsLive(quoteTimeRaw: string | null | undefined): boolean {
+  if (!quoteTimeRaw) return false;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const mins = hour * 60 + minute;
+  return mins >= 9 * 60 && mins <= 15 * 60 + 30;
+}
+
+function normalizeQuoteTime(raw: unknown): string | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  // HHMMSS → HH:MM:SS (거래시각 — 조회 시각과 구분)
+  if (/^\d{6}$/.test(s)) return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`;
+  if (/^\d{4}$/.test(s)) return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
+  return s;
+}
+
+type DomesticFetchResult = {
+  price: number | null;
+  quote_time: string | null;
+  is_live: boolean;
+  error_code: string | null;
+  error_message: string | null;
+};
+
+async function fetchKrwPrice(
+  token: string,
+  env: KisEnv,
+  providerSymbol: string,
+): Promise<DomesticFetchResult> {
   const url =
     `${BASE}/uapi/domestic-stock/v1/quotations/inquire-price` +
-    `?fid_cond_mrkt_div_code=J&fid_input_iscd=${ticker}`;
+    `?fid_cond_mrkt_div_code=J&fid_input_iscd=${encodeURIComponent(providerSymbol)}`;
   try {
     const res = await fetch(url, {
       headers: {
@@ -49,22 +83,69 @@ async function fetchKrwPrice(token: string, env: KisEnv, ticker: string): Promis
         appsecret: env.appSecret,
         tr_id: "FHKST01010100",
       },
-      next: { revalidate: 0 }, // 캐시 없이 매번 최신값
+      next: { revalidate: 0 },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return {
+        price: null,
+        quote_time: null,
+        is_live: false,
+        error_code: `HTTP_${res.status}`,
+        error_message: `KIS HTTP ${res.status}`,
+      };
+    }
     const json = await res.json();
+    const rtCd = String(json?.rt_cd ?? "");
+    const msgCd = json?.msg_cd != null ? String(json.msg_cd) : null;
+    const msg1 = json?.msg1 != null ? String(json.msg1) : null;
+    if (rtCd && rtCd !== "0") {
+      return {
+        price: null,
+        quote_time: null,
+        is_live: false,
+        error_code: msgCd || `RT_${rtCd}`,
+        error_message: msg1 || `KIS business error rt_cd=${rtCd}`,
+      };
+    }
     const price = parseFloat(json?.output?.stck_prpr);
-    return isFinite(price) && price > 0 ? price : null;
-  } catch {
-    return null;
+    const quote_time = normalizeQuoteTime(
+      json?.output?.stck_cntg_hour ?? json?.output?.xymd ?? json?.output?.stck_bsop_date,
+    );
+    if (!isFinite(price) || price <= 0) {
+      return {
+        price: null,
+        quote_time,
+        is_live: false,
+        error_code: msgCd || "NO_PRICE",
+        error_message: msg1 || "유효한 국내 시세가 없습니다.",
+      };
+    }
+    return {
+      price,
+      quote_time,
+      is_live: inferIsLive(quote_time),
+      error_code: null,
+      error_message: null,
+    };
+  } catch (e: any) {
+    return {
+      price: null,
+      quote_time: null,
+      is_live: false,
+      error_code: "FETCH_ERROR",
+      error_message: e?.message || "KIS 국내 시세 조회 실패",
+    };
   }
 }
 
-// ── 해외 주식 현재가 (나스닥 기본) ───────────────────────────────────────
-async function fetchUsdPrice(token: string, env: KisEnv, ticker: string): Promise<number | null> {
+async function fetchUsdPrice(
+  token: string,
+  env: KisEnv,
+  providerSymbol: string,
+): Promise<DomesticFetchResult> {
   const url =
     `${BASE}/uapi/overseas-price/v1/quotations/price` +
-    `?AUTH=&EXCD=NAS&SYMB=${ticker}`;
+    `?AUTH=&EXCD=NAS&SYMB=${encodeURIComponent(providerSymbol)}`;
   try {
     const res = await fetch(url, {
       headers: {
@@ -75,16 +156,56 @@ async function fetchUsdPrice(token: string, env: KisEnv, ticker: string): Promis
       },
       next: { revalidate: 0 },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return {
+        price: null,
+        quote_time: null,
+        is_live: false,
+        error_code: `HTTP_${res.status}`,
+        error_message: `KIS HTTP ${res.status}`,
+      };
+    }
     const json = await res.json();
+    const rtCd = String(json?.rt_cd ?? "");
+    const msgCd = json?.msg_cd != null ? String(json.msg_cd) : null;
+    const msg1 = json?.msg1 != null ? String(json.msg1) : null;
+    if (rtCd && rtCd !== "0") {
+      return {
+        price: null,
+        quote_time: null,
+        is_live: false,
+        error_code: msgCd || `RT_${rtCd}`,
+        error_message: msg1 || `KIS business error rt_cd=${rtCd}`,
+      };
+    }
     const price = parseFloat(json?.output?.last);
-    return isFinite(price) && price > 0 ? price : null;
-  } catch {
-    return null;
+    if (!isFinite(price) || price <= 0) {
+      return {
+        price: null,
+        quote_time: null,
+        is_live: false,
+        error_code: msgCd || "NO_PRICE",
+        error_message: msg1 || "유효한 해외 시세가 없습니다.",
+      };
+    }
+    return {
+      price,
+      quote_time: normalizeQuoteTime(json?.output?.xymd ?? json?.output?.t_xymd),
+      is_live: false,
+      error_code: null,
+      error_message: null,
+    };
+  } catch (e: any) {
+    return {
+      price: null,
+      quote_time: null,
+      is_live: false,
+      error_code: "FETCH_ERROR",
+      error_message: e?.message || "KIS 해외 시세 조회 실패",
+    };
   }
 }
 
-// ── USD/KRW 환율 ──────────────────────────────────────────────────────────
 async function fetchFxUsdKrw(token: string, env: KisEnv): Promise<number> {
   if (fxCache && Date.now() - fxCache.ts < PRICE_CACHE_TTL_MS) return fxCache.rate;
   try {
@@ -111,54 +232,85 @@ async function fetchFxUsdKrw(token: string, env: KisEnv): Promise<number> {
   }
 }
 
-// ── KisProvider ───────────────────────────────────────────────────────────
 export class KisProvider implements PricingProvider {
   async getQuotes(
     tickers: { ticker: string; currency: "KRW" | "USD" }[],
+    opts?: { skipCache?: boolean },
   ): Promise<PriceQuote[]> {
     const env = getEnv();
     const now = new Date().toISOString();
+    const skipCache = opts?.skipCache === true;
 
     if (!env) {
       return tickers.map((t) => ({
-        ticker: t.ticker, price: null, currency: t.currency,
-        as_of: now, source: "kis" as const, stale: true,
+        ticker: t.ticker,
+        providerSymbol: resolveInstrumentForPricing(t.ticker, t.currency).providerSymbol,
+        price: null,
+        currency: t.currency,
+        as_of: now,
+        quote_time: null,
+        is_live: false,
+        source: "kis" as const,
+        stale: true,
+        error_code: "KIS_NOT_CONFIGURED",
+        error_message: "KIS 자격증명이 없습니다.",
       }));
     }
 
     const token = await getKisToken(env.appKey, env.appSecret);
     const results: PriceQuote[] = [];
+    const needFetch: { ticker: string; currency: "KRW" | "USD"; resolved: ReturnType<typeof resolveInstrumentForPricing> }[] = [];
 
-    // ① 캐시 히트 분리
-    const needFetch: typeof tickers = [];
     for (const t of tickers) {
-      const cached = getCached(t.ticker);
-      if (cached !== undefined) {
+      const resolved = resolveInstrumentForPricing(t.ticker, t.currency);
+      if (resolved.venue === "unsupported") {
         results.push({
-          ticker: t.ticker, price: cached, currency: t.currency,
-          as_of: now, source: "kis" as const, stale: cached === null,
+          ticker: t.ticker,
+          providerSymbol: resolved.providerSymbol,
+          price: null,
+          currency: t.currency,
+          as_of: now,
+          quote_time: null,
+          is_live: false,
+          source: "kis",
+          stale: true,
+          error_code: "UNSUPPORTED_INSTRUMENT",
+          error_message: "KIS 국내/해외 주식 시세 대상이 아닙니다.",
         });
-      } else {
-        needFetch.push(t);
+        continue;
       }
+      if (!skipCache) {
+        const cached = getCached(resolved.cacheKey);
+        if (cached !== undefined) {
+          results.push({ ...cached, ticker: t.ticker, as_of: now });
+          continue;
+        }
+      }
+      needFetch.push({ ...t, resolved });
     }
 
-    // ② 미캐시 종목만 순차 조회 (KIS 초당 제한 대응)
     for (let i = 0; i < needFetch.length; i++) {
       const t = needFetch[i];
       if (i > 0) await sleep(KIS_REQUEST_INTERVAL_MS);
-      const price =
+      const fetched =
         t.currency === "USD"
-          ? await fetchUsdPrice(token, env, t.ticker)
-          : await fetchKrwPrice(token, env, t.ticker);
-      if (price !== null) setCache(t.ticker, price); // 실패(null)는 캐시 안 함 → 다음 요청에서 재시도
-      results.push({
-        ticker: t.ticker, price, currency: t.currency,
-        as_of: now, source: "kis" as const, stale: price === null,
-      });
+          ? await fetchUsdPrice(token, env, t.resolved.providerSymbol)
+          : await fetchKrwPrice(token, env, t.resolved.providerSymbol);
+      const quoteBody: Omit<PriceQuote, "ticker" | "as_of"> = {
+        providerSymbol: t.resolved.providerSymbol,
+        price: fetched.price,
+        currency: t.currency,
+        quote_time: fetched.quote_time,
+        is_live: fetched.is_live,
+        source: "kis",
+        stale: fetched.price == null,
+        error_code: fetched.error_code,
+        error_message: fetched.error_message,
+      };
+      setCache(t.resolved.cacheKey, quoteBody);
+      results.push({ ...quoteBody, ticker: t.ticker, as_of: now });
     }
 
-    // 입력 순서 복원
     const order = new Map(tickers.map((t, i) => [t.ticker, i]));
     return results.sort((a, b) => (order.get(a.ticker) ?? 0) - (order.get(b.ticker) ?? 0));
   }

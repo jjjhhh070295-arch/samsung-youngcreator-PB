@@ -211,13 +211,34 @@ export function detectApprovalInvalidation(client: Client): ApprovalInvalidation
 
 /** stages JSON(b)에 심는 승인 해시 — DB 마이그레이션 없이 재사용 */
 export const APPROVAL_HASHES_KEY = "__approvalHashes";
+/** IPS 매수 적용 이력(멱등) — stages jsonb에 함께 저장 */
+export const IPS_PURCHASE_APPS_KEY = "__ipsPurchaseApps";
+
+export type IpsPurchaseAppRecord = {
+  status: "pending" | "applied" | "failed";
+  appliedAt?: string;
+  error?: string;
+  linesApplied?: number;
+  /** 확정에 사용한 시세 스냅샷(재시도 시 취득원가 재사용) */
+  snapshots?: Array<{
+    symbol: string;
+    providerSymbol: string;
+    price: number;
+    currency: string;
+    source: string;
+    fetchedAt: string;
+    quoteTime: string | null;
+    isLive: boolean;
+  }>;
+};
 
 export function splitStagesPayload(raw: unknown): {
   stages: Client["stages"];
   approvalHashes: ApprovalHashes;
+  ipsPurchaseApps: Record<string, IpsPurchaseAppRecord>;
 } {
   if (!raw || typeof raw !== "object") {
-    return { stages: {}, approvalHashes: {} };
+    return { stages: {}, approvalHashes: {}, ipsPurchaseApps: {} };
   }
   const record = raw as Record<string, unknown>;
   const hashesRaw = record[APPROVAL_HASHES_KEY];
@@ -233,20 +254,30 @@ export function splitStagesPayload(raw: unknown): {
         }
       : {};
 
+  const appsRaw = record[IPS_PURCHASE_APPS_KEY];
+  const ipsPurchaseApps: Record<string, IpsPurchaseAppRecord> =
+    appsRaw && typeof appsRaw === "object" && !Array.isArray(appsRaw)
+      ? (appsRaw as Record<string, IpsPurchaseAppRecord>)
+      : {};
+
   const stages: Client["stages"] = {};
   for (const key of ["basic", "factors", "cashflow", "portfolio", "stress", "ips"] as const) {
     if (typeof record[key] === "boolean") stages[key] = record[key] as boolean;
   }
-  return { stages, approvalHashes };
+  return { stages, approvalHashes, ipsPurchaseApps };
 }
 
 export function mergeStagesPayload(
   stages: Client["stages"] | undefined,
   approvalHashes: ApprovalHashes | undefined,
+  ipsPurchaseApps?: Record<string, IpsPurchaseAppRecord>,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = { ...(stages ?? {}) };
   if (approvalHashes !== undefined) {
     payload[APPROVAL_HASHES_KEY] = approvalHashes;
+  }
+  if (ipsPurchaseApps !== undefined) {
+    payload[IPS_PURCHASE_APPS_KEY] = ipsPurchaseApps;
   }
   return payload;
 }

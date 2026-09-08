@@ -2,6 +2,8 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { toBookHolding } from "./book";
 import { SAMPLE_BOOK_CLIENTS, SAMPLE_HANBIT_HOLDINGS } from "./sampleBook";
 import type { BookHolding } from "./types";
+import { findQuoteBySymbol } from "../pricing/instrumentIdentity";
+import type { PriceQuote } from "../pricing/types";
 
 const LS_KEY = "pb-app-local-holdings-v1";
 const SAMPLE_CLIENT_ID = "client-hanbit-cashflow-sample";
@@ -135,14 +137,11 @@ export async function enrichBookHoldingsWithQuotes(
     if (!res.ok) return { holdings, fxUsdKrw: 1350 };
     const json = await res.json();
     const fxUsdKrw = Number(json.fxUsdKrw) > 0 ? Number(json.fxUsdKrw) : 1350;
-    const quoteMap = new Map<string, { price: number | null; as_of?: string; source?: string }>();
-    for (const q of json.quotes ?? []) {
-      if (q?.ticker) quoteMap.set(String(q.ticker).toUpperCase(), q);
-    }
+    const quotes = (Array.isArray(json.quotes) ? json.quotes : []) as PriceQuote[];
     const asOf = new Date().toISOString();
     const next = holdings.map((h) => {
       if (!h.ticker) return h;
-      const q = quoteMap.get(h.ticker.toUpperCase());
+      const q = findQuoteBySymbol(quotes, h.ticker, h.currency);
       const lastPrice = q?.price != null && Number.isFinite(q.price) && q.price > 0 ? Number(q.price) : null;
       return toBookHolding(
         {

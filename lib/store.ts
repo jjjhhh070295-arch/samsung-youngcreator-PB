@@ -100,7 +100,11 @@ function rowToClient(r: any): Client {
     portfolios: (r.portfolios ?? []) as Portfolio[],
     ...(() => {
       const split = splitStagesPayload(r.stages);
-      return { stages: split.stages, approvalHashes: split.approvalHashes };
+      return {
+        stages: split.stages,
+        approvalHashes: split.approvalHashes,
+        ipsPurchaseApps: split.ipsPurchaseApps,
+      };
     })(),
     createdAt: r.created_at,
     // 모닝 브리핑 1단계 컬럼 — 마이그레이션 전이면 r.email 등이 아예 없어 undefined/false로 빠진다.
@@ -124,10 +128,9 @@ function clientToPartyRow(c: Partial<Client>): any {
   if (c.ips !== undefined) row.ips = c.ips;
   if (c.cashFlows !== undefined) row.cash_flows = c.cashFlows;
   if (c.portfolios !== undefined) row.portfolios = c.portfolios;
-  if (c.stages !== undefined || c.approvalHashes !== undefined) {
-    // stages jsonb에 플래그+해시를 함께 저장. 해시 미지정이면 플래그만 기록(해시 키 생략).
-    // 스테일 해제·승인 시에는 호출측에서 approvalHashes를 항상 같이 넘긴다.
-    row.stages = mergeStagesPayload(c.stages, c.approvalHashes);
+  if (c.stages !== undefined || c.approvalHashes !== undefined || c.ipsPurchaseApps !== undefined) {
+    // stages jsonb에 플래그+해시+IPS매수이력을 함께 저장.
+    row.stages = mergeStagesPayload(c.stages, c.approvalHashes, c.ipsPurchaseApps);
   }
   // 모닝 브리핑 1단계 — 마이그레이션 미실행 시 withMissingColumnFallback이 이 키들을 뺀다.
   if (c.email !== undefined) row.email = c.email || null;
@@ -1148,6 +1151,11 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
       if (patch.approvalHashes !== undefined && patch.stages === undefined) {
         next.stages = prev.stages;
       }
+      if (patch.ipsPurchaseApps === undefined) {
+        next.ipsPurchaseApps = prev.ipsPurchaseApps;
+      } else {
+        next.ipsPurchaseApps = { ...(prev.ipsPurchaseApps ?? {}), ...patch.ipsPurchaseApps };
+      }
       db.clients[idx] = next;
       saveLocal(db);
     }
@@ -1155,13 +1163,21 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
   }
 
   let partyPatch = patch;
-  if (patch.stages !== undefined || patch.approvalHashes !== undefined) {
+  if (
+    patch.stages !== undefined ||
+    patch.approvalHashes !== undefined ||
+    patch.ipsPurchaseApps !== undefined
+  ) {
     const prev = await getClient(id);
     partyPatch = {
       ...patch,
       stages: { ...(prev?.stages ?? {}), ...(patch.stages ?? {}) },
       approvalHashes:
         patch.approvalHashes !== undefined ? patch.approvalHashes : prev?.approvalHashes ?? {},
+      ipsPurchaseApps: {
+        ...(prev?.ipsPurchaseApps ?? {}),
+        ...(patch.ipsPurchaseApps ?? {}),
+      },
     };
   }
 

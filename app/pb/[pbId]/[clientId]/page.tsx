@@ -58,6 +58,9 @@ import {
 import { loadBundle } from "@/lib/advisory/control";
 import { loadManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
 import { applyIpsHoldingsSync } from "@/lib/advisory/ipsHoldingsSync";
+import { requiresMarketQuote, type PriceSnapshot } from "@/lib/advisory/ipsPurchasePlan";
+import { findQuoteBySymbol } from "@/lib/pricing/instrumentIdentity";
+import type { PriceQuote } from "@/lib/pricing/types";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -529,7 +532,68 @@ export default function ClientDetailPage() {
       alert(`검토 필요\n\n${reasons.join("\n")}`);
       return;
     }
-    if (!confirm("IPS·PDF 단계를 승인할까요?\n(상담 진행 7단계가 완료됩니다)")) return;
+    if (!confirm("IPS·PDF 단계를 승인할까요?\n(상담 진행 7단계가 완료됩니다)\n\n※ 보유종목 반영은 KIS 시세 스냅샷 기준 장부 기입이며, 실제 증권사 주문이 아닙니다.")) return;
+
+    // 승인·보유 반영 전에 시세·매수계획을 먼저 검증한다. 실패 시 승인하지 않는다.
+    const draft = loadManualPortfolioDraft(clientId);
+    const availableFundsWon = Math.max(0, draft?.allocatableWon ?? 0);
+
+    const quoteTickers = (draft?.selected ?? [])
+      .filter((row) => (Number(row.weightWithinClass) || 0) > 0 && requiresMarketQuote(row))
+      .map((row) => ({
+        ticker: row.symbol,
+        currency: (row.currency === "USD" ? "USD" : "KRW") as "KRW" | "USD",
+      }));
+
+    let fxUsdKrw = 1350;
+    const priceSnapshots: PriceSnapshot[] = [];
+    try {
+      const fxRes = await fetch("/api/prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers: quoteTickers, fresh: true }),
+      });
+      const fxJson = await fxRes.json();
+      if (Number(fxJson.fxUsdKrw) > 0) fxUsdKrw = Number(fxJson.fxUsdKrw);
+      if (!fxJson.connected && quoteTickers.length > 0) {
+        alert(
+          "KIS 시세에 연결되지 않아 IPS를 확정할 수 없습니다.\n서버 KIS 자격증명을 확인한 뒤 다시 시도하세요.",
+        );
+        return;
+      }
+      const quotes = (Array.isArray(fxJson.quotes) ? fxJson.quotes : []) as PriceQuote[];
+      const missing: string[] = [];
+      for (const t of quoteTickers) {
+        const q = findQuoteBySymbol(quotes, t.ticker, t.currency);
+        const price = q?.price != null ? Number(q.price) : NaN;
+        if (!q || !Number.isFinite(price) || price <= 0) {
+          missing.push(
+            `${t.ticker}${q?.error_code ? ` (${q.error_code}: ${q.error_message || ""})` : ""}`,
+          );
+          continue;
+        }
+        priceSnapshots.push({
+          symbol: t.ticker,
+          providerSymbol: String(q.providerSymbol || t.ticker),
+          price,
+          currency: t.currency,
+          source: "kis",
+          fetchedAt: String(q.as_of || new Date().toISOString()),
+          quoteTime: q.quote_time ?? null,
+          isLive: Boolean(q.is_live),
+        });
+      }
+      if (missing.length > 0) {
+        alert(
+          `필수 시세를 확보하지 못해 IPS를 확정하지 않았습니다.\n\n${missing.join("\n")}\n\n초안은 유지됩니다. 시세 확인 후 다시 시도하세요.`,
+        );
+        return;
+      }
+    } catch (e: any) {
+      alert(`시세 조회 실패로 IPS를 확정하지 않았습니다.\n${e?.message || e}`);
+      return;
+    }
+
     const stages = { ...(client.stages ?? {}), ...ipsApprovalStagePatch() };
     const ips = client.ips?.return?.reviewed
       ? client.ips
@@ -540,61 +604,38 @@ export default function ClientDetailPage() {
       portfolio: client.approvalHashes?.portfolio ?? computePortfolioApprovalHash(client),
       ips: computeIpsApprovalHash(nextBase),
     };
-    await updateClient(client.id, { stages, ips, approvalHashes });
-    const nextClient = { ...nextBase, approvalHashes };
-    setClient(nextClient);
-    syncEvidenceAfterIpsApproval(nextClient);
-    notifyClientUpdated();
 
-    // IPS 확정 후 신규 편입 종목을 보유종목에 반영(멱등). 승인 자체는 유지.
     try {
-      const draft = loadManualPortfolioDraft(clientId);
-      const investable =
-        draft?.allocatableWon && draft.allocatableWon > 0
-          ? draft.allocatableWon
-          : draft?.investableWon && draft.investableWon > 0
-            ? draft.investableWon
-            : client.assetSize || 0;
-      let fxUsdKrw = 1350;
-      try {
-        const fxRes = await fetch("/api/prices", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tickers: [] }),
-        });
-        if (fxRes.ok) {
-          const fxJson = await fxRes.json();
-          if (Number(fxJson.fxUsdKrw) > 0) fxUsdKrw = Number(fxJson.fxUsdKrw);
-        }
-      } catch {
-        /* keep default FX */
-      }
       const sync = await applyIpsHoldingsSync({
         clientId,
         pbId,
         ipsHash: approvalHashes.ips!,
-        investableWon: investable,
+        availableFundsWon,
         fxUsdKrw,
         draft,
+        priceSnapshots,
       });
-      if (sync.status === "applied") {
-        bumpAssetRefresh();
+      if (sync.status === "failed") {
         alert(
-          `${MSG_IPS_APPROVED}\n보유종목 반영: ${sync.linesApplied}건 (IPS 확정 기준)`,
+          `보유종목 반영에 실패해 IPS를 확정하지 않았습니다.\n${sync.error || "재시도가 필요합니다."}\n\n초안은 유지됩니다.`,
         );
-      } else if (sync.status === "failed") {
-        alert(
-          `${MSG_IPS_APPROVED}\n보유종목 반영 대기/실패: ${sync.error || "재시도가 필요합니다."}`,
-        );
-      } else {
-        alert(MSG_IPS_APPROVED);
+        return;
       }
+
+      await updateClient(client.id, { stages, ips, approvalHashes });
+      const nextClient = { ...nextBase, approvalHashes };
+      setClient(nextClient);
+      syncEvidenceAfterIpsApproval(nextClient);
+      notifyClientUpdated();
+      bumpAssetRefresh();
+      alert(
+        `${MSG_IPS_APPROVED}\n보유종목 반영: ${sync.linesApplied}건 (KIS 시세 스냅샷·장부 기준, 실주문 아님)`,
+      );
     } catch (e: any) {
       console.error(e);
-      alert(`${MSG_IPS_APPROVED}\n보유종목 동기화 오류: ${e?.message || e}`);
+      alert(`IPS 확정/보유 반영 오류: ${e?.message || e}\n초안은 유지됩니다.`);
     }
   };
-
   const saveComprehensiveTaxFlag = async (value: boolean) => {
     if (!client) return;
     await updateClient(client.id, { financialIncomeComprehensiveTax: value });

@@ -266,6 +266,29 @@ export interface Client {
     portfolio?: string;
     ips?: string;
   };
+  /**
+   * IPS 매수 적용 멱등 기록 — stages jsonb `__ipsPurchaseApps` 에 저장.
+   * key = ipsHash
+   */
+  ipsPurchaseApps?: Record<
+    string,
+    {
+      status: "pending" | "applied" | "failed";
+      appliedAt?: string;
+      error?: string;
+      linesApplied?: number;
+      snapshots?: Array<{
+        symbol: string;
+        providerSymbol: string;
+        price: number;
+        currency: string;
+        source: string;
+        fetchedAt: string;
+        quoteTime: string | null;
+        isLive: boolean;
+      }>;
+    }
+  >;
   createdAt: string;
   // 모닝 브리핑 1단계 — parties.email/email_opt_in/email_opt_out_at 마이그레이션
   // 실행 전에는 email은 항상 undefined, emailOptIn은 항상 false로 읽힌다.

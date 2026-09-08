@@ -68,7 +68,7 @@ describe("purchase plan helpers", () => {
     assert.equal(weightedAveragePrice(10, 100, 10, 200), 150);
   });
 
-  it("builds purchase lines from designated prices", () => {
+  it("builds purchase lines from KIS price snapshots (ignores designatedPrice)", () => {
     const draft: ManualPortfolioDraft = {
       allocation: {
         domesticEquity: 100,
@@ -84,7 +84,8 @@ describe("purchase plan helpers", () => {
           name: "삼성전자",
           assetClass: "domesticEquity",
           weightWithinClass: 100,
-          designatedPrice: 70_000,
+          designatedPrice: 99_999, // ignored
+          plannedQuantity: 1, // ignored
           currency: "KRW",
           exchange: "KRX",
           kind: "stock",
@@ -93,10 +94,96 @@ describe("purchase plan helpers", () => {
         },
       ],
     };
-    const plan = buildIpsPurchasePlan(draft, { investableWon: 350_000_000, fxUsdKrw: 1350 });
+    const plan = buildIpsPurchasePlan(draft, {
+      availableFundsWon: 350_000_000,
+      fxUsdKrw: 1350,
+      priceSnapshots: [
+        {
+          symbol: "005930",
+          providerSymbol: "005930",
+          price: 70_000,
+          currency: "KRW",
+          source: "kis",
+          fetchedAt: "2026-09-08T00:00:00.000Z",
+          quoteTime: "15:30:00",
+          isLive: false,
+        },
+      ],
+    });
     assert.equal(plan.ok, true);
     assert.equal(plan.lines.length, 1);
     assert.equal(plan.lines[0].quantity, 5000); // 350e6 / 70000
     assert.ok(plan.lines[0].remainderKrw < 70_000);
+  });
+
+  it("treats zero available funds as valid empty plan (no AUM fallback)", () => {
+    const draft: ManualPortfolioDraft = {
+      allocation: {
+        domesticEquity: 100,
+        globalEquity: 0,
+        domesticBond: 0,
+        globalBond: 0,
+        alternatives: 0,
+        cash: 0,
+      },
+      selected: [
+        {
+          symbol: "005930",
+          name: "삼성전자",
+          assetClass: "domesticEquity",
+          weightWithinClass: 100,
+          currency: "KRW",
+          quotationKind: "share",
+        },
+      ],
+    };
+    const plan = buildIpsPurchasePlan(draft, {
+      availableFundsWon: 0,
+      fxUsdKrw: 1350,
+      priceSnapshots: [],
+    });
+    assert.equal(plan.ok, true);
+    assert.equal(plan.lines.length, 0);
+  });
+
+  it("resolves .KS snapshot symbols to bare holdings codes in plan input", () => {
+    const draft: ManualPortfolioDraft = {
+      allocation: {
+        domesticEquity: 100,
+        globalEquity: 0,
+        domesticBond: 0,
+        globalBond: 0,
+        alternatives: 0,
+        cash: 0,
+      },
+      selected: [
+        {
+          symbol: "207940.KS",
+          name: "삼성바이오로직스",
+          assetClass: "domesticEquity",
+          weightWithinClass: 100,
+          currency: "KRW",
+          quotationKind: "share",
+        },
+      ],
+    };
+    const plan = buildIpsPurchasePlan(draft, {
+      availableFundsWon: 1_000_000,
+      fxUsdKrw: 1350,
+      priceSnapshots: [
+        {
+          symbol: "207940",
+          providerSymbol: "207940",
+          price: 500_000,
+          currency: "KRW",
+          source: "kis",
+          fetchedAt: "2026-09-08T00:00:00.000Z",
+          quoteTime: null,
+          isLive: false,
+        },
+      ],
+    });
+    assert.equal(plan.ok, true);
+    assert.equal(plan.lines[0].quantity, 2);
   });
 });
