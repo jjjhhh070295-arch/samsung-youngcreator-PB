@@ -272,7 +272,16 @@ export default function ManualPortfolioBuilder({
     return () => { cancelled = true; };
   }, [clientId, totalAssetWon]);
 
-  const investableWon = Math.max(0, totalAssetWon - realEstateWon);
+  // 투자가능자산 = AUM 그대로. 부동산을 빼지 않는다.
+  //   2026-09-08 자산 모델 변경(lib/assets.ts) 이후 totalAssetWon 으로 넘어오는
+  //   client.assetSize 는 그 자체로 AUM(운용자산)이고 부동산은 AUM 밖에 따로 얹히는
+  //   값이다. 예전 모델에서는 assetSize 가 "부동산 포함 총자산"이라 여기서 부동산을
+  //   빼 투자가능자산을 역산했는데, 지금 그렇게 하면 이미 부동산이 빠져 있는 값에서
+  //   한 번 더 빼는 이중 차감이 된다(이기량: 350억 → 279.8억, 부동산 70.2억만큼 과소).
+  //   이 값은 아래 allocatableWon 을 거쳐 초안에 저장되고 IPS 확정 시 매수 예산으로
+  //   쓰이므로, 표시만이 아니라 실제 배분 금액이 어긋난다.
+  //   realEstateWon 은 아래 "부동산 (AUM 별도)" 카드에서 금액 표시로만 쓴다.
+  const investableWon = Math.max(0, totalAssetWon);
   const existingTotalWon = existing.reduce((sum, row) => sum + row.valueKrw, 0);
   const allocatableWon = Math.max(0, investableWon - existingTotalWon);
 
@@ -562,7 +571,7 @@ export default function ManualPortfolioBuilder({
             <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2"><p className="text-[10px] text-blue-200">투자가능자산</p><p className="mt-0.5 text-sm font-black">{formatWon(investableWon)}</p></div>
             <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2"><p className="text-[10px] text-blue-200">기존 보유주식 · 고정</p><p className="mt-0.5 text-sm font-black">{formatWon(existingTotalWon)}</p></div>
             <div className="rounded-xl border border-emerald-300/30 bg-emerald-300/10 px-3 py-2"><p className="text-[10px] text-emerald-200">배분 가능 자산</p><p className="mt-0.5 text-sm font-black">{formatWon(allocatableWon)}</p></div>
-            <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2"><p className="text-[10px] text-blue-200">부동산 운용 제외</p><p className="mt-0.5 text-sm font-black">{formatWon(realEstateWon)}</p></div>
+            <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2"><p className="text-[10px] text-blue-200">부동산 (AUM 별도)</p><p className="mt-0.5 text-sm font-black">{formatWon(realEstateWon)}</p></div>
         </div>
       </div>
 

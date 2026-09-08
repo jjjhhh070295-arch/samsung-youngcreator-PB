@@ -113,6 +113,9 @@ export default function ClientDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [investableWon, setInvestableWon] = useState<number | null>(null);
+  // 총자산 = AUM + 부동산. 헤더에서 AUM 옆에 괄호로 보여 준다 — 예전에는 이 자리에도
+  // client.assetSize 를 써서 새 모델에서 AUM 과 같은 숫자가 두 번 찍혔다.
+  const [totalAssetWon, setTotalAssetWon] = useState<number | null>(null);
   // 보유종목·부동산이 바뀌면 올려서 상단 자산 비중 바를 다시 읽게 한다.
   const [assetRefreshKey, setAssetRefreshKey] = useState(0);
   const bumpAssetRefresh = useCallback(() => setAssetRefreshKey((k) => k + 1), []);
@@ -139,12 +142,17 @@ export default function ClientDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // AUM 표시는 부동산 제외(투자가능자산) 기준 — 조회 실패 시 assetSize로 폴백.
+  // AUM(=investableKrw)과 총자산(=totalKrw = AUM + 부동산)을 한 번에 받는다.
+  // 조회 실패 시 둘 다 null 로 두고 표시 쪽에서 assetSize 로 폴백한다.
   useEffect(() => {
     if (!clientId) return;
     let cancelled = false;
     resolveAssetBreakdown(clientId)
-      .then((b) => { if (!cancelled) setInvestableWon(b?.investableKrw ?? null); })
+      .then((b) => {
+        if (cancelled) return;
+        setInvestableWon(b?.investableKrw ?? null);
+        setTotalAssetWon(b?.totalKrw ?? null);
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [clientId]);
@@ -532,10 +540,43 @@ export default function ClientDetailPage() {
       alert(`검토 필요\n\n${reasons.join("\n")}`);
       return;
     }
+    // 초안 스테일 가드 — 저장된 초안의 AUM 이 지금 AUM 과 다르면 확정을 막는다.
+    //
+    //   아래 availableFundsWon(= 초안의 allocatableWon)이 그대로 매수 예산이 되는데,
+    //   초안은 자동 저장이 아니라 "배분 확정 저장" 버튼을 눌러야 갱신된다. 그래서 저장
+    //   이후 assetSize 나 부동산이 바뀌면 화면에는 새 금액이 떠도 확정은 옛 금액으로
+    //   돈다 — 예외도 경고도 없이 매수액만 조용히 틀어진다. 실제로 2026-09-08 자산 모델
+    //   변경 때 이기량 초안이 옛 모델 값(투자가능자산 279.8억)으로 남아 있었다.
+    //
+    //   신선도를 타임스탬프로 판단하지 않는 이유: portfolio_drafts.updated_at 은 초안이
+    //   저장된 시각일 뿐이고, 정작 비교 대상인 parties.asset_size 에는 변경 이력이 없다.
+    //   "초안이 언제 저장됐는가"를 알아도 "그 뒤 AUM 이 바뀌었는가"는 알 수 없다.
+    //   그래서 시각이 아니라 값 자체를 대조한다.
+    //
+    //   초안이 아예 없으면 막지 않는다 — availableFundsWon 이 0 이 되어 매수가 일어나지
+    //   않으므로 잘못된 금액이 나갈 위험 자체가 없다. 반대로 초안은 있는데 investableWon
+    //   이 없는 구버전 초안은 대조가 불가능하므로 막는 쪽(fail closed)을 택한다.
+    const draft = loadManualPortfolioDraft(clientId);
+    const currentAumWon = Math.round(investableWon ?? client.assetSize ?? 0);
+    const draftAumWon = draft?.investableWon != null ? Math.round(draft.investableWon) : null;
+    if (draft && draftAumWon !== currentAumWon) {
+      alert(
+        [
+          "포트폴리오 초안이 현재 AUM 과 맞지 않아 확정할 수 없습니다.",
+          "",
+          `초안에 저장된 AUM : ${draftAumWon == null ? "기록 없음 (구버전 초안)" : formatKRW(draftAumWon)}`,
+          `현재 AUM          : ${formatKRW(currentAumWon)}`,
+          "",
+          'Portfolio Customizing 탭에서 "배분 확정 저장"을 다시 눌러 초안을 갱신한 뒤 확정해 주세요.',
+          '초안에 저장된 "배분 가능 자산"이 그대로 매수 예산으로 쓰이기 때문에, 갱신하지 않고 확정하면 옛 금액으로 매수가 기입됩니다.',
+        ].join("\n"),
+      );
+      return;
+    }
+
     if (!confirm("IPS·PDF 단계를 승인할까요?\n(상담 진행 7단계가 완료됩니다)\n\n※ 보유종목 반영은 KIS 시세 스냅샷 기준 장부 기입이며, 실제 증권사 주문이 아닙니다.")) return;
 
     // 승인·보유 반영 전에 시세·매수계획을 먼저 검증한다. 실패 시 승인하지 않는다.
-    const draft = loadManualPortfolioDraft(clientId);
     const availableFundsWon = Math.max(0, draft?.allocatableWon ?? 0);
 
     const quoteTickers = (draft?.selected ?? [])
@@ -722,7 +763,7 @@ export default function ClientDetailPage() {
             <div className="min-w-0">
               <div className="flex flex-wrap gap-1.5"><span className="badge-navy font-mono">{client.code}</span><span className="badge-muted">{CLIENT_TYPE_LABEL[client.clientType]}</span>{client.isMajorityShareholder && <span className="badge-warning">최대주주</span>}</div>
               <h1 className="mt-2 truncate text-2xl font-black tracking-tight text-fg">{client.name}</h1>
-              <p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#0D57BA]">{formatKRW(investableWon ?? client.assetSize)}</b> (총자산 {formatKRW(client.assetSize)}){riskProfile ? ` · ${riskProfile}` : ""}</p>
+              <p className="mt-1 text-xs text-fg-muted">Customer 360 · AUM <b className="text-[#0D57BA]">{formatKRW(investableWon ?? client.assetSize)}</b> (총자산 {formatKRW(totalAssetWon ?? client.assetSize)}){riskProfile ? ` · ${riskProfile}` : ""}</p>
             </div>
           </div>
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto lg:min-w-[480px]">
