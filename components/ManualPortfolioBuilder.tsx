@@ -569,13 +569,22 @@ export default function ManualPortfolioBuilder({
                   <span className="block text-[10px] text-fg-muted">{item.description}</span>
                 </span>
                 <span className="flex items-center gap-1">
+                  {/* onFocus 가 event.currentTarget 이 아니라 event.target 을 읽는 이유:
+                      setState 에 함수를 넘기면 React 는 그 업데이터를 즉시 실행하지 않고
+                      다음 렌더의 useState 처리 중에 부른다. 그 시점이면 합성 이벤트의
+                      currentTarget 은 이미 null 로 되돌려져 있어
+                      "Cannot read properties of null (reading 'value')" 로 죽는다
+                      (2026-09-08 배포본 실측 — 승인 완료 고객의 포트폴리오 탭에서 이 입력란에
+                      포커스가 들어가는 순간 재현). target 은 React 가 지우지 않고, onFocus
+                      에서는 포커스를 받은 input 자신이라 의미도 같다.
+                      아래 onBlur·onKeyDown 은 동기 호출이라 currentTarget 을 그대로 쓴다. */}
                   <input
                     type="number"
                     min={inputMode === "percent" ? fixedPct : fixedWon / 100_000_000}
                     max={inputMode === "percent" ? 100 : investableWon / 100_000_000}
                     step="0.1"
                     value={allocationInputDrafts[item.id] ?? (inputMode === "percent" ? Number(finalAllocation[item.id].toFixed(2)) : Number((investableWon * finalAllocation[item.id] / 100 / 100_000_000).toFixed(2)))}
-                    onFocus={(event) => setAllocationInputDrafts((current) => ({ ...current, [item.id]: event.currentTarget.value }))}
+                    onFocus={(event) => setAllocationInputDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
                     onChange={(event) => setAllocationInputDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
                     onBlur={(event) => commitAllocationInput(item.id, event.currentTarget.value)}
                     onKeyDown={(event) => {
