@@ -1917,6 +1917,16 @@ function buildKodexTaxSavingPlan(
 export function computeAssetLayer(heldAssets?: HeldAssets): AssetLayerSummary | null {
   if (!heldAssets || heldAssets.totalKrw <= 0) return null;
   const { stocksKrw, realEstateKrw, cashKrw, totalKrw } = heldAssets;
+  // 이 뺄셈은 옛 모델(asset_size = 부동산 포함 총자산 → 투자가능자산 = 총자산 − 부동산)의
+  // 식 그대로다. 새 모델(2026-09-08, lib/assets.ts)에서 AUM 은 asset_size 자체이고 부동산은
+  // AUM 밖에 얹히는 값이라 뺄 것이 없는데, 호출부(PortfolioPanel 등)가 totalKrw 에 새 모델의
+  // 총자산 = AUM + 부동산 을 넣어 넘기므로 이 뺄셈이 상쇄되어 결과가 정확히 AUM 이 된다.
+  // 식이 맞아서가 아니라 입력이 맞춰 주고 있는 것이다.
+  //
+  // ⚠️ 그래서 호출부가 totalKrw 에 AUM 만(또는 부동산이 빠진 다른 총액을) 넘기는 순간
+  //    investableKrw 가 AUM − 부동산으로 조용히 줄어든다. 예외도 NaN 도 나지 않고 화면
+  //    숫자만 틀린다. 아래 stocksPct·realEstatePct·cashPct 의 분모도 같은 totalKrw 이므로
+  //    함께 어긋난다. totalKrw 를 넘기는 쪽을 고칠 때는 이 상쇄 관계를 반드시 같이 봐라.
   const investableKrw = totalKrw - realEstateKrw;
   const stocksPct = (stocksKrw / totalKrw) * 100;
   const realEstatePct = (realEstateKrw / totalKrw) * 100;

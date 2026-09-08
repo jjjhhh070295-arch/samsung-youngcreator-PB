@@ -726,7 +726,7 @@ export default function ClientDetailPage() {
                     투자가능자산{" "}
                     <b className="text-[#0D57BA]">{formatKRW(investableWon ?? client.assetSize)}</b>
                   </span>
-                  <AssetAllocationBar clientId={clientId} totalAsset={client.assetSize ?? 0} refreshKey={assetRefreshKey} />
+                  <AssetAllocationBar clientId={clientId} aum={client.assetSize ?? 0} refreshKey={assetRefreshKey} />
                 </div>
                 {(linkedClient || client.accountSeparation) && (
                   <p className="mt-1 text-xs text-fg-muted">

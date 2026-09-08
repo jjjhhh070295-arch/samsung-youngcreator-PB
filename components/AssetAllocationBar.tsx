@@ -3,18 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-// ⚠️ 알려진 한계 — 부모의 "투자가능자산" 금액과 이 바의 분모가 갈라질 수 있다.
-//   이 컴포넌트의 주식 평가액은 KIS 실시간 시세(/api/prices)로 구하고, 부모가 쓰는
-//   lib/assets.ts 의 resolveAssetBreakdown 은 평균단가(avg_price)로 구한다.
-//   두 값은 base = max(assetSize, 주식 + 부동산) 안에서만 쓰이므로 assetSize 가 더 큰
-//   일반적인 경우에는 base 가 양쪽 다 assetSize 라 investable 이 같은 값으로 나온다.
-//   그러나 주식 + 부동산이 assetSize 를 넘는 고객에서는 base 가 갈라져 분모가 달라진다.
-//   2026-09-07 실데이터 기준으로 그런 고객은 없다(김석진이 부동산 108.5억 / assetSize
-//   150.0억으로 가장 가깝다). 실제로 어긋나는 고객이 나오면 그때 기준을 하나로 모은다.
+// 분모는 AUM 이다. 부동산은 여기서 빼지 않는다.
+//   2026-09-08 자산 모델 변경(lib/assets.ts) 이후 asset_size 는 그 자체로 AUM(운용자산)이고,
+//   부동산은 AUM 밖에 따로 얹히는 값이다. 예전에는 asset_size 가 "부동산 포함 총자산"이라
+//   여기서 부동산을 빼 투자가능자산을 역산했는데, 지금 그렇게 하면 이미 부동산이 빠져 있는
+//   값에서 한 번 더 빼는 이중 차감이 된다. 그러면 같은 줄 앞에 부모가 찍는 AUM 금액보다
+//   분모가 작아져, 기본정보 탭과 포트폴리오 탭의 비중이 서로 다르게 나온다.
+//
+//   남은 차이는 주식 평가액뿐이다 — 이 컴포넌트만 KIS 실시간 시세(/api/prices)를 쓰고
+//   lib/assets.ts 는 평균단가(avg_price)를 쓴다. 분모(AUM)는 양쪽 다 asset_size 를 그대로
+//   쓰므로 이제 갈라지지 않고, 달라지는 것은 주식과 현금·기타 사이의 배분뿐이다.
+//
+//   보유종목 합계가 AUM 을 넘으면 주식이 100% 를 넘고 현금·기타가 0 으로 눌린다. 덮지
+//   않는다 — 계산으로 가릴 게 아니라 데이터가 어긋났다는 신호다(lib/assets.ts 와 같은 판단).
 interface Props {
   clientId: string;
-  /** assetSize(원 단위, 부동산 포함 총자산). 분모로 쓸 투자가능자산은 여기서 부동산을 빼 만든다. */
-  totalAsset: number;
+  /** AUM(원 단위) = parties.asset_size 그대로. 부동산은 여기 포함돼 있지 않다. */
+  aum: number;
   /**
    * 값이 바뀌면 다시 읽는다. 보유종목·부동산이 추가/삭제/수정될 때 부모가 올린다.
    * 예전에는 deps 가 [clientId, totalAsset] 뿐이라, 종목을 지워도 이 바는 그대로였고
@@ -29,7 +34,8 @@ interface Alloc {
   stocksFallback: number; // 평균단가 폴백 합계
   realEstate: number;
   cash: number;
-  total: number;
+  /** 분모로 쓰는 AUM. prop 을 그대로 담는다(부동산 미포함). */
+  aum: number;
 }
 
 interface HoldingRow {
@@ -47,7 +53,7 @@ function formatW(n: number) {
   return n.toLocaleString("ko-KR");
 }
 
-export default function AssetAllocationBar({ clientId, totalAsset, refreshKey = 0 }: Props) {
+export default function AssetAllocationBar({ clientId, aum, refreshKey = 0 }: Props) {
   const [alloc, setAlloc] = useState<Alloc | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -162,22 +168,26 @@ export default function AssetAllocationBar({ clientId, totalAsset, refreshKey = 
           0,
         );
 
-        const base = Math.max(totalAsset, stocks + realEstate);
-        const cash = Math.max(0, base - stocks - realEstate);
+        // AUM 은 넘겨받은 값을 그대로 쓴다. 예전에는 max(assetSize, 주식 + 부동산) 으로
+        // 실측이 더 크면 실측을 택했는데, 부동산이 AUM 밖으로 나가면서 그 max 는 의미를
+        // 잃었고 실측 초과는 덮지 않고 드러내기로 했다(파일 상단 주석).
+        // 현금·기타 = AUM − 주식. 부동산은 애초에 AUM 밖이라 빼지 않는다.
+        const cash = Math.max(0, aum - stocks);
 
-        setAlloc({ stocks, stocksLive, stocksFallback, realEstate, cash, total: base });
+        setAlloc({ stocks, stocksLive, stocksFallback, realEstate, cash, aum });
       } finally {
         setLoading(false);
       }
     })();
-  }, [clientId, totalAsset, refreshKey]);
+  }, [clientId, aum, refreshKey]);
 
-  if (loading || !alloc || alloc.total === 0) return null;
+  // 예전 가드는 total === 0 이었고 total 에 부동산이 들어 있어, 부동산만 가진 고객은
+  // 여기를 통과했다. AUM 에서 부동산이 빠진 지금은 둘 다 0 일 때만 숨긴다.
+  if (loading || !alloc || (alloc.aum <= 0 && alloc.realEstate <= 0)) return null;
 
-  // 분모는 총자산이 아니라 투자가능자산(총자산 − 부동산)이다. 부모가 같은 줄 앞에 찍는
-  // "투자가능자산" 금액과 기준이 같아야 비중과 금액이 서로 맞는다. 예전에는 분모가
-  // 총자산이라, 부동산을 뺀 금액 옆에 부동산을 포함한 분모의 비중이 나란히 붙었다.
-  const investable = Math.max(0, alloc.total - alloc.realEstate);
+  // 분모 = AUM. 부동산을 빼지 않는 이유는 파일 상단 주석 참고. 부모가 같은 줄 앞에 찍는
+  // AUM 금액과 기준이 같아야 비중과 금액이 서로 맞는다.
+  const investable = Math.max(0, alloc.aum);
 
   // 부동산은 비중 계산에서 빼고 아래에서 금액만 따로 보인다 — 화면에서 없애지는 않는다.
   // 분모에 없는 항목에 퍼센트를 붙이면 합이 100%를 넘는다.
@@ -229,7 +239,7 @@ export default function AssetAllocationBar({ clientId, totalAsset, refreshKey = 
         </span>
       ))}
       {alloc.realEstate > 0 && (
-        <span className="flex items-center gap-1" title="투자가능자산에 포함되지 않습니다">
+        <span className="flex items-center gap-1" title="AUM에 포함되지 않습니다">
           <span className="text-fg-muted/40">·</span>
           <span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: "#f59e0b" }} />
           <span>
