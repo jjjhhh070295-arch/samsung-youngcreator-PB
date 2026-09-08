@@ -3,7 +3,8 @@
 // 고객 개인정보는 이 라우트에 절대 들어오지 않는다 — 요청 바디는 overwrite 플래그뿐이고,
 // LLM에는 시장 공통 프롬프트만 전달한다. 개인화(고객별 발송)는 여기서 다루지 않는다.
 //
-// Authorization: Bearer {CRON_SECRET} 헤더로 보호(lib/cronAuth.ts) — fail-closed.
+// Authorization: Bearer {BRIEFING_CRON_SECRET} 헤더로 보호(lib/cronAuth.ts) — fail-closed.
+// 옛 이름 CRON_SECRET 도 폴백으로 받는다.
 // 개발 환경(NODE_ENV=development)에서는 시크릿 없이도 통과한다.
 
 import { NextResponse } from "next/server";
@@ -279,7 +280,7 @@ export async function GET(req: Request) {
 
 // 수동 트리거 — 화면의 "오늘 리포트 생성" 버튼과 "덮어쓰고 다시 생성"이 여기로 온다.
 //
-// 크론 시크릿 또는 PB 인증 둘 중 하나면 통과한다. 브라우저에는 CRON_SECRET 을 둘 수
+// 크론 시크릿 또는 PB 인증 둘 중 하나면 통과한다. 브라우저에는 크론 시크릿을 둘 수
 // 없으므로, 시크릿만 받으면 프로덕션에서 버튼이 항상 401 로 끝난다 — 화면에서 버튼을
 // 열어 두려면 사람 쪽 경로가 하나 더 있어야 한다.
 // 비용 주의: 1회 생성이 $1 수준이다. overwrite=false 면 같은 날 두 번째 호출은

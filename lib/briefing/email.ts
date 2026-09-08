@@ -56,11 +56,21 @@ export function buildReplyTo(pb: PbIdentity | null): string | undefined {
 
 // ── 수신거부 토큰 ──────────────────────────────────────────────────────────
 // 링크 하나로 남의 수신거부를 눌러버릴 수 있으면 안 되므로 clientId 에 HMAC 을 건다.
-// 비밀키는 전용 값(UNSUBSCRIBE_SECRET)을 우선하고, 없으면 CRON_SECRET 을 재사용한다.
-// 둘 다 없으면 null — 이때 발송 라우트는 아예 보내지 않는다. 수신거부 수단이 없는
+// 비밀키는 전용 값(UNSUBSCRIBE_SECRET)을 우선하고, 없으면 크론 시크릿을 재사용한다.
+// 크론 시크릿은 BRIEFING_CRON_SECRET → CRON_SECRET 순서다(lib/cronAuth.ts 의 cronSecret
+// 과 같은 우선순위 — Vercel 이 CRON_SECRET 을 예약어로 막아 이름을 옮기는 중이다).
+// 셋 다 없으면 null — 이때 발송 라우트는 아예 보내지 않는다. 수신거부 수단이 없는
 // 브리핑은 보내면 안 되기 때문이다(정보통신망법).
+//
+// ⚠️ 폴백 대상이 바뀌면 이미 발송된 메일의 수신거부 링크 서명이 깨진다. 두 이름에 같은
+//    값을 넣어 두고 옮겨야 한다 — 값이 달라지면 기존 링크가 전부 무효가 된다.
 export function unsubscribeSecret(): string | null {
-  return process.env.UNSUBSCRIBE_SECRET?.trim() || process.env.CRON_SECRET?.trim() || null;
+  return (
+    process.env.UNSUBSCRIBE_SECRET?.trim() ||
+    process.env.BRIEFING_CRON_SECRET?.trim() ||
+    process.env.CRON_SECRET?.trim() ||
+    null
+  );
 }
 
 export function buildUnsubscribeToken(clientId: string, secret: string): string {

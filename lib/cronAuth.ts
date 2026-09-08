@@ -9,8 +9,17 @@
 // 유일한 예외는 NODE_ENV==="development"일 때뿐이다 — 로컬 개발 중 매번
 // .env.local에 시크릿을 채워 넣지 않아도 되게 하기 위함이며, Vercel
 // 프로덕션 배포는 NODE_ENV가 항상 "production"이라 이 예외가 적용되지 않는다.
+//
+// 이름이 BRIEFING_CRON_SECRET 인 이유: Vercel 이 CRON_SECRET 을 예약어로 막아
+// 프로젝트 환경변수로 등록할 수 없다. 옛 이름은 폴백으로 남겨 둔다 — 로컬
+// .env.local 이 아직 CRON_SECRET 이라 양쪽 다 동작해야 한다.
+// 폴백을 걷어내려면 로컬·Vercel 양쪽이 새 이름으로 옮겨간 뒤에 해야 한다.
+export function cronSecret(): string | undefined {
+  return process.env.BRIEFING_CRON_SECRET || process.env.CRON_SECRET;
+}
+
 export function isAuthorizedCronRequest(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
+  const secret = cronSecret();
   if (secret) {
     const auth = req.headers.get("authorization");
     return auth === `Bearer ${secret}`;

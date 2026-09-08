@@ -2,7 +2,8 @@
 // GET  /api/research/snapshot  — Vercel Cron 자동 호출용 (동일 로직)
 //
 // 같은 날 이미 스냅샷이 있으면 skip (append-only, 덮어쓰기 없음).
-// Authorization: Bearer {CRON_SECRET} 헤더로 보호(lib/cronAuth.ts) — fail-closed:
+// Authorization: Bearer {BRIEFING_CRON_SECRET} 헤더로 보호(lib/cronAuth.ts) — fail-closed:
+// (옛 이름 CRON_SECRET 폴백. 이름만 브리핑용일 뿐 스냅샷도 같은 키를 쓴다.)
 // 시크릿이 없으면 프로덕션에서는 무조건 거부한다(개발 환경 예외만 있음).
 //
 // 점수 계산: scoreResearchSignals(capFactor 방식) — 화면 신호와 동일 알고리즘.

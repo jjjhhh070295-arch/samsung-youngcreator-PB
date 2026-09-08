@@ -5,7 +5,8 @@
 //        확인 없이 전 고객에게 나가는 사고를 막으려고 크론 경로와 다르게 잠가 뒀다.
 //        { dryRun: true } 는 대상만 계산하고, { testEmail } 은 그 주소 한 곳으로만 보낸다.
 //
-// 둘 다 Authorization: Bearer {CRON_SECRET} 로 보호한다(lib/cronAuth.ts, fail-closed).
+// 둘 다 Authorization: Bearer {BRIEFING_CRON_SECRET} 로 보호한다(lib/cronAuth.ts,
+// fail-closed). 옛 이름 CRON_SECRET 도 폴백으로 받는다 — cronSecret() 참고.
 //
 // 발송 전 조건을 모두 통과해야 한 통이라도 나간다 — 하나라도 어긋나면 아무도 안 받는
 // 상태가 조용히 성공으로 보고되는 게 최악이라, 시작 전에 전부 막는다:
@@ -96,7 +97,7 @@ async function runSend(req: Request, opts: SendOptions) {
         ok: false,
         code: "NO_UNSUBSCRIBE_SECRET",
         error:
-          "UNSUBSCRIBE_SECRET(또는 CRON_SECRET)이 없어 수신거부 링크에 서명할 수 없습니다. 수신거부 수단 없이는 발송하지 않습니다.",
+          "UNSUBSCRIBE_SECRET(또는 BRIEFING_CRON_SECRET / CRON_SECRET)이 없어 수신거부 링크에 서명할 수 없습니다. 수신거부 수단 없이는 발송하지 않습니다.",
       },
       { status: 200 },
     );
