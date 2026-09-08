@@ -92,6 +92,11 @@ export function buildPortfolioApprovalPayload(
         name: s.name,
         assetClass: s.assetClass,
         weightWithinClass: s.weightWithinClass,
+        designatedPrice: s.designatedPrice ?? null,
+        plannedQuantity: s.plannedQuantity ?? null,
+        currency: s.currency ?? null,
+        fxRate: s.fxRate ?? null,
+        faceValue: s.faceValue ?? null,
       }))
       .sort((a, b) => a.symbol.localeCompare(b.symbol)),
     portfolios: (client.portfolios ?? []).map(simplifyPortfolio),

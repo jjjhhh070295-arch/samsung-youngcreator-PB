@@ -173,10 +173,16 @@ export interface ClientBookRow {
   totalAssets: number;
   investedAmount: number;
   totalReturnPct: number | null;
+  /** 총수익률 산출 상태 — incomplete/unavailable 시 배지 없음 */
+  returnStatus?: "ok" | "incomplete" | "unavailable";
+  returnNote?: string | null;
+  /** Book 태그 컬럼 전용 — 손실중 | 관리필요 | null(—) */
+  bookLossTag?: "손실중" | "관리필요" | null;
   riskGrade: RiskGrade;
   riskScore: number | null;
   holdings: HoldingChip[];
   lastConsultation: ConsultationStatus | null;
+  /** 레거시 분석용(Book UI에는 표시하지 않음) */
   flags: ClientFlag[];
   cashNeed12m: number;
   heritagePriority?: ClientHeritagePriority;

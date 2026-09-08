@@ -39,7 +39,16 @@ type Instrument = {
   source: string;
 };
 
-type SelectedInstrument = Instrument & { assetClass: AssetClass; weightWithinClass: number };
+type SelectedInstrument = Instrument & {
+  assetClass: AssetClass;
+  weightWithinClass: number;
+  designatedPrice?: number | null;
+  quotationKind?: "share" | "bond_face" | "unit";
+  quantityIncrement?: number;
+  faceValue?: number | null;
+  fxRate?: number | null;
+  plannedQuantity?: number | null;
+};
 
 type ExistingHolding = {
   id: string;
@@ -380,7 +389,30 @@ export default function ManualPortfolioBuilder({
       if (current.some((item) => item.assetClass === assetClass && sameInstrument(item.symbol, instrument.symbol))) {
         return current;
       }
-      return redistributeAssetClassWeights([...current, { ...instrument, assetClass, weightWithinClass: 0 }], assetClass);
+      const quotationKind: SelectedInstrument["quotationKind"] =
+        assetClass === "domesticBond" || assetClass === "globalBond"
+          ? /ETF|ETN/i.test(instrument.kind)
+            ? "share"
+            : "bond_face"
+          : assetClass === "alternatives" && /WRAP|TRUST|ELS|ELB/i.test(instrument.kind)
+            ? "unit"
+            : "share";
+      return redistributeAssetClassWeights(
+        [
+          ...current,
+          {
+            ...instrument,
+            assetClass,
+            weightWithinClass: 0,
+            designatedPrice: instrument.price != null && instrument.price > 0 ? instrument.price : null,
+            quotationKind,
+            quantityIncrement: quotationKind === "share" ? 1 : quotationKind === "bond_face" ? 1 : 0.0001,
+            faceValue: quotationKind === "bond_face" ? 10_000 : null,
+            fxRate: instrument.currency === "USD" ? null : 1,
+          },
+        ],
+        assetClass,
+      );
     });
   };
 
@@ -661,13 +693,33 @@ export default function ManualPortfolioBuilder({
                   </p>
                 ) : (
                   <div className="mt-2 space-y-2">
-                    {selectedForClass.map((item) => (
-                      <div key={`${item.assetClass}-${item.symbol}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-white px-3 py-2">
+                    {selectedForClass.map((item) => {
+                      const classBudget = allocatableWon * (allocation[item.assetClass] || 0) / 100;
+                      const lineBudget = classBudget * (item.weightWithinClass || 0) / 100;
+                      const px = item.designatedPrice;
+                      const currency = item.currency || "KRW";
+                      const fx = currency === "USD" ? (item.fxRate && item.fxRate > 0 ? item.fxRate : 1350) : 1;
+                      const budgetLocal = currency === "USD" ? lineBudget / fx : lineBudget;
+                      let unitCost = px != null && px > 0 ? px : null;
+                      if (unitCost != null && item.quotationKind === "bond_face" && item.faceValue && px != null && px <= 200) {
+                        unitCost = (item.faceValue * px) / 100;
+                      }
+                      const increment = item.quantityIncrement && item.quantityIncrement > 0 ? item.quantityIncrement : 1;
+                      const rawQty = unitCost && unitCost > 0 ? budgetLocal / unitCost : 0;
+                      const calcQty = Number.isFinite(rawQty) ? Math.floor(rawQty / increment) * increment : 0;
+                      const qty = item.plannedQuantity != null && item.plannedQuantity >= 0 ? item.plannedQuantity : calcQty;
+                      const costLocal = unitCost != null ? qty * unitCost : null;
+                      const costKrw = costLocal != null ? (currency === "USD" ? costLocal * fx : costLocal) : null;
+                      const remainder = costKrw != null ? Math.max(0, lineBudget - costKrw) : null;
+
+                      return (
+                      <div key={`${item.assetClass}-${item.symbol}`} className="rounded-lg border border-border bg-white px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-xs font-bold text-fg">{item.name}</p>
                           <p className="text-[10px] text-fg-muted">
                             {item.symbol}
-                            {item.price != null ? ` · ${formatPrice(item.price, item.currency)}` : ""}
+                            {item.price != null ? ` · 참고시세 ${formatPrice(item.price, item.currency)}` : ""}
                             {item.source ? ` · ${item.source}` : ""}
                             {item.asOf ? ` · as-of ${item.asOf.slice(0, 10)}` : ""}
                           </p>
@@ -679,11 +731,124 @@ export default function ManualPortfolioBuilder({
                           value={item.weightWithinClass}
                           onChange={(event) => setSelected((current) => current.map((candidate) => candidate.assetClass === item.assetClass && candidate.symbol === item.symbol ? { ...candidate, weightWithinClass: Math.max(0, Math.min(100, Number(event.target.value) || 0)) } : candidate))}
                           className="w-16 rounded border border-border px-2 py-1 text-right text-xs font-bold"
+                          aria-label="자산군 내 비중"
                         />
                         <span className="text-xs text-fg-muted">%</span>
+                        <label className="flex items-center gap-1 text-[10px] font-bold text-fg-muted">
+                          지정가
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={item.designatedPrice ?? ""}
+                            placeholder={currency}
+                            onChange={(event) => {
+                              const raw = event.target.value;
+                              const next = raw === "" ? null : Number(raw);
+                              setSelected((current) =>
+                                current.map((candidate) =>
+                                  candidate.assetClass === item.assetClass && candidate.symbol === item.symbol
+                                    ? {
+                                        ...candidate,
+                                        designatedPrice: next != null && Number.isFinite(next) ? next : null,
+                                        plannedQuantity: null,
+                                      }
+                                    : candidate,
+                                ),
+                              );
+                            }}
+                            className="w-24 rounded border border-[#1428A0]/30 px-2 py-1 text-right text-xs font-bold text-[#1428A0]"
+                          />
+                          <span>{currency}</span>
+                        </label>
                         <button type="button" onClick={() => setSelected((current) => redistributeAssetClassWeights(current.filter((candidate) => !(candidate.assetClass === item.assetClass && candidate.symbol === item.symbol)), item.assetClass))} className="text-xs font-bold text-rose-500">삭제</button>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-fg-muted">
+                          <span>배정 {formatWon(lineBudget)}</span>
+                          {item.quotationKind === "bond_face" ? (
+                            <label className="flex items-center gap-1 font-bold">
+                              액면
+                              <input
+                                type="number"
+                                min="0"
+                                value={item.faceValue ?? ""}
+                                onChange={(event) => {
+                                  const next = event.target.value === "" ? null : Number(event.target.value);
+                                  setSelected((current) =>
+                                    current.map((candidate) =>
+                                      candidate.assetClass === item.assetClass && candidate.symbol === item.symbol
+                                        ? { ...candidate, faceValue: next != null && Number.isFinite(next) ? next : null }
+                                        : candidate,
+                                    ),
+                                  );
+                                }}
+                                className="w-20 rounded border border-border px-1.5 py-0.5 text-right text-[10px] font-bold"
+                              />
+                            </label>
+                          ) : null}
+                          {currency === "USD" ? (
+                            <label className="flex items-center gap-1 font-bold">
+                              FX
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.fxRate ?? ""}
+                                placeholder="1350"
+                                onChange={(event) => {
+                                  const next = event.target.value === "" ? null : Number(event.target.value);
+                                  setSelected((current) =>
+                                    current.map((candidate) =>
+                                      candidate.assetClass === item.assetClass && candidate.symbol === item.symbol
+                                        ? { ...candidate, fxRate: next != null && Number.isFinite(next) ? next : null }
+                                        : candidate,
+                                    ),
+                                  );
+                                }}
+                                className="w-16 rounded border border-border px-1.5 py-0.5 text-right text-[10px] font-bold"
+                              />
+                            </label>
+                          ) : null}
+                          <label className="flex items-center gap-1 font-bold text-fg">
+                            수량
+                            <input
+                              type="number"
+                              min="0"
+                              step={increment}
+                              value={qty || ""}
+                              onChange={(event) => {
+                                const next = event.target.value === "" ? null : Number(event.target.value);
+                                setSelected((current) =>
+                                  current.map((candidate) =>
+                                    candidate.assetClass === item.assetClass && candidate.symbol === item.symbol
+                                      ? {
+                                          ...candidate,
+                                          plannedQuantity:
+                                            next != null && Number.isFinite(next) && next >= 0 ? next : null,
+                                        }
+                                      : candidate,
+                                  ),
+                                );
+                              }}
+                              className="w-20 rounded border border-border px-1.5 py-0.5 text-right text-[10px] font-bold"
+                            />
+                            <span className="font-normal text-fg-muted">
+                              (자동 {calcQty.toLocaleString("ko-KR")}
+                              {increment !== 1 ? ` · 증분 ${increment}` : ""})
+                            </span>
+                          </label>
+                          {costKrw != null ? (
+                            <span className="font-bold text-[#1428A0]">
+                              매수약정 {formatWon(costKrw)}
+                              {remainder != null && remainder > 0 ? ` · 잔여현금 ${formatWon(remainder)}` : ""}
+                            </span>
+                          ) : (
+                            <span className="font-bold text-amber-700">지정가 입력 후 수량·금액이 계산됩니다</span>
+                          )}
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {Math.abs(withinClassTotal - 100) >= 0.001 && (
                       <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
                         {ASSET_CLASSES.find((a) => a.id === activeClass)?.label} 내 비중 합계가 100%가 아닙니다. (현재 {withinClassTotal.toFixed(1)}%)

@@ -28,7 +28,7 @@ import ConsultationScheduleModal from "@/components/advisory/ConsultationSchedul
 import ExtraEventModal from "@/components/advisory/ExtraEventModal";
 import ClientAvatar from "@/components/ClientAvatar";
 import { buildClientBookRow } from "@/lib/advisory/book";
-import { listBookHoldings } from "@/lib/advisory/holdingsStore";
+import { listBookHoldings, enrichBookHoldingsWithQuotes } from "@/lib/advisory/holdingsStore";
 import { resolveHeritageInputsBulk } from "@/lib/heritage";
 import { resolveAssetBreakdownBulk } from "@/lib/assets";
 
@@ -69,7 +69,8 @@ export default function PBPage() {
       setAllClients(clients);
       setConsultations(cons);
       const mine = clients.filter((c) => c.assignedPbId === pbId);
-      const holdings = await listBookHoldings(mine.map((c) => c.id));
+      const holdingsRaw = await listBookHoldings(mine.map((c) => c.id));
+      const { holdings, fxUsdKrw } = await enrichBookHoldingsWithQuotes(holdingsRaw);
       const asOf = new Date().toISOString();
 
       // 헤리티지 판정 입력을 벌크로 조립 — 고객 한 명마다 쿼리를 새로 날리지 않고 4개 쿼리로
@@ -91,7 +92,9 @@ export default function PBPage() {
         asOf: new Date(asOf),
       });
 
-      const rows = mine.map((c) => buildClientBookRow(c, holdings, cons, asOf, heritageInputs.get(c.id)));
+      const rows = mine.map((c) =>
+        buildClientBookRow(c, holdings, cons, asOf, heritageInputs.get(c.id), fxUsdKrw),
+      );
       setBookRows(rows);
       setStatus("ready");
     } catch (e) {

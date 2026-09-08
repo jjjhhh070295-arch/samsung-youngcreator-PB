@@ -57,6 +57,7 @@ import {
 } from "@/lib/advisory/approvalSnapshots";
 import { loadBundle } from "@/lib/advisory/control";
 import { loadManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
+import { applyIpsHoldingsSync } from "@/lib/advisory/ipsHoldingsSync";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -544,7 +545,54 @@ export default function ClientDetailPage() {
     setClient(nextClient);
     syncEvidenceAfterIpsApproval(nextClient);
     notifyClientUpdated();
-    alert(MSG_IPS_APPROVED);
+
+    // IPS 확정 후 신규 편입 종목을 보유종목에 반영(멱등). 승인 자체는 유지.
+    try {
+      const draft = loadManualPortfolioDraft(clientId);
+      const investable =
+        draft?.allocatableWon && draft.allocatableWon > 0
+          ? draft.allocatableWon
+          : draft?.investableWon && draft.investableWon > 0
+            ? draft.investableWon
+            : client.assetSize || 0;
+      let fxUsdKrw = 1350;
+      try {
+        const fxRes = await fetch("/api/prices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tickers: [] }),
+        });
+        if (fxRes.ok) {
+          const fxJson = await fxRes.json();
+          if (Number(fxJson.fxUsdKrw) > 0) fxUsdKrw = Number(fxJson.fxUsdKrw);
+        }
+      } catch {
+        /* keep default FX */
+      }
+      const sync = await applyIpsHoldingsSync({
+        clientId,
+        pbId,
+        ipsHash: approvalHashes.ips!,
+        investableWon: investable,
+        fxUsdKrw,
+        draft,
+      });
+      if (sync.status === "applied") {
+        bumpAssetRefresh();
+        alert(
+          `${MSG_IPS_APPROVED}\n보유종목 반영: ${sync.linesApplied}건 (IPS 확정 기준)`,
+        );
+      } else if (sync.status === "failed") {
+        alert(
+          `${MSG_IPS_APPROVED}\n보유종목 반영 대기/실패: ${sync.error || "재시도가 필요합니다."}`,
+        );
+      } else {
+        alert(MSG_IPS_APPROVED);
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`${MSG_IPS_APPROVED}\n보유종목 동기화 오류: ${e?.message || e}`);
+    }
   };
 
   const saveComprehensiveTaxFlag = async (value: boolean) => {

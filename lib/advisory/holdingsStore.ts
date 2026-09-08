@@ -106,3 +106,62 @@ export async function listBookHoldings(clientIds?: string[]): Promise<BookHoldin
   }
   return filtered;
 }
+
+/** /api/prices 로 현재가·FX를 붙여 총수익률·손실 태그를 계산할 수 있게 한다. */
+export async function enrichBookHoldingsWithQuotes(
+  holdings: BookHolding[],
+): Promise<{ holdings: BookHolding[]; fxUsdKrw: number }> {
+  const tickers = Array.from(
+    new Set(
+      holdings
+        .map((h) => h.ticker)
+        .filter((t): t is string => !!t && t.trim().length > 0),
+    ),
+  );
+  if (tickers.length === 0 || typeof window === "undefined") {
+    return { holdings, fxUsdKrw: 1350 };
+  }
+  try {
+    const res = await fetch("/api/prices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tickers: tickers.map((ticker) => {
+          const h = holdings.find((x) => x.ticker === ticker);
+          return { ticker, currency: (h?.currency === "USD" ? "USD" : "KRW") as "KRW" | "USD" };
+        }),
+      }),
+    });
+    if (!res.ok) return { holdings, fxUsdKrw: 1350 };
+    const json = await res.json();
+    const fxUsdKrw = Number(json.fxUsdKrw) > 0 ? Number(json.fxUsdKrw) : 1350;
+    const quoteMap = new Map<string, { price: number | null; as_of?: string; source?: string }>();
+    for (const q of json.quotes ?? []) {
+      if (q?.ticker) quoteMap.set(String(q.ticker).toUpperCase(), q);
+    }
+    const asOf = new Date().toISOString();
+    const next = holdings.map((h) => {
+      if (!h.ticker) return h;
+      const q = quoteMap.get(h.ticker.toUpperCase());
+      const lastPrice = q?.price != null && Number.isFinite(q.price) && q.price > 0 ? Number(q.price) : null;
+      return toBookHolding(
+        {
+          id: h.id,
+          clientId: h.clientId,
+          name: h.name,
+          ticker: h.ticker,
+          market: h.market,
+          currency: h.currency,
+          quantity: h.quantity,
+          avgPrice: h.avgPrice,
+          lastPrice,
+        },
+        q?.as_of || asOf,
+        q?.source ? `quote:${q.source}` : h.source,
+      );
+    });
+    return { holdings: next, fxUsdKrw };
+  } catch {
+    return { holdings, fxUsdKrw: 1350 };
+  }
+}
