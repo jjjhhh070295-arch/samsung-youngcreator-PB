@@ -304,15 +304,21 @@ export default function AppNav() {
   // 헤더가 사라졌으므로 네비가 최상단(top-0)에 붙는다. 헤더의 z-40을 그대로 물려받는다.
   const shell = "sticky top-0 z-40 border-b border-[#0D57BA] bg-[#1769D2] text-white";
 
-  const isPbHome = !!pbId && !clientId && pathname === `/pb/${pbId}`;
+  // PB Home · 티커분석 공통 상단 메뉴(고객 상세와 분리). 모바일도 동일 링크 행을 가로 스크롤한다.
+  const isPbWorkspaceNav =
+    !!pbId &&
+    !clientId &&
+    (pathname === `/pb/${pbId}` || pathname === `/pb/${pbId}/ticker` || pathname.startsWith(`/pb/${pbId}/ticker/`));
 
-  if (isPbHome) {
+  if (isPbWorkspaceNav) {
     const pbHomeLinks = [
-      { label: "PB Home", href: `/pb/${pbId}`, active: true },
-      { label: "고객", href: `#customer-book` },
-      { label: "상담", href: `#today-schedule` },
-      { label: "포트폴리오", href: `/pb/${pbId}/ticker` },
-      { label: "리서치", href: "/research" },
+      { label: "PB Home", href: `/pb/${pbId}`, active: pathname === `/pb/${pbId}` },
+      {
+        label: "티커분석",
+        href: `/pb/${pbId}/ticker`,
+        active: pathname === `/pb/${pbId}/ticker` || pathname.startsWith(`/pb/${pbId}/ticker/`),
+      },
+      { label: "리서치", href: "/research", active: false },
     ];
     return (
       <nav className="sticky top-0 z-40 border-b border-[#0D57BA] bg-[#1769D2] text-white" aria-label="PB Home 주요 메뉴">
@@ -332,9 +338,9 @@ export default function AppNav() {
               </Link>
             ))}
           </div>
-          <div className="ml-3 hidden shrink-0 items-center gap-2 text-xs text-white/90 md:flex">
-            <span className="h-2 w-2 rounded-full bg-[#8BE0BE]" aria-hidden="true" />
-            <span>{pbName ? `${pbName} PB` : "PB"}</span>
+          <div className="ml-3 flex shrink-0 items-center gap-2 text-xs text-white/90">
+            <span className="hidden h-2 w-2 rounded-full bg-[#8BE0BE] md:block" aria-hidden="true" />
+            <span className="hidden md:inline">{pbName ? `${pbName} PB` : "PB"}</span>
             <button type="button" onClick={handleLogout} className="rounded px-2 py-1 text-[11px] text-white/75 hover:bg-white/10 hover:text-white">로그아웃</button>
           </div>
         </div>

@@ -98,33 +98,24 @@ export default function HomePage() {
 
   return (
     <div className="mx-auto max-w-[1440px] px-3 py-4 sm:px-4 lg:px-8">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4"><div><p className="text-[11px] font-bold tracking-[0.14em] text-[#0D57BA]">SAMSUNG SECURITIES · PRIVATE BANKING</p><h1 className="mt-1 text-[26px] font-black tracking-[-0.035em] text-fg">Market Home</h1><p className="mt-1 text-sm text-fg-muted">삼성증권의 노하우로 고객의 상황에 맞춘 시장 정보와 솔루션을 제공합니다.</p><p className="mt-1 text-[11px] text-fg-muted/70">※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.</p></div></div>
-      {/* 카드 두 장("PB 로그인 상태", "관리자")을 걷어냈다.
-          전자는 상단 네비에 PB 이름·세션·로그아웃이 이미 있어 중복이었고, 후자는
-          PB 계정 관리를 쓰려면 홈으로 돌아와야 한다는 제약을 만들었다 —
-          관리는 상단 네비 ☰ 메뉴로 옮겼고(components/PBManageHost.tsx), 어느 화면에서든 열린다.
-
-          아래를 다른 것으로 채우지 않고 비운다. 홈은 로그인 직후 잠깐 거치는 화면이고
-          실제 작업은 전부 /pb/[pbId] 에서 일어난다. 시세 보드는 그 자체로 볼 값이 있어
-          남기지만, 빈자리를 메우려고 새 위젯을 넣으면 지나가는 화면에 체류 이유만 늘린다.
-
-          정정: 그때 "PB 고객관리로 돌아가기" 버튼까지 "네비의 고객조회 링크와 겹친다"고
-          보고 지웠는데, 그 링크는 URL 에 pbId 가 있을 때만 그려진다(AppNav 의 utilityItems).
-          홈에는 pbId 가 없어 겹치지 않았고, 결과적으로 홈에서 PB 화면으로 가는 길이
-          사라졌다. 아래 버튼으로 되살리고, AppNav 쪽은 세션 pbId 로 폴백하게 고쳤다. */}
-      {/* PB Home 진입 — 홈에서 실제 업무 화면으로 넘어가는 유일한 주 동선이다.
-          네비 ☰ 메뉴에도 "고객조회"가 있지만 한 단계 숨어 있고, 로그인 직후 사용자가
-          가장 먼저 누를 것이 이것이라 시세 위 눈에 띄는 자리에 큰 버튼으로 둔다. */}
-      <Link
-        href={`/pb/${loggedInPbId}`}
-        className="mb-6 flex items-center justify-between gap-4 rounded-2xl border border-[#1428A0] bg-[#1428A0] px-6 py-5 text-white shadow-card transition-colors hover:bg-[#1020c0]"
-      >
-        <span>
-          <span className="block text-base font-bold">PB Home 바로가기</span>
-          <span className="mt-0.5 block text-xs text-white/80">담당 고객 조회 · 상담 일정 · 포트폴리오</span>
-        </span>
-        <span aria-hidden="true" className="shrink-0 text-xl">→</span>
-      </Link>
+      {/* 헤더: 좌측 Market Home 제목 · 우측 PB Home 바로가기(세션 pbId, ID 하드코딩 금지) */}
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-border pb-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold tracking-[0.14em] text-[#0D57BA]">SAMSUNG SECURITIES · PRIVATE BANKING</p>
+          <h1 className="mt-1 text-[26px] font-black tracking-[-0.035em] text-fg">Market Home</h1>
+          <p className="mt-1 text-sm text-fg-muted">삼성증권의 노하우로 고객의 상황에 맞춘 시장 정보와 솔루션을 제공합니다.</p>
+          <p className="mt-1 text-[11px] text-fg-muted/70">※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.</p>
+        </div>
+        <Link
+          href={`/pb/${loggedInPbId}`}
+          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-md bg-[#1428A0] px-5 text-base font-bold text-white transition-colors hover:bg-[#1020c0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1428A0]/40 sm:h-12"
+        >
+          PB Home 바로가기
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h13m-4-4 4 4-4 4" />
+          </svg>
+        </Link>
+      </div>
       <HomeMarketBoard />
       {/* 로컬 모드 경고는 관리자 카드 안에 있었다. 데이터가 브라우저에만 저장된다는
           경고라 관리 기능과 무관하게 계속 보여야 한다. */}

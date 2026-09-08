@@ -1318,6 +1318,13 @@ export async function updateConsultation(
 
 const PB_SCHEDULE_TABLE = "pb_schedules";
 
+/** Market Home 오늘 일정 요약 등이 같은 탭에서 갱신되도록 알린다. */
+function emitPbSchedulesUpdated() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("pb-schedules-updated"));
+  }
+}
+
 /** Postgres time 은 "14:00:00" 으로 온다. 앱은 "HH:MM" 만 쓴다. */
 function toHhMm(value: unknown): string {
   return typeof value === "string" ? value.slice(0, 5) : "";
@@ -1387,7 +1394,9 @@ export async function createConsultationSchedule(
   input: { clientId: string; clientName: string; date: string; time: string; memo?: string },
 ): Promise<PbScheduleItem> {
   if (schedulesUseLocal(pbId, input.clientId)) {
-    return addConsultationSchedule(pbId, input);
+    const item = addConsultationSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
   const { data, error } = await supabase!
     .from(PB_SCHEDULE_TABLE)
@@ -1404,8 +1413,11 @@ export async function createConsultationSchedule(
     .single();
   if (error) {
     warnScheduleFallback("저장", error);
-    return addConsultationSchedule(pbId, input);
+    const item = addConsultationSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
+  emitPbSchedulesUpdated();
   return rowToPbSchedule(data);
 }
 
@@ -1414,7 +1426,9 @@ export async function createExtraEventSchedule(
   input: { title: string; date: string; time: string; memo?: string },
 ): Promise<PbScheduleItem> {
   if (schedulesUseLocal(pbId)) {
-    return addExtraEventSchedule(pbId, input);
+    const item = addExtraEventSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
   const { data, error } = await supabase!
     .from(PB_SCHEDULE_TABLE)
@@ -1430,8 +1444,11 @@ export async function createExtraEventSchedule(
     .single();
   if (error) {
     warnScheduleFallback("저장", error);
-    return addExtraEventSchedule(pbId, input);
+    const item = addExtraEventSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
+  emitPbSchedulesUpdated();
   return rowToPbSchedule(data);
 }
 
@@ -1443,6 +1460,7 @@ async function updatePbScheduleStatus(
 ): Promise<void> {
   if (schedulesUseLocal(pbId)) {
     setScheduleStatus(pbId, id, status);
+    emitPbSchedulesUpdated();
     return;
   }
   const row: Record<string, any> = { status, updated_at: new Date().toISOString() };
@@ -1461,6 +1479,7 @@ async function updatePbScheduleStatus(
       throw new Error(`일정 상태를 바꾸지 못했습니다: ${error.message}`);
     }
   }
+  emitPbSchedulesUpdated();
 }
 
 /** 일정 취소. 행을 지우지 않고 status='canceled' 로 남긴다(기본 취소 수단). */
@@ -1481,6 +1500,7 @@ export async function completePbSchedule(
 export async function deletePbSchedule(pbId: string, id: string): Promise<void> {
   if (schedulesUseLocal(pbId)) {
     deleteSchedule(pbId, id);
+    emitPbSchedulesUpdated();
     return;
   }
   const { error } = await supabase!
@@ -1494,6 +1514,7 @@ export async function deletePbSchedule(pbId: string, id: string): Promise<void> 
       throw new Error(`일정을 삭제하지 못했습니다: ${error.message}`);
     }
   }
+  emitPbSchedulesUpdated();
 }
 
 // ───────────────────────── Seed / Reset ─────────────────────────

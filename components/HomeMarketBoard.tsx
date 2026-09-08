@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import MarketMiniChart from "@/components/MarketMiniChart";
 import IndicatorPickerModal from "@/components/IndicatorPickerModal";
+import MarketHomeTodaySchedule from "@/components/MarketHomeTodaySchedule";
 import { getLoggedInPbId } from "@/lib/auth";
 import { DEFAULT_INDICATOR_IDS, getIndicator } from "@/lib/marketIndicators";
 import {
@@ -132,10 +133,13 @@ export default function HomeMarketBoard() {
 
   return (
     <div className="mb-8 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
-      {/* 좌 — 당일 미니차트 */}
-      <div className="grid grid-cols-2 gap-3">
-        <MarketMiniChart data={chartData.kospi.points} prevClose={chartData.kospi.prevClose} label="코스피 (KOSPI)" loading={chartLoading} delayMinutes={chartData.kospi.delayMinutes} startTime={chartData.kospi.startTime} endTime={chartData.kospi.endTime} />
-        <MarketMiniChart data={chartData.spx.points} prevClose={chartData.spx.prevClose} label="S&P 500" loading={chartLoading} delayMinutes={chartData.spx.delayMinutes} startTime={chartData.spx.startTime} endTime={chartData.spx.endTime} />
+      {/* 좌 — 당일 미니차트 + 오늘 일정 요약(차트 합친 너비) */}
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <MarketMiniChart data={chartData.kospi.points} prevClose={chartData.kospi.prevClose} label="코스피 (KOSPI)" loading={chartLoading} delayMinutes={chartData.kospi.delayMinutes} startTime={chartData.kospi.startTime} endTime={chartData.kospi.endTime} />
+          <MarketMiniChart data={chartData.spx.points} prevClose={chartData.spx.prevClose} label="S&P 500" loading={chartLoading} delayMinutes={chartData.spx.delayMinutes} startTime={chartData.spx.startTime} endTime={chartData.spx.endTime} />
+        </div>
+        {pbId ? <MarketHomeTodaySchedule pbId={pbId} /> : null}
       </div>
 
       {/* 우 — 시세 전광판 */}
