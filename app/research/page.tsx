@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { LoadingView, ErrorView, EmptyView } from "@/components/StateViews";
 import { formatDateTime } from "@/lib/format";
 
@@ -135,6 +136,8 @@ export default function ResearchPage() {
       {msg && (
         <div className="rounded-lg bg-surface-2 px-4 py-2 text-xs text-fg-muted">{msg}</div>
       )}
+
+      <Link href="/research/top-picks" prefetch={false} className="card block p-4 text-sm font-semibold text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600">기관 Top Pick 선정 기록 · 실제 원문 대조 / 로컬 검토 ↗</Link>
 
       {/* 집계 신호 */}
       {aggregated.length > 0 && (
