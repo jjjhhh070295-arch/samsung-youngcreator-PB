@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Holding, ExtractResult, Confidence } from "@/lib/validate-holdings";
 import { computeRow } from "@/lib/pricing/types";
+import { identityKeyForSymbol } from "@/lib/pricing/instrumentIdentity";
 import { formatKRWShort } from "@/lib/format";
 import { pickAutoSelection, type LookupHit } from "@/lib/instruments/lookup";
 
@@ -138,7 +139,12 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
       setKisConnected(!!json.connected);
       setFxUsdKrw(json.fxUsdKrw ?? 1350);
       const map = new Map<string, number | null>();
-      for (const q of json.quotes ?? []) map.set(q.ticker, q.price ?? null);
+      for (const q of json.quotes ?? []) {
+        if (!q?.ticker) continue;
+        map.set(String(q.ticker), q.price ?? null);
+        // 동등 심볼 조회를 위해 identity 키도 넣는다
+        map.set(identityKeyForSymbol(String(q.ticker), q.currency || "KRW"), q.price ?? null);
+      }
       setPriceMap(map);
     } catch {
       setKisConnected(false);
@@ -215,7 +221,11 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
   useEffect(() => { loadSaved(); }, [loadSaved]);
 
   const savedWithPrices: SavedWithPrice[] = saved.map((h) => {
-    const live_price = h.ticker ? (priceMap.get(h.ticker) ?? null) : null;
+    const live_price = h.ticker
+      ? (priceMap.get(h.ticker) ??
+          priceMap.get(identityKeyForSymbol(h.ticker, h.currency)) ??
+          null)
+      : null;
     const computed = computeRow({ quantity: h.quantity, avg_price: h.avg_price, currency: h.currency }, { price: live_price }, fxUsdKrw);
     return {
       ...h,
@@ -227,22 +237,32 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
     };
   });
 
-  // 비중(%) = 평가금액 / 전체 평가금액 합계 × 100. 평가금액 못 구한 종목은 분모·분자 모두 제외(— 표시).
-  // 반올림 오차는 비중이 가장 큰 종목에서 흡수해 합계가 정확히 100.0%가 되게 한다.
+  const pricedCount = savedWithPrices.filter((h) => h.priced).length;
+  const quoteCoverageComplete =
+    savedWithPrices.length === 0 || pricedCount === savedWithPrices.filter((h) => h.ticker).length;
+  const incompleteQuotes = savedWithPrices.filter((h) => h.ticker && !h.priced).length;
+
+  // 비중(%) — 시세 미확인 종목이 있으면 전체 100%로 맞추지 않고 불완전 표시.
   const totalEval = savedWithPrices.reduce((sum, h) => sum + (h.eval_amount ?? 0), 0);
+  const allPricedForWeights =
+    savedWithPrices.filter((h) => h.quantity > 0).every((h) => h.priced || !h.ticker);
   const rawWeights = savedWithPrices.map((h) =>
-    h.eval_amount != null && totalEval > 0 ? (h.eval_amount / totalEval) * 100 : null,
+    allPricedForWeights && h.eval_amount != null && totalEval > 0
+      ? (h.eval_amount / totalEval) * 100
+      : null,
   );
   const roundedWeights = rawWeights.map((w) => (w == null ? null : Math.round(w * 10) / 10));
-  const weightSum = roundedWeights.reduce((s: number, w) => s + (w ?? 0), 0);
-  const diff = Math.round((100 - weightSum) * 10) / 10;
-  if (Math.abs(diff) >= 0.05) {
-    let maxIdx = -1;
-    let maxW = -Infinity;
-    roundedWeights.forEach((w, i) => {
-      if (w != null && w > maxW) { maxW = w; maxIdx = i; }
-    });
-    if (maxIdx >= 0) roundedWeights[maxIdx] = Math.round(((roundedWeights[maxIdx] ?? 0) + diff) * 10) / 10;
+  if (allPricedForWeights) {
+    const weightSum = roundedWeights.reduce((s: number, w) => s + (w ?? 0), 0);
+    const diff = Math.round((100 - weightSum) * 10) / 10;
+    if (Math.abs(diff) >= 0.05) {
+      let maxIdx = -1;
+      let maxW = -Infinity;
+      roundedWeights.forEach((w, i) => {
+        if (w != null && w > maxW) { maxW = w; maxIdx = i; }
+      });
+      if (maxIdx >= 0) roundedWeights[maxIdx] = Math.round(((roundedWeights[maxIdx] ?? 0) + diff) * 10) / 10;
+    }
   }
   const savedWithWeights = savedWithPrices
     .map((h, i) => ({ ...h, weightPct: roundedWeights[i] }))
@@ -543,7 +563,14 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
                 {!priceLoading && kisStatus === true && (
                   <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-600 rounded-full px-2 py-0.5 border border-green-200">
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
-                    KIS 실시간
+                    {quoteCoverageComplete
+                      ? `KIS 시세 ${pricedCount}/${saved.length}`
+                      : `KIS 시세 부분 ${pricedCount}/${saved.length}`}
+                  </span>
+                )}
+                {!priceLoading && incompleteQuotes > 0 && (
+                  <span className="text-xs text-amber-700">
+                    시세 미확인 {incompleteQuotes}종목 — 비중·총수익률 미확정
                   </span>
                 )}
               </div>

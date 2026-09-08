@@ -153,20 +153,16 @@ export function validateManualPortfolioForApproval(clientId: string): string[] {
       reasons.push(`${assetClass} 내 비중 합계가 100%가 아닙니다. (현재 ${within.toFixed(1)}%)`);
     }
     for (const row of items) {
-      const px = row.designatedPrice;
-      if (px == null || !Number.isFinite(px) || px <= 0) {
-        reasons.push(`${row.name || row.symbol}: 지정가(양수)를 입력하세요.`);
-      }
       const qk = row.quotationKind;
-      if (
+      const isDirectBond =
         (qk === "bond_face" || row.assetClass === "domesticBond" || row.assetClass === "globalBond") &&
         row.kind &&
         !String(row.kind).toLowerCase().includes("etf") &&
-        (row.faceValue == null || row.faceValue <= 0) &&
-        (px == null || px > 200)
-      ) {
-        // ETF 채권은 주당 가격으로 거래 — 액면 불필요. 절대가격 채권만 액면 검사.
+        !String(row.kind).toLowerCase().includes("etn");
+      if (isDirectBond && (row.faceValue == null || row.faceValue <= 0)) {
+        reasons.push(`${row.name || row.symbol}: 직접채권 액면가를 입력하세요.`);
       }
+      // 상장 주식·ETF 지정가는 IPS 확정 시 KIS 스냅샷으로 대체 — 초안 검증에서 요구하지 않음.
     }
   }
   return reasons;

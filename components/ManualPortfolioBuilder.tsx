@@ -16,6 +16,9 @@ import {
 import { remainingPctForFinalTarget, updateAllocationWithCash } from "@/lib/manualPortfolioDraft";
 import type { ManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
 import { getPortfolioDraft, savePortfolioDraft } from "@/lib/store";
+import { floorToIncrement, requiresMarketQuote } from "@/lib/advisory/ipsPurchasePlan";
+import { findQuoteBySymbol } from "@/lib/pricing/instrumentIdentity";
+import type { PriceQuote } from "@/lib/pricing/types";
 
 type AssetClass =
   | "domesticEquity"
@@ -145,6 +148,10 @@ export default function ManualPortfolioBuilder({
   const [searchError, setSearchError] = useState("");
   const [results, setResults] = useState<Instrument[]>([]);
   const [resultType, setResultType] = useState<"stock" | "etf" | "etn" | "other">("stock");
+  const [liveQuotes, setLiveQuotes] = useState<PriceQuote[]>([]);
+  const [quoteFx, setQuoteFx] = useState(1350);
+  const [quotesLoading, setQuotesLoading] = useState(false);
+  const [quotesError, setQuotesError] = useState<string | null>(null);
 
   /** Move a small slice from cash into a target class if that class is currently 0%. */
   const ensureClassActive = useCallback((assetClass: AssetClass, minPct = 5) => {
@@ -268,6 +275,49 @@ export default function ManualPortfolioBuilder({
   const investableWon = Math.max(0, totalAssetWon - realEstateWon);
   const existingTotalWon = existing.reduce((sum, row) => sum + row.valueKrw, 0);
   const allocatableWon = Math.max(0, investableWon - existingTotalWon);
+
+  // 편입 종목 KIS 현재가 미리보기 — 확정 시와 동일 /api/prices 경로(검색가·지정가 미사용)
+  useEffect(() => {
+    const need = selected.filter((row) => requiresMarketQuote(row));
+    if (need.length === 0) {
+      setLiveQuotes([]);
+      setQuotesError(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setQuotesLoading(true);
+      setQuotesError(null);
+      try {
+        const res = await fetch("/api/prices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tickers: need.map((row) => ({
+              ticker: row.symbol,
+              currency: (row.currency === "USD" ? "USD" : "KRW") as "KRW" | "USD",
+            })),
+          }),
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (Number(json.fxUsdKrw) > 0) setQuoteFx(Number(json.fxUsdKrw));
+        setLiveQuotes(Array.isArray(json.quotes) ? json.quotes : []);
+        if (!json.connected) setQuotesError("KIS 시세 미연결 — 확정 전 연결이 필요합니다.");
+      } catch (e: any) {
+        if (!cancelled) setQuotesError(e?.message || "시세 조회 실패");
+      } finally {
+        if (!cancelled) setQuotesLoading(false);
+      }
+    };
+    load();
+    const id = window.setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [selected]);
+
   const total = Object.values(allocation).reduce((sum, value) => sum + value, 0);
   const isComplete = Math.abs(total - 100) < 0.001;
   const allocatedWon = allocatableWon * total / 100;
@@ -404,11 +454,12 @@ export default function ManualPortfolioBuilder({
             ...instrument,
             assetClass,
             weightWithinClass: 0,
-            designatedPrice: instrument.price != null && instrument.price > 0 ? instrument.price : null,
+            designatedPrice: null,
             quotationKind,
             quantityIncrement: quotationKind === "share" ? 1 : quotationKind === "bond_face" ? 1 : 0.0001,
             faceValue: quotationKind === "bond_face" ? 10_000 : null,
             fxRate: instrument.currency === "USD" ? null : 1,
+            plannedQuantity: null,
           },
         ],
         assetClass,
@@ -705,21 +756,46 @@ export default function ManualPortfolioBuilder({
                     {selectedForClass.map((item) => {
                       const classBudget = allocatableWon * (allocation[item.assetClass] || 0) / 100;
                       const lineBudget = classBudget * (item.weightWithinClass || 0) / 100;
-                      const px = item.designatedPrice;
                       const currency = item.currency || "KRW";
-                      const fx = currency === "USD" ? (item.fxRate && item.fxRate > 0 ? item.fxRate : 1350) : 1;
+                      const fx = currency === "USD" ? (item.fxRate && item.fxRate > 0 ? item.fxRate : quoteFx) : 1;
                       const budgetLocal = currency === "USD" ? lineBudget / fx : lineBudget;
+                      const needsQuote = requiresMarketQuote(item);
+                      const quote = needsQuote
+                        ? findQuoteBySymbol(liveQuotes, item.symbol, currency)
+                        : undefined;
+                      const livePx =
+                        quote?.price != null && Number.isFinite(quote.price) && quote.price > 0
+                          ? Number(quote.price)
+                          : null;
+                      // 직접채권: 카탈로그/초안 price(%). 지정가·검색 폴백 없음.
+                      const bondPx =
+                        !needsQuote && item.quotationKind === "bond_face" && item.price != null && item.price > 0
+                          ? item.price
+                          : null;
+                      const px = needsQuote ? livePx : bondPx;
                       let unitCost = px != null && px > 0 ? px : null;
-                      if (unitCost != null && item.quotationKind === "bond_face" && item.faceValue && px != null && px <= 200) {
+                      if (
+                        unitCost != null &&
+                        item.quotationKind === "bond_face" &&
+                        item.faceValue &&
+                        px != null &&
+                        px <= 200
+                      ) {
                         unitCost = (item.faceValue * px) / 100;
                       }
-                      const increment = item.quantityIncrement && item.quantityIncrement > 0 ? item.quantityIncrement : 1;
+                      const increment =
+                        item.quantityIncrement && item.quantityIncrement > 0 ? item.quantityIncrement : 1;
                       const rawQty = unitCost && unitCost > 0 ? budgetLocal / unitCost : 0;
-                      const calcQty = Number.isFinite(rawQty) ? Math.floor(rawQty / increment) * increment : 0;
-                      const qty = item.plannedQuantity != null && item.plannedQuantity >= 0 ? item.plannedQuantity : calcQty;
-                      const costLocal = unitCost != null ? qty * unitCost : null;
-                      const costKrw = costLocal != null ? (currency === "USD" ? costLocal * fx : costLocal) : null;
+                      const calcQty = floorToIncrement(rawQty, increment);
+                      const costLocal = unitCost != null ? calcQty * unitCost : null;
+                      const costKrw =
+                        costLocal != null ? (currency === "USD" ? costLocal * fx : costLocal) : null;
                       const remainder = costKrw != null ? Math.max(0, lineBudget - costKrw) : null;
+                      const quoteLabel = quote?.is_live
+                        ? "KIS 실시간"
+                        : quote?.price != null
+                          ? "KIS 종가/직전가"
+                          : null;
 
                       return (
                       <div key={`${item.assetClass}-${item.symbol}`} className="rounded-lg border border-border bg-white px-3 py-2">
@@ -728,9 +804,7 @@ export default function ManualPortfolioBuilder({
                           <p className="truncate text-xs font-bold text-fg">{item.name}</p>
                           <p className="text-[10px] text-fg-muted">
                             {item.symbol}
-                            {item.price != null ? ` · 참고시세 ${formatPrice(item.price, item.currency)}` : ""}
                             {item.source ? ` · ${item.source}` : ""}
-                            {item.asOf ? ` · as-of ${item.asOf.slice(0, 10)}` : ""}
                           </p>
                         </div>
                         <input
@@ -743,37 +817,25 @@ export default function ManualPortfolioBuilder({
                           aria-label="자산군 내 비중"
                         />
                         <span className="text-xs text-fg-muted">%</span>
-                        <label className="flex items-center gap-1 text-[10px] font-bold text-fg-muted">
-                          지정가
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={item.designatedPrice ?? ""}
-                            placeholder={currency}
-                            onChange={(event) => {
-                              const raw = event.target.value;
-                              const next = raw === "" ? null : Number(raw);
-                              setSelected((current) =>
-                                current.map((candidate) =>
-                                  candidate.assetClass === item.assetClass && candidate.symbol === item.symbol
-                                    ? {
-                                        ...candidate,
-                                        designatedPrice: next != null && Number.isFinite(next) ? next : null,
-                                        plannedQuantity: null,
-                                      }
-                                    : candidate,
-                                ),
-                              );
-                            }}
-                            className="w-24 rounded border border-[#1428A0]/30 px-2 py-1 text-right text-xs font-bold text-[#1428A0]"
-                          />
-                          <span>{currency}</span>
-                        </label>
                         <button type="button" onClick={() => setSelected((current) => redistributeAssetClassWeights(current.filter((candidate) => !(candidate.assetClass === item.assetClass && candidate.symbol === item.symbol)), item.assetClass))} className="text-xs font-bold text-rose-500">삭제</button>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-fg-muted">
                           <span>배정 {formatWon(lineBudget)}</span>
+                          {needsQuote ? (
+                            <>
+                              <span className="font-bold text-[#1428A0]">
+                                현재가 {px != null ? formatPrice(px, currency) : quotesLoading ? "조회 중…" : "—"}
+                              </span>
+                              {quoteLabel ? <span>{quoteLabel}</span> : null}
+                              {quote?.quote_time ? <span>시세시각 {quote.quote_time}</span> : null}
+                              {quote?.as_of ? <span>조회 {quote.as_of.slice(11, 19)}</span> : null}
+                              {quote?.error_message ? (
+                                <span className="font-bold text-amber-700">{quote.error_message}</span>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="font-bold text-fg">직접채권 호가 {px != null ? formatPrice(px, currency) : "—"}</span>
+                          )}
                           {item.quotationKind === "bond_face" ? (
                             <label className="flex items-center gap-1 font-bold">
                               액면
@@ -796,69 +858,31 @@ export default function ManualPortfolioBuilder({
                             </label>
                           ) : null}
                           {currency === "USD" ? (
-                            <label className="flex items-center gap-1 font-bold">
-                              FX
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={item.fxRate ?? ""}
-                                placeholder="1350"
-                                onChange={(event) => {
-                                  const next = event.target.value === "" ? null : Number(event.target.value);
-                                  setSelected((current) =>
-                                    current.map((candidate) =>
-                                      candidate.assetClass === item.assetClass && candidate.symbol === item.symbol
-                                        ? { ...candidate, fxRate: next != null && Number.isFinite(next) ? next : null }
-                                        : candidate,
-                                    ),
-                                  );
-                                }}
-                                className="w-16 rounded border border-border px-1.5 py-0.5 text-right text-[10px] font-bold"
-                              />
-                            </label>
+                            <span className="font-bold">FX {fx.toLocaleString("ko-KR")}</span>
                           ) : null}
-                          <label className="flex items-center gap-1 font-bold text-fg">
-                            수량
-                            <input
-                              type="number"
-                              min="0"
-                              step={increment}
-                              value={qty || ""}
-                              onChange={(event) => {
-                                const next = event.target.value === "" ? null : Number(event.target.value);
-                                setSelected((current) =>
-                                  current.map((candidate) =>
-                                    candidate.assetClass === item.assetClass && candidate.symbol === item.symbol
-                                      ? {
-                                          ...candidate,
-                                          plannedQuantity:
-                                            next != null && Number.isFinite(next) && next >= 0 ? next : null,
-                                        }
-                                      : candidate,
-                                  ),
-                                );
-                              }}
-                              className="w-20 rounded border border-border px-1.5 py-0.5 text-right text-[10px] font-bold"
-                            />
-                            <span className="font-normal text-fg-muted">
-                              (자동 {calcQty.toLocaleString("ko-KR")}
-                              {increment !== 1 ? ` · 증분 ${increment}` : ""})
-                            </span>
-                          </label>
+                          <span className="font-bold text-fg">
+                            예상 수량 {calcQty > 0 ? calcQty.toLocaleString("ko-KR") : "—"}
+                            {increment !== 1 ? ` · 증분 ${increment}` : ""}
+                          </span>
                           {costKrw != null ? (
                             <span className="font-bold text-[#1428A0]">
-                              매수약정 {formatWon(costKrw)}
+                              예상 매수금액 {formatWon(costKrw)}
                               {remainder != null && remainder > 0 ? ` · 잔여현금 ${formatWon(remainder)}` : ""}
                             </span>
                           ) : (
-                            <span className="font-bold text-amber-700">지정가 입력 후 수량·금액이 계산됩니다</span>
+                            <span className="font-bold text-amber-700">
+                              {needsQuote
+                                ? "KIS 현재가 확보 후 수량·금액이 계산됩니다"
+                                : "채권 호가·액면 확인 후 계산됩니다"}
+                            </span>
                           )}
                         </div>
                       </div>
                       );
                     })}
-                    {Math.abs(withinClassTotal - 100) >= 0.001 && (
+                    {quotesError ? (
+                      <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">{quotesError}</p>
+                    ) : null}                    {Math.abs(withinClassTotal - 100) >= 0.001 && (
                       <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700">
                         {ASSET_CLASSES.find((a) => a.id === activeClass)?.label} 내 비중 합계가 100%가 아닙니다. (현재 {withinClassTotal.toFixed(1)}%)
                       </p>

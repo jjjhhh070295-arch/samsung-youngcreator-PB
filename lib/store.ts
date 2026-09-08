@@ -100,7 +100,11 @@ function rowToClient(r: any): Client {
     portfolios: (r.portfolios ?? []) as Portfolio[],
     ...(() => {
       const split = splitStagesPayload(r.stages);
-      return { stages: split.stages, approvalHashes: split.approvalHashes };
+      return {
+        stages: split.stages,
+        approvalHashes: split.approvalHashes,
+        ipsPurchaseApps: split.ipsPurchaseApps,
+      };
     })(),
     createdAt: r.created_at,
     // 모닝 브리핑 1단계 컬럼 — 마이그레이션 전이면 r.email 등이 아예 없어 undefined/false로 빠진다.
@@ -124,10 +128,9 @@ function clientToPartyRow(c: Partial<Client>): any {
   if (c.ips !== undefined) row.ips = c.ips;
   if (c.cashFlows !== undefined) row.cash_flows = c.cashFlows;
   if (c.portfolios !== undefined) row.portfolios = c.portfolios;
-  if (c.stages !== undefined || c.approvalHashes !== undefined) {
-    // stages jsonb에 플래그+해시를 함께 저장. 해시 미지정이면 플래그만 기록(해시 키 생략).
-    // 스테일 해제·승인 시에는 호출측에서 approvalHashes를 항상 같이 넘긴다.
-    row.stages = mergeStagesPayload(c.stages, c.approvalHashes);
+  if (c.stages !== undefined || c.approvalHashes !== undefined || c.ipsPurchaseApps !== undefined) {
+    // stages jsonb에 플래그+해시+IPS매수이력을 함께 저장.
+    row.stages = mergeStagesPayload(c.stages, c.approvalHashes, c.ipsPurchaseApps);
   }
   // 모닝 브리핑 1단계 — 마이그레이션 미실행 시 withMissingColumnFallback이 이 키들을 뺀다.
   if (c.email !== undefined) row.email = c.email || null;
@@ -1148,6 +1151,11 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
       if (patch.approvalHashes !== undefined && patch.stages === undefined) {
         next.stages = prev.stages;
       }
+      if (patch.ipsPurchaseApps === undefined) {
+        next.ipsPurchaseApps = prev.ipsPurchaseApps;
+      } else {
+        next.ipsPurchaseApps = { ...(prev.ipsPurchaseApps ?? {}), ...patch.ipsPurchaseApps };
+      }
       db.clients[idx] = next;
       saveLocal(db);
     }
@@ -1155,13 +1163,21 @@ export async function updateClient(id: string, patch: Partial<Client>): Promise<
   }
 
   let partyPatch = patch;
-  if (patch.stages !== undefined || patch.approvalHashes !== undefined) {
+  if (
+    patch.stages !== undefined ||
+    patch.approvalHashes !== undefined ||
+    patch.ipsPurchaseApps !== undefined
+  ) {
     const prev = await getClient(id);
     partyPatch = {
       ...patch,
       stages: { ...(prev?.stages ?? {}), ...(patch.stages ?? {}) },
       approvalHashes:
         patch.approvalHashes !== undefined ? patch.approvalHashes : prev?.approvalHashes ?? {},
+      ipsPurchaseApps: {
+        ...(prev?.ipsPurchaseApps ?? {}),
+        ...(patch.ipsPurchaseApps ?? {}),
+      },
     };
   }
 
@@ -1318,6 +1334,13 @@ export async function updateConsultation(
 
 const PB_SCHEDULE_TABLE = "pb_schedules";
 
+/** Market Home 오늘 일정 요약 등이 같은 탭에서 갱신되도록 알린다. */
+function emitPbSchedulesUpdated() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("pb-schedules-updated"));
+  }
+}
+
 /** Postgres time 은 "14:00:00" 으로 온다. 앱은 "HH:MM" 만 쓴다. */
 function toHhMm(value: unknown): string {
   return typeof value === "string" ? value.slice(0, 5) : "";
@@ -1387,7 +1410,9 @@ export async function createConsultationSchedule(
   input: { clientId: string; clientName: string; date: string; time: string; memo?: string },
 ): Promise<PbScheduleItem> {
   if (schedulesUseLocal(pbId, input.clientId)) {
-    return addConsultationSchedule(pbId, input);
+    const item = addConsultationSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
   const { data, error } = await supabase!
     .from(PB_SCHEDULE_TABLE)
@@ -1404,8 +1429,11 @@ export async function createConsultationSchedule(
     .single();
   if (error) {
     warnScheduleFallback("저장", error);
-    return addConsultationSchedule(pbId, input);
+    const item = addConsultationSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
+  emitPbSchedulesUpdated();
   return rowToPbSchedule(data);
 }
 
@@ -1414,7 +1442,9 @@ export async function createExtraEventSchedule(
   input: { title: string; date: string; time: string; memo?: string },
 ): Promise<PbScheduleItem> {
   if (schedulesUseLocal(pbId)) {
-    return addExtraEventSchedule(pbId, input);
+    const item = addExtraEventSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
   const { data, error } = await supabase!
     .from(PB_SCHEDULE_TABLE)
@@ -1430,8 +1460,11 @@ export async function createExtraEventSchedule(
     .single();
   if (error) {
     warnScheduleFallback("저장", error);
-    return addExtraEventSchedule(pbId, input);
+    const item = addExtraEventSchedule(pbId, input);
+    emitPbSchedulesUpdated();
+    return item;
   }
+  emitPbSchedulesUpdated();
   return rowToPbSchedule(data);
 }
 
@@ -1443,6 +1476,7 @@ async function updatePbScheduleStatus(
 ): Promise<void> {
   if (schedulesUseLocal(pbId)) {
     setScheduleStatus(pbId, id, status);
+    emitPbSchedulesUpdated();
     return;
   }
   const row: Record<string, any> = { status, updated_at: new Date().toISOString() };
@@ -1461,6 +1495,7 @@ async function updatePbScheduleStatus(
       throw new Error(`일정 상태를 바꾸지 못했습니다: ${error.message}`);
     }
   }
+  emitPbSchedulesUpdated();
 }
 
 /** 일정 취소. 행을 지우지 않고 status='canceled' 로 남긴다(기본 취소 수단). */
@@ -1481,6 +1516,7 @@ export async function completePbSchedule(
 export async function deletePbSchedule(pbId: string, id: string): Promise<void> {
   if (schedulesUseLocal(pbId)) {
     deleteSchedule(pbId, id);
+    emitPbSchedulesUpdated();
     return;
   }
   const { error } = await supabase!
@@ -1494,6 +1530,7 @@ export async function deletePbSchedule(pbId: string, id: string): Promise<void> 
       throw new Error(`일정을 삭제하지 못했습니다: ${error.message}`);
     }
   }
+  emitPbSchedulesUpdated();
 }
 
 // ───────────────────────── Seed / Reset ─────────────────────────

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { identityKeyForSymbol } from "@/lib/pricing/instrumentIdentity";
 
 // 분모는 AUM 이다. 부동산은 여기서 빼지 않는다.
 //   2026-09-08 자산 모델 변경(lib/assets.ts) 이후 asset_size 는 그 자체로 AUM(운용자산)이고,
@@ -133,7 +134,14 @@ export default function AssetAllocationBar({ clientId, aum, refreshKey = 0 }: Pr
             });
             const json = await res.json();
             cache.fx = json.fxUsdKrw ?? cache.fx;
-            for (const q of json.quotes ?? []) cache.prices.set(q.ticker, q.price ?? null);
+            for (const q of json.quotes ?? []) {
+              if (!q?.ticker) continue;
+              cache.prices.set(q.ticker, q.price ?? null);
+              cache.prices.set(
+                identityKeyForSymbol(String(q.ticker), q.currency || "KRW"),
+                q.price ?? null,
+              );
+            }
             // 응답에 없던 종목은 null 로 못박아 매 갱신마다 다시 묻지 않게 한다.
             for (const t of Array.from(wanted.keys())) {
               if (!cache.prices.has(t)) cache.prices.set(t, null);
@@ -151,7 +159,11 @@ export default function AssetAllocationBar({ clientId, aum, refreshKey = 0 }: Pr
         let stocksFallback = 0;
         for (const h of resolvedHoldings) {
           const qty = h.quantity ?? 0;
-          const live = h.ticker ? (liveMap.get(h.ticker) ?? null) : null;
+          const live = h.ticker
+            ? (liveMap.get(h.ticker) ??
+                liveMap.get(identityKeyForSymbol(h.ticker, h.currency || "KRW")) ??
+                null)
+            : null;
           const fx = h.currency === "USD" ? fxUsdKrw : 1;
           if (live !== null) {
             stocksLive += qty * live * fx;

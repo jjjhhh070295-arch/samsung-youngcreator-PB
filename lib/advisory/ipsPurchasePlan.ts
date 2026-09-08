@@ -1,11 +1,25 @@
 /**
- * IPS 확정 시 지정가(designatedPrice) 기반 매수 수량 산출.
- * 브로커 주문은 내지 않으며, 가정 취득단가·수량만 계산한다.
+ * IPS 확정 시 KIS(또는 지원 시세) 스냅샷 기반 매수 수량 산출.
+ * 브로커 주문은 내지 않으며, 장부용 가정 취득단가·수량만 계산한다.
+ * designatedPrice / plannedQuantity 는 무시한다(레거시 초안 호환).
  */
 
 import type { ManualAssetClass, ManualPortfolioDraft, ManualSelectedInstrument } from "../manualPortfolioDraft";
+import { resolveInstrumentForPricing, symbolsEquivalent } from "../pricing/instrumentIdentity";
 
 export type QuotationKind = "share" | "bond_face" | "unit";
+
+/** 확정에 사용한 시세 스냅샷 — 취득원가 근거 */
+export interface PriceSnapshot {
+  symbol: string;
+  providerSymbol: string;
+  price: number;
+  currency: string;
+  source: string;
+  fetchedAt: string;
+  quoteTime: string | null;
+  isLive: boolean;
+}
 
 export interface PurchasePlanLine {
   symbol: string;
@@ -15,19 +29,16 @@ export interface PurchasePlanLine {
   currency: string;
   kind: string;
   quotationKind: QuotationKind;
-  /** 지정가 (현지통화) — IPS 확정 기준 가정 취득단가 */
+  /** @deprecated 호환 — snapshotPrice 와 동일 */
   designatedPrice: number;
-  /** 배정 예산(KRW) */
+  /** 확정에 사용한 시세(현지통화) */
+  snapshotPrice: number;
+  priceSnapshot: PriceSnapshot;
   allocatedBudgetKrw: number;
-  /** 사용 FX (외화→KRW). KRW면 1 */
   fxRate: number;
-  /** 버림 후 매수 수량 */
   quantity: number;
-  /** 실제 매수 원가(현지통화) = quantity * designatedPrice */
   purchaseCostLocal: number;
-  /** 실제 매수 원가(KRW) */
   purchaseCostKrw: number;
-  /** 예산 잔여(KRW) — 현금으로 유지 */
   remainderKrw: number;
   quantityIncrement: number;
   faceValue: number | null;
@@ -74,20 +85,54 @@ export function floorToIncrement(rawQty: number, increment: number): number {
   return Math.floor(rawQty / increment) * increment;
 }
 
+function findSnapshot(
+  snapshots: PriceSnapshot[],
+  symbol: string,
+  currency: string,
+): PriceSnapshot | undefined {
+  return snapshots.find((s) => symbolsEquivalent(s.symbol, symbol, currency));
+}
+
+/** 상장 주식·ETF 등 KIS 시세가 필수인 행 */
+export function requiresMarketQuote(item: ManualSelectedInstrument): boolean {
+  const qk = inferQuotationKind(item);
+  if (qk === "bond_face") {
+    // 채권 ETF/ETN 은 share 로 들어오는 경우가 많다. bond_face 직접채권은 시세 엔드포인트 금지.
+    const kind = (item.kind || "").toLowerCase();
+    if (kind.includes("etf") || kind.includes("etn")) return true;
+    return false;
+  }
+  if (qk === "unit") return false;
+  const resolved = resolveInstrumentForPricing(item.symbol, item.currency || "KRW");
+  return resolved.venue !== "unsupported";
+}
+
+/**
+ * @param availableFundsWon 신규 배분 가능 자금(allocatableWon). 0 은 유효한 값(매수 없음).
+ */
 export function buildIpsPurchasePlan(
   draft: ManualPortfolioDraft,
   opts: {
-    investableWon: number;
+    /** @deprecated use availableFundsWon */
+    investableWon?: number;
+    availableFundsWon?: number;
     fxUsdKrw: number;
+    /** KIS 등에서 받은 확정용 스냅샷. 레거시 지정가/검색가는 사용하지 않는다. */
+    priceSnapshots?: PriceSnapshot[];
   },
 ): PurchasePlanResult {
   const errors: string[] = [];
   const lines: PurchasePlanLine[] = [];
-  const investable = Math.max(0, opts.investableWon || 0);
+  const available =
+    opts.availableFundsWon != null
+      ? Math.max(0, opts.availableFundsWon)
+      : Math.max(0, opts.investableWon || 0);
   const fx = opts.fxUsdKrw > 0 ? opts.fxUsdKrw : 1350;
+  const snapshots = opts.priceSnapshots ?? [];
 
-  if (investable <= 0) {
-    return { ok: false, lines: [], totalPurchaseKrw: 0, totalRemainderKrw: 0, errors: ["투자가능자산이 없습니다."] };
+  // 0원 배분은 "데이터 없음"이 아니라 매수 없음 — 전체 AUM 으로 폴백하지 않는다.
+  if (available <= 0) {
+    return { ok: true, lines: [], totalPurchaseKrw: 0, totalRemainderKrw: 0, errors: [] };
   }
 
   for (const assetClass of SEARCHABLE) {
@@ -99,20 +144,52 @@ export function buildIpsPurchasePlan(
       if (within <= 0) continue;
 
       const portfolioWeightPct = (classWeight * within) / 100;
-      const allocatedBudgetKrw = (investable * portfolioWeightPct) / 100;
-      const price = item.designatedPrice;
+      const allocatedBudgetKrw = (available * portfolioWeightPct) / 100;
       const currency = (item.currency || "KRW").toUpperCase();
       const exchange = item.exchange || inferExchange(assetClass, currency);
       const quotationKind = inferQuotationKind(item);
-      const increment = item.quantityIncrement && item.quantityIncrement > 0
-        ? item.quantityIncrement
-        : defaultIncrement(quotationKind);
+      const increment =
+        item.quantityIncrement && item.quantityIncrement > 0
+          ? item.quantityIncrement
+          : defaultIncrement(quotationKind);
       const faceValue = item.faceValue ?? (quotationKind === "bond_face" ? 10_000 : null);
+      const needsQuote = requiresMarketQuote(item);
 
-      if (price == null || !Number.isFinite(price) || price <= 0) {
-        errors.push(`${item.name}(${item.symbol}): 지정가가 필요합니다.`);
+      let price: number | null = null;
+      let snapshot: PriceSnapshot | null = null;
+
+      if (needsQuote) {
+        const hit = findSnapshot(snapshots, item.symbol, currency);
+        if (!hit || !Number.isFinite(hit.price) || hit.price <= 0) {
+          errors.push(`${item.name}(${item.symbol}): KIS 시세 스냅샷이 필요합니다.`);
+          continue;
+        }
+        price = hit.price;
+        snapshot = hit;
+      } else if (quotationKind === "bond_face") {
+        // 직접채권: 액면·호가(%) 관례. 검색/지정가 폴백 금지 — 초안에 명시된 face 기반만.
+        // 카탈로그에서 넣은 price 가 %호가인 경우(<=200)만 허용.
+        const catalogPx = item.price;
+        if (catalogPx == null || !Number.isFinite(catalogPx) || catalogPx <= 0) {
+          errors.push(`${item.name}(${item.symbol}): 직접채권 호가(시세)가 없어 확정할 수 없습니다.`);
+          continue;
+        }
+        price = catalogPx;
+        snapshot = {
+          symbol: item.symbol,
+          providerSymbol: item.symbol,
+          price: catalogPx,
+          currency,
+          source: item.source || "bond_catalog",
+          fetchedAt: item.asOf || new Date().toISOString(),
+          quoteTime: item.asOf ?? null,
+          isLive: false,
+        };
+      } else {
+        errors.push(`${item.name}(${item.symbol}): 지원하지 않는 상품 유형입니다.`);
         continue;
       }
+
       if (quotationKind === "bond_face" && (faceValue == null || faceValue <= 0)) {
         errors.push(`${item.name}(${item.symbol}): 채권 액면가 입력이 필요합니다.`);
         continue;
@@ -123,22 +200,19 @@ export function buildIpsPurchasePlan(
 
       let unitCostLocal = price;
       if (quotationKind === "bond_face" && faceValue) {
-        // 지정가가 액면 100당 가격(%)이면 단위원가 = face * price/100
-        // 카탈로그 채권은 대개 절대가격이 없으므로, price가 200 이하면 % 호가로 본다.
         unitCostLocal = price <= 200 ? (faceValue * price) / 100 : price;
       }
 
+      // plannedQuantity / designatedPrice 는 더 이상 수량을 덮어쓰지 않는다.
       const rawQty = unitCostLocal > 0 ? budgetLocal / unitCostLocal : 0;
-      const quantity =
-        item.plannedQuantity != null && Number.isFinite(item.plannedQuantity) && item.plannedQuantity >= 0
-          ? floorToIncrement(item.plannedQuantity, increment)
-          : floorToIncrement(rawQty, increment);
+      const quantity = floorToIncrement(rawQty, increment);
 
       const purchaseCostLocal = quantity * unitCostLocal;
       const purchaseCostKrw = currency === "USD" ? purchaseCostLocal * fxRate : purchaseCostLocal;
+      // 예산을 초과하지 않도록 잔여는 항상 >= 0
       const remainderKrw = Math.max(0, allocatedBudgetKrw - purchaseCostKrw);
 
-      if (quantity > 0) {
+      if (quantity > 0 && snapshot) {
         lines.push({
           symbol: item.symbol,
           name: item.name,
@@ -148,6 +222,8 @@ export function buildIpsPurchasePlan(
           kind: item.kind || quotationKind,
           quotationKind,
           designatedPrice: price,
+          snapshotPrice: price,
+          priceSnapshot: snapshot,
           allocatedBudgetKrw,
           fxRate,
           quantity,
@@ -159,7 +235,9 @@ export function buildIpsPurchasePlan(
           portfolioWeightPct,
         });
       } else if (allocatedBudgetKrw > 0) {
-        errors.push(`${item.name}(${item.symbol}): 배정 예산으로 매수 가능 수량이 없습니다. 지정가·증분을 확인하세요.`);
+        errors.push(
+          `${item.name}(${item.symbol}): 배정 예산으로 매수 가능 수량이 없습니다. 시세·증분을 확인하세요.`,
+        );
       }
     }
   }
@@ -196,7 +274,6 @@ function inferExchange(assetClass: ManualAssetClass, currency: string): string {
   return "OTC";
 }
 
-/** 가중 평균 취득단가 */
 export function weightedAveragePrice(
   existingQty: number,
   existingAvg: number | null,
