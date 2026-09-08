@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import type { Client } from "@/lib/types";
 import { CLIENT_TYPE_LABEL, computeStages } from "@/lib/types";
 import { formatKRW, formatDate } from "@/lib/format";
+import { formatPercent1 } from "@/lib/formatPercent";
 import IPSRadar from "@/components/IPSRadar";
 import IPSSummary from "@/components/IPSSummary";
 import {
@@ -256,19 +257,19 @@ export default function ClientFacingView({ client, embedded = false, investableW
                 <div className="mt-2 flex justify-between text-xs">
                   <span className="text-fg-muted">{t.expReturn}</span>
                   <span className="font-semibold text-gold-600 dark:text-gold-300">
-                    {p.expectedReturn}%
+                    {formatPercent1(p.expectedReturn)}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-fg-muted">{t.expRisk}</span>
-                  <span className="font-semibold text-fg">{p.expectedRisk}%</span>
+                  <span className="font-semibold text-fg">{formatPercent1(p.expectedRisk)}</span>
                 </div>
                 <div className="mt-3 space-y-1">
                   {p.allocations.map((a, i) => (
                     <div key={i} className="text-[11px]">
                       <div className="flex justify-between">
                         <span className="text-fg-muted">{assetLabel(a.assetClass)}</span>
-                        <span className="text-fg">{a.weight}%</span>
+                        <span className="text-fg">{formatPercent1(a.weight)}</span>
                       </div>
                       <div className="mt-0.5 h-1.5 rounded-full bg-surface-2">
                         <div

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx --yes tsx --test lib/advisory/control.test.ts lib/advisory/krTrendFilter.test.ts lib/advisory/bondInstrumentCatalog.test.ts lib/advisory/mergeTrendInstruments.test.ts lib/manualPortfolioDraft.test.ts lib/portfolioAnalytics/analytics.test.ts lib/advisory/portfolioReturn.test.ts lib/investmentSurvey.test.ts lib/pricing/instrumentIdentity.test.ts",
+    "test": "npx --yes tsx --test lib/advisory/control.test.ts lib/advisory/krTrendFilter.test.ts lib/advisory/bondInstrumentCatalog.test.ts lib/advisory/mergeTrendInstruments.test.ts lib/manualPortfolioDraft.test.ts lib/portfolioAnalytics/analytics.test.ts lib/advisory/portfolioReturn.test.ts lib/investmentSurvey.test.ts lib/pricing/instrumentIdentity.test.ts lib/advisory/approvedPortfolioComposition.test.ts",
     "generate:fred-snapshot": "node scripts/generate-fred-snapshot.mjs",
     "generate:cashflow-templates": "node scripts/generate-cashflow-templates.mjs"
   },

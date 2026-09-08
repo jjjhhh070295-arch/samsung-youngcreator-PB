@@ -129,8 +129,12 @@ export function remainingPctForFinalTarget(finalPct: number, fixedPct: number, a
 }
 
 /** 포트폴리오 승인 전 점검 — 배분 100%·종목 내부 비중 완료 여부. */
-export function validateManualPortfolioForApproval(clientId: string): string[] {
-  const draft = loadManualPortfolioDraft(clientId);
+export function validateManualPortfolioForApproval(
+  clientId: string,
+  draftOverride?: ManualPortfolioDraft | null,
+): string[] {
+  const draft =
+    draftOverride !== undefined ? draftOverride : loadManualPortfolioDraft(clientId);
   if (!draft) return ["포트폴리오 배분 초안이 없습니다. 자산군 비중을 확인한 뒤 저장하세요."];
 
   const total = SEARCHABLE.reduce((sum, key) => sum + (Number(draft.allocation[key]) || 0), 0)

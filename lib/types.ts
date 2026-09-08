@@ -367,6 +367,29 @@ export interface AssetAllocation {
   assetClass: string; // 예: "국내주식","해외주식","채권","대체투자","현금"
   weight: number; // 비중 %, 합계 100
 }
+
+/** 승인 시 박제된 편입 종목 — IPS·PDF·고객 확정 구성의 단일 출처 */
+export interface ApprovedInstrument {
+  symbol: string;
+  name: string;
+  assetClassKey: string;
+  assetClassLabel: string;
+  currency: string;
+  exchange?: string | null;
+  kind?: string | null;
+  quotationKind?: string | null;
+  /** 자산군 내 비중 % */
+  weightWithinClass: number;
+  /** 전체 투자가능자산 기준 비중 % */
+  totalWeightPct: number;
+  allocationAmountWon: number | null;
+  quantity: number | null;
+  priceSnapshot: number | null;
+  bookkeepingNote: string;
+}
+
+export type PortfolioMetricsStatus = "ok" | "unavailable" | "legacy_incomplete";
+
 // 포트폴리오가 참고한 리포트 스냅샷 (확정 시점에 박제)
 export interface ReferencedReport {
   title: string;
@@ -381,8 +404,16 @@ export interface Portfolio {
   id: string;
   label: string; // "안정형" | "균형형" | "성장형"
   allocations: AssetAllocation[];
-  expectedReturn: number; // 예상 연수익률 %
-  expectedRisk: number; // 예상 변동성 %
+  /** 승인된 편입 종목 상세. 없으면 레거시(자산군만) */
+  instruments?: ApprovedInstrument[];
+  /** 구성 개정 ID — 발행 문서와 연결 */
+  compositionRevision?: string;
+  /** 수익률·변동성 산출 상태. unavailable 이면 숫자를 0으로 보여주지 않는다 */
+  metricsStatus?: PortfolioMetricsStatus;
+  /** 예상 연수익률 %. metricsStatus==="ok" 일 때만 유효 */
+  expectedReturn: number | null;
+  /** 예상 변동성 %. metricsStatus==="ok" 일 때만 유효 */
+  expectedRisk: number | null;
   taxNote: string; // 세금 고려 메모
   rationale: string; // 산출 근거 설명
   editedByPb: boolean; // PB가 수정했는지

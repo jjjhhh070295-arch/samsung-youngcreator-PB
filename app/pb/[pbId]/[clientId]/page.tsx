@@ -7,13 +7,13 @@ import type { Client, Consultation, CashFlow, IPS, PB, Portfolio, StageKey, Stag
 import type { CashflowPeriodType } from "@/lib/cashflowPeriod";
 import {
   getClient,
+  getPortfolioDraft,
   listClients,
   listConsultations,
   listPbs,
   updateClient,
   deleteClient,
   saveInvestmentSurvey,
-  getPortfolioDraft,
 } from "@/lib/store";
 import {
   basicApprovalStagePatch,
@@ -61,6 +61,12 @@ import { applyIpsHoldingsSync } from "@/lib/advisory/ipsHoldingsSync";
 import { requiresMarketQuote, type PriceSnapshot } from "@/lib/advisory/ipsPurchasePlan";
 import { findQuoteBySymbol } from "@/lib/pricing/instrumentIdentity";
 import type { PriceQuote } from "@/lib/pricing/types";
+import {
+  buildApprovedPortfolio,
+  isLegacyIncompletePortfolio,
+  recoverInstrumentsFromMatchingDraft,
+  stampApprovedInstrumentsWithQuotes,
+} from "@/lib/advisory/approvedPortfolioComposition";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -489,59 +495,67 @@ export default function ClientDetailPage() {
       return;
     }
 
-    // 초안을 DB 기준으로 먼저 맞춘다. validatePortfolioWorkflowApproval 안의
-    // validateManualPortfolioForApproval 이 localStorage 만 보므로, 이 기기에서 Portfolio
-    // Customizing 탭을 한 번도 열지 않았으면 초안이 DB 에 있어도 "배분 초안이 없습니다"로
-    // 막힌다. getPortfolioDraft 는 읽으면서 로컬 캐시까지 채우므로 아래 검증·해시가 모두
-    // 같은 초안을 보게 된다.
-    const { draft } = await getPortfolioDraft(pbId, clientId);
-
-    const reasons = validatePortfolioWorkflowApproval(client, clientId);
+    // 초안을 DB 기준으로 먼저 맞춘다. validate 에 draft 를 넘기고, source 로
+    // 로컬 전용 초안인 경우 승인 완료 알림에 동기화 한계를 명시한다.
+    const { draft, source: draftSource } = await getPortfolioDraft(pbId, clientId);
+    const reasons = validatePortfolioWorkflowApproval(client, clientId, draft);
     if (reasons.length) {
       alert(`검토 필요\n\n${reasons.join("\n")}`);
       return;
     }
+    if (!draft) {
+      alert("포트폴리오 초안을 불러오지 못했습니다. 저장 후 다시 시도하세요.");
+      return;
+    }
     if (!confirm("포트폴리오·리스크·세전·세후 결과를 승인할까요?\n(상담 진행 4~6단계가 완료됩니다)")) return;
 
-    const labelMap: Record<string, string> = {
-      domesticEquity: "국내주식",
-      globalEquity: "해외주식",
-      domesticBond: "국내채권",
-      globalBond: "해외채권",
-      alternatives: "상품·대체",
-      cash: "현금성",
-    };
-    const allocations = draft
-      ? (Object.entries(draft.finalAllocation ?? draft.allocation) as [string, number][])
-          .filter(([, weight]) => weight > 0)
-          .map(([assetClass, weight]) => ({
-            assetClass: labelMap[assetClass] ?? assetClass,
-            weight,
-          }))
-      : client.portfolios[0]?.allocations ?? [];
-    const portfolio: Portfolio = {
-      id: client.portfolios[0]?.id ?? `manual-${Date.now()}`,
-      label: "맞춤 포트폴리오",
-      allocations,
-      expectedReturn: client.portfolios[0]?.expectedReturn ?? 0,
-      expectedRisk: client.portfolios[0]?.expectedRisk ?? 0,
-      taxNote: "포트폴리오 승인 구성",
-      rationale: "PB 맞춤 배분·종목 선택 승인",
-      editedByPb: true,
-      confirmedAt: new Date().toISOString(),
-    };
+    const prev = client.portfolios[0] ?? null;
+    const prevReturn = prev?.expectedReturn;
+    const prevRisk = prev?.expectedRisk;
+    const metricsOk =
+      prevReturn != null &&
+      Number.isFinite(prevReturn) &&
+      prevRisk != null &&
+      Number.isFinite(prevRisk) &&
+      prev?.metricsStatus !== "unavailable" &&
+      prev?.metricsStatus !== "legacy_incomplete";
+
+    const portfolio = buildApprovedPortfolio({
+      draft,
+      previous: prev,
+      expectedReturn: metricsOk ? prevReturn : null,
+      expectedRisk: metricsOk ? prevRisk : null,
+      metricsStatus: metricsOk ? "ok" : "unavailable",
+    });
+
+    if (!portfolio.instruments?.length) {
+      alert("편입 종목이 없어 승인할 수 없습니다. 종목을 선택한 뒤 초안을 저장하세요.");
+      return;
+    }
     const stages = { ...(client.stages ?? {}), ...portfolioApprovalStagePatch() };
     const nextClientBase = { ...client, stages, portfolios: [portfolio] };
     const approvalHashes = {
       basic: client.approvalHashes?.basic ?? computeBasicApprovalHash(client),
       portfolio: computePortfolioApprovalHash(nextClientBase, draft),
     };
-    await updateClient(client.id, { stages, portfolios: [portfolio], approvalHashes });
+    try {
+      await updateClient(client.id, { stages, portfolios: [portfolio], approvalHashes });
+    } catch (e: any) {
+      alert(`승인 저장에 실패했습니다.\n${e?.message || e}\n서버 저장 없이 승인 완료로 표시하지 않습니다.`);
+      return;
+    }
     const nextClient = { ...nextClientBase, approvalHashes };
     setClient(nextClient);
     syncEvidenceAfterPortfolioApproval(nextClient);
     notifyClientUpdated();
-    alert(MSG_PORTFOLIO_APPROVED);
+    const draftNote =
+      draftSource === "local"
+        ? "\n(초안은 로컬 저장본입니다. 다른 브라우저와 동기화되지 않을 수 있습니다.)"
+        : "";
+    const metricsNote = metricsOk
+      ? ""
+      : "\n예상수익률·변동성은 산출 전 상태입니다. IPS에는 '산출 전'으로 표시됩니다.";
+    alert(`${MSG_PORTFOLIO_APPROVED}${draftNote}${metricsNote}`);
   };
 
   const approveIpsWorkflow = async () => {
@@ -589,7 +603,7 @@ export default function ClientDetailPage() {
     //   초안은 DB 에서 읽는다. 예전에는 localStorage 만 봐서, 이 기기에서 Portfolio
     //   Customizing 탭을 한 번도 열지 않았으면 DB 에 초안이 있어도 null 을 받았다 —
     //   그러면 예산이 0 이 되어 매수 0건으로 조용히 확정된다.
-    const { draft } = await getPortfolioDraft(pbId, clientId);
+    const { draft, source: draftSource } = await getPortfolioDraft(pbId, clientId);
     const currentAumWon = Math.round(investableWon ?? client.assetSize ?? 0);
     const draftAumWon = draft?.investableWon != null ? Math.round(draft.investableWon) : null;
     if (draft && draftAumWon !== currentAumWon) {
@@ -611,13 +625,60 @@ export default function ClientDetailPage() {
 
     // 승인·보유 반영 전에 시세·매수계획을 먼저 검증한다. 실패 시 승인하지 않는다.
     const availableFundsWon = Math.max(0, draft?.allocatableWon ?? 0);
+    let approvedPf = client.portfolios[0] ?? null;
+    if (!approvedPf) {
+      alert("승인된 포트폴리오가 없습니다. 포트폴리오를 먼저 승인하세요.");
+      return;
+    }
+    if (isLegacyIncompletePortfolio(approvedPf)) {
+      // 레거시(종목 미저장): 승인 해시가 현재 초안과 일치할 때만 복구. 추측 금지.
+      const storedHash = client.approvalHashes?.portfolio;
+      const currentHash = draft
+        ? computePortfolioApprovalHash({ ...client, portfolios: [approvedPf] }, draft)
+        : null;
+      if (draft && storedHash && currentHash && storedHash === currentHash) {
+        approvedPf = recoverInstrumentsFromMatchingDraft(approvedPf, draft);
+      } else {
+        alert(
+          "이전에 승인된 포트폴리오에 편입 종목 상세가 없거나, 초안과 일치하지 않습니다.\n포트폴리오 승인을 취소한 뒤 종목을 포함해 다시 승인해 주세요.",
+        );
+        return;
+      }
+    }
+    if (!(approvedPf.instruments?.length)) {
+      alert("확정 편입 종목이 없습니다. 포트폴리오를 다시 승인해 주세요.");
+      return;
+    }
 
-    const quoteTickers = (draft?.selected ?? [])
-      .filter((row) => (Number(row.weightWithinClass) || 0) > 0 && requiresMarketQuote(row))
-      .map((row) => ({
-        ticker: row.symbol,
-        currency: (row.currency === "USD" ? "USD" : "KRW") as "KRW" | "USD",
-      }));
+    const quoteTickers: { ticker: string; currency: "KRW" | "USD" }[] = [];
+    const pushQuote = (symbol: string, currency?: string | null) => {
+      const cur = (currency === "USD" ? "USD" : "KRW") as "KRW" | "USD";
+      if (!quoteTickers.some((t) => t.ticker === symbol && t.currency === cur)) {
+        quoteTickers.push({ ticker: symbol, currency: cur });
+      }
+    };
+    for (const row of draft?.selected ?? []) {
+      if ((Number(row.weightWithinClass) || 0) <= 0) continue;
+      if (!requiresMarketQuote(row)) continue;
+      pushQuote(row.symbol, row.currency);
+    }
+    for (const inst of approvedPf.instruments) {
+      if ((Number(inst.weightWithinClass) || 0) <= 0) continue;
+      if (
+        !requiresMarketQuote({
+          symbol: inst.symbol,
+          name: inst.name,
+          assetClass: inst.assetClassKey as any,
+          weightWithinClass: inst.weightWithinClass,
+          currency: inst.currency,
+          kind: inst.kind ?? undefined,
+          quotationKind: (inst.quotationKind as any) ?? undefined,
+        })
+      ) {
+        continue;
+      }
+      pushQuote(inst.symbol, inst.currency);
+    }
 
     let fxUsdKrw = 1350;
     const priceSnapshots: PriceSnapshot[] = [];
@@ -668,14 +729,25 @@ export default function ClientDetailPage() {
       return;
     }
 
+    const priceBySymbol = new Map(priceSnapshots.map((s) => [s.symbol, s.price]));
+    const stampedPortfolio = stampApprovedInstrumentsWithQuotes(approvedPf, {
+      priceBySymbol,
+      fxUsdKrw,
+    });
+
     const stages = { ...(client.stages ?? {}), ...ipsApprovalStagePatch() };
     const ips = client.ips?.return?.reviewed
       ? client.ips
       : extractIpsFromClientProfile(client);
-    const nextBase = { ...client, stages, ips };
+    const nextBase = {
+      ...client,
+      stages,
+      ips,
+      portfolios: [stampedPortfolio],
+    };
     const approvalHashes = {
       basic: client.approvalHashes?.basic ?? computeBasicApprovalHash(client),
-      portfolio: client.approvalHashes?.portfolio ?? computePortfolioApprovalHash(client),
+      portfolio: client.approvalHashes?.portfolio ?? computePortfolioApprovalHash(client, draft),
       ips: computeIpsApprovalHash(nextBase),
     };
 
@@ -696,14 +768,31 @@ export default function ClientDetailPage() {
         return;
       }
 
-      await updateClient(client.id, { stages, ips, approvalHashes });
+      try {
+        await updateClient(client.id, {
+          stages,
+          ips,
+          approvalHashes,
+          portfolios: [stampedPortfolio],
+        });
+      } catch (e: any) {
+        alert(
+          `IPS 승인 서버 저장에 실패했습니다.\n${e?.message || e}\n브라우저에만 저장된 것처럼 표시하지 않습니다.`,
+        );
+        return;
+      }
+
       const nextClient = { ...nextBase, approvalHashes };
       setClient(nextClient);
       syncEvidenceAfterIpsApproval(nextClient);
       notifyClientUpdated();
       bumpAssetRefresh();
+      const draftNote =
+        draftSource === "local"
+          ? "\n(초안은 로컬 저장본입니다. 다른 브라우저와 동기화되지 않을 수 있습니다.)"
+          : "";
       alert(
-        `${MSG_IPS_APPROVED}\n보유종목 반영: ${sync.linesApplied}건 (KIS 시세 스냅샷·장부 기준, 실주문 아님)`,
+        `${MSG_IPS_APPROVED}\n보유종목 반영: ${sync.linesApplied}건 (KIS 시세 스냅샷·장부 기준, 실주문 아님)${draftNote}`,
       );
     } catch (e: any) {
       console.error(e);

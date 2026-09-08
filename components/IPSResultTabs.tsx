@@ -388,7 +388,17 @@ export default function IPSResultTabs({
                       </p>
                       <p className="text-xs text-fg-muted">
                         {client.portfolios[0]
-                          ? `예상수익 ${client.portfolios[0].expectedReturn}% · 변동성 ${client.portfolios[0].expectedRisk}% · `
+                          ? `예상수익 ${
+                              client.portfolios[0].expectedReturn == null ||
+                              !Number.isFinite(client.portfolios[0].expectedReturn)
+                                ? "산출 전"
+                                : `${(Math.round(client.portfolios[0].expectedReturn * 10) / 10).toFixed(1)}%`
+                            } · 변동성 ${
+                              client.portfolios[0].expectedRisk == null ||
+                              !Number.isFinite(client.portfolios[0].expectedRisk)
+                                ? "산출 전"
+                                : `${(Math.round(client.portfolios[0].expectedRisk * 10) / 10).toFixed(1)}%`
+                            } · `
                           : ""}
                         고객 화면·스트레스 테스트에 이 포트폴리오가 사용됩니다.
                       </p>

@@ -9,6 +9,7 @@
 
 import type { Client, Stages } from "../types";
 import type { EvidenceBundle } from "./types";
+import type { ManualPortfolioDraft } from "../manualPortfolioDraft";
 import { validateManualPortfolioForApproval } from "../manualPortfolioDraft";
 import { financialIncomeBlockReason, isFinancialIncomeReadyForTax } from "../financialIncome";
 
@@ -80,12 +81,16 @@ export function validateBasicWorkflowApproval(client: Client): string[] {
   return reasons;
 }
 
-export function validatePortfolioWorkflowApproval(client: Client, clientId: string): string[] {
+export function validatePortfolioWorkflowApproval(
+  client: Client,
+  clientId: string,
+  draft?: ManualPortfolioDraft | null,
+): string[] {
   const reasons: string[] = [];
   if (!isBasicWorkflowApproved(client)) {
     reasons.push("기본정보 승인이 먼저 필요합니다.");
   }
-  reasons.push(...validateManualPortfolioForApproval(clientId));
+  reasons.push(...validateManualPortfolioForApproval(clientId, draft));
   if (!isFinancialIncomeReadyForTax(client)) {
     reasons.push(financialIncomeBlockReason(client) || "금융소득 종합과세 정보가 부족합니다.");
   }

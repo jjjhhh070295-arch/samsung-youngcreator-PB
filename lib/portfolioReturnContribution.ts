@@ -1,5 +1,6 @@
 // 자산군별 수익률 기여도 — 확정 포트폴리오 비중 × 자산군 적용수익률.
 // 합계가 확정 포트폴리오의 예상수익률과 일치하도록 스케일해 KPI와 정합을 맞춘다.
+// expectedReturn 이 없거나 0 위장 불가(unavailable)이면 빈 배열을 돌려 차트를 숨긴다.
 
 import type { AssetAllocation } from "./types";
 import {
@@ -7,16 +8,23 @@ import {
   type ProxyAssetKey,
   type ProxyReturnEstimate,
 } from "./proxyReturns";
+import { contributionsAgreeWithReturn } from "./formatPercent";
 
 export interface AssetReturnContribution {
-  name: string;            // SET 라벨 (도넛과 동일)
-  weightPct: number;       // 비중 %
-  appliedReturnPct: number; // 해당 자산군 적용 연수익률 % (스케일 후)
-  contributionPct: number;  // 기여도 %p = weight × appliedReturn / 100 (스케일 후)
+  name: string;
+  weightPct: number;
+  appliedReturnPct: number;
+  contributionPct: number;
 }
 
-// SET 라벨(도넛과 동일) → proxy 수익률. ETF는 S&P500 60% : KOSPI 40% 블렌드(추천 패널과 동일 기준).
-// 레거시 4분류(채권/현금/대체투자) 라벨도 별칭으로 흡수.
+export interface ReturnContributionResult {
+  status: "ok" | "unavailable";
+  rows: AssetReturnContribution[];
+  sumContributionPct: number | null;
+  agreesWithExpected: boolean;
+  note: string | null;
+}
+
 function appliedReturnForLabel(label: string, rate: (key: ProxyAssetKey) => number): number {
   const l = label.trim();
   if (/주식|etf/i.test(l)) return rate("sp500") * 0.6 + rate("kospi") * 0.4;
@@ -25,20 +33,61 @@ function appliedReturnForLabel(label: string, rate: (key: ProxyAssetKey) => numb
   if (/금|gold/i.test(l)) return rate("gold");
   if (/달러|dollar/i.test(l)) return rate("dollar");
   if (/원자재|대체|raw|commodity/i.test(l)) return rate("raw");
-  return rate("bond"); // 미상 라벨은 보수적으로 채권 수익률
+  return rate("bond");
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
+/**
+ * @param expectedReturnPct null/undefined → 산출 불가(빈 결과).
+ *   유한 0 은 "진짜 0%"로 취급한다(스케일만 생략).
+ * @param allowFallbackProxy false 이면 proxy 추정치로 기여도를 만들지 않는다.
+ */
 export function buildReturnContributionsFromPortfolio(
   allocations: AssetAllocation[],
-  expectedReturnPct: number,
+  expectedReturnPct: number | null | undefined,
   proxyReturns?: ProxyReturnEstimate[],
+  opts?: { allowFallbackProxy?: boolean },
 ): AssetReturnContribution[] {
-  const byKey = new Map((proxyReturns ?? []).map((e) => [e.key, e.annualizedReturnPct] as const));
-  const rate = (key: ProxyAssetKey) => byKey.get(key) ?? FALLBACK_PROXY_RETURN_ESTIMATES[key];
+  return buildReturnContributionResult(allocations, expectedReturnPct, proxyReturns, opts).rows;
+}
 
-  const rows = allocations
+export function buildReturnContributionResult(
+  allocations: AssetAllocation[],
+  expectedReturnPct: number | null | undefined,
+  proxyReturns?: ProxyReturnEstimate[],
+  opts?: { allowFallbackProxy?: boolean },
+): ReturnContributionResult {
+  const allowFallback = opts?.allowFallbackProxy !== false;
+
+  if (expectedReturnPct == null || !Number.isFinite(expectedReturnPct)) {
+    return {
+      status: "unavailable",
+      rows: [],
+      sumContributionPct: null,
+      agreesWithExpected: false,
+      note: "예상수익률이 없어 기여도를 표시하지 않습니다.",
+    };
+  }
+
+  if (!allowFallback && (!proxyReturns || proxyReturns.length === 0)) {
+    return {
+      status: "unavailable",
+      rows: [],
+      sumContributionPct: null,
+      agreesWithExpected: false,
+      note: "시장 수익률 자료가 없어 기여도를 산출하지 않았습니다.",
+    };
+  }
+
+  const byKey = new Map((proxyReturns ?? []).map((e) => [e.key, e.annualizedReturnPct] as const));
+  const rate = (key: ProxyAssetKey) => {
+    if (byKey.has(key)) return byKey.get(key)!;
+    if (!allowFallback) return Number.NaN;
+    return FALLBACK_PROXY_RETURN_ESTIMATES[key];
+  };
+
+  const rowsRaw = allocations
     .filter((a) => a.weight > 0)
     .map((a) => {
       const rawApplied = appliedReturnForLabel(a.assetClass, rate);
@@ -50,11 +99,21 @@ export function buildReturnContributionsFromPortfolio(
       };
     });
 
-  const rawTotal = rows.reduce((sum, r) => sum + r.rawContribution, 0);
-  // 기여도 합계 = 확정 예상수익률이 되도록 적용수익률을 스케일 (KPI 정합)
-  const scale = rawTotal > 0 && expectedReturnPct > 0 ? expectedReturnPct / rawTotal : 1;
+  if (rowsRaw.some((r) => !Number.isFinite(r.rawApplied))) {
+    return {
+      status: "unavailable",
+      rows: [],
+      sumContributionPct: null,
+      agreesWithExpected: false,
+      note: "일부 자산군의 적용수익률을 확인할 수 없습니다.",
+    };
+  }
 
-  return rows.map((r) => {
+  const rawTotal = rowsRaw.reduce((sum, r) => sum + r.rawContribution, 0);
+  const scale =
+    rawTotal > 0 && expectedReturnPct !== 0 ? expectedReturnPct / rawTotal : expectedReturnPct === 0 ? 0 : 1;
+
+  const rows = rowsRaw.map((r) => {
     const appliedReturnPct = round2(r.rawApplied * scale);
     return {
       name: r.name,
@@ -63,4 +122,17 @@ export function buildReturnContributionsFromPortfolio(
       contributionPct: round2((r.weightPct / 100) * appliedReturnPct),
     };
   });
+
+  const sumContributionPct = rows.reduce((s, r) => s + r.contributionPct, 0);
+  const agrees = contributionsAgreeWithReturn(sumContributionPct, expectedReturnPct);
+
+  return {
+    status: "ok",
+    rows,
+    sumContributionPct,
+    agreesWithExpected: agrees,
+    note: agrees
+      ? null
+      : "기여도 합과 예상수익률 표시값의 차이가 허용 범위를 넘습니다. 확인이 필요합니다.",
+  };
 }

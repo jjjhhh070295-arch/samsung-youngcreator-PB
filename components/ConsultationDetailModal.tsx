@@ -223,10 +223,22 @@ export default function ConsultationDetailModal({
                       <div key={p.id} className="rounded-md bg-surface-2 p-2">
                         <p className="text-xs font-bold text-fg">{p.label}</p>
                         <p className="text-[11px] text-fg-muted">
-                          수익 {p.expectedReturn}% · 변동성 {p.expectedRisk}%
+                          수익{" "}
+                          {p.expectedReturn == null || !Number.isFinite(p.expectedReturn)
+                            ? "산출 전"
+                            : `${(Math.round(p.expectedReturn * 10) / 10).toFixed(1)}%`}{" "}
+                          · 변동성{" "}
+                          {p.expectedRisk == null || !Number.isFinite(p.expectedRisk)
+                            ? "산출 전"
+                            : `${(Math.round(p.expectedRisk * 10) / 10).toFixed(1)}%`}
                         </p>
                         <p className="mt-1 text-[11px] text-fg-muted">
-                          {p.allocations.map((a) => `${a.assetClass} ${a.weight}%`).join(" · ")}
+                          {p.allocations
+                            .map(
+                              (a) =>
+                                `${a.assetClass} ${(Math.round(a.weight * 10) / 10).toFixed(1)}%`,
+                            )
+                            .join(" · ")}
                         </p>
                       </div>
                     ))}
