@@ -9,7 +9,6 @@ import { formatKRW } from "@/lib/format";
 import { formatPercent1 } from "@/lib/formatPercent";
 import type { DepositProduct } from "@/lib/tax/depositInterest";
 import {
-  aggregateDerivedDepositInterest,
   calculateDepositInterest,
   sumDepositBalances,
 } from "@/lib/tax/depositInterest";
@@ -25,12 +24,16 @@ import {
 } from "@/lib/deposits/store";
 import { publishClientLiveSync } from "@/lib/clientLiveSync";
 import MoneyManwonInput from "@/components/MoneyManwonInput";
+import {
+  depositInterestSnapshotFromProducts,
+  type DepositInterestSnapshot,
+} from "@/lib/financialIncomeBreakdown";
 
 interface Props {
   clientId: string;
   onChanged?: () => void;
-  /** 예·적금 예상 이자 — 값이 바뀐 때만 호출 */
-  onDerivedInterestChange?: (grossWon: number | null) => void;
+  /** 예·적금 예상 이자 스냅샷 — 의미 있는 값이 바뀔 때만 호출 */
+  onDerivedInterestChange?: (snap: DepositInterestSnapshot) => void;
 }
 
 const TERM_OPTIONS = Array.from({ length: 10 }, (_, i) => i + 1);
@@ -102,18 +105,17 @@ export default function DepositProductsSection({
   derivedCbRef.current = onDerivedInterestChange;
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
-  const lastEmittedDerivedRef = useRef<number | null | undefined>(undefined);
+  const lastEmittedDerivedRef = useRef<string>("");
 
   const year = new Date().getFullYear();
   const asOf = new Date().toISOString().slice(0, 10);
 
   const emitDerivedIfChanged = useCallback((rows: DepositProduct[]) => {
-    const agg = aggregateDerivedDepositInterest(rows, { asOf, projectionYear: year });
-    const next =
-      agg.incomplete && agg.totalGrossWon == null ? null : (agg.totalGrossWon ?? 0);
-    if (lastEmittedDerivedRef.current === next) return;
-    lastEmittedDerivedRef.current = next;
-    derivedCbRef.current?.(next);
+    const snap = depositInterestSnapshotFromProducts(rows, { asOf, projectionYear: year });
+    const key = JSON.stringify(snap);
+    if (lastEmittedDerivedRef.current === key) return;
+    lastEmittedDerivedRef.current = key;
+    derivedCbRef.current?.(snap);
   }, [asOf, year]);
 
   // 고객 변경 시에만 로드 — 콜백 정체성으로 재로드하지 않음

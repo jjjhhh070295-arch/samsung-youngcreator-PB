@@ -1,4 +1,9 @@
 import type { Client, FinancialIncomeProfile, WithholdingSlipParseStatus } from "@/lib/types";
+import {
+  annualFinancialIncomeFromBreakdown,
+  buildFinancialIncomeBreakdown,
+  type DepositInterestSnapshot,
+} from "./financialIncomeBreakdown";
 
 export function defaultFinancialIncomeProfile(): FinancialIncomeProfile {
   return {
@@ -56,8 +61,16 @@ export function resolveFinancialIncomeProfile(client: Client): FinancialIncomePr
   });
 }
 
-export function annualFinancialIncomeFromProfile(profile: FinancialIncomeProfile): number {
-  return Math.max(0, Number(profile.interestIncomeWon) || 0) + Math.max(0, Number(profile.dividendIncomeWon) || 0);
+/**
+ * 연간 금융소득 합계(외부 확정 + 파생 예적금·채권·배당).
+ * depositSnapshot 이 있으면 제품 산출이 캐시보다 우선.
+ */
+export function annualFinancialIncomeFromProfile(
+  profile: FinancialIncomeProfile,
+  opts?: { depositSnapshot?: DepositInterestSnapshot | null },
+): number {
+  const b = buildFinancialIncomeBreakdown(profile, opts);
+  return annualFinancialIncomeFromBreakdown(b);
 }
 
 /** 급여·공제 기반 비금융 과세표준(확정 대안 필드 무시) */
@@ -81,24 +94,36 @@ export function deriveNonFinancialTaxableBaseWon(input: {
 }
 
 /** 종합과세 대상인데 세전·세후/승인에 쓸 금융소득이 준비됐는지 */
-export function isFinancialIncomeReadyForTax(client: Client): boolean {
+export function isFinancialIncomeReadyForTax(
+  client: Client,
+  opts?: { depositSnapshot?: DepositInterestSnapshot | null },
+): boolean {
   if (!client.financialIncomeComprehensiveTax) return true;
   const profile = resolveFinancialIncomeProfile(client);
   const status: WithholdingSlipParseStatus = profile.parseStatus;
+  const breakdown = buildFinancialIncomeBreakdown(profile, opts);
+  const hasDerived =
+    (breakdown.derivedDepositInterestWon != null && breakdown.derivedDepositInterestWon > 0) ||
+    (breakdown.derivedBondInterestWon != null && breakdown.derivedBondInterestWon > 0) ||
+    (breakdown.derivedDividendWon != null && breakdown.derivedDividendWon > 0);
+  const hasManual =
+    profile.interestIncomeWon != null || profile.dividendIncomeWon != null;
+
   if (status === "parse_failed" || status === "none") {
-    return annualFinancialIncomeFromProfile(profile) > 0 || (
-      profile.interestIncomeWon != null || profile.dividendIncomeWon != null
-    );
+    return annualFinancialIncomeFromBreakdown(breakdown) > 0 || hasManual || hasDerived;
   }
   if (status === "parsed" || status === "manual") {
-    return profile.interestIncomeWon != null || profile.dividendIncomeWon != null;
+    return hasManual || hasDerived;
   }
   return false;
 }
 
-export function financialIncomeBlockReason(client: Client): string {
+export function financialIncomeBlockReason(
+  client: Client,
+  opts?: { depositSnapshot?: DepositInterestSnapshot | null },
+): string {
   if (!client.financialIncomeComprehensiveTax) return "";
-  if (isFinancialIncomeReadyForTax(client)) return "";
+  if (isFinancialIncomeReadyForTax(client, opts)) return "";
   const profile = resolveFinancialIncomeProfile(client);
   if (profile.parseStatus === "parse_failed") {
     return "원천징수영수증에서 금융소득을 읽지 못했습니다. 이자·배당을 수동 입력하세요.";

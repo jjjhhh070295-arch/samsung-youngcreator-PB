@@ -20,6 +20,7 @@ import {
   type PortfolioAnalyticsSnapshot,
 } from "@/lib/returnAssumptions";
 import { draftMatchesApprovedInstruments } from "@/lib/advisory/approvedPortfolioComposition";
+import { depositInterestSnapshotFromProducts } from "@/lib/financialIncomeBreakdown";
 
 interface Props {
   client: Client;
@@ -124,7 +125,18 @@ export default function TaxProjectionPanel({
     });
   }, [client, pf, deposits, returnAssumptions]);
 
-  const taxContext = useMemo(() => defaultTaxContextFromClient(client), [client]);
+  const taxContext = useMemo(
+    () => defaultTaxContextFromClient(client, new Date().getFullYear(), { deposits }),
+    [client, deposits],
+  );
+
+  const depositSnap = useMemo(
+    () => depositInterestSnapshotFromProducts(deposits, {
+      asOf: new Date().toISOString().slice(0, 10),
+      projectionYear: new Date().getFullYear(),
+    }),
+    [deposits],
+  );
 
   const result = useMemo(() => {
     if (!preview || preview.principalWon <= 0) return null;
@@ -207,6 +219,7 @@ export default function TaxProjectionPanel({
                 client={client}
                 onChangeComprehensiveTax={onChangeComprehensiveTax}
                 onChangeFinancialIncomeProfile={onChangeFinancialIncomeProfile}
+                depositInterestSnapshot={depositSnap}
               />
             </div>
           )}

@@ -124,11 +124,14 @@ export default function ClientDetailPage() {
     message: string;
     error?: boolean;
   } | null>(null);
+  const [depositInterestSnapshot, setDepositInterestSnapshot] =
+    useState<import("@/lib/financialIncomeBreakdown").DepositInterestSnapshot | null>(null);
 
   useEffect(() => {
     opGenerationRef.current += 1;
     shownNoticeKeysRef.current.clear();
     setApprovalNotice(null);
+    setDepositInterestSnapshot(null);
   }, [clientId]);
 
   const showApprovalNotice = useCallback((key: string | undefined, message: string, error = false) => {
@@ -921,9 +924,11 @@ export default function ClientDetailPage() {
   }, [invalidateAfterEdit]);
 
   const onDerivedDepositInterest = useCallback(
-    (grossWon: number | null) => {
+    (snap: import("@/lib/financialIncomeBreakdown").DepositInterestSnapshot) => {
+      setDepositInterestSnapshot(snap);
       const current = clientRef.current;
       if (!current) return;
+      const grossWon = snap.allIncomplete ? null : snap.totalGrossWon;
       const prev = current.financialIncomeProfile?.derivedDepositInterestWon ?? null;
       if (prev === grossWon) return;
       const profile: FinancialIncomeProfile = {
@@ -1131,6 +1136,7 @@ export default function ClientDetailPage() {
           client={client}
           onChangeComprehensiveTax={saveComprehensiveTaxFlag}
           onChangeFinancialIncomeProfile={saveFinancialIncomeProfile}
+          depositInterestSnapshot={depositInterestSnapshot}
         />
 
         {/* 7요인 */}

@@ -16,6 +16,10 @@ import {
   roundWon,
 } from "./koreanResidentTax2026";
 import { deriveNonFinancialTaxableBaseWon } from "../financialIncome";
+import {
+  baselineExistingDividendWon,
+  baselineExistingInterestWon,
+} from "../financialIncomeBreakdown";
 import { getAssumptionForSymbol } from "../returnAssumptions";
 import type { InstrumentReturnAssumptionPct } from "../returnAssumptions";
 
@@ -542,13 +546,28 @@ export function projectPortfolioPreviewTax(input: {
   };
 }
 
-export function defaultTaxContextFromClient(client: Client, taxYear = new Date().getFullYear()): CustomerTaxContext {
-  const profile = client.financialIncomeProfile;
+export function defaultTaxContextFromClient(
+  client: Client,
+  taxYear = new Date().getFullYear(),
+  opts?: {
+    deposits?: DepositProduct[] | null;
+    asOf?: string | null;
+  },
+): CustomerTaxContext {
+  const profile = client.financialIncomeProfile ?? {
+    interestIncomeWon: null,
+    dividendIncomeWon: null,
+    parseStatus: "none" as const,
+  };
+  const asOf = opts?.asOf ?? `${taxYear}-12-31`;
   return {
     taxYear,
     declaredComprehensiveHistorically: client.financialIncomeComprehensiveTax ?? null,
-    existingInterestWon: profile?.interestIncomeWon ?? null,
-    existingDividendWon: profile?.dividendIncomeWon ?? null,
+    existingInterestWon: baselineExistingInterestWon(profile, opts?.deposits ?? null, {
+      asOf,
+      projectionYear: taxYear,
+    }),
+    existingDividendWon: baselineExistingDividendWon(profile),
     expectedWageGrossWon: profile?.expectedWageGrossWon ?? null,
     otherComprehensiveIncomeWon: profile?.otherComprehensiveIncomeWon ?? null,
     /** @deprecated 신규 경로에서 무시 — 호환 필드만 유지 */
