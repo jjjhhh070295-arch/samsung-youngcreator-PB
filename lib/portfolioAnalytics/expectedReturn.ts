@@ -1,4 +1,5 @@
 import { cagr, daysBetween, finite } from "./calculations";
+import { approximateBondEtfOneYearTotalReturn } from "./bondEtfScenario";
 import type { ExpectedReturn, Holding, MarketData } from "./types";
 
 export function expectedReturn(holding: Holding, data: MarketData, date: string): ExpectedReturn {
@@ -27,15 +28,103 @@ export function expectedReturn(holding: Holding, data: MarketData, date: string)
     }
   }
   if (holding.assetType === "etf" && (holding.subType === "bond" || holding.subType === "cash")) {
-    const yields = [["ytm", f.yieldToMaturity], ["sec_yield", f.secYield], ["distribution_yield", f.distributionYield]] as const;
+    const config = holding.bondEtfScenario;
+    const override = config?.override;
+    const overrideIsUsable = Boolean(
+      override &&
+      finite(override.ytmPct) &&
+      override.ytmPct >= -10 &&
+      override.ytmPct <= 100 &&
+      /^\d{4}-\d{2}-\d{2}$/.test(override.asOf) &&
+      override.sourceLabel.trim(),
+    );
+    const ytm = overrideIsUsable ? override!.ytmPct! / 100 : f.yieldToMaturity;
+    if (finite(ytm) && ytm >= -0.1 && ytm <= 1) {
+      const expenseRatio = overrideIsUsable && finite(override?.expenseRatioPct)
+        ? override.expenseRatioPct / 100
+        : finite(f.expenseRatio) && f.expenseRatio >= 0 && f.expenseRatio <= 1
+          ? f.expenseRatio
+          : null;
+      const effectiveDuration = overrideIsUsable && finite(override?.effectiveDurationYears)
+        ? override.effectiveDurationYears
+        : finite(f.duration)
+          ? f.duration
+          : null;
+      const spreadDuration = overrideIsUsable && finite(override?.spreadDurationYears)
+        ? override.spreadDurationYears
+        : finite(f.spreadDuration)
+          ? f.spreadDuration
+          : null;
+      const rateChangeBp = config?.rateChangeBp ?? 0;
+      const spreadChangeBp = config?.spreadChangeBp ?? 0;
+      const bond = approximateBondEtfOneYearTotalReturn({
+        portfolioYtm: ytm,
+        expenseNotAlreadyInYtm: expenseRatio,
+        effectiveDuration,
+        spreadDuration,
+        rateChange: rateChangeBp / 10_000,
+        spreadChange: spreadChangeBp / 10_000,
+        allowMissingSpreadDuration: config?.allowMissingSpreadDuration ?? false,
+      });
+      const factsSourceLabel = overrideIsUsable
+        ? override!.sourceLabel.trim()
+        : f.factsSourceLabel ?? "펀드 공시 데이터";
+      const factsSourceUrl = overrideIsUsable
+        ? override!.sourceUrl?.trim() || null
+        : f.factsSourceUrl ?? null;
+      const factsAsOf = overrideIsUsable ? override!.asOf : f.factsAsOf ?? null;
+      const bondScenario: NonNullable<ExpectedReturn["bondScenario"]> = {
+        status: bond.status,
+        ytm,
+        expenseRatio,
+        effectiveDuration,
+        spreadDuration,
+        rateChangeBp,
+        spreadChangeBp,
+        carryRoll: bond.carryRoll,
+        expenseDrag: bond.expenseDrag,
+        ratePriceEffect: bond.ratePriceEffect,
+        spreadPriceEffect: bond.spreadPriceEffect,
+        factsAsOf,
+        factsSourceLabel,
+        factsSourceUrl,
+        sourceKind: overrideIsUsable ? "pb_override" : "official",
+      };
+      const source = overrideIsUsable
+        ? [`PB 검증 입력:${factsSourceLabel}`, ...(factsSourceUrl ? [factsSourceUrl] : [])]
+        : data.source;
+      if (bond.totalReturn == null) {
+        return {
+          ...make(
+            null,
+            "bond_etf_scenario_unavailable",
+            [...bond.assumptions, ...bond.missingReasons],
+            "low",
+            source,
+          ),
+          bondScenario,
+        };
+      }
+      return {
+        ...make(
+          bond.totalReturn,
+          "bond_etf_ytm_scenario",
+          [
+            "1년 근사: YTM − 보수 − 유효듀레이션×금리변화 − 스프레드듀레이션×스프레드변화",
+            ...bond.assumptions,
+            ...(factsAsOf ? [`공시 기준일 ${factsAsOf}`] : []),
+          ],
+          overrideIsUsable ? "low" : "medium",
+          source,
+        ),
+        bondScenario,
+      };
+    }
+    const yields = [["sec_yield", f.secYield], ["distribution_yield", f.distributionYield]] as const;
     for (const [method, value] of yields) {
       if (!finite(value) || value < 0 || value > 1) continue;
-      const fee = finite(f.expenseRatio) && f.expenseRatio >= 0 && f.expenseRatio <= 1 ? f.expenseRatio : null;
       // SEC/distribution yields are already fund-level income proxies; do not double deduct fees.
-      return make(value - (method === "ytm" ? fee ?? 0 : 0), method, [
-        method === "ytm" ? "YTM − 보수" : "펀드 공시 수익률 proxy: 보수 중복 차감 없음",
-        ...(method === "ytm" && fee == null ? ["보수 데이터 미확보: 미차감"] : []),
-      ], "low");
+      return make(value, method, ["펀드 공시 수익률 proxy: 보수 중복 차감 없음", "YTM·듀레이션 미확보로 가격 민감도 시나리오는 적용하지 않음"], "low");
     }
   }
   const historical = cagr(data.prices);

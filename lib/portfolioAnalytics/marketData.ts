@@ -1,4 +1,5 @@
 import { domesticCodeFromSymbol } from "../advisory/naver";
+import { fetchOfficialBondEtfFundamentals } from "./bondEtfFundamentals";
 import { cleanPrices, finite } from "./calculations";
 import type { Fundamentals, Holding, MarketData, Period, Price } from "./types";
 
@@ -69,6 +70,9 @@ async function fetchHolding(h: Holding, years: Period): Promise<MarketData> {
   const fundamentalsPromise = code || h.assetType === "other" ? Promise.resolve({} as Fundamentals) :
     json(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(h.ticker)}?modules=price,defaultKeyStatistics,summaryDetail,fundProfile`)
       .then(parseFundamentals).catch(() => ({} as Fundamentals));
+  const officialBondFactsPromise = h.assetType === "etf" && h.subType === "bond"
+    ? fetchOfficialBondEtfFundamentals(h.ticker)
+    : Promise.resolve(null);
   let history: MarketData;
   if (code) {
     const end = new Date(), start = new Date(end);
@@ -78,10 +82,28 @@ async function fetchHolding(h: Holding, years: Period): Promise<MarketData> {
   } else {
     history = await yahooHistory(h.ticker, years);
   }
-  const fundamentals = await fundamentalsPromise;
+  const [quoteFundamentals, officialBondFacts] = await Promise.all([
+    fundamentalsPromise,
+    officialBondFactsPromise,
+  ]);
+  // The issuer facts are authoritative for YTM/duration/fees. Yahoo remains the
+  // price/distribution fallback and must never overwrite official bond metrics.
+  const fundamentals = {
+    ...quoteFundamentals,
+    ...(officialBondFacts?.fundamentals ?? {}),
+  };
+  const hasNumericFundamentals = Object.values(fundamentals).some(finite);
   return { ...history, fundamentals,
-    source: [...history.source, ...(Object.values(fundamentals).some(finite) ? ["Yahoo Finance:quoteSummary"] : [])],
-    warnings: [...history.warnings ?? [], ...(!Object.values(fundamentals).some(finite) ? [{ type: "FUNDAMENTALS_UNAVAILABLE", message: "안정적인 펀더멘털·펀드 수익률 데이터가 없어 충분한 과거 이력이 있는 경우에만 CAGR 대용치를 사용합니다. 이력도 부족하면 기대수익률을 제공하지 않습니다." }] : [])].map(w => ({ ...w, ticker: h.ticker })) };
+    source: [
+      ...history.source,
+      ...(Object.values(quoteFundamentals).some(finite) ? ["Yahoo Finance:quoteSummary"] : []),
+      ...(officialBondFacts?.source ?? []),
+    ],
+    warnings: [
+      ...history.warnings ?? [],
+      ...(officialBondFacts?.warnings ?? []),
+      ...(!hasNumericFundamentals ? [{ type: "FUNDAMENTALS_UNAVAILABLE", message: "안정적인 펀더멘털·펀드 수익률 데이터가 없어 충분한 과거 이력이 있는 경우에만 CAGR 대용치를 사용합니다. 이력도 부족하면 기대수익률을 제공하지 않습니다." }] : []),
+    ].map(w => ({ ...w, ticker: h.ticker })) };
 }
 export interface MarketDataProvider {
   holding(holding: Holding, years: Period): Promise<MarketData>;

@@ -8,7 +8,9 @@ import {
   mergeStagesPayload,
   splitStagesPayload,
   APPROVAL_HASHES_KEY,
+  computePortfolioApprovalHash,
 } from "./approvalSnapshots";
+import type { ManualPortfolioDraft } from "../manualPortfolioDraft";
 
 function sampleClient(stages: Client["stages"] = {}, hashes: Client["approvalHashes"] = {}): Client {
   const client: Client = {
@@ -62,5 +64,35 @@ describe("approvalSnapshots", () => {
     assert.equal(split.stages.basic, true);
     assert.equal(split.approvalHashes.basic, "abc");
     assert.deepEqual(split.ipsPurchaseApps, {});
+  });
+
+  it("채권 ETF 시나리오 변경은 포트폴리오 승인 해시를 바꾼다", () => {
+    const draft: ManualPortfolioDraft = {
+      allocation: {
+        domesticEquity: 0,
+        globalEquity: 0,
+        domesticBond: 100,
+        globalBond: 0,
+        alternatives: 0,
+        cash: 0,
+      },
+      selected: [],
+      bondEtfScenarioSettings: {
+        rateChangeBp: 0,
+        spreadChangeBp: 0,
+        allowMissingSpreadDuration: false,
+        overridesBySymbol: {},
+      },
+    };
+    const client = sampleClient();
+    const base = computePortfolioApprovalHash(client, draft);
+    const changed = computePortfolioApprovalHash(client, {
+      ...draft,
+      bondEtfScenarioSettings: {
+        ...draft.bondEtfScenarioSettings!,
+        rateChangeBp: 100,
+      },
+    });
+    assert.notEqual(changed, base);
   });
 });

@@ -29,6 +29,8 @@ import { floorToIncrement, requiresMarketQuote } from "@/lib/advisory/ipsPurchas
 import { findQuoteBySymbol } from "@/lib/pricing/instrumentIdentity";
 import type { PriceQuote } from "@/lib/pricing/types";
 import type { PortfolioAnalyticsSnapshot } from "@/lib/returnAssumptions";
+import { createDefaultBondEtfScenarioSettings } from "@/lib/portfolioAnalytics/bondEtfSettings";
+import type { BondEtfScenarioSettings } from "@/lib/portfolioAnalytics/types";
 import { WON_PER_MANWON } from "@/lib/moneyManwon";
 
 type AssetClass =
@@ -175,6 +177,9 @@ export default function ManualPortfolioBuilder({
   const [quotesError, setQuotesError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [analyticsSnapshot, setAnalyticsSnapshot] = useState<PortfolioAnalyticsSnapshot | null>(null);
+  const [bondEtfScenarioSettings, setBondEtfScenarioSettings] = useState<BondEtfScenarioSettings>(
+    createDefaultBondEtfScenarioSettings,
+  );
   const allocationWarningRef = useRef<HTMLDivElement | null>(null);
 
   /** Move a small slice from cash into a target class if that class is currently 0%. */
@@ -231,6 +236,13 @@ export default function ManualPortfolioBuilder({
       if (draft?.trendChecked) setTrendChecked(draft.trendChecked);
       if (draft?.trendConfirmed) setTrendConfirmed(draft.trendConfirmed);
       if (draft?.analyticsSnapshot) setAnalyticsSnapshot(draft.analyticsSnapshot);
+      if (draft?.bondEtfScenarioSettings) {
+        setBondEtfScenarioSettings({
+          ...createDefaultBondEtfScenarioSettings(),
+          ...draft.bondEtfScenarioSettings,
+          overridesBySymbol: draft.bondEtfScenarioSettings.overridesBySymbol ?? {},
+        });
+      }
       setSavedTo(draft ? source : null);
       hasDraftRef.current = Boolean(draft);
       setHydrated(true);
@@ -398,6 +410,7 @@ export default function ManualPortfolioBuilder({
       allocatableWon,
       trendChecked,
       trendConfirmed,
+      bondEtfScenarioSettings,
       savedAt: now,
       ...(analyticsSnapshot ? { analyticsSnapshot } : {}),
     };
@@ -415,7 +428,7 @@ export default function ManualPortfolioBuilder({
     } finally {
       setSaving(false);
     }
-  }, [allocation, allocatableWon, analyticsSnapshot, clientId, finalAllocation, investableWon, onDraftChanged, pbId, selected, trendChecked, trendConfirmed]);
+  }, [allocation, allocatableWon, analyticsSnapshot, bondEtfScenarioSettings, clientId, finalAllocation, investableWon, onDraftChanged, pbId, selected, trendChecked, trendConfirmed]);
 
   const confirmInstruments = useCallback(async (): Promise<boolean> => {
     if (!isAllocationTotalExact100(allocation)) {
@@ -1253,7 +1266,15 @@ export default function ManualPortfolioBuilder({
           </div>
         </section>
       )}
-      <PortfolioAnalyticsCards key={clientId} allocation={finalAllocation} selected={analyticsSelected} complete={hydrated && !loadingHoldings && isComplete && instrumentAllocationComplete} onAnalyticsSnapshot={setAnalyticsSnapshot} />
+      <PortfolioAnalyticsCards
+        key={clientId}
+        allocation={finalAllocation}
+        selected={analyticsSelected}
+        complete={hydrated && !loadingHoldings && isComplete && instrumentAllocationComplete}
+        bondEtfScenarioSettings={bondEtfScenarioSettings}
+        onBondEtfScenarioSettingsChange={setBondEtfScenarioSettings}
+        onAnalyticsSnapshot={setAnalyticsSnapshot}
+      />
       </div>
     </section>
   );

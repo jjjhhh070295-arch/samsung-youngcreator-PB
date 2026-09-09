@@ -9,6 +9,29 @@ export function validateRequest(holdings: Holding[], options: Options) {
     if (!h || typeof h.ticker !== "string" || !/^[A-Za-z0-9.^=-]{1,24}$/.test(h.ticker) || typeof h.name !== "string" || h.name.length > 200 ||
       !finite(h.weight) || h.weight <= 0 || h.weight > 1 || !["KRW", "USD"].includes(h.currency) ||
       !["stock", "etf", "other", "cash"].includes(h.assetType) || !["equity", "bond", "dividend", "commodity", "cash"].includes(h.subType)) throw new Error("종목 또는 비중 값이 올바르지 않습니다.");
+    const scenario = h.bondEtfScenario;
+    if (scenario) {
+      if (h.assetType !== "etf" || h.subType !== "bond" ||
+        !finite(scenario.rateChangeBp) || Math.abs(scenario.rateChangeBp) > 1000 ||
+        !finite(scenario.spreadChangeBp) || Math.abs(scenario.spreadChangeBp) > 1000 ||
+        typeof scenario.allowMissingSpreadDuration !== "boolean") {
+        throw new Error("채권 ETF 시나리오 값이 올바르지 않습니다.");
+      }
+      const override = scenario.override;
+      const validOptional = (value: unknown, min: number, max: number) =>
+        value == null || (finite(value) && value >= min && value <= max);
+      if (override && (
+        !validOptional(override.ytmPct, -10, 100) ||
+        !validOptional(override.effectiveDurationYears, 0, 50) ||
+        !validOptional(override.spreadDurationYears, 0, 50) ||
+        !validOptional(override.expenseRatioPct, 0, 10) ||
+        !validOptional(override.secYieldPct, -10, 100) ||
+        !validOptional(override.distributionYieldPct, -10, 100) ||
+        typeof override.asOf !== "string" || (override.asOf !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(override.asOf)) ||
+        typeof override.sourceLabel !== "string" || override.sourceLabel.length > 200 ||
+        (override.sourceUrl != null && (typeof override.sourceUrl !== "string" || override.sourceUrl.length > 500 || (override.sourceUrl !== "" && !/^https?:\/\//i.test(override.sourceUrl))))
+      )) throw new Error("채권 ETF PB 검증값이 올바르지 않습니다.");
+    }
   }
   if (Math.abs(holdings.reduce((sum, h) => sum + h.weight, 0) - 1) > 0.00001) throw new Error("종목 비중 합계가 100%여야 합니다.");
 }

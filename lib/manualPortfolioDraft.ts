@@ -5,6 +5,7 @@
  */
 
 import type { PbSelectedKoreanStock } from "./advisory/krTrendPortfolio";
+import type { BondEtfScenarioSettings } from "./portfolioAnalytics/types";
 import type { PortfolioAnalyticsSnapshot } from "./returnAssumptions";
 
 export type ManualAssetClass =
@@ -56,6 +57,8 @@ export type ManualPortfolioDraft = {
   trendConfirmed?: PbSelectedKoreanStock[];
   /** 분석 스냅샷 — 승인·세금 산출에 사용 (decimal 수익률은 저장 시 %로 변환) */
   analyticsSnapshot?: PortfolioAnalyticsSnapshot;
+  /** 채권 ETF 1년 YTM·듀레이션 시나리오와 PB 검증 입력. */
+  bondEtfScenarioSettings?: BondEtfScenarioSettings;
   savedAt?: string;
 };
 

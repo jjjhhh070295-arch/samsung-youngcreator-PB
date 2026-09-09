@@ -15,6 +15,22 @@ export type InstrumentReturnAssumptionPct = {
   couponPct?: number | null;
   returnBasis?: ReturnBasisKind;
   expensesAlreadyInReturn?: boolean;
+  method?: string;
+  source?: string[];
+  calculationDate?: string;
+  ytmPct?: number | null;
+  expenseRatioPct?: number | null;
+  effectiveDurationYears?: number | null;
+  spreadDurationYears?: number | null;
+  rateChangeBp?: number;
+  spreadChangeBp?: number;
+  carryRollPct?: number | null;
+  expenseDragPct?: number | null;
+  ratePriceEffectPct?: number | null;
+  spreadPriceEffectPct?: number | null;
+  factsAsOf?: string | null;
+  factsSourceLabel?: string | null;
+  factsSourceUrl?: string | null;
 };
 
 /** decimal 0.08 → percent points 8 */

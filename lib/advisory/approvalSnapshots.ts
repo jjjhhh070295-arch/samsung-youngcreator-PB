@@ -135,6 +135,7 @@ export function buildPortfolioApprovalPayload(
         faceValue: s.faceValue ?? null,
       }))
       .sort((a, b) => a.symbol.localeCompare(b.symbol)),
+    draftBondEtfScenario: draft?.bondEtfScenarioSettings ?? null,
     portfolios: (client.portfolios ?? []).map(simplifyPortfolio),
   };
 }
