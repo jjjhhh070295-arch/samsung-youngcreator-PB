@@ -1,18 +1,17 @@
 "use client";
 
-// 홈 화면 시세 영역 — 당일 미니차트 2개(코스피·S&P500) + 우측 전광판(증시·금리 / KODEX ETF).
+// 홈 화면 — 오늘 일정 요약 + 시세 전광판(증시·금리 / KODEX ETF).
 //
-// app/page.tsx 에서 통째로 떼어냈다. 시세 상태와 60초 폴링 effect 두 개도 함께 옮겨서,
+// app/page.tsx 에서 통째로 떼어냈다. 시세 상태와 60초 폴링 effect도 함께 옮겨서,
 // page.tsx 에는 인증·PB 관리만 남는다. app/page.tsx 는 luaroy·박상혁이 최근 만지는
 // 파일이라 접촉면을 줄이는 게 목적이다.
 //
 // 브랜딩 문구는 여기 없다 — 로그인 전에도 보여야 해서 page.tsx 에 남겼다.
 //
 // 이 컴포넌트는 로그인 뒤에만 마운트된다(page.tsx 가 loggedInPbId 로 감싼다).
-// 따라서 /api/chart · /api/market · /api/etf 폴링도 로그인 후에 시작된다.
+// 따라서 /api/market · /api/etf 폴링도 로그인 후에 시작된다.
 
 import { useEffect, useState } from "react";
-import MarketMiniChart from "@/components/MarketMiniChart";
 import IndicatorPickerModal from "@/components/IndicatorPickerModal";
 import MarketHomeTodaySchedule from "@/components/MarketHomeTodaySchedule";
 import { getLoggedInPbId } from "@/lib/auth";
@@ -46,8 +45,6 @@ const DUMMY_MARKET: MarketTicker[] = [
   { label: "한국 국채 3Y", sub: "국고채 3년", value: "3.21%", change: "+0.02%p", up: true },
 ];
 
-type ChartSeries = { points: { time: string; value: number }[]; prevClose: number | null; delayMinutes: number; startTime: string | null; endTime: string | null };
-
 export default function HomeMarketBoard() {
   const [market, setMarket] = useState<MarketTicker[]>(DUMMY_MARKET);
   const [marketLive, setMarketLive] = useState(false);
@@ -73,35 +70,6 @@ export default function HomeMarketBoard() {
     saveDashboardIndicators(pbId, ids);
   };
   const [marketAt, setMarketAt] = useState<Date | null>(null);
-
-  const [chartData, setChartData] = useState<{ kospi: ChartSeries; spx: ChartSeries }>({
-    kospi: { points: [], prevClose: null, delayMinutes: 0, startTime: null, endTime: null },
-    spx: { points: [], prevClose: null, delayMinutes: 0, startTime: null, endTime: null },
-  });
-  const [chartLoading, setChartLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadCharts = async () => {
-      try {
-        const response = await fetch("/api/chart", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (!cancelled) setChartData(data);
-      } catch {
-        // 일시적 갱신 실패 시 마지막 정상 차트를 유지한다.
-      } finally {
-        if (!cancelled) setChartLoading(false);
-      }
-    };
-
-    loadCharts();
-    const id = window.setInterval(loadCharts, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
 
   // indicatorIds 가 바뀌면 폴링을 다시 건다 — 지표를 고르는 즉시 전광판이 갱신된다.
   useEffect(() => {
@@ -133,12 +101,8 @@ export default function HomeMarketBoard() {
 
   return (
     <div className="mb-8 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
-      {/* 좌 — 당일 미니차트 + 오늘 일정 요약(차트 합친 너비) */}
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <MarketMiniChart data={chartData.kospi.points} prevClose={chartData.kospi.prevClose} label="코스피 (KOSPI)" loading={chartLoading} delayMinutes={chartData.kospi.delayMinutes} startTime={chartData.kospi.startTime} endTime={chartData.kospi.endTime} />
-          <MarketMiniChart data={chartData.spx.points} prevClose={chartData.spx.prevClose} label="S&P 500" loading={chartLoading} delayMinutes={chartData.spx.delayMinutes} startTime={chartData.spx.startTime} endTime={chartData.spx.endTime} />
-        </div>
+      {/* 좌 — 오늘 일정 요약 */}
+      <div>
         {pbId ? <MarketHomeTodaySchedule pbId={pbId} /> : null}
       </div>
 

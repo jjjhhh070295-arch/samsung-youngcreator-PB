@@ -289,7 +289,6 @@ export default function AppNav() {
     ...(navPbId ? [{ key: "book", label: "고객조회", icon: "📒", href: `/pb/${navPbId}` }] : []),
     ...(navPbId ? [{ key: "ticker", label: "티커 분석", icon: "📈", href: `/pb/${navPbId}/ticker` }] : []),
     { key: "research", label: "리서치", icon: "📊", href: "/research" },
-    { key: "research-links", label: "스몰캡 리서치", icon: "🔎", href: "/research-links" },
     // PB 계정 관리 — 예전에는 홈 화면 카드로만 열 수 있어 관리하려면 홈으로 돌아가야 했다.
     // 이동이 아니라 모달을 여는 항목이라 action 을 쓴다(lib/pbManage.ts 주석 참고).
     { key: "pb-manage", label: "PB 계정 관리", icon: "👤", href: "", action: openPbManage },
@@ -433,7 +432,7 @@ export default function AppNav() {
 
   if (pathname === "/") {
     const rootItems = utilityItems.filter((item) =>
-      ["home", "research", "research-links", "pb-manage"].includes(item.key),
+      ["home", "research", "pb-manage"].includes(item.key),
     );
     return (
       <nav className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 text-slate-700 shadow-[0_1px_8px_rgba(15,23,42,0.04)] backdrop-blur" aria-label="주요 메뉴">
