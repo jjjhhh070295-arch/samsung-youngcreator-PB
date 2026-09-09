@@ -10,19 +10,25 @@
 // .env.local에 시크릿을 채워 넣지 않아도 되게 하기 위함이며, Vercel
 // 프로덕션 배포는 NODE_ENV가 항상 "production"이라 이 예외가 적용되지 않는다.
 //
-// 이름이 BRIEFING_CRON_SECRET 인 이유: Vercel 이 CRON_SECRET 을 예약어로 막아
-// 프로젝트 환경변수로 등록할 수 없다. 옛 이름은 폴백으로 남겨 둔다 — 로컬
-// .env.local 이 아직 CRON_SECRET 이라 양쪽 다 동작해야 한다.
-// 폴백을 걷어내려면 로컬·Vercel 양쪽이 새 이름으로 옮겨간 뒤에 해야 한다.
+// Vercel Cron은 CRON_SECRET을 Authorization: Bearer ... 헤더에 자동으로 넣는다.
+// BRIEFING_CRON_SECRET은 브리핑을 수동 호출하던 기존 연동을 위해 함께 허용한다.
+// 두 값이 다르더라도 어느 한쪽과 정확히 일치하면 통과하도록 검사한다.
 export function cronSecret(): string | undefined {
-  return process.env.BRIEFING_CRON_SECRET || process.env.CRON_SECRET;
+  return process.env.CRON_SECRET?.trim() || process.env.BRIEFING_CRON_SECRET?.trim();
+}
+
+export function cronSecrets(): string[] {
+  return Array.from(new Set([
+    process.env.CRON_SECRET?.trim(),
+    process.env.BRIEFING_CRON_SECRET?.trim(),
+  ].filter((value): value is string => Boolean(value))));
 }
 
 export function isAuthorizedCronRequest(req: Request): boolean {
-  const secret = cronSecret();
-  if (secret) {
+  const secrets = cronSecrets();
+  if (secrets.length) {
     const auth = req.headers.get("authorization");
-    return auth === `Bearer ${secret}`;
+    return secrets.some((secret) => auth === `Bearer ${secret}`);
   }
   // 시크릿 미설정 — 개발 환경에서만 예외적으로 통과시킨다. 프로덕션에서는
   // 무조건 거부(fail-closed)한다.

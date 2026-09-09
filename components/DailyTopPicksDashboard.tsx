@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { themeLabelKo } from "@/lib/topPicks/themeLabels";
+import { getLoggedInPbId } from "@/lib/auth";
 
 type Pick = { rank: number; previousRank: number | null; rankChange: number | null; isNew: boolean; ticker: string; company: string; score: number; confidence: number; type: string; summary: string; keyReasons: string[]; risks: string[]; scores: Record<string, number> };
 type HomeData = { demo?: boolean; warning?: string | null; topPicksDate?: string | null; ready: boolean; date: string | null; marketBrief: null | { sourceLabel?: string; model?: string; headline: string; summary: string; indicators: Array<{ label?: string; value?: string; change?: string }>; issues: Array<{ source?: string; url?: string; date?: string | null; title?: string; summary?: string; whatChanged?: string; marketImpact?: string; watchPoint?: string }>; themes: Array<{ theme?: string; themeCode?: string; themeKo?: string; score?: number; direction?: string; reason?: string }>; timeline?: { twoWeeks?: string; threeDays?: string; today?: string }; watchPoints?: string[] }; topPicks: Pick[] };
@@ -23,6 +24,8 @@ export default function DailyTopPicksDashboard() {
   const [data, setData] = useState<HomeData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [generating, setGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Pick | null>(null);
   const [detail, setDetail] = useState<any>(null);
   useEffect(() => {
@@ -54,9 +57,25 @@ export default function DailyTopPicksDashboard() {
     return () => { active = false; controller?.abort(); window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
   }, [refresh]);
   useEffect(() => { if (!selected) { setDetail(null); return; } let active = true; fetch(`/api/top-picks/${encodeURIComponent(selected.ticker)}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((value) => { if (active) setDetail(value); }); return () => { active = false; }; }, [selected]);
+  const generateNow = async () => {
+    const pbId = getLoggedInPbId();
+    if (!pbId) { setGenerationError("로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요."); return; }
+    setGenerating(true);
+    setGenerationError(null);
+    try {
+      const response = await fetch("/api/top-picks/run", { method: "POST", headers: { "x-pb-id": pbId } });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok || !value.ok) throw new Error(value.error || "분석 생성에 실패했습니다.");
+      setRefresh((current) => current + 1);
+    } catch (cause) {
+      setGenerationError(cause instanceof Error ? cause.message : "분석 생성에 실패했습니다.");
+    } finally {
+      setGenerating(false);
+    }
+  };
   if (!data?.ready && error) return <section role="alert" className="mb-8 rounded-md border border-border bg-surface p-6"><p className="font-bold text-fg">AI Market Intelligence</p><p className="mt-1 text-sm text-fg-muted">{error}</p><button type="button" onClick={() => { setError(null); setRefresh((value) => value + 1); }} className="mt-3 text-sm font-bold text-blue-600">다시 불러오기</button></section>;
   if (!data) return <section className="mb-8 rounded-md border border-border bg-surface p-6 text-sm text-fg-muted">AI Market Intelligence를 불러오는 중…</section>;
-  if (!data.ready) return <section className="mb-8 rounded-md border border-dashed border-border bg-surface p-6"><p className="font-bold text-fg">AI Market Intelligence</p><p className="mt-1 text-sm text-fg-muted">크롤링 자료와 리서치 탭의 보고서를 읽은 통합 분석이 아직 없습니다. 리서치 기반 AI Market Intelligence 작업이 완료되면 표시됩니다.</p></section>;
+  if (!data.ready) return <section className="mb-8 rounded-md border border-dashed border-border bg-surface p-6"><p className="font-bold text-fg">AI Market Intelligence</p><p className="mt-1 text-sm text-fg-muted">아직 생성된 통합 분석이 없습니다. 지금 실행하면 크롤링 자료와 리서치 탭의 보고서를 Gemini가 읽고 분석합니다.</p>{generationError && <p role="alert" className="mt-2 text-sm text-red-600">{generationError}</p>}<button type="button" onClick={() => void generateNow()} disabled={generating} className="mt-4 rounded-md bg-[#1428A0] px-4 py-2 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60">{generating ? "리서치 분석 생성 중…" : "지금 분석 생성"}</button></section>;
   const brief = data.marketBrief;
   return <section className="mb-8 space-y-4" aria-label="AI Market Intelligence">
     {(error || data.warning) && <p role="status" className="text-sm text-amber-700">{error || data.warning}</p>}
