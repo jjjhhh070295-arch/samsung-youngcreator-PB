@@ -167,6 +167,16 @@ export default function ClientDetailPage() {
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
+  // Evidence inputHash 계산에 쓰는 담당 PB 표시명.
+  //
+  // 서버 검증은 client.assignedPbId 로 찾은 PB 의 name 을 넣어 해시를 다시 계산한다
+  // (serverVerification: assignedPbDisplay: current.pb.name). 라우트의 pbId 가 아니라
+  // 고객에 배정된 PB 로 찾는 이유가 그것이다 — ips/page.tsx 도 같은 기준을 쓴다.
+  // 못 찾으면 undefined 를 넘긴다. 그때는 payload 가 assignedPbId 로 폴백해 서버와
+  // 어긋나지만, 이름을 모르는 상태에서 지어낼 수는 없다.
+  const assignedPbDisplay = client
+    ? pbs.find((p) => p.id === client.assignedPbId)?.name
+    : undefined;
   const [modalOpen, setModalOpen] = useState(false);
   const [completionOpen, setCompletionOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -323,11 +333,16 @@ export default function ClientDetailPage() {
   useEffect(() => {
     if (!client || typeof window === "undefined") return;
     if (!isIpsWorkflowApproved(client)) return;
+    // PB 이름을 모르는 동안에는 손대지 않는다. pbs 는 load() 로 나중에 채워지는데,
+    // 그 전에 돌면 inputHash 가 assignedPbId 로 폴백해 서버와 어긋난 값이 찍힌다.
+    // 게다가 이 sync 는 상태를 locked 로 올리므로 아래 조건이 다시는 참이 되지 않아
+    // 틀린 해시가 그대로 굳는다.
+    if (!assignedPbDisplay) return;
     const bundle = loadBundle(client.id);
     if (bundle.status === "blocked" || bundle.status !== "locked") {
-      syncEvidenceAfterIpsApproval(client);
+      syncEvidenceAfterIpsApproval(client, { assignedPbDisplay });
     }
-  }, [client]);
+  }, [client, assignedPbDisplay]);
 
   const handleSetTab = (t: Tab) => {
     if ((t === "portfolio2" || t === "portfolio" || t === "taxProjection" || t === "stress") && client && !isBasicWorkflowApproved(client)) {
@@ -928,7 +943,9 @@ export default function ClientDetailPage() {
 
       const nextClient = { ...nextBase, approvalHashes };
       setClient(nextClient);
-      syncEvidenceAfterIpsApproval(nextClient);
+      // nextClient.portfolios 는 [stampedPortfolio] 다(위 nextBase). Evidence 의
+      // inputHash 를 여기서 찍으므로 반드시 stamping 이후 값이어야 한다.
+      syncEvidenceAfterIpsApproval(nextClient, { assignedPbDisplay });
       notifyClientUpdated();
       bumpAssetRefresh();
       const draftNote =

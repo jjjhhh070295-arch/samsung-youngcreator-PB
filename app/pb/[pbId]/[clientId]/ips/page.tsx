@@ -247,7 +247,10 @@ export default function IPSDocumentPage() {
       ? (() => {
           const current = loadBundle(clientId);
           if (canIssueClientPdf(current)) return current;
-          return syncEvidenceAfterIpsApproval(client);
+          // 서버는 assignedPb.name 으로 inputHash 를 다시 계산한다. 여기서 같은 이름을
+          // 넘기지 않으면 payload 가 assignedPbId 로 폴백해 대조가 반드시 실패한다.
+          // 이 지점에서 assignedPb?.id === pbId 는 위에서 이미 확인됐다.
+          return syncEvidenceAfterIpsApproval(client, { assignedPbDisplay: pbDisplay });
         })()
       : loadBundle(clientId);
     if (!canIssueClientPdf(bundle)) {

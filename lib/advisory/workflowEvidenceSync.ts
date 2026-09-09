@@ -13,6 +13,7 @@ import {
 } from "./control";
 import type { EvidenceBundle } from "./types";
 import { extractIpsFromClientProfile } from "./ipsExtraction";
+import { advisoryInputHash, type AdvisoryInputContext } from "./integrity";
 
 function persist(bundle: EvidenceBundle) {
   saveBundle(bundle);
@@ -87,8 +88,16 @@ export function syncEvidenceAfterPortfolioApproval(client: Client): EvidenceBund
 /**
  * IPS 승인 — 워크플로 기준으로 Evidence를 locked로 맞춰 PDF 게이트와 일치시킨다.
  * Judge UI 없이도 최종본을 열 수 있게 한다(하드 해시 불일치만 남기면 안 됨).
+ *
+ * context.assignedPbDisplay 는 반드시 넘겨야 한다. 서버 검증
+ * (serverVerification.validateAgainstServerCurrent)은 `current.pb.name` 을 넣어
+ * inputHash 를 다시 계산한다. 여기서 안 넘기면 advisoryInputPayload 가
+ * client.assignedPbId(uuid)로 폴백해 서버 값과 절대 일치하지 않는다.
  */
-export function syncEvidenceAfterIpsApproval(client: Client): EvidenceBundle {
+export function syncEvidenceAfterIpsApproval(
+  client: Client,
+  context: AdvisoryInputContext = {},
+): EvidenceBundle {
   clearStaleEvidenceBlock(client.id);
   let bundle = loadBundle(client.id);
   const now = new Date().toISOString();
@@ -120,7 +129,27 @@ export function syncEvidenceAfterIpsApproval(client: Client): EvidenceBundle {
       },
     };
   }
-  if (!bundle.inputHash) bundle = { ...bundle, inputHash: `workflow-input-${client.id}` };
+  // inputHash 는 조건 없이 실제 해시로 덮어쓴다.
+  //
+  // 예전에는 `if (!bundle.inputHash) … = \`workflow-input-${client.id}\`` 였다. 문제가 둘
+  // 겹쳐 있었다.
+  //   · 값이 해시가 아니라 리터럴 문자열이었다. verifyEvidenceAgainstClient 는 이것을
+  //     advisoryInputHash(client) 와 비교하므로 영원히 일치하지 않는다.
+  //   · 이미 값이 있으면 손대지 않아, 재승인을 몇 번 해도 옛 값이 그대로 남았다.
+  // 그 결과 승인을 다 마친 고객도 최종 PDF 가 "승인 후 … 입력이 변경되었습니다" 로
+  // 계속 막혔다. 진짜 해시를 만드는 경로(/api/advisory/evidence → buildEngineSnapshot)는
+  // 이를 호출하는 컴포넌트(ConsultationHub·EvidenceBundlePanel)가 현재 어디에도
+  // 마운트되지 않아 도달할 수 없다. 그래서 승인이 직접 찍는다.
+  //
+  // 덮어쓰기가 맞는 이유: 이 시점의 client 가 곧 "승인된 내용"이다. 승인할 때마다
+  // 그 시점 기준으로 다시 찍혀야 이후 변경이 정확히 탐지된다.
+  //
+  // 호출부는 stamping 이후의 client 를 넘겨야 한다 — IPS 승인이 portfolios[0] 을
+  // stampedPortfolio 로 교체하는데, 그 전 값으로 찍으면 저장된 포트폴리오와 어긋난다.
+  bundle = { ...bundle, inputHash: advisoryInputHash(client, context) };
+  // settingsHash·resultHash 는 자리표시자 그대로 둔다. verifyEvidenceAgainstClient 가
+  // 이 둘은 번들 자기 자신(calcConfig·calcResults)과 대조하므로 값이 무엇이든 일관되기만
+  // 하면 통과한다. 고객 데이터와 비교하는 건 inputHash 하나뿐이다.
   if (!bundle.settingsHash) bundle = { ...bundle, settingsHash: `workflow-settings-${client.id}` };
   if (!bundle.resultHash) {
     const hash = `workflow-result-${client.id}-${now}`;
