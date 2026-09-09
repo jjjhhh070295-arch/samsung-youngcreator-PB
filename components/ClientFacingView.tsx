@@ -23,7 +23,6 @@ import IPSSummary from "@/components/IPSSummary";
 import { useLiveClient } from "@/hooks/useLiveClient";
 import { buildCustomerViewSummary } from "@/lib/customerViewSummary";
 import {
-  isBasicWorkflowApproved,
   isIpsWorkflowApproved,
   isPortfolioWorkflowApproved,
 } from "@/lib/advisory/workflowApprovals";
@@ -111,17 +110,12 @@ export default function ClientFacingView({
   if (!client || !summary) return null;
 
   const portfolioReady = isPortfolioWorkflowApproved(client);
-  const basicReady = isBasicWorkflowApproved(client);
   const ipsReady = isIpsWorkflowApproved(client);
 
-  if (!basicReady && embedded) {
-    return (
-      <div className="rounded-lg border border-border bg-white p-8 text-center">
-        <p className="text-sm font-bold text-fg">기본정보 승인 후 고객화면을 볼 수 있습니다.</p>
-      </div>
-    );
-  }
-
+  // 기본정보 미승인 게이트는 두지 않는다. 승인 전에도 PB 탭에서 화면을 띄울 수 있어야
+  // 회의를 바로 시작할 수 있고, 승인된 내용이 없으면 각 섹션이 알아서 비어 보인다.
+  // 아래 포트폴리오 게이트는 allowPreview=false 인 외부 공유 라우트(/client/[clientId])
+  // 전용으로 남긴다 — 그쪽은 로그인 가드가 없어 게이트를 낮추면 인증 없이 노출된다.
   if (!portfolioReady && !allowPreview) {
     return (
       <div className="rounded-lg border border-border bg-white p-8 text-center">

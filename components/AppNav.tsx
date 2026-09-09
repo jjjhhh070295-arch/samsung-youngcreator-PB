@@ -264,10 +264,10 @@ export default function AppNav() {
       alert("기본정보 승인 후 포트폴리오를 진행할 수 있습니다.");
       return;
     }
-    if (tab === "customer" && !basicApproved) {
-      alert("기본정보 승인 후 고객화면을 볼 수 있습니다.");
-      return;
-    }
+    // 고객화면은 승인 게이트를 두지 않는다 — 회의 시작과 동시에 고객에게 화면을 띄워야
+    // 하는데 승인을 기다리게 하면 그 동선이 막힌다. 승인된 내용이 없으면 비어 보일 뿐
+    // 틀린 값이 나가지는 않는다. (외부 공유용 /client/[clientId] 는 로그인 가드가 없어
+    // 게이트를 그대로 둔다.)
     if (tab === "ips" && !portfolioApproved) {
       alert("포트폴리오 승인 후 IPS를 확정할 수 있습니다.");
       return;
@@ -388,7 +388,7 @@ export default function AppNav() {
                   ? activeView === "home"
                   : activeView === "analysis" && "tab" in s && activeTab === s.tab;
               const disabled =
-                s.id === "portfolio2" || s.id === "customer"
+                s.id === "portfolio2"
                   ? !basicApproved
                   : s.id === "ips"
                     ? !portfolioApproved
@@ -409,9 +409,7 @@ export default function AppNav() {
                     disabled
                       ? s.id === "portfolio2"
                         ? "기본정보 승인 후 포트폴리오를 진행할 수 있습니다."
-                        : s.id === "customer"
-                          ? "기본정보 승인 후 고객화면을 볼 수 있습니다."
-                          : "포트폴리오 승인 후 IPS를 확정할 수 있습니다."
+                        : "포트폴리오 승인 후 IPS를 확정할 수 있습니다."
                       : undefined
                   }
                 >

@@ -148,6 +148,27 @@ export default function ClientDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // 승인 상태를 이 페이지가 직접 구독한다. 예전에는 각 핸들러의 setClient 로만 갱신돼서,
+  // 다른 화면·컴포넌트가 고객을 바꾸면 여기 client 가 낡은 채로 남았다.
+  // load() 를 그대로 쓰지 않는 이유: status 가 loading 으로 떨어져 화면 전체가 깜빡인다.
+  // 이 이벤트로 바뀌는 건 고객 본체뿐이라 상담 이력·PB 목록은 다시 읽지 않는다.
+  const refreshClientQuietly = useCallback(async () => {
+    if (!clientId) return;
+    try {
+      const c = await getClient(clientId);
+      if (c) setClient(c);
+    } catch {
+      // 조용한 갱신이라 실패는 삼킨다 — 다음 이벤트나 수동 새로고침에서 복구된다.
+    }
+  }, [clientId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onUpdated = () => { void refreshClientQuietly(); };
+    window.addEventListener("pb-client-updated", onUpdated);
+    return () => window.removeEventListener("pb-client-updated", onUpdated);
+  }, [refreshClientQuietly]);
+
   // AUM(=investableKrw)과 총자산(=totalKrw = AUM + 부동산)을 한 번에 받는다.
   // 조회 실패 시 둘 다 null 로 두고 표시 쪽에서 assetSize 로 폴백한다.
   useEffect(() => {
@@ -201,7 +222,10 @@ export default function ClientDetailPage() {
       alert(msg);
     };
 
-    if ((activeTab === "portfolio2" || activeTab === "ips" || activeTab === "customer") && !isBasicWorkflowApproved(client)) {
+    // customer 는 이 목록에서 뺀다. 승인 전에도 진입은 되게 한다 — 회의 시작과 동시에
+    // 고객 화면을 띄우는 동선이 승인 대기에 막히지 않도록 한다. 승인된 내용이 없으면
+    // 화면이 비어 보일 뿐이고, 아래 IPS 게이트와 외부 공유 라우트는 그대로 둔다.
+    if ((activeTab === "portfolio2" || activeTab === "ips") && !isBasicWorkflowApproved(client)) {
       warn(MSG_NEED_BASIC, `${client.id}:need-basic`);
       router.replace(`/pb/${pbId}/${clientId}?view=home`);
       return;
@@ -229,10 +253,7 @@ export default function ClientDetailPage() {
       alert(MSG_NEED_BASIC);
       return;
     }
-    if (t === "customer" && client && !isBasicWorkflowApproved(client)) {
-      alert(MSG_NEED_BASIC);
-      return;
-    }
+    // customer 는 게이트하지 않는다 — AppNav 의 같은 결정과 짝이다.
     if (t === "ips" && client && !isPortfolioWorkflowApproved(client)) {
       alert(MSG_NEED_PORTFOLIO);
       return;
@@ -483,6 +504,9 @@ export default function ClientDetailPage() {
     setClient(nextClient);
     syncEvidenceAfterBasicApproval(nextClient);
     notifyClientUpdated();
+    // 해제 쪽(applyInvalidation)과 대칭. 게이트가 한 번 걸리면 gateToastKey 에 그 키가
+    // 남아 이후 같은 안내가 영구히 억제된다 — 승인으로 게이트가 풀렸으니 여기서 비운다.
+    gateToastKey.current = "";
     alert(MSG_BASIC_APPROVED);
   };
 
