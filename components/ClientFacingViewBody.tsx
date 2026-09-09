@@ -26,7 +26,6 @@ import {
 import { CLIENT_TYPE_LABEL } from "@/lib/types";
 import { formatKRW, formatDate } from "@/lib/format";
 import { formatPercent1 } from "@/lib/formatPercent";
-import IPSRadar from "@/components/IPSRadar";
 import IPSSummary from "@/components/IPSSummary";
 import type { ClientViewPayload } from "@/lib/clientView/types";
 
@@ -363,10 +362,11 @@ export default function ClientFacingViewBody({ view, live, onGoPb }: Props) {
         {profileOpen && (
           <div className="border-t border-[#E2E8F0] px-3 py-3">
             {has7Factor ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <IPSRadar ips={view.ips} height={220} lang="ko" />
-                <IPSSummary ips={view.ips} lang="ko" />
-              </div>
+              // 예전에는 왼쪽에 가로막대 차트(IPSRadar), 오른쪽에 IPSSummary 를 2열로
+              // 놓았다. 차트를 걷어내면서 감싸던 그리드도 없앤다 — IPSSummary 자체가
+              // 이미 sm:grid-cols-2 로 펼쳐지므로, 2열 그리드 안에 하나만 남기면
+              // 요약이 왼쪽 반쪽에 눌린다. 점수는 IPSSummary 의 배지가 계속 보여 준다.
+              <IPSSummary ips={view.ips} lang="ko" />
             ) : (
               <p className="text-xs text-[#64748B]">투자성향(7요인)이 아직 정리되지 않았습니다.</p>
             )}

@@ -9,7 +9,6 @@ import type { Client, IPS, StageKey } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 import { getLatestInvestmentSurvey } from "@/lib/store";
-import IPSRadar from "./IPSRadar";
 import ScoreRubricButton from "./ScoreRubricButton";
 import HeritageSignalBadge from "./HeritageSignalBadge";
 import FactorGroups from "./FactorGroups";
@@ -142,12 +141,11 @@ export default function FactorsSummary({
         }}
       />
 
-      <section className="mb-4 grid gap-4 lg:grid-cols-[360px_1fr]">
-        <div className="console-panel p-4">
-          <p className="decision-kicker">RRTTLLU profile</p>
-          <h2 className="mt-1 text-lg font-black text-fg">고객 투자성향 요약</h2>
-          <IPSRadar ips={ips} height={230} />
-        </div>
+      {/* 예전에는 왼쪽에 "고객 투자성향 요약 / RRTTLLU profile" 가로막대 차트가 있어
+          [360px_1fr] 2열이었다. 차트를 걷어내면서 1열로 되돌린다 — 남은 패널을 오른쪽
+          칸에 그대로 두면 폭이 반쪽으로 눌린다.
+          요인별 점수는 아래 FactorGroups 카드의 상/중/하 배지가 계속 보여 준다. */}
+      <section className="mb-4">
         <div className="console-panel p-4">
           <div className="flex items-center justify-between">
             <div>

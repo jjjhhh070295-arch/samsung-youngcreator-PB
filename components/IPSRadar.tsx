@@ -1,5 +1,21 @@
 "use client";
 
+/**
+ * ⚠️ 현재 어디에서도 쓰이지 않는다 (2026-09-10 부로 호출부 4곳 모두 제거).
+ *
+ * 이름은 Radar 지만 실제로는 7요인 점수를 가로막대(BarChart, layout="vertical")로 그린다.
+ * 쓰이던 곳:
+ *   FactorsSummary        기본 정보 → 7요인, "고객 투자성향 요약 / RRTTLLU profile"
+ *   ClientFacingViewBody  고객화면 → 투자 목적·성향 (PB 탭 + 공유 링크)
+ *   ConsultationModal     상담 입력 → ② RRTTLLU 7요인 정리
+ *   IPSResultTabs         IPS 탭 → IPS 초안 미리보기
+ *
+ * 지우지 않고 남긴 이유: 되살릴 여지가 있고, 파일은 자족적이라(recharts + 타입만 의존)
+ * 남겨도 비용이 없다. 참조가 없으므로 어떤 번들에도 포함되지 않는다.
+ * 되살릴 때는 위 네 곳의 레이아웃도 함께 되돌려야 한다 — 차트를 빼면서 감싸던
+ * 2열 그리드와 테두리 상자를 정리했다.
+ */
+
 import {
   BarChart,
   Bar,

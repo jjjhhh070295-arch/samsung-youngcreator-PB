@@ -13,7 +13,6 @@ import TaxProjectionPanel from "./TaxProjectionPanel";
 import ManualPortfolioBuilder from "./ManualPortfolioBuilder";
 import PortfolioWorkflowStepper from "./PortfolioWorkflowStepper";
 import ScoreRubricButton from "./ScoreRubricButton";
-import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
 import { FALLBACK_MARKET_RESEARCH, type MarketResearchItem } from "@/lib/portfolioResearch";
 import { loadBundle } from "@/lib/advisory/control";
@@ -621,15 +620,26 @@ export default function IPSResultTabs({
                   최종 PDF 발행 전 검토용 화면입니다.
                 </p>
               </div>
-              <IPSRadar ips={client.ips} />
+              {/* 예전에는 여기 위에 7요인 가로막대 차트가 있었다. 이 화면에서는 아래
+                  카드가 값·메모만 보여 주고 점수를 내보내지 않아, 차트를 걷어내면 점수를
+                  볼 방법이 아예 사라진다 — 다른 세 화면과 달리 대체할 표시가 없었다.
+                  그래서 카드에 점수 배지를 더한다. 근거가 명시된(explicit) 요인만
+                  표시하는 것은 IPSSummary 와 같은 규칙이다 — 추론값에 점수를 붙이면
+                  확정된 것처럼 읽힌다. */}
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {FACTOR_META.map((m) => {
                   const f = client.ips[m.key];
+                  const hasScore = f?.status === "explicit" && f?.score != null;
                   return (
                     <div key={m.key} className="rounded-lg border border-border bg-surface-2/40 p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
-                        {m.label} ({m.labelEn})
-                      </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                          {m.label} ({m.labelEn})
+                        </p>
+                        {hasScore && (
+                          <span className="badge-gold shrink-0 text-[10px]">{f.score}/5</span>
+                        )}
+                      </div>
                       <p className="mt-1 text-sm font-semibold text-fg">{f?.value?.trim() || "—"}</p>
                       {f?.notes?.trim() && (
                         <p className="mt-1 text-[11px] text-fg-muted">{f.notes}</p>

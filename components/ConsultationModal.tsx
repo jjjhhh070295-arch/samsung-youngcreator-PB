@@ -11,7 +11,6 @@ import { formatDuration, formatDurationKo } from "@/lib/format";
 import { mergeConsultationAiIps, type SurveyFactorChange } from "@/lib/surveyIpsMerge";
 import ConsultationInput from "./ConsultationInput";
 import IPSForm from "./IPSForm";
-import IPSRadar from "./IPSRadar";
 import SurveyApplyDiffModal from "./SurveyApplyDiffModal";
 
 interface Props {
@@ -260,12 +259,11 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
             />
           </div>
 
-          {/* 7요인 편집 + 미니 레이더 */}
+          {/* 7요인 편집 — 예전에는 여기 위에 미니 가로막대 차트가 있었다. 걷어내면서
+              감싸던 테두리 상자도 함께 없앤다(빈 상자만 남는다). 요인별 점수는 바로
+              아래 IPSForm 에서 편집하며 그대로 보인다. */}
           <div>
             <p className="mb-2 text-sm font-semibold text-fg-muted">② RRTTLLU 7요인 정리</p>
-            <div className="mb-3 rounded-lg border border-border p-3">
-              <IPSRadar ips={draftIps} height={220} />
-            </div>
 
             {/* 검토 확정 바 */}
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gold-400/60 bg-gold-50 px-4 py-2.5 dark:bg-gold-900/20">
