@@ -4,6 +4,7 @@ create extension if not exists vector;
 
 create table if not exists research_documents (
   id uuid primary key default gen_random_uuid(),
+  source_report_id text,
   source text not null,
   broker text,
   analyst text,
@@ -26,13 +27,22 @@ create table if not exists stock_research (
   sector text,
   rating text,
   previous_rating text,
+  rating_change text,
   target_price numeric,
   previous_target_price numeric,
+  target_price_change_pct numeric,
   eps_revision_pct numeric,
+  earnings_revision_direction text,
+  earnings_revision_details text,
   sentiment_score numeric check (sentiment_score between -1 and 1),
+  investment_thesis text,
   investment_points jsonb not null default '[]'::jsonb,
+  catalysts jsonb not null default '[]'::jsonb,
   risk_factors jsonb not null default '[]'::jsonb,
   themes jsonb not null default '[]'::jsonb,
+  analyst_stance text,
+  catalyst_specificity text,
+  risk_level text,
   published_at timestamptz not null,
   extraction_model text not null,
   extraction_confidence numeric,
@@ -42,10 +52,28 @@ create table if not exists stock_research (
 create table if not exists market_research (
   id uuid primary key default gen_random_uuid(),
   document_id uuid not null unique references research_documents(id) on delete cascade,
+  report_id text,
+  broker text,
+  published_at timestamptz not null,
+  report_type text,
   market text,
   topic text,
   sentiment_score numeric check (sentiment_score between -1 and 1),
   summary text,
+  market_stance text,
+  market_drivers jsonb not null default '[]'::jsonb,
+  positive_factors jsonb not null default '[]'::jsonb,
+  negative_factors jsonb not null default '[]'::jsonb,
+  rates_view text,
+  fx_view text,
+  foreign_flow_view text,
+  earnings_view text,
+  preferred_sectors jsonb not null default '[]'::jsonb,
+  avoided_sectors jsonb not null default '[]'::jsonb,
+  key_catalysts jsonb not null default '[]'::jsonb,
+  key_risks jsonb not null default '[]'::jsonb,
+  investment_horizon text,
+  confidence numeric,
   key_points jsonb not null default '[]'::jsonb,
   affected_sectors jsonb not null default '[]'::jsonb,
   themes jsonb not null default '[]'::jsonb,
@@ -93,12 +121,18 @@ create table if not exists daily_stock_signals (
 create table if not exists daily_market_briefs (
   id uuid primary key default gen_random_uuid(),
   trade_date date not null unique,
+  as_of timestamptz,
+  data_window jsonb not null default '{}'::jsonb,
+  stance text,
   headline text not null,
   market_summary text not null,
   narrative_timeline jsonb not null default '{}'::jsonb,
   key_issues jsonb not null default '[]'::jsonb,
   themes jsonb not null default '[]'::jsonb,
+  key_drivers jsonb not null default '[]'::jsonb,
+  key_risks jsonb not null default '[]'::jsonb,
   watch_points jsonb not null default '[]'::jsonb,
+  supporting_brokers jsonb not null default '[]'::jsonb,
   asset_view jsonb not null default '{}'::jsonb,
   indicators jsonb not null default '[]'::jsonb,
   source_document_ids jsonb not null default '[]'::jsonb,
@@ -109,9 +143,45 @@ create table if not exists daily_market_briefs (
 alter table daily_market_briefs add column if not exists narrative_timeline jsonb not null default '{}'::jsonb;
 alter table daily_market_briefs add column if not exists watch_points jsonb not null default '[]'::jsonb;
 
+alter table research_documents add column if not exists source_report_id text;
+alter table stock_research add column if not exists rating_change text;
+alter table stock_research add column if not exists target_price_change_pct numeric;
+alter table stock_research add column if not exists earnings_revision_direction text;
+alter table stock_research add column if not exists earnings_revision_details text;
+alter table stock_research add column if not exists investment_thesis text;
+alter table stock_research add column if not exists catalysts jsonb not null default '[]'::jsonb;
+alter table stock_research add column if not exists analyst_stance text;
+alter table stock_research add column if not exists catalyst_specificity text;
+alter table stock_research add column if not exists risk_level text;
+alter table market_research add column if not exists report_id text;
+alter table market_research add column if not exists broker text;
+alter table market_research add column if not exists published_at timestamptz;
+alter table market_research add column if not exists report_type text;
+alter table market_research add column if not exists market_stance text;
+alter table market_research add column if not exists market_drivers jsonb not null default '[]'::jsonb;
+alter table market_research add column if not exists positive_factors jsonb not null default '[]'::jsonb;
+alter table market_research add column if not exists negative_factors jsonb not null default '[]'::jsonb;
+alter table market_research add column if not exists rates_view text;
+alter table market_research add column if not exists fx_view text;
+alter table market_research add column if not exists foreign_flow_view text;
+alter table market_research add column if not exists earnings_view text;
+alter table market_research add column if not exists preferred_sectors jsonb not null default '[]'::jsonb;
+alter table market_research add column if not exists avoided_sectors jsonb not null default '[]'::jsonb;
+alter table market_research add column if not exists key_catalysts jsonb not null default '[]'::jsonb;
+alter table market_research add column if not exists key_risks jsonb not null default '[]'::jsonb;
+alter table market_research add column if not exists investment_horizon text;
+alter table market_research add column if not exists confidence numeric;
+alter table daily_market_briefs add column if not exists as_of timestamptz;
+alter table daily_market_briefs add column if not exists data_window jsonb not null default '{}'::jsonb;
+alter table daily_market_briefs add column if not exists stance text;
+alter table daily_market_briefs add column if not exists key_drivers jsonb not null default '[]'::jsonb;
+alter table daily_market_briefs add column if not exists key_risks jsonb not null default '[]'::jsonb;
+alter table daily_market_briefs add column if not exists supporting_brokers jsonb not null default '[]'::jsonb;
+
 create table if not exists daily_top_picks (
   id uuid primary key default gen_random_uuid(),
   trade_date date not null,
+  as_of timestamptz,
   ticker text not null,
   rank integer,
   previous_rank integer,
@@ -126,9 +196,23 @@ create table if not exists daily_top_picks (
   risks jsonb not null default '[]'::jsonb,
   signal_changes jsonb not null default '{}'::jsonb,
   source_document_ids jsonb not null default '[]'::jsonb,
+  supporting_brokers jsonb not null default '[]'::jsonb,
+  broker_count integer,
+  data_window jsonb not null default '{}'::jsonb,
+  target_price numeric,
+  target_price_change_pct numeric,
+  confidence_label text,
   created_at timestamptz not null default now(),
   unique(trade_date, ticker)
 );
+
+alter table daily_top_picks add column if not exists supporting_brokers jsonb not null default '[]'::jsonb;
+alter table daily_top_picks add column if not exists as_of timestamptz;
+alter table daily_top_picks add column if not exists broker_count integer;
+alter table daily_top_picks add column if not exists data_window jsonb not null default '{}'::jsonb;
+alter table daily_top_picks add column if not exists target_price numeric;
+alter table daily_top_picks add column if not exists target_price_change_pct numeric;
+alter table daily_top_picks add column if not exists confidence_label text;
 
 create index if not exists research_documents_published_idx on research_documents(published_at desc, document_type);
 create index if not exists stock_research_ticker_date_idx on stock_research(ticker, published_at desc);

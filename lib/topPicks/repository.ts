@@ -8,13 +8,17 @@ const arrays = (value: unknown): string[] => Array.isArray(value) ? value.filter
 
 export async function getDashboardHome(db = supabase) {
   if (!db) return { ready: false, date: null, marketBrief: null, topPicks: [] };
-  const briefResult = await db.from("daily_market_briefs").select("*").like("model", `${RESEARCH_INTELLIGENCE_VERSION}:%`).order("trade_date", { ascending: false }).limit(1).maybeSingle();
-  const errors = [briefResult].flatMap((result) => result.error && !MISSING.has(result.error.code) ? [result.error] : []);
+  const [briefResult, pickDateResult] = await Promise.all([
+    db.from("daily_market_briefs").select("*").like("model", `${RESEARCH_INTELLIGENCE_VERSION}:%`).order("trade_date", { ascending: false }).limit(1).maybeSingle(),
+    db.from("daily_top_picks").select("trade_date").eq("is_dropped", false).order("trade_date", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  const errors = [briefResult, pickDateResult].flatMap((result) => result.error && !MISSING.has(result.error.code) ? [result.error] : []);
   const brief = briefResult.data?.model?.startsWith(`${RESEARCH_INTELLIGENCE_VERSION}:`) ? briefResult.data : null;
-  const date = brief?.trade_date ?? null;
-  const [picksResult, signalsResult] = date ? await Promise.all([
-    db.from("daily_top_picks").select("*").eq("trade_date", date).eq("is_dropped", false).order("rank"),
-    db.from("daily_stock_signals").select("ticker, company_name, market, sector, themes, research_score, fundamental_score, price_score, consensus_score, regime_score, score_breakdown").eq("trade_date", date),
+  const topPicksDate = pickDateResult.data?.trade_date ?? brief?.trade_date ?? null;
+  const date = brief?.trade_date ?? topPicksDate;
+  const [picksResult, signalsResult] = topPicksDate ? await Promise.all([
+    db.from("daily_top_picks").select("*").eq("trade_date", topPicksDate).eq("is_dropped", false).order("rank"),
+    db.from("daily_stock_signals").select("ticker, company_name, market, sector, themes, research_score, fundamental_score, price_score, consensus_score, regime_score, score_breakdown").eq("trade_date", topPicksDate),
   ]) : [{ data: [], error: null }, { data: [], error: null }];
   for (const result of [picksResult, signalsResult]) if (result.error) errors.push(result.error);
   const picks = picksResult.data;
@@ -36,7 +40,7 @@ export async function getDashboardHome(db = supabase) {
   if (errors.length) console.warn("[dashboard/home] partial data", errors.map((error) => error.code));
   const signalByTicker = new Map((signals ?? []).map((row: any) => [row.ticker, row]));
   return {
-    ready, date: brief?.trade_date ?? date, topPicksDate: date,
+    ready, date, topPicksDate,
     warning: errors.length ? "일부 분석 결과를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요." : null,
     marketBrief,
     topPicks: (picks ?? []).map((pick: any) => {
