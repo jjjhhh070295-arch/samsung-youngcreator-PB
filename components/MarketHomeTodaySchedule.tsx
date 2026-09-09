@@ -21,6 +21,15 @@ function scheduleTypeLabel(item: PbScheduleItem): string {
   return item.type === "consultation" ? "상담" : "기타";
 }
 
+function CalendarIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M8 3.5v3M16 3.5v3M3.5 10h17" />
+    </svg>
+  );
+}
+
 interface Props {
   pbId: string;
 }
@@ -87,67 +96,79 @@ export default function MarketHomeTodaySchedule({ pbId }: Props) {
         setError(true);
       })
       .finally(() => setLoading(false));
-  };  const preview = items.slice(0, MAX_ITEMS);
+  };
+  const preview = items.slice(0, MAX_ITEMS);
   const scheduleHref = `/pb/${pbId}#today-schedule`;
 
   return (
     <section
       aria-label="오늘의 일정"
-      className="rounded-md border border-border bg-white shadow-none"
+      className="rounded-lg border border-[#E4EBF5] bg-white shadow-[0_1px_3px_rgba(16,42,86,0.04)]"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2.5 sm:px-4">
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-black tracking-tight text-fg">오늘의 일정</h2>
-          <p className="text-[11px] text-fg-muted">
-            {formatKstDateLabel(today)}
-            {!loading && !error ? ` · ${items.length}건` : null}
-          </p>
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#EEF3F9] px-4 py-3.5">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EAF2FF] text-[#0D57BA]">
+            <CalendarIcon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-bold text-[#111827]">오늘의 일정</h2>
+            <p className="mt-0.5 text-[12px] text-[#8A97AB]">
+              {formatKstDateLabel(today)}
+              {!loading && !error ? ` · ${items.length}건` : null}
+            </p>
+          </div>
         </div>
         <Link
           href={scheduleHref}
-          className="shrink-0 text-[12px] font-semibold text-[#1769D2] hover:underline"
+          className="shrink-0 pt-1 text-[12px] font-semibold text-[#0D57BA] hover:underline"
         >
-          전체 일정 보기
+          전체 일정 보기 &gt;
         </Link>
       </div>
 
-      <div className="min-h-[72px] px-3 py-2 sm:px-4">
+      <div className="min-h-[120px] px-4 py-3">
         {loading ? (
-          <p className="py-4 text-center text-xs text-fg-muted">일정을 불러오는 중…</p>
+          <p className="py-8 text-center text-xs text-[#8A97AB]">일정을 불러오는 중…</p>
         ) : error ? (
-          <div className="flex flex-col items-center gap-2 py-4">
-            <p className="text-xs text-fg-muted">일정을 불러오지 못했습니다.</p>
+          <div className="flex flex-col items-center gap-2 py-8">
+            <p className="text-xs text-[#8A97AB]">일정을 불러오지 못했습니다.</p>
             <button
               type="button"
               onClick={retry}
-              className="rounded border border-[#1769D2] px-3 py-1.5 text-[12px] font-semibold text-[#1769D2] hover:bg-[#EAF2FF]"
+              className="rounded border border-[#0D57BA] px-3 py-1.5 text-[12px] font-semibold text-[#0D57BA] hover:bg-[#EAF2FF]"
             >
               다시 시도
             </button>
           </div>
         ) : items.length === 0 ? (
-          <p className="py-4 text-center text-xs text-fg-muted">오늘 등록된 일정이 없습니다.</p>
+          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F3F6FA] text-[#A8B6C9]">
+              <CalendarIcon className="h-5 w-5" />
+            </span>
+            <p className="text-[13px] font-medium text-[#5B6B82]">오늘 등록된 일정이 없습니다.</p>
+            <p className="text-[11px] text-[#8A97AB]">새로운 상담 일정을 등록하여 일정을 관리해보세요.</p>
+          </div>
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-[#EEF3F9]">
             {preview.map((item) => (
               <li
                 key={item.id}
-                className="flex items-baseline gap-2 py-2 text-sm leading-snug text-fg"
+                className="flex items-baseline gap-2 py-2.5 text-sm leading-snug text-[#111827]"
               >
                 <span className="shrink-0 font-mono text-[13px] font-semibold text-[#0D57BA]">
                   {item.time}
                 </span>
-                <span className="shrink-0 text-fg-muted" aria-hidden="true">
+                <span className="shrink-0 text-[#C5CEDA]" aria-hidden="true">
                   |
                 </span>
                 <span
                   className={`shrink-0 text-[12px] font-bold ${
-                    item.type === "consultation" ? "text-[#0D57BA]" : "text-fg-muted"
+                    item.type === "consultation" ? "text-[#0D57BA]" : "text-[#8A97AB]"
                   }`}
                 >
                   {scheduleTypeLabel(item)}
                 </span>
-                <span className="shrink-0 text-fg-muted" aria-hidden="true">
+                <span className="shrink-0 text-[#C5CEDA]" aria-hidden="true">
                   |
                 </span>
                 <span className="min-w-0 truncate font-medium">{scheduleTitle(item)}</span>
@@ -156,9 +177,9 @@ export default function MarketHomeTodaySchedule({ pbId }: Props) {
           </ul>
         )}
         {!loading && !error && items.length > MAX_ITEMS ? (
-          <p className="border-t border-border pt-2 text-[11px] text-fg-muted">
+          <p className="border-t border-[#EEF3F9] pt-2 text-[11px] text-[#8A97AB]">
             외 {items.length - MAX_ITEMS}건 ·{" "}
-            <Link href={scheduleHref} className="font-semibold text-[#1769D2] hover:underline">
+            <Link href={scheduleHref} className="font-semibold text-[#0D57BA] hover:underline">
               전체 보기
             </Link>
           </p>

@@ -97,35 +97,75 @@ export default function HomePage() {
   if (!loggedInPbId) return <LoginExperience loginEmpId={loginEmpId} password={password} loginError={loginError} loginBusy={loginBusy} onEmployeeChange={(value) => { setLoginEmpId(value); setLoginError(""); }} onPasswordChange={(value) => { setPassword(value); setLoginError(""); }} onLogin={handleLogin} />;
 
   return (
-    <div className="mx-auto max-w-[1440px] px-3 py-4 sm:px-4 lg:px-8">
-      {/* 헤더: 좌측 Market Home 제목 · 우측 PB Home 바로가기(세션 pbId, ID 하드코딩 금지) */}
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-border pb-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-bold tracking-[0.14em] text-[#0D57BA]">SAMSUNG SECURITIES · PRIVATE BANKING</p>
-          <h1 className="mt-1 text-[26px] font-black tracking-[-0.035em] text-fg">Market Home</h1>
-          <p className="mt-1 text-sm text-fg-muted">삼성증권의 노하우로 고객의 상황에 맞춘 시장 정보와 솔루션을 제공합니다.</p>
-          <p className="mt-1 text-[11px] text-fg-muted/70">※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.</p>
-        </div>
-        <Link
-          href={`/pb/${loggedInPbId}`}
-          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-md bg-[#1428A0] px-5 text-base font-bold text-white transition-colors hover:bg-[#1020c0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1428A0]/40 sm:h-12"
-        >
-          PB Home 바로가기
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h13m-4-4 4 4-4 4" />
+    <div className="market-home min-h-[calc(100vh-3.5rem)] bg-[#F5F8FC]">
+      <div className="mx-auto max-w-[1120px] px-4 pb-10 pt-6 sm:px-6">
+        {/* 헤더: 좌측 Market Home 제목 · 우측 PB Home 바로가기(세션 pbId, ID 하드코딩 금지) */}
+        <div className="relative mb-5 overflow-hidden rounded-lg">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 bg-[linear-gradient(105deg,#F7FAFD_0%,#EEF4FB_55%,#E8F0FA_100%)]"
+          />
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-2 top-0 h-full w-[46%] max-w-[420px] select-none opacity-[0.42]"
+            viewBox="0 0 420 220"
+            fill="none"
+          >
+            <rect x="248" y="28" width="118" height="148" rx="10" fill="#D7E6F7" stroke="#B7CFE8" strokeWidth="2" />
+            <rect x="262" y="48" width="90" height="8" rx="4" fill="#AFC6DF" />
+            <rect x="262" y="68" width="72" height="6" rx="3" fill="#C4D7EB" />
+            <rect x="262" y="86" width="80" height="6" rx="3" fill="#C4D7EB" />
+            <rect x="262" y="104" width="58" height="6" rx="3" fill="#C4D7EB" />
+            <rect x="190" y="70" width="108" height="120" rx="10" fill="#E3EEF9" stroke="#C2D6EB" strokeWidth="2" />
+            <rect x="206" y="92" width="76" height="7" rx="3.5" fill="#B5CBE2" />
+            <rect x="206" y="110" width="64" height="6" rx="3" fill="#C9DBED" />
+            <rect x="206" y="126" width="70" height="6" rx="3" fill="#C9DBED" />
+            <path d="M48 168 L92 132 L128 148 L176 96" stroke="#7EA8D6" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="44" y="148" width="18" height="36" rx="3" fill="#9EBFDD" />
+            <rect x="72" y="128" width="18" height="56" rx="3" fill="#8FB4D8" />
+            <rect x="100" y="138" width="18" height="46" rx="3" fill="#A8C6E2" />
+            <rect x="128" y="112" width="18" height="72" rx="3" fill="#7FA9D4" />
+            <path d="M168 88 C196 70, 224 74, 248 52" stroke="#6E9FCC" strokeWidth="6" strokeLinecap="round" fill="none" />
+            <path d="M236 44 L252 48 L244 62" fill="#6E9FCC" />
+            <circle cx="176" cy="96" r="7" fill="#6E9FCC" />
           </svg>
-        </Link>
+          <div className="relative z-[1] flex flex-wrap items-center justify-between gap-4 px-1 py-3 sm:py-4">
+            <div className="min-w-0 max-w-[640px] flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#0D57BA]">
+                SAMSUNG SECURITIES · PRIVATE BANKING
+              </p>
+              <h1 className="mt-1.5 text-[28px] font-black leading-none text-[#111827] sm:text-[30px]">
+                Market Home
+              </h1>
+              <p className="mt-2.5 text-[13px] leading-relaxed text-[#5B6B82] sm:text-sm">
+                삼성증권의 노하우로 고객의 상황에 맞춘 시장 정보와 솔루션을 제공합니다.
+              </p>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-[#8A97AB]">
+                ※ 본 도구의 분석·포트폴리오 결과는 참고용이며 투자 권유가 아닙니다.
+              </p>
+            </div>
+            <Link
+              href={`/pb/${loggedInPbId}`}
+              className="inline-flex h-11 shrink-0 items-center gap-2 rounded-lg bg-[#0B57D0] px-5 text-[15px] font-bold text-white shadow-[0_6px_16px_rgba(11,87,208,0.22)] transition-colors hover:bg-[#094BB5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B57D0]/35"
+            >
+              PB Home 바로가기
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h13m-4-4 4 4-4 4" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+        <HomeMarketBoard />
+        {/* AI Market Intelligence(DailyTopPicksDashboard)는 Market Home 에서 숨긴다.
+            컴포넌트·API·크론은 유지하되 홈에는 마운트하지 않는다. */}
+        {/* 로컬 모드 경고는 관리자 카드 안에 있었다. 데이터가 브라우저에만 저장된다는
+            경고라 관리 기능과 무관하게 계속 보여야 한다. */}
+        {usingLocalFallback && (
+          <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+            ⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.
+          </p>
+        )}
       </div>
-      <HomeMarketBoard />
-      {/* AI Market Intelligence(DailyTopPicksDashboard)는 Market Home 에서 숨긴다.
-          컴포넌트·API·크론은 유지하되 홈에는 마운트하지 않는다. */}
-      {/* 로컬 모드 경고는 관리자 카드 안에 있었다. 데이터가 브라우저에만 저장된다는
-          경고라 관리 기능과 무관하게 계속 보여야 한다. */}
-      {usingLocalFallback && (
-        <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-          ⚠️ 로컬 모드 — Supabase 키 없이 브라우저에만 저장됩니다.
-        </p>
-      )}
     </div>
   );
 }

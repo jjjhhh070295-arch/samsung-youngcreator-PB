@@ -26,7 +26,7 @@ const LOW_THRESHOLD_MS = 5 * 60 * 1000;
  * 둔다. 8시간 절대 상한에 걸린 마지막 구간에서는 눌러도 숫자가 늘지 않는다 — 의도된
  * 동작이고, 그때가 실제로 재로그인이 필요한 시점이다.
  */
-export default function SessionCountdown() {
+export default function SessionCountdown({ className }: { className?: string } = {}) {
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
 
   const sync = useCallback(() => {
@@ -63,11 +63,13 @@ export default function SessionCountdown() {
         sync();
       }}
       title={`입력이 없으면 약 ${minutes}분 뒤 자동 로그아웃됩니다. 클릭하면 연장됩니다.\n(마지막 활동 후 20분, 로그인 후 최대 8시간)`}
-      className={`hidden shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[11px] tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8] md:inline-block ${
+      className={[
+        "shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[11px] tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C3EE8]",
+        className ?? "hidden md:inline-block",
         low
           ? "bg-amber-50 font-bold text-amber-700 hover:bg-amber-100"
-          : "text-fg-muted hover:bg-white"
-      }`}
+          : "text-fg-muted hover:bg-white",
+      ].join(" ")}
     >
       세션 {minutes}분
     </button>
