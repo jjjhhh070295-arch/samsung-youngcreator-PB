@@ -44,6 +44,16 @@ export interface ResearchSignalScore {
 
 export const RESEARCH_SOURCES: ResearchSource[] = [
   {
+    name: "흥국증권 리서치",
+    url: "https://www.heungkuksec.co.kr/research/company/list.do?key=300",
+    category: "report",
+  },
+  {
+    name: "한양증권 리서치",
+    url: "https://www.hygood.co.kr/board/researchAnalyzeCompany/list",
+    category: "report",
+  },
+  {
     name: "네이버 금융 기업분석 리포트",
     url: "https://finance.naver.com/research/company_list.naver",
     category: "report",

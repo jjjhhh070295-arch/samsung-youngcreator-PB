@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { getSavedResearchReports } from "@/lib/researchSignalsStore";
 import { aggregateAnalyses, type ReportAnalysis } from "@/lib/researchAnalysis";
 
 export const runtime = "nodejs";
@@ -12,12 +13,7 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "Supabase 미설정", reports: [], aggregated: [] });
   }
   try {
-    const { data, error } = await supabase
-      .from("research_signals")
-      .select("report_id, title, source, url, date, summary, signals, model, analyzed_at")
-      .order("date", { ascending: false })
-      .limit(120); // 캐시는 누적되므로 지난 주 리포트도 목록에 남도록 넉넉히
-    if (error) throw error;
+    const data = await getSavedResearchReports();
 
     const reports = (data ?? [])
       .map((r) => ({

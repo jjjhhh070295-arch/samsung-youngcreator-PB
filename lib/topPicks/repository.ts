@@ -1,19 +1,17 @@
 import { supabase } from "@/lib/supabase";
 import { fetchTickerOhlcDaily, resolveTickerInput } from "@/lib/advisory/tickerOhlcData";
 import { demoTopPickDetail } from "./demoData";
+import { RESEARCH_INTELLIGENCE_VERSION, RESEARCH_SOURCE_LABEL } from "./researchInputs";
 
 const MISSING = new Set(["42P01", "PGRST205"]);
 const arrays = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 
 export async function getDashboardHome(db = supabase) {
   if (!db) return { ready: false, date: null, marketBrief: null, topPicks: [] };
-  const [latestResult, briefResult] = await Promise.all([
-    db.from("daily_top_picks").select("trade_date").eq("is_dropped", false).order("trade_date", { ascending: false }).limit(1).maybeSingle(),
-    db.from("daily_market_briefs").select("*").order("trade_date", { ascending: false }).limit(1).maybeSingle(),
-  ]);
-  const errors = [latestResult, briefResult].flatMap((result) => result.error && !MISSING.has(result.error.code) ? [result.error] : []);
-  const latest = latestResult.data;
-  const date = latest?.trade_date ?? null;
+  const briefResult = await db.from("daily_market_briefs").select("*").like("model", `${RESEARCH_INTELLIGENCE_VERSION}:%`).order("trade_date", { ascending: false }).limit(1).maybeSingle();
+  const errors = [briefResult].flatMap((result) => result.error && !MISSING.has(result.error.code) ? [result.error] : []);
+  const brief = briefResult.data?.model?.startsWith(`${RESEARCH_INTELLIGENCE_VERSION}:`) ? briefResult.data : null;
+  const date = brief?.trade_date ?? null;
   const [picksResult, signalsResult] = date ? await Promise.all([
     db.from("daily_top_picks").select("*").eq("trade_date", date).eq("is_dropped", false).order("rank"),
     db.from("daily_stock_signals").select("ticker, company_name, market, sector, themes, research_score, fundamental_score, price_score, consensus_score, regime_score, score_breakdown").eq("trade_date", date),
@@ -21,7 +19,6 @@ export async function getDashboardHome(db = supabase) {
   for (const result of [picksResult, signalsResult]) if (result.error) errors.push(result.error);
   const picks = picksResult.data;
   const signals = signalsResult.data;
-  const brief = briefResult.data;
   const marketBrief = brief ? {
     headline: brief.headline,
     summary: brief.market_summary,
@@ -31,7 +28,7 @@ export async function getDashboardHome(db = supabase) {
     themes: brief.themes ?? [],
     watchPoints: brief.watch_points ?? [],
     assetView: brief.asset_view ?? {},
-    sourceLabel: "모닝 브리핑 + 리서치 탭 · LLM 통합 분석",
+    sourceLabel: RESEARCH_SOURCE_LABEL,
     model: brief.model,
   } : null;
   const ready = Boolean(marketBrief || picks?.length);

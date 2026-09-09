@@ -2,10 +2,10 @@ import { supabase } from "@/lib/supabase";
 import { fetchFinancialSnapshot, fetchTickerOhlcDaily, resolveTickerInput } from "@/lib/advisory/tickerOhlcData";
 import { scoreStock } from "./scoring";
 import { droppedTickers, selectTopPicks } from "./selection";
-import { generateStructured } from "./researchPipeline";
-import { buildMarketIntelligencePrompt, usableSavedResearch, type SavedResearchAnalysis } from "./sharedMarket";
-import type { ResearchObservation, ScoreInput, SelectedTopPick } from "./types";
-import { localizeTheme } from "./themeLabels";
+import { getSavedResearchReports } from "@/lib/researchSignalsStore";
+import { deduplicateCanonicalStocks } from "./researchInputs";
+import { buildMarketBrief, collectCurrentResearch, prepareResearchInputs, explainResearchPicks, type StructuredGenerator } from "./marketIntelligence";
+import type { ResearchObservation, ScoreInput } from "./types";
 
 const pct = (newer: number | null, older: number | null) => newer != null && older != null && older !== 0 ? (newer / older - 1) * 100 : null;
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
@@ -36,48 +36,31 @@ function reportObservation(row: any): ResearchObservation {
   return { broker: row.research_documents?.broker ?? row.research_documents?.source ?? null, publishedAt: row.published_at, epsRevisionPct: row.eps_revision_pct == null ? null : Number(row.eps_revision_pct), targetPriceRevisionPct: pct(row.target_price == null ? null : Number(row.target_price), row.previous_target_price == null ? null : Number(row.previous_target_price)), ratingRevision: currentRating == null || previousRating == null ? null : Math.sign(currentRating - previousRating) as -1 | 0 | 1, investmentPointStrength: Array.isArray(row.investment_points) ? Math.min(5, row.investment_points.length) : null };
 }
 
-const nullableString = { anyOf: [{ type: "string" }, { type: "null" }] };
-const BRIEF_SCHEMA = { type: "object", properties: { headline: { type: "string" }, marketSummary: { type: "string" }, timeline: { type: "object", properties: { twoWeeks: { type: "string" }, threeDays: { type: "string" }, today: { type: "string" } }, required: ["twoWeeks","threeDays","today"] }, keyIssues: { type: "array", items: { type: "object", properties: { title: { type: "string" }, summary: { type: "string" }, whatChanged: { type: "string" }, marketImpact: { type: "string" }, watchPoint: { type: "string" }, source: nullableString, url: nullableString, date: nullableString }, required: ["title","summary","whatChanged","marketImpact","watchPoint","source","url","date"] } }, themes: { type: "array", items: { type: "object", properties: { theme: { type: "string" }, score: { type: "number" }, direction: { type: "string", enum: ["POSITIVE","NEUTRAL","NEGATIVE"] }, reason: { type: "string" } }, required: ["theme","score","direction","reason"] } }, watchPoints: { type: "array", items: { type: "string" } }, assetView: { type: "object", properties: { equity: { type: "string" }, bond: { type: "string" }, usd: { type: "string" }, oil: { type: "string" } }, required: ["equity","bond","usd","oil"] } }, required: ["headline","marketSummary","timeline","keyIssues","themes","watchPoints","assetView"] };
-const EXPLANATION_SCHEMA = { type: "object", properties: { explanations: { type: "array", items: { type: "object", properties: { ticker: { type: "string" }, summary: { type: "string" }, keyReasons: { type: "array", items: { type: "string" } }, risks: { type: "array", items: { type: "string" } } }, required: ["ticker","summary","keyReasons","risks"] } } }, required: ["explanations"] };
-
-async function buildMarketBrief(indicators: unknown[], marketResearch: any[], researchAnalyses: SavedResearchAnalysis[], morningBrief: any | null) {
-  return generateStructured(buildMarketIntelligencePrompt({ indicators, morningBrief, researchAnalyses, canonicalResearch: marketResearch }), BRIEF_SCHEMA);
-}
-
-async function explainPicks(picks: SelectedTopPick[], researchByTicker: Map<string, any[]>) {
-  if (!picks.length) return new Map<string, any>();
-  const payload = picks.map((pick) => ({ ticker: pick.ticker, company: pick.company, rank: pick.rank, totalScore: pick.totalScore, confidenceScore: pick.confidenceScore, scores: { research: pick.researchScore, fundamental: pick.fundamentalScore, price: pick.priceScore, consensus: pick.consensusScore, regime: pick.regimeScore }, breakdown: pick.breakdown, recentResearch: (researchByTicker.get(pick.ticker) ?? []).slice(0, 8).map((r) => ({ publishedAt: r.published_at, rating: r.rating, previousRating: r.previous_rating, targetPrice: r.target_price, previousTargetPrice: r.previous_target_price, epsRevisionPct: r.eps_revision_pct, investmentPoints: r.investment_points, risks: r.risk_factors })) }));
-  const result = await generateStructured(`순위와 종목을 절대 변경하지 말고, DB 수치와 리서치만으로 PB가 고객에게 설명할 문구를 작성하라. '반드시 상승/확실한 수익/무조건 매수' 금지. 입력:${JSON.stringify(payload)}`, EXPLANATION_SCHEMA);
-  const rows = (result.value as any)?.explanations;
-  return new Map((Array.isArray(rows) ? rows : []).map((row: any) => [row.ticker, row]));
-}
-
-export async function runDailyTopPicks(origin: string) {
-  if (!supabase) throw new Error("Supabase 미설정");
+export async function runDailyTopPicks(origin: string, dependencies: { db?: typeof supabase; generate?: StructuredGenerator; collect?: typeof collectCurrentResearch; prepare?: typeof prepareResearchInputs } = {}) {
+  const db = dependencies.db ?? supabase;
+  if (!db) throw new Error("Supabase 미설정");
   const tradeDate = todayKst();
   const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString();
-  const [{ data: stockRows, error: stockError }, { data: marketRows, error: marketError }, { data: analyzedRows, error: analyzedError }, { data: morningBrief }] = await Promise.all([
-    supabase.from("stock_research").select("*, research_documents(id,title,source,broker,analyst,source_url)").gte("published_at", cutoff).not("ticker", "is", null).order("published_at", { ascending: false }).limit(500),
-    supabase.from("market_research").select("*, research_documents(id,title,source,broker,published_at,source_url)").order("created_at", { ascending: false }).limit(100),
-    supabase.from("research_signals").select("report_id,title,source,url,date,summary,signals,model").gte("date", cutoff.slice(0, 10)).neq("model", "dummy").order("date", { ascending: false }).limit(60),
-    supabase.from("daily_reports").select("report_date,headline,text_body,sources,model,status").lte("report_date", tradeDate).order("report_date", { ascending: false }).limit(1).maybeSingle(),
+  const [{ data: stockRows, error: stockError }, { data: marketRows, error: marketError }, savedReports, crawled] = await Promise.all([
+    db.from("stock_research").select("*, research_documents(id,title,source,broker,analyst,published_at,source_url)").gte("published_at", cutoff).lte("published_at", tradeDate + "T23:59:59+09:00").not("ticker", "is", null).order("published_at", { ascending: false }).limit(500),
+    db.from("market_research").select("*, research_documents(id,title,source,broker,published_at,source_url)").order("created_at", { ascending: false }).limit(100),
+    getSavedResearchReports(db),
+    (dependencies.collect ?? collectCurrentResearch)(),
   ]);
   if (stockError) throw stockError;
   if (marketError) throw marketError;
-  if (analyzedError) throw analyzedError;
-  const indicatorResponse = await fetch(`${origin}/api/market`, { cache: "no-store" }).then((r) => r.json()).catch(() => ({ items: [] }));
-  const researchAnalyses = usableSavedResearch((analyzedRows ?? []) as SavedResearchAnalysis[]);
-  const briefResult = await buildMarketBrief(indicatorResponse.items ?? [], marketRows ?? [], researchAnalyses, morningBrief ?? null);
-  const brief: any = briefResult.value;
-  const localizedThemes = (brief.themes ?? []).map((theme: any) => localizeTheme(theme));
-  const inputModels = Array.from(new Set([briefResult.model, morningBrief?.model, ...researchAnalyses.map((row) => row.model)].filter(Boolean)));
-  const sourceDocumentIds = Array.from(new Set([...(marketRows ?? []).map((row: any) => row.document_id), ...researchAnalyses.map((row) => row.report_id)].filter(Boolean)));
-  await supabase.from("daily_market_briefs").upsert({ trade_date: tradeDate, headline: brief.headline, market_summary: brief.marketSummary, narrative_timeline: brief.timeline, key_issues: brief.keyIssues, themes: localizedThemes, watch_points: brief.watchPoints, asset_view: brief.assetView, indicators: indicatorResponse.items ?? [], source_document_ids: sourceDocumentIds, model: inputModels.join(" + ") }, { onConflict: "trade_date" });
+  const uniqueStockRows = deduplicateCanonicalStocks(stockRows ?? []);
+  const prepared = await (dependencies.prepare ?? prepareResearchInputs)({ crawled, saved: savedReports, canonical: [...(marketRows ?? []), ...uniqueStockRows] });
+  const briefResult = await buildMarketBrief(prepared.reports, tradeDate, dependencies.generate);
+  const brief = briefResult.value;
+  const localizedThemes = brief.themes;
+  // Market prices remain display/scoring data; narrative generation only receives research.
+  const indicatorResponse = await fetch(origin + "/api/market", { cache: "no-store" }).then((r) => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] }));
   const regimeByTheme = Object.fromEntries(localizedThemes.map((theme: any) => [String(theme.themeCode), Math.max(-1, Math.min(1, Number(theme.score) || 0))]));
   const byTicker = new Map<string, any[]>();
-  for (const row of stockRows ?? []) { const rows = byTicker.get(row.ticker) ?? []; rows.push(row); byTicker.set(row.ticker, rows); }
+  for (const row of uniqueStockRows) { const rows = byTicker.get(row.ticker) ?? []; rows.push(row); byTicker.set(row.ticker, rows); }
   const tickers: Array<[string, any[]]> = Array.from(byTicker.entries()).sort((a, b) => String(b[1][0]?.published_at).localeCompare(String(a[1][0]?.published_at))).slice(0, 50);
-  const [krBenchmark, usBenchmark] = await Promise.all([resolveTickerInput("^KS11").then(fetchTickerOhlcDaily), resolveTickerInput("^GSPC").then(fetchTickerOhlcDaily)]);
+  const [krBenchmark, usBenchmark] = tickers.length ? await Promise.all([resolveTickerInput("^KS11").then(fetchTickerOhlcDaily), resolveTickerInput("^GSPC").then(fetchTickerOhlcDaily)]) : [{ bars: [] }, { bars: [] }];
   const scored = [];
   for (const [ticker, reports] of tickers) {
     try {
@@ -95,17 +78,17 @@ export async function runDailyTopPicks(origin: string) {
       scored.push(scoreStock(input));
     } catch (error) { console.warn(`[dailyTopPicks] ${ticker} skipped`, (error as Error).message); }
   }
-  const previousDateResult = await supabase.from("daily_top_picks").select("trade_date").lt("trade_date", tradeDate).eq("is_dropped", false).order("trade_date", { ascending: false }).limit(1).maybeSingle();
+  const previousDateResult = await db.from("daily_top_picks").select("trade_date").lt("trade_date", tradeDate).eq("is_dropped", false).order("trade_date", { ascending: false }).limit(1).maybeSingle();
   const previousDate = previousDateResult.data?.trade_date;
-  const previousResult = previousDate ? await supabase.from("daily_top_picks").select("ticker,rank,total_score,confidence_score,pick_type").eq("trade_date", previousDate).eq("is_dropped", false) : { data: [] as any[] };
+  const previousResult = previousDate ? await db.from("daily_top_picks").select("ticker,rank,total_score,confidence_score,pick_type").eq("trade_date", previousDate).eq("is_dropped", false) : { data: [] as any[] };
   const previousRanks = new Map((previousResult.data ?? []).map((row: any) => [row.ticker, Number(row.rank)]));
   const previousPickByTicker = new Map((previousResult.data ?? []).map((row: any) => [row.ticker, row]));
-  const previousSignalsResult = previousDate ? await supabase.from("daily_stock_signals").select("ticker,research_score,fundamental_score,price_score,consensus_score,regime_score,total_score,confidence_score,input_snapshot").eq("trade_date", previousDate) : { data: [] as any[] };
+  const previousSignalsResult = previousDate ? await db.from("daily_stock_signals").select("ticker,research_score,fundamental_score,price_score,consensus_score,regime_score,total_score,confidence_score,input_snapshot").eq("trade_date", previousDate) : { data: [] as any[] };
   const previousSignalByTicker = new Map((previousSignalsResult.data ?? []).map((row: any) => [row.ticker, row]));
   const picks = selectTopPicks(scored, previousRanks);
-  const explanations = await explainPicks(picks, byTicker);
+  const explanations = await explainResearchPicks(picks, byTicker, dependencies.generate);
   const signalRows = scored.map((stock) => ({ trade_date: tradeDate, ticker: stock.ticker, company_name: stock.company, market: stock.market, sector: stock.sector, themes: stock.themes, research_score: stock.researchScore, fundamental_score: stock.fundamentalScore, price_score: stock.priceScore, consensus_score: stock.consensusScore, regime_score: stock.regimeScore, total_score: stock.totalScore, confidence_score: stock.confidenceScore, rank: picks.find((p) => p.ticker === stock.ticker)?.rank ?? null, pick_type: stock.pickType, score_breakdown: stock.breakdown, input_snapshot: { fundamental: stock.fundamental, price: stock.price, consensus: stock.consensus }, source_document_ids: (byTicker.get(stock.ticker) ?? []).map((r) => r.document_id), scoring_version: "top-picks-v1" }));
-  if (signalRows.length) { const { error } = await supabase.from("daily_stock_signals").upsert(signalRows, { onConflict: "trade_date,ticker" }); if (error) throw error; }
+  if (signalRows.length) { const { error } = await db.from("daily_stock_signals").upsert(signalRows, { onConflict: "trade_date,ticker" }); if (error) throw error; }
   const changeSnapshot = (ticker: string, current: any) => {
     const previous: any = previousSignalByTicker.get(ticker);
     if (!previous) return {};
@@ -125,6 +108,11 @@ export async function runDailyTopPicks(origin: string) {
     const current = scored.find((stock) => stock.ticker === ticker);
     topRows.push({ trade_date: tradeDate, ticker, rank: null, previous_rank: previousRanks.get(ticker)!, rank_change: null, is_new: false, is_dropped: true, total_score: current?.totalScore ?? Number(previous?.total_score), confidence_score: current?.confidenceScore ?? Number(previous?.confidence_score), pick_type: current?.pickType ?? previous?.pick_type, summary: null, key_reasons: [], risks: [], signal_changes: changeSnapshot(ticker, current), source_document_ids: (byTicker.get(ticker) ?? []).map((r) => r.document_id) });
   }
-  if (topRows.length) { const { error } = await supabase.from("daily_top_picks").upsert(topRows, { onConflict: "trade_date,ticker" }); if (error) throw error; }
-  return { tradeDate, researchCount: researchAnalyses.length, candidateCount: scored.length, topPickCount: picks.length, droppedCount: topRows.filter((r) => r.is_dropped).length, model: briefResult.model };
+  // Remove stale selections from an earlier run on the same date, including zero-pick runs.
+  const { error: resetError } = await db.from("daily_top_picks").update({ is_dropped: true, rank: null }).eq("trade_date", tradeDate);
+  if (resetError) throw resetError;
+  if (topRows.length) { const { error } = await db.from("daily_top_picks").upsert(topRows, { onConflict: "trade_date,ticker" }); if (error) throw error; }
+  const { error: briefError } = await db.from("daily_market_briefs").upsert({ trade_date: tradeDate, headline: brief.headline, market_summary: brief.marketSummary, narrative_timeline: brief.timeline, key_issues: brief.keyIssues, themes: localizedThemes, watch_points: brief.watchPoints, asset_view: brief.assetView, indicators: indicatorResponse.items ?? [], source_document_ids: briefResult.sourceDocumentIds, model: briefResult.model }, { onConflict: "trade_date" });
+  if (briefError) throw briefError;
+  return { tradeDate, researchCount: prepared.reports.length, mergedResearchCount: prepared.mergedCount, excludedResearchCount: prepared.excludedCount, candidateCount: scored.length, topPickCount: picks.length, droppedCount: topRows.filter((r) => r.is_dropped).length, model: briefResult.model };
 }

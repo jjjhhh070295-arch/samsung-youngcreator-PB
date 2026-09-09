@@ -5,6 +5,21 @@ import { supabase } from "./supabase";
 import type { MarketResearchItem } from "./portfolioResearch";
 import type { ReportAnalysis } from "./researchAnalysis";
 
+export type SavedResearchAnalysis = {
+  report_id: string; title: string; source: string; url: string; date: string | null;
+  summary: string; signals: ReportAnalysis["signals"]; model: string; analyzed_at?: string;
+};
+
+// Shared by the research tab and Market Intelligence so they read the same saved reports.
+export async function getSavedResearchReports(db = supabase): Promise<SavedResearchAnalysis[]> {
+  if (!db) throw new Error("Supabase 미설정");
+  const { data, error } = await db.from("research_signals")
+    .select("report_id,title,source,url,date,summary,signals,model,analyzed_at")
+    .order("date", { ascending: false }).limit(120);
+  if (error) throw error;
+  return (data ?? []) as SavedResearchAnalysis[];
+}
+
 export async function getCachedAnalyses(ids: string[]): Promise<Map<string, ReportAnalysis>> {
   const map = new Map<string, ReportAnalysis>();
   if (!supabase || ids.length === 0) return map;

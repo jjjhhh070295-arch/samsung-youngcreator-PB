@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildMarketIntelligencePrompt, usableSavedResearch, type SavedResearchAnalysis } from "./sharedMarket";
+import { usableSavedResearch, type SavedResearchAnalysis } from "./sharedMarket";
 import { getDashboardHome } from "./repository";
 
 const report: SavedResearchAnalysis = {
@@ -18,7 +18,7 @@ function database(results: Record<string, { data: any; error: any }>) {
   return { from(table: string) {
     const result = results[table] ?? { data: null, error: { code: "42P01" } };
     const query: any = { then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve) };
-    for (const method of ["select", "eq", "order", "limit", "maybeSingle"]) query[method] = () => query;
+    for (const method of ["select", "eq", "like", "order", "limit", "maybeSingle"]) query[method] = () => query;
     return query;
   } } as NonNullable<Parameters<typeof getDashboardHome>[0]>;
 }
@@ -29,17 +29,14 @@ describe("Daily AI Market Intelligence 입력과 조회", () => {
     assert.deepEqual(usable.map((row) => row.report_id), [report.report_id]);
   });
 
-  it("모닝 브리핑과 크롤링 리서치를 홈 전용 재구성 프롬프트에 함께 넣는다", () => {
-    const prompt = buildMarketIntelligencePrompt({
-      indicators: [{ label: "KOSPI", value: "2800" }],
-      morningBrief: { report_date: "2026-09-09", headline: "모닝 브리핑", text_body: "아침 시장 본문", model: "claude-sonnet-5" },
-      researchAnalyses: [report, { ...report, report_id: "dummy", model: "dummy", summary: "표시 금지" }],
-      canonicalResearch: [],
-    });
-    assert.match(prompt, /그대로 복사하거나 단순 요약하지 말고/);
-    assert.match(prompt, /아침 시장 본문/);
-    assert.match(prompt, /금리와 반도체 이익 전망/);
-    assert.doesNotMatch(prompt, /표시 금지/);
+  it("기존 모닝브리핑 분석과 추천을 홈 결과로 재사용하지 않는다", async () => {
+    const result = await getDashboardHome(database({
+      daily_market_briefs: { data: { trade_date: "2026-09-09", headline: "이전 분석", model: "claude-sonnet-4-6" }, error: null },
+      daily_top_picks: { data: [{ ticker: "OLD" }], error: null },
+    }));
+    assert.equal(result.ready, false);
+    assert.equal(result.marketBrief, null);
+    assert.deepEqual(result.topPicks, []);
   });
 
   it("LLM이 저장한 구조화 브리프를 상세 홈 구성으로 반환한다", async () => {
@@ -55,14 +52,14 @@ describe("Daily AI Market Intelligence 입력과 조회", () => {
         watch_points: ["미국 10년물"],
         asset_view: { equity: "선별" },
         indicators: [{ label: "KOSPI", value: "2800" }],
-        model: "claude-sonnet-4-6",
+        model: "research-only-v1:gemini-2.5-flash-lite",
       }, error: null },
     }));
     assert.equal(result.ready, true);
     assert.equal(result.marketBrief?.headline, "홈 전용 시장 판단");
     assert.equal(result.marketBrief?.timeline?.twoWeeks, "2주");
     assert.equal(result.marketBrief?.themes[0].themeKo, "반도체");
-    assert.match(result.marketBrief!.sourceLabel, /LLM 통합 분석/);
+    assert.match(result.marketBrief!.sourceLabel, /리서치 통합 분석/);
   });
 
   it("DB 조회 오류를 분석 대기 상태로 숨기지 않는다", async () => {
