@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { MarketResearchItem } from "@/lib/portfolioResearch";
 import { analyzeReport, aggregateAnalyses, type ReportAnalysis } from "@/lib/researchAnalysis";
 import { getCachedAnalyses, putCachedAnalysis } from "@/lib/researchSignalsStore";
-import { fetchReportContent } from "@/lib/reportContent";
+import { fetchReportContentDetailed, type ReportContentResult } from "@/lib/reportContent";
 import { supabase } from "@/lib/supabase";
 import { ingestCanonicalResearch } from "@/lib/topPicks/researchStore";
 import { extractResearchBatch, type ResearchDocumentInput, type ResearchDocumentType } from "@/lib/topPicks/researchPipeline";
@@ -69,16 +69,18 @@ export async function GET(req: Request) {
     const newItems = items.filter((it) => !cached.has(it.id));
 
     // 무료 티어 RPM 한도가 낮아 동시 호출을 1로 제한(429 폭주 방지). 느려도 백그라운드 잡이라 OK.
-    const contentCache = new Map<string, Promise<string>>();
+    // 본문과 함께 "왜 못 얻었는지"까지 캐시한다 — 아래 canonical 단계가 그 이유를
+    // 응답에 싣는다. 같은 URL 을 신호 분석과 canonical 적재가 함께 쓰므로 캐시는 유지한다.
+    const contentCache = new Map<string, Promise<ReportContentResult>>();
     const contentFor = (url: string) => {
       const cachedContent = contentCache.get(url);
       if (cachedContent) return cachedContent;
-      const pending = fetchReportContent(url);
+      const pending = fetchReportContentDetailed(url);
       contentCache.set(url, pending);
       return pending;
     };
     const freshAnalyses = await mapWithConcurrency(newItems, 1, async (it) => {
-      const content = await contentFor(it.url); // 본문(PDF/HTML) 추출
+      const content = (await contentFor(it.url)).text; // 본문(PDF/HTML) 추출
       const a = await analyzeReport(it, content);
       // 결과 캐시(더미 포함 — 구조가 비지 않게). 실제 분석은 ?force=1 로 재분석.
       await putCachedAnalysis(it, a);
@@ -121,10 +123,30 @@ export async function GET(req: Request) {
     const canonicalResults: Array<{ status: string; reportId: string; title: string; error?: string }> = [];
     if (canCanonicalIngest) {
       const prepared = await mapWithConcurrency(canonicalBatch, 4, async (item) => {
-        const rawText = await contentFor(item.url);
-        const minimumLength = item.documentType === "STOCK" ? 60 : 100;
+        const fetched = await contentFor(item.url);
+        const rawText = fetched.text;
+        // 본문을 못 얻은 이유가 있으면 길이 판정 전에 그대로 드러낸다. 예전에는 전부
+        // "skipped-empty" 한 덩어리로 뭉쳐져 텍스트 없는 PDF 인지 로그인 벽인지
+        // 구분할 수 없었다.
+        if (fetched.skipReason) {
+          canonicalResults.push({ status: `skipped-${fetched.skipReason}`, reportId: item.id, title: item.title,
+            error: fetched.pdfPages
+              ? `PDF ${fetched.pdfPages}페이지에서 ${fetched.pdfChars ?? 0}자만 추출됨 (텍스트 레이어 없음)`
+              : undefined });
+          return null;
+        }
+        // 증권사 리포트라면 최소 수천 자다. 예전 문턱(STOCK 60 / MARKET 100)은 "빈 응답"만
+        // 걸렀을 뿐 "본문인가"를 판정하지 못했다. 실측된 통과분이 전부 껍데기였다:
+        //   84~90자   티저 한 줄 + 컴플라이언스 문구 (흥국증권 상세 페이지)
+        //   117~154자 PDF 차트 축 눈금 (미래에셋 — 텍스트 레이어 없음)
+        //   525~724자 페이지 네비게이션 + 메타데이터 (한양증권, 본문은 첨부 PDF)
+        // 이런 문서가 research_documents 에 저장되고 뒤이은 LLM 추출은 전부 null 을 뱉어,
+        // 결과적으로 Gemini 쿼터만 태우고 Top Pick 후보에서 걸러졌다.
+        // 문턱을 실질값으로 올려 쓸모없는 입력에 돈을 쓰지 않는다.
+        const minimumLength = item.documentType === "STOCK" ? 1500 : 2000;
         if (rawText.trim().length < minimumLength) {
-          canonicalResults.push({ status: "skipped-empty", reportId: item.id, title: item.title });
+          canonicalResults.push({ status: "skipped-too-short", reportId: item.id, title: item.title,
+            error: `본문 ${rawText.trim().length}자 (최소 ${minimumLength}자)` });
           return null;
         }
         return { item, input: { reportId: item.id, source: item.source,
