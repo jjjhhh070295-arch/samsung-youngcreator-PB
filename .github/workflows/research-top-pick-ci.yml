@@ -1,0 +1,594 @@
+name: Research Top Pick - isolated Linux verification
+
+# Code review only. This workflow does not publish, collect research, or deploy.
+# GitHub runner/checkout/log transport is separate from the npm install boundary.
+# The first Linux run is a validation of these controls, not a prior safety claim.
+on:
+  push:
+    branches: [ci/research-top-pick-linux-v1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-top-pick-linux-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-linux:
+    if: github.repository == 'jjjhhh070295-arch/samsung-youngcreator-PB' && github.ref == 'refs/heads/ci/research-top-pick-linux-v1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout reviewed candidate (no persistent credential)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+          fetch-depth: 32
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Read main independently (checkout credentials are not retained)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+          path: reviewed-main
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Verify exact scope and run isolated synthetic checks
+        shell: bash
+        env:
+          TASK_SOURCE: ${{ github.workspace }}/candidate
+          TASK_BASELINE: ${{ github.workspace }}/reviewed-main
+          TASK_TEMP: ${{ runner.temp }}
+          TASK_CACHE: ${{ runner.tool_cache }}
+        run: |
+          set -euo pipefail
+          # The bootstrap receives only explicit paths; no caller environment is inherited.
+          /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 /usr/bin/python3 - "$TASK_SOURCE" "$TASK_BASELINE" "$TASK_TEMP" "$TASK_CACHE" "$GITHUB_STEP_SUMMARY" <<'PY'
+          import base64, hashlib, json, os, pathlib, re, shutil, stat, subprocess, sys, tempfile
+
+          source, baseline, temp, tool_cache, summary = map(pathlib.Path, sys.argv[1:])
+          base = '247212bed86e921b4727569fd088f074f90c7b4b'
+          permitted = {
+              'lib/researchIdeas/collector.ts', 'lib/researchIdeas/collector.test.ts',
+              'lib/researchIdeas/extract.ts', 'lib/researchIdeas/extract.test.ts',
+              'lib/researchIdeas/pipeline.ts', 'lib/researchIdeas/pipeline.test.ts',
+              'lib/researchIdeas/providers/miraeTopPicks.ts',
+              'lib/researchIdeas/providers/miraeTopPicks.test.ts',
+              'scripts/test-mirae-pipeline.cjs',
+              '.github/workflows/research-top-pick-ci.yml',
+          }
+          clean = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'HOME': '/nonexistent',
+                   'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null',
+                   'GIT_TERMINAL_PROMPT': '0'}
+          def command(args, cwd=source):
+              return subprocess.check_output(args, cwd=cwd, env=clean, stderr=subprocess.STDOUT, timeout=60)
+          def require(condition, message):
+              if not condition:
+                  raise RuntimeError(message)
+          require(sys.platform == 'linux' and os.uname().machine == 'x86_64', 'Linux x86_64 required; no fallback.')
+          source, baseline, temp, tool_cache = (p.resolve(strict=True) for p in (source, baseline, temp, tool_cache))
+          require(summary.is_absolute() and summary.parent.is_dir(), 'Invalid GitHub summary destination.')
+          require(command(['git', 'rev-parse', '--show-toplevel']).decode().strip() == str(source), 'Unexpected checkout root.')
+          require(command(['git', 'status', '--porcelain', '--untracked-files=all']) == b'', 'Candidate checkout is not clean.')
+          command(['git', 'cat-file', '-e', base + '^{commit}'])
+          command(['git', 'merge-base', '--is-ancestor', base, 'HEAD'])
+          require(command(['git', 'rev-parse', 'HEAD'], cwd=baseline).decode().strip() == base,
+                  'Independently checked-out main moved; stop for review, never fetch/rebase automatically.')
+          changed = command(['git', 'diff', '--name-status', '--no-renames', base, 'HEAD']).decode().splitlines()
+          pairs = [line.split('\t') for line in changed]
+          require(all(len(p) == 2 and p[0] == 'A' for p in pairs), 'Only the ten approved new paths are allowed; existing-file changes are forbidden.')
+          require({p[1] for p in pairs} == permitted and len(pairs) == len(permitted), 'Diff must contain exactly the approved 9 files plus this workflow.')
+          for rel in ('package.json', 'package-lock.json', 'tsconfig.json'):
+              expected = command(['git', 'show', base + ':' + rel])
+              require((source / rel).read_bytes() == expected, rel + ' differs from reviewed main bytes.')
+          for binary in ('sudo', 'unshare', 'mount', 'chroot', 'setpriv', 'ip', 'python3', 'bash'):
+              require(shutil.which(binary, path='/usr/bin:/bin:/usr/sbin:/sbin') is not None, 'Missing preinstalled tool: ' + binary)
+          node_home = tool_cache / 'node/24.20.0/x64'
+          node = node_home / 'bin/node'
+          npm_cli = node_home / 'lib/node_modules/npm/bin/npm-cli.js'
+          require(node.is_file() and npm_cli.is_file(), 'Exact cached Node 24.20.0/npm missing; downloads are forbidden.')
+          require(command([str(node), '--version']).strip() == b'v24.20.0', 'Unexpected Node version.')
+          require(json.loads((node_home / 'lib/node_modules/npm/package.json').read_text())['version'] == '11.19.0', 'Expected cached npm 11.19.0; no replacement download.')
+          lock = json.loads((source / 'package-lock.json').read_text())
+          require(lock.get('lockfileVersion') == 3 and isinstance(lock.get('packages'), dict), 'Unsupported lockfile format.')
+          registry_entries = []
+          from urllib.parse import urlsplit
+          for key, item in lock['packages'].items():
+              if not key:
+                  continue
+              require(isinstance(item, dict) and not item.get('link'), 'Linked dependency is not approved.')
+              url, integrity = item.get('resolved', ''), item.get('integrity', '')
+              parts = urlsplit(url)
+              require(parts.scheme == 'https' and parts.hostname == 'registry.npmjs.org'
+                      and parts.port in (None, 443) and not parts.username and not parts.password
+                      and not parts.query and not parts.fragment and parts.path.startswith('/')
+                      and '\\' not in url and not re.search(r'[\x00-\x20\x7f]', url), 'Non-registry or ambiguous dependency URL.')
+              require(re.fullmatch(r'sha512-[A-Za-z0-9+/]+={0,2}', integrity) is not None, 'Dependency lacks one SHA-512 integrity value.')
+              require(len(base64.b64decode(integrity[7:], validate=True)) == 64, 'Invalid dependency integrity digest.')
+              registry_entries.append(key)
+          require(len(registry_entries) == 573, 'Locked dependency count changed; review required.')
+
+          # Only tracked, selected build inputs are copied. No .git, auth config,
+          # env, raw report, PDF, local fixture directory, or host node_modules.
+          json_inputs = {'package.json', 'package-lock.json', 'tsconfig.json', '.eslintrc.json',
+                         'lib/macroStress/fred-snapshot.json', 'scripts/etf-constituents.json'}
+          code_extensions = {'.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css'}
+          asset_extensions = {'.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.woff', '.woff2', '.ttf'}
+          denied_components = {'.git', '.vercel', '.next', 'node_modules', '.npmrc', 'fixtures', '__fixtures__',
+                               'rawreports', 'raw-reports', 'reports', 'documents', 'downloads'}
+          tracked = command(['git', 'ls-files', '-z']).decode().split('\0')
+          selected = []
+          total = 0
+          for rel in filter(None, tracked):
+              pure = pathlib.PurePosixPath(rel)
+              require(not pure.is_absolute() and '..' not in pure.parts and '\\' not in rel, 'Unsafe tracked path.')
+              lower = [part.lower() for part in pure.parts]
+              if any(part in denied_components or part == '.env' or part.startswith('.env.') for part in lower):
+                  continue
+              if rel == 'next-env.d.ts':
+                  continue  # Generated declaration below, never the caller's file.
+              is_asset = pure.parts[0] in ('app', 'public') and pure.suffix.lower() in asset_extensions
+              if rel not in json_inputs and pure.suffix not in code_extensions and not is_asset:
+                  continue
+              entry = source / rel
+              st = entry.lstat()
+              require(stat.S_ISREG(st.st_mode) and st.st_nlink == 1 and entry.resolve() == entry,
+                      'Source link or non-regular input rejected: ' + rel)
+              data = entry.read_bytes()
+              require(data == command(['git', 'show', 'HEAD:' + rel]), 'Working-tree bytes differ: ' + rel)
+              total += len(data)
+              selected.append((rel, data, hashlib.sha256(data).hexdigest()))
+          require(0 < len(selected) <= 1500 and total <= 64 * 1024 * 1024, 'Source input budget exceeded.')
+          require(json_inputs <= {r for r, _, _ in selected}, 'Required declared build JSON input missing.')
+          require(permitted - {'.github/workflows/research-top-pick-ci.yml'} <= {r for r, _, _ in selected}, 'Approved source missing.')
+          task = pathlib.Path(tempfile.mkdtemp(prefix='research-top-pick-linux-', dir=temp))
+          os.chmod(task, 0o755)
+          staged = task / 'selected-source'
+          staged.mkdir()
+          for rel, data, _ in selected:
+              target = staged / rel
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+          (task / 'source-manifest.json').write_text(json.dumps({r: h for r, _, h in selected}, sort_keys=True))
+          head = command(['git', 'rev-parse', 'HEAD']).decode().strip()
+          print(json.dumps({'stage': 'scope', 'base': base, 'candidate': head, 'sourceFiles': len(selected),
+                            'sourceBytes': total, 'lockedRegistryPackages': len(registry_entries),
+                            'packageSha256': hashlib.sha256((source / 'package.json').read_bytes()).hexdigest(),
+                            'lockSha256': hashlib.sha256((source / 'package-lock.json').read_bytes()).hexdigest(),
+                            'runtime': 'linux-x64/node24.20.0/npm11.19.0', 'noDownloadsForTools': True}), flush=True)
+
+          proxy_program = r'''
+          import ipaddress, os, pathlib, select, socket, socketserver, sys, threading, time
+          TARGET = b'registry.npmjs.org:443'
+          failure_lock = threading.Lock()
+          def record_failure(kind):
+              # Parent-owned append-only evidence; no request/credential contents.
+              with failure_lock:
+                  with pathlib.Path(sys.argv[3]).open('a') as audit:
+                      audit.write(kind + '\n')
+          def parse_target(header):
+              if len(header) > 8192 or b'\x00' in header or not header.endswith(b'\r\n\r\n'):
+                  raise ValueError('invalid proxy header')
+              line = header.split(b'\r\n', 1)[0].split(b' ')
+              if len(line) != 3 or line[0] != b'CONNECT' or line[1] != TARGET or line[2] not in (b'HTTP/1.0', b'HTTP/1.1'):
+                  raise ValueError('proxy destination denied')
+              return True
+          def relay(left, right):
+              deadline, count = time.monotonic() + 300, 0
+              while time.monotonic() < deadline:
+                  readable, _, _ = select.select([left, right], [], [], 30)
+                  if not readable:
+                      return
+                  for current in readable:
+                      data = current.recv(65536)
+                      if not data:
+                          return
+                      count += len(data)
+                      if count > 128 * 1024 * 1024:
+                          raise ValueError('proxy tunnel byte budget exceeded')
+                      (right if current is left else left).sendall(data)
+              raise TimeoutError('proxy tunnel time budget exceeded')
+          slots = threading.BoundedSemaphore(24)
+          class Registry(socketserver.BaseRequestHandler):
+              def handle(self):
+                  if not slots.acquire(blocking=False):
+                      record_failure('connection_budget_exceeded')
+                      self.request.sendall(b'HTTP/1.1 503 Busy\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+                      return
+                  try:
+                      self.request.settimeout(15)
+                      header = b''
+                      while not header.endswith(b'\r\n\r\n'):
+                          part = self.request.recv(1)
+                          if not part:
+                              return
+                          header += part
+                          if len(header) > 8192:
+                              raise ValueError('header too large')
+                      parse_target(header)
+                      addresses = socket.getaddrinfo('registry.npmjs.org', 443, type=socket.SOCK_STREAM)
+                      public = [a for a in addresses if ipaddress.ip_address(a[4][0]).is_global]
+                      if not public or len(public) != len(addresses):
+                          raise ValueError('registry DNS did not resolve exclusively to public addresses')
+                      # Resolve once, then connect to that validated numeric address.
+                      family, kind, protocol, _, address = public[0]
+                      with socket.socket(family, kind, protocol) as upstream:
+                          upstream.settimeout(15)
+                          upstream.connect(address)
+                          self.request.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
+                          relay(self.request, upstream)
+                      print('REGISTRY_PROXY_ALLOWED_TUNNEL registry.npmjs.org:443', flush=True)
+                  except Exception as error:
+                      record_failure(type(error).__name__)
+                      print('REGISTRY_PROXY_FAILURE ' + type(error).__name__, flush=True)
+                      try:
+                          self.request.sendall(b'HTTP/1.1 403 Denied\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+                      except OSError:
+                          pass
+                  finally:
+                      slots.release()
+          class UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+              daemon_threads = True
+          class Bridge(socketserver.BaseRequestHandler):
+              def handle(self):
+                  self.request.settimeout(15)
+                  with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as upstream:
+                      upstream.settimeout(15)
+                      upstream.connect('/proxy/npm.sock')
+                      relay(self.request, upstream)
+          class TCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+              daemon_threads = True
+              allow_reuse_address = False
+          if sys.argv[1] == 'self-test':
+              assert parse_target(b'CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n')
+              for target in (b'evil.invalid:443', b'registry.npmjs.org:80', b'registry.npmjs.org.evil.invalid:443',
+                             b'127.0.0.1:443', b'[::1]:443', b'user@registry.npmjs.org:443', b'registry.npmjs.org.:443'):
+                  try:
+                      parse_target(b'CONNECT ' + target + b' HTTP/1.1\r\n\r\n')
+                  except ValueError:
+                      continue
+                  raise RuntimeError('proxy negative self-test failed')
+              print('REGISTRY_PROXY_PARSER_SELF_TEST_PASS', flush=True)
+          elif sys.argv[1] == 'ready':
+              for attempt in range(50):
+                  try:
+                      with socket.create_connection(('127.0.0.1', 18080), 0.2):
+                          break
+                  except OSError:
+                      time.sleep(0.1)
+              else:
+                  raise RuntimeError('install bridge failed to start')
+          elif sys.argv[1] == 'registry':
+              with UnixServer(sys.argv[2], Registry) as server:
+                  os.chmod(sys.argv[2], 0o660)
+                  os.chown(sys.argv[2], 0, 10001)
+                  print('REGISTRY_PROXY_READY', flush=True)
+                  server.serve_forever()
+          elif sys.argv[1] == 'bridge':
+              with TCPServer(('127.0.0.1', 18080), Bridge) as server:
+                  print('INSTALL_LOOPBACK_BRIDGE_READY', flush=True)
+                  server.serve_forever()
+          else:
+              raise RuntimeError('unknown proxy mode')
+          '''
+
+          gate_program = r'''
+          import ctypes, errno, json, os, pathlib, socket, stat, sys
+          modes = ('install', 'guard-paths', 'guard-self-test', 'portability', 'unit', 'regression', 'types-all', 'lint-all', 'build')
+          if len(sys.argv) != 2 or sys.argv[1] not in modes:
+              raise RuntimeError('unexpected sandbox command')
+          mode = sys.argv[1]
+          installing = mode == 'install'
+          allowed_families = (socket.AF_UNIX, socket.AF_INET) if installing else (socket.AF_UNIX,)
+          denied_families = (socket.AF_INET6, 40, 17) if installing else (socket.AF_INET, socket.AF_INET6, 40, 17)
+          if sys.platform != 'linux' or os.uname().machine != 'x86_64' or os.geteuid() != 10001 or os.getegid() != 10001:
+              raise RuntimeError('unexpected sandbox platform or identity')
+          if os.getgroups():
+              raise RuntimeError('supplementary groups remain')
+          status = dict(line.split(':', 1) for line in pathlib.Path('/proc/self/status').read_text().splitlines() if ':' in line)
+          if any(int(status[key].strip(), 16) for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb')) or status['NoNewPrivs'].strip() != '1':
+              raise RuntimeError('capability or no-new-privileges boundary failed')
+          for path in ('/run/docker.sock', '/var/run/docker.sock', '/work/.git', '/work/.vercel', '/work/.npmrc', '/home/runner'):
+              if os.path.lexists(path):
+                  raise RuntimeError('host path exposed: ' + path)
+          if installing:
+              proxy_directory = pathlib.Path('/proxy')
+              proxy_socket = proxy_directory / 'npm.sock'
+              if proxy_directory.is_symlink() or set(os.listdir(proxy_directory)) != {'npm.sock'} or proxy_socket.is_symlink() or not stat.S_ISSOCK(proxy_socket.lstat().st_mode):
+                  raise RuntimeError('installation proxy socket boundary failed')
+              if any(path.name.startswith('.env') for path in pathlib.Path('/work').iterdir()):
+                  raise RuntimeError('environment file exposed to installation')
+              if pathlib.Path('/tmp/empty-global-npmrc').read_bytes() != b'':
+                  raise RuntimeError('global npm configuration is not empty')
+          elif os.path.lexists('/proxy/npm.sock') or list(pathlib.Path('/proxy').iterdir()):
+              raise RuntimeError('installation proxy exposed to tests')
+          if os.path.exists('/sys/class/net') and any(name != 'lo' for name in os.listdir('/sys/class/net')):
+              raise RuntimeError('unexpected network device')
+          for name in os.listdir('/proc/self/fd'):
+              fd = int(name)
+              if fd > 2:
+                  try:
+                      os.close(fd)
+                  except OSError:
+                      pass
+              elif stat.S_ISSOCK(os.fstat(fd).st_mode):
+                  raise RuntimeError('inherited standard network socket')
+          libc = ctypes.CDLL(None, use_errno=True)
+          if libc.prctl(39, 0, 0, 0, 0) != 1:
+              raise RuntimeError('PR_GET_NO_NEW_PRIVS failed')
+          class Filter(ctypes.Structure):
+              _fields_ = [('code', ctypes.c_ushort), ('jt', ctypes.c_ubyte), ('jf', ctypes.c_ubyte), ('k', ctypes.c_uint32)]
+          class Program(ctypes.Structure):
+              _fields_ = [('length', ctypes.c_ushort), ('filter', ctypes.POINTER(Filter))]
+          # x86_64 only; reject x32 ABI. Installation permits AF_INET only in
+          # its loopback-only namespace; tests permit AF_UNIX only.
+          # io_uring is denied because it can create sockets without socket(2).
+          # BPF sees syscall arguments, so this also covers native code/children.
+          rules = [
+              (0x20, 0, 0, 4), (0x15, 1, 0, 0xC000003E), (0x06, 0, 0, 0x80000000),
+              (0x20, 0, 0, 0), (0x35, 0, 1, 0x40000000), (0x06, 0, 0, 0x00050000 | errno.EPERM),
+              (0x15, 0, 1, 425), (0x06, 0, 0, 0x00050000 | errno.EPERM),
+              (0x15, 0, 1, 426), (0x06, 0, 0, 0x00050000 | errno.EPERM),
+              (0x15, 0, 1, 427), (0x06, 0, 0, 0x00050000 | errno.EPERM),
+              (0x15, 2, 0, 41), (0x15, 1, 0, 53), (0x06, 0, 0, 0x7FFF0000),
+              (0x20, 0, 0, 16),
+          ]
+          for family in allowed_families:
+              rules.extend(((0x15, 0, 1, family), (0x06, 0, 0, 0x7FFF0000)))
+          rules.append((0x06, 0, 0, 0x00050000 | errno.EPERM))
+          def evaluate(number, family=0, architecture=0xC000003E):
+              accumulator, position = 0, 0
+              while position < len(rules):
+                  code, yes, no, value = rules[position]
+                  if code == 0x20:
+                      accumulator = {0: number, 4: architecture, 16: family}[value]
+                  elif code == 0x15:
+                      position += yes if accumulator == value else no
+                  elif code == 0x35:
+                      position += yes if accumulator >= value else no
+                  elif code == 0x06:
+                      return value
+                  else:
+                      raise RuntimeError('unsupported synthetic BPF operation')
+                  position += 1
+              raise RuntimeError('BPF program fell through')
+          deny = 0x00050000 | errno.EPERM
+          for number in (41, 53):
+              for family in allowed_families:
+                  if evaluate(number, family) != 0x7FFF0000:
+                      raise RuntimeError('BPF allowed socket family rule invalid')
+              for family in (0, *denied_families, 65535):
+                  if evaluate(number, family) != deny:
+                      raise RuntimeError('BPF deny rule invalid')
+          for number in (425, 426, 427, 0x40000029):
+              if evaluate(number) != deny:
+                  raise RuntimeError('BPF io_uring/x32 rule invalid')
+          if evaluate(0) != 0x7FFF0000 or evaluate(41, 1, 0x40000003) != 0x80000000:
+              raise RuntimeError('BPF architecture/default rule invalid')
+          array = (Filter * len(rules))(*(Filter(*row) for row in rules))
+          program = Program(len(rules), array)
+          if libc.prctl(22, 2, ctypes.byref(program), 0, 0) != 0:
+              raise OSError(ctypes.get_errno(), 'seccomp installation failed')
+          denied = 0
+          for family in denied_families:
+              try:
+                  item = socket.socket(family, socket.SOCK_STREAM)
+              except OSError as error:
+                  if error.errno != errno.EPERM:
+                      raise
+                  denied += 1
+              else:
+                  item.close()
+                  raise RuntimeError('socket family bypassed seccomp')
+          try:
+              socket.socketpair(socket.AF_INET6 if installing else socket.AF_INET, socket.SOCK_STREAM)
+          except OSError as error:
+              if error.errno != errno.EPERM:
+                  raise
+              denied += 1
+          else:
+              raise RuntimeError('socketpair bypassed seccomp')
+          left, right = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+          left.close(); right.close()
+          if installing:
+              # Creation only: this probe does not connect to any address.
+              item = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+              item.close()
+          for number in (425, 426, 427, 0x40000029):
+              ctypes.set_errno(0)
+              if libc.syscall(number, 0, 0, 0, 0, 0, 0) != -1 or ctypes.get_errno() != errno.EPERM:
+                  raise RuntimeError('io_uring/x32 syscall bypassed seccomp')
+              denied += 1
+          print(json.dumps({'osBoundary': 'linux-network-mount-pid-chroot-nonroot-seccomp',
+                            'mode': mode, 'allowedSocketFamilies': [int(family) for family in allowed_families],
+                            'deniedSyscallProbes': denied, 'hostSecretsInjected': False,
+                            'scope': 'synthetic process isolation, not a general hostile-code sandbox'}), flush=True)
+          env = {'PATH': '/tool/bin:/usr/bin:/bin', 'HOME': '/tmp/home', 'TMPDIR': '/work/.next/tmp',
+                 'LANG': 'C.UTF-8', 'TZ': 'UTC', 'CI': '1', 'NEXT_TELEMETRY_DISABLED': '1'}
+          os.chdir('/work')
+          if installing:
+              env.update({'TMPDIR': '/tmp', 'HTTPS_PROXY': 'http://127.0.0.1:18080',
+                          'HTTP_PROXY': 'http://127.0.0.1:18080', 'NO_PROXY': '',
+                          'npm_config_https_proxy': 'http://127.0.0.1:18080',
+                          'npm_config_proxy': 'http://127.0.0.1:18080',
+                          'npm_config_userconfig': '/dev/null',
+                          'npm_config_globalconfig': '/tmp/empty-global-npmrc',
+                          'npm_config_cache': '/cache', 'npm_config_registry': 'https://registry.npmjs.org',
+                          'npm_config_update_notifier': 'false'})
+              argv = ['/tool/bin/node', '/tool/lib/node_modules/npm/bin/npm-cli.js', 'ci', '--prefix', '/work',
+                      '--ignore-scripts', '--include=dev', '--include=optional', '--no-audit', '--no-fund', '--strict-ssl=true']
+          else:
+              argv = ['/tool/bin/node', '/work/scripts/test-mirae-pipeline.cjs', mode]
+          os.execve('/tool/bin/node', argv, env)
+          '''
+
+          sandbox_program = r'''
+          set -euo pipefail
+          task="$1"; node_home="$2"; phase="$3"
+          rootfs="$task/$phase-root"
+          mount --make-rprivate /
+          mkdir -p "$rootfs"/{usr,tool,work,proc,dev,etc,home,tmp,cache,proxy,helpers}
+          ln -s usr/bin "$rootfs/bin"
+          ln -s usr/sbin "$rootfs/sbin"
+          ln -s usr/lib "$rootfs/lib"
+          ln -s usr/lib64 "$rootfs/lib64"
+          bind_ro() { mount --bind "$1" "$2"; mount -o remount,bind,ro,nosuid,nodev "$2"; }
+          bind_ro /usr "$rootfs/usr"
+          bind_ro "$node_home" "$rootfs/tool"
+          bind_ro "$task/helpers" "$rootfs/helpers"
+          printf 'synthetic:x:10001:10001:Synthetic verification:/tmp/home:/bin/sh\n' > "$rootfs/etc/passwd"
+          printf 'synthetic:x:10001:\n' > "$rootfs/etc/group"
+          for device in null zero random urandom; do
+            touch "$rootfs/dev/$device"
+            mount --bind "/dev/$device" "$rootfs/dev/$device"
+          done
+          mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc "$rootfs/proc"
+          mount -t tmpfs -o size=512m,nosuid,nodev,mode=1777 tmpfs "$rootfs/tmp"
+          mkdir "$rootfs/tmp/home"
+          chown 10001:10001 "$rootfs/tmp/home"
+          touch "$rootfs/tmp/empty-global-npmrc"
+          chmod 0444 "$rootfs/tmp/empty-global-npmrc"
+          run_user() {
+            chroot "$rootfs" /usr/bin/setpriv --reuid=10001 --regid=10001 --clear-groups \
+              --inh-caps=-all --ambient-caps=-all --bounding-set=-all --no-new-privs \
+              /usr/bin/env -i PATH=/tool/bin:/usr/bin:/bin HOME=/tmp/home LANG=C.UTF-8 "$@"
+          }
+          # New net namespace must have loopback only and no default route.
+          test "$(ip -o link show | wc -l)" -eq 1
+          test -z "$(ip -4 route show default)"
+          test -z "$(ip -6 route show default)"
+          if [ "$phase" = install ]; then
+            mount --bind "$task/install-work" "$rootfs/work"
+            mount --bind "$task/npm-cache" "$rootfs/cache"
+            mkdir -p "$rootfs/etc/ssl/certs"
+            bind_ro /etc/ssl/certs "$rootfs/etc/ssl/certs"
+            touch "$rootfs/proxy/npm.sock"
+            mount --bind "$task/npm.sock" "$rootfs/proxy/npm.sock"
+            ip link set lo up
+            run_user /usr/bin/python3 /helpers/proxy.py bridge &
+            bridge_pid=$!
+            trap 'kill "$bridge_pid" 2>/dev/null || true' EXIT
+            # Readiness polling talks only to this namespace's loopback bridge.
+            run_user /usr/bin/python3 /helpers/proxy.py ready
+            run_user /usr/bin/python3 /helpers/gate.py install
+          elif [ "$phase" = test ]; then
+            bind_ro "$task/selected-source" "$rootfs/work"
+            bind_ro "$task/install-work/node_modules" "$rootfs/work/node_modules"
+            mount -t tmpfs -o size=4g,nosuid,nodev,mode=0755,uid=10001,gid=10001 tmpfs "$rootfs/work/.next"
+            mkdir "$rootfs/work/.next/tmp"
+            chown 10001:10001 "$rootfs/work/.next/tmp"
+            mount --bind "$task/generated-next-env.d.ts" "$rootfs/work/next-env.d.ts"
+            # A new root has no install socket; only the gate is selected below.
+            umount "$rootfs/helpers"
+            bind_ro "$task/test-helpers" "$rootfs/helpers"
+            for mode in guard-paths guard-self-test portability unit regression types-all lint-all build types-all; do
+              printf '\nLINUX_MODE_START=%s\n' "$mode"
+              run_user /usr/bin/python3 /helpers/gate.py "$mode"
+              printf 'LINUX_MODE_PASS=%s\n' "$mode"
+            done
+          else
+            exit 80
+          fi
+          '''
+
+          orchestrator_program = r'''
+          import hashlib, json, os, pathlib, shutil, subprocess, sys, time
+          task, node_home = map(pathlib.Path, sys.argv[1:])
+          env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'LANG': 'C.UTF-8', 'HOME': '/nonexistent'}
+          manifest = json.loads((task / 'source-manifest.json').read_text())
+          staged = task / 'selected-source'
+          work, cache = task / 'install-work', task / 'npm-cache'
+          work.mkdir(); cache.mkdir()
+          for directory in (work, cache):
+              os.chown(directory, 10001, 10001)
+          for rel in ('package.json', 'package-lock.json'):
+              shutil.copyfile(staged / rel, work / rel)
+          for directory in (staged, *[p for p in staged.rglob('*') if p.is_dir()]):
+              os.chmod(directory, 0o755)
+          for filename in [p for p in staged.rglob('*') if p.is_file()]:
+              os.chmod(filename, 0o644)
+          for directory in ('node_modules', '.next'):
+              (staged / directory).mkdir()
+          (staged / 'next-env.d.ts').touch()
+          declaration = task / 'generated-next-env.d.ts'
+          declaration.write_text('/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n')
+          os.chown(declaration, 10001, 10001); os.chmod(declaration, 0o644)
+          command = ['/usr/bin/python3', str(task / 'helpers/proxy.py')]
+          subprocess.run(command + ['self-test'], check=True, env=env, close_fds=True, stdin=subprocess.DEVNULL, timeout=30)
+          failures = task / 'proxy-failures.txt'
+          failures.touch()
+          proxy = subprocess.Popen(command + ['registry', str(task / 'npm.sock'), str(failures)], env=env,
+                                   close_fds=True, stdin=subprocess.DEVNULL)
+          try:
+              for _ in range(100):
+                  if proxy.poll() is not None:
+                      raise RuntimeError('Registry proxy exited before readiness')
+                  if (task / 'npm.sock').is_socket():
+                      break
+                  time.sleep(0.05)
+              else:
+                  raise RuntimeError('Registry proxy readiness timed out')
+              def run_phase(phase, timeout):
+                  subprocess.run(['/usr/bin/unshare', '--mount', '--net', '--pid', '--fork', '--kill-child',
+                                  '--mount-proc', '/bin/bash', str(task / 'helpers/sandbox.sh'), str(task), str(node_home), phase],
+                                 check=True, env=env, close_fds=True, stdin=subprocess.DEVNULL, timeout=timeout)
+              run_phase('install', 900)
+          finally:
+              proxy.terminate()
+              try:
+                  proxy.wait(timeout=10)
+              except subprocess.TimeoutExpired:
+                  proxy.kill(); proxy.wait(timeout=10)
+          if failures.read_text():
+              raise RuntimeError('Registry proxy recorded a denial/failure; optional dependency success cannot hide it.')
+          # No bridge or install namespace survives into the separately created test namespace.
+          (task / 'npm.sock').unlink()
+          if not (work / 'node_modules').is_dir():
+              raise RuntimeError('Fresh dependency installation did not finish')
+          run_phase('test', 1200)
+          for rel, digest in manifest.items():
+              if hashlib.sha256((staged / rel).read_bytes()).hexdigest() != digest:
+                  raise RuntimeError('Selected source mutated: ' + rel)
+          for rel in ('package.json', 'package-lock.json'):
+              if (work / rel).read_bytes() != (staged / rel).read_bytes():
+                  raise RuntimeError('Installation changed a declared input')
+          print(json.dumps({'linuxVerification': 'passed', 'sourceHashManifestPreserved': True,
+                            'testOutboundIP': 'OS-denied', 'testSocketFamilies': 'AF_UNIX only',
+                            'installOutbound': 'registry.npmjs.org:443 via dedicated proxy only',
+                            'realProviderCalls': False, 'productionSecretsInjected': False,
+                            'uiOrProductionApproval': False}), flush=True)
+          '''
+          helpers, test_helpers = task / 'helpers', task / 'test-helpers'
+          helpers.mkdir(); test_helpers.mkdir()
+          import textwrap
+          for target, body in ((helpers / 'proxy.py', proxy_program), (helpers / 'sandbox.sh', sandbox_program),
+                               (helpers / 'gate.py', gate_program), (test_helpers / 'gate.py', gate_program),
+                               (task / 'orchestrator.py', orchestrator_program)):
+              target.write_text(textwrap.dedent(body).lstrip('\n'))
+              os.chmod(target, 0o644)
+          verdict = 'failed / incomplete'
+          try:
+              subprocess.run(['/usr/bin/sudo', '-n', '/usr/bin/env', '-i', 'PATH=/usr/bin:/bin:/usr/sbin:/sbin',
+                              'LANG=C.UTF-8', '/usr/bin/python3', str(task / 'orchestrator.py'), str(task), str(node_home)],
+                             check=True, env=clean, close_fds=True, stdin=subprocess.DEVNULL, timeout=2100)
+              verdict = 'passed'
+          finally:
+              with summary.open('a') as report:
+                  report.write('\n## Research Top Pick synthetic Linux verification\n\n')
+                  report.write('- Candidate: `' + head + '`\n- Reviewed main: `' + base + '`\n')
+                  report.write('- Result: **' + verdict + '**\n')
+                  report.write('- Tooling: cached Node 24.20.0 / npm 11.19.0, Linux x64; no tool downloads.\n')
+                  report.write('- Installation: fresh lockfile install, scripts disabled, registry-only proxy namespace; AF_UNIX/AF_INET seccomp, io_uring/x32 denied.\n')
+                  report.write('- Tests: separate net/mount/PID + chroot + nonroot/capability drop + AF_UNIX-only seccomp.\n')
+                  report.write('- GitHub control-plane/checkout/log traffic is not part of the application test boundary.\n')
+                  report.write('- Not validated: real collection, production auth/DB/RLS, UI exposure, rights or deployment.\n')
+                  report.write('- No artifacts, environment values, PDFs or raw reports are uploaded by this workflow.\n')
+          PY
