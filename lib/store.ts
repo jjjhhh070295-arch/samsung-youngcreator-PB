@@ -43,7 +43,7 @@ import {
   loadInvestmentSurvey as loadLocalInvestmentSurvey,
 } from "./investmentSurveyStorage";
 import type { ManualPortfolioDraft } from "./manualPortfolioDraft";
-import { patchConsultationNotesOnly } from "./pbHomeConsultationPanels";
+import { patchConsultationNotesOnly } from "./consultationNotePatch";
 import {
   loadManualPortfolioDraft,
   saveManualPortfolioDraft as saveManualPortfolioDraftLocal,
