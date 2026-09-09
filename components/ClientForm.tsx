@@ -10,18 +10,7 @@ import {
   type PB,
 } from "@/lib/types";
 import { formatKRW } from "@/lib/format";
-
-// 억원 단위 입력(소수점 허용) ↔ 원 변환
-function eokTextToWon(text: string): number {
-  const eok = parseFloat(String(text).replace(/[^0-9.]/g, ""));
-  if (isNaN(eok)) return 0;
-  return Math.round(eok * 100_000_000);
-}
-function wonToEokText(won: number): string {
-  if (!won) return "";
-  // 부동소수점 잡음 방지: 만원 단위로 반올림 후 억 단위 표기
-  return String(Math.round(won / 10_000) / 10_000);
-}
+import MoneyManwonInput from "@/components/MoneyManwonInput";
 
 export interface ClientFormValue {
   code: string;
@@ -67,7 +56,7 @@ export default function ClientForm({
   const [code, setCode] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [assignedPbId, setAssignedPbId] = useState("");
-  const [assetText, setAssetText] = useState("");
+  const [assetSizeWon, setAssetSizeWon] = useState<number | null>(null);
   const [linkedClientId, setLinkedClientId] = useState("");
   const [ownershipText, setOwnershipText] = useState("");
   const [isMajorityShareholder, setIsMajorityShareholder] = useState(false);
@@ -89,7 +78,7 @@ export default function ClientForm({
       setCode(initial.code);
       setBirthDate(initial.birthDate);
       setAssignedPbId(initial.assignedPbId);
-      setAssetText(wonToEokText(initial.assetSize));
+      setAssetSizeWon(initial.assetSize || null);
       setLinkedClientId(initial.linkedClientId ?? "");
       setOwnershipText(initial.ownershipPct == null ? "" : String(initial.ownershipPct));
       setIsMajorityShareholder(Boolean(initial.isMajorityShareholder));
@@ -102,7 +91,7 @@ export default function ClientForm({
       setCode(suggestedCode);
       setBirthDate("");
       setAssignedPbId(defaultPbId ?? pbs[0]?.id ?? "");
-      setAssetText("");
+      setAssetSizeWon(null);
       setLinkedClientId("");
       setOwnershipText("");
       setIsMajorityShareholder(false);
@@ -117,7 +106,7 @@ export default function ClientForm({
 
   const isCorp = clientType === "corporate";
   const isSole = clientType === "sole_proprietor";
-  const assetSize = eokTextToWon(assetText);
+  const assetSize = assetSizeWon ?? 0;
   const ownershipPct = ownershipText === "" ? null : Math.min(100, Math.max(0, Number(ownershipText)));
   const linkedCandidates = clients.filter(
     (client) =>
@@ -256,21 +245,14 @@ export default function ClientForm({
             </select>
           </div>
           <div>
-            <label className="label">자산규모 (억원)</label>
-            <div className="relative">
-              <input
-                className="input pr-10 text-right"
-                inputMode="decimal"
-                value={assetText}
-                placeholder="예: 12.5"
-                onChange={(e) =>
-                  setAssetText(e.target.value.replace(/[^0-9.]/g, ""))
-                }
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-fg-muted">
-                억
-              </span>
-            </div>
+            <MoneyManwonInput
+              className="label block"
+              label="자산규모"
+              valueWon={assetSizeWon}
+              onCommitWon={setAssetSizeWon}
+              placeholder="예: 125000"
+              inputClassName="input w-full text-right tabular-nums"
+            />
             <p className="mt-1 text-right text-xs text-gold-600 dark:text-gold-300">
               {assetSize ? formatKRW(assetSize) : "—"}
             </p>

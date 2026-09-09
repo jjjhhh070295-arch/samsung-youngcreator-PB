@@ -14,6 +14,12 @@ import type { DepositProduct } from "@/lib/tax/depositInterest";
 import { listDepositProducts } from "@/lib/deposits/store";
 import HeritageHandoffBlock from "@/components/HeritageHandoffBlock";
 import FinancialIncomeTaxSection from "@/components/FinancialIncomeTaxSection";
+import { getPortfolioDraft } from "@/lib/store";
+import {
+  buildReturnAssumptionsMap,
+  type PortfolioAnalyticsSnapshot,
+} from "@/lib/returnAssumptions";
+import { draftMatchesApprovedInstruments } from "@/lib/advisory/approvedPortfolioComposition";
 
 interface Props {
   client: Client;
@@ -37,9 +43,11 @@ function StatCard({
   pending?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-white p-4 shadow-sm">
+    <div className="min-w-0 rounded-xl border border-border bg-white p-4 shadow-sm">
       <p className="text-[11px] font-semibold text-fg-muted">{label}</p>
-      <p className={`mt-1 text-xl font-black tabular-nums ${pending ? "text-amber-700" : tone ?? "text-fg"}`}>
+      <p
+        className={`mt-1 break-words text-xl font-black tabular-nums ${pending ? "text-amber-700" : tone ?? "text-fg"}`}
+      >
         {value}
       </p>
     </div>
@@ -56,6 +64,7 @@ export default function TaxProjectionPanel({
   const [openDetail, setOpenDetail] = useState(false);
   const [showIncomeForm, setShowIncomeForm] = useState(false);
   const [deposits, setDeposits] = useState<DepositProduct[]>([]);
+  const [draftSnapshot, setDraftSnapshot] = useState<PortfolioAnalyticsSnapshot | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +76,43 @@ export default function TaxProjectionPanel({
     };
   }, [client.id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const pbId = client.assignedPbId;
+    const pf0 = client.portfolios?.[0];
+    if (pf0?.analyticsSnapshot) {
+      setDraftSnapshot(pf0.analyticsSnapshot);
+    }
+    if (!pbId) {
+      if (!pf0?.analyticsSnapshot) setDraftSnapshot(null);
+      return;
+    }
+    void getPortfolioDraft(pbId, client.id).then(({ draft }) => {
+      if (cancelled) return;
+      const pf = client.portfolios?.[0];
+      if (
+        draft?.analyticsSnapshot &&
+        (!pf || draftMatchesApprovedInstruments(draft, pf))
+      ) {
+        setDraftSnapshot(draft.analyticsSnapshot);
+      } else if (pf?.analyticsSnapshot) {
+        setDraftSnapshot(pf.analyticsSnapshot);
+      } else {
+        setDraftSnapshot(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client.assignedPbId, client.id, client.portfolios]);
+
   const pf = client.portfolios?.[0];
+  const returnAssumptions = useMemo(
+    () =>
+      buildReturnAssumptionsMap(draftSnapshot ?? pf?.analyticsSnapshot ?? null),
+    [draftSnapshot, pf?.analyticsSnapshot],
+  );
+
   const preview = useMemo(() => {
     if (!pf) return null;
     return buildPreviewFromApprovedPortfolio({
@@ -75,8 +120,9 @@ export default function TaxProjectionPanel({
       portfolio: pf,
       horizonYears: 1,
       deposits,
+      returnAssumptions,
     });
-  }, [client, pf, deposits]);
+  }, [client, pf, deposits, returnAssumptions]);
 
   const taxContext = useMemo(() => defaultTaxContextFromClient(client), [client]);
 
@@ -112,9 +158,17 @@ export default function TaxProjectionPanel({
     );
   }
 
-  const pending = result.status === "pending_income";
-  const fmt = (v: number | null | undefined) =>
-    v == null || !Number.isFinite(v) ? (pending ? "입력 대기" : "—") : formatKRW(v);
+  const pendingIncome = result.status === "pending_income";
+  const awaitingReturn = result.status === "incomplete";
+  const pending = pendingIncome || awaitingReturn;
+  const fmt = (v: number | null | undefined) => {
+    if (v == null || !Number.isFinite(v)) {
+      if (pendingIncome) return "입력 대기";
+      if (awaitingReturn) return "산출 대기";
+      return "—";
+    }
+    return formatKRW(v);
+  };
 
   return (
     <div className="space-y-4">
@@ -165,10 +219,16 @@ export default function TaxProjectionPanel({
         </div>
       )}
 
+      {awaitingReturn && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-950">
+          수익률 정보 확인 필요 — 세전·세후 금액을 0원으로 표시하지 않습니다.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="세전 예상 수익" value={fmt(result.preTaxExpectedProfitWon)} />
+        <StatCard label="세전 예상 수익" value={fmt(result.preTaxExpectedProfitWon)} pending={pending} />
         <StatCard label="추정 세금" value={fmt(result.estimatedTaxWon)} pending={pending} />
-        <StatCard label="비용" value={fmt(result.costsWon)} />
+        <StatCard label="비용" value={fmt(result.costsWon)} pending={pending} />
         <StatCard
           label="세후 예상 수익"
           value={fmt(result.afterTaxExpectedProfitWon)}
@@ -184,11 +244,15 @@ export default function TaxProjectionPanel({
       </div>
 
       <div className="rounded-xl border border-border bg-white p-3 text-[11px] text-fg-muted">
-        <p>
-          가격 {formatKRW(result.components.priceReturnWon)} · 배당{" "}
-          {formatKRW(result.components.dividendWon)} · 이자{" "}
-          {formatKRW(result.components.interestWon + result.components.depositInterestWon)}
-        </p>
+        {awaitingReturn ? (
+          <p>가격·배당·이자 구성은 수익률 확인 후 표시됩니다.</p>
+        ) : (
+          <p>
+            가격 {formatKRW(result.components.priceReturnWon)} · 배당{" "}
+            {formatKRW(result.components.dividendWon)} · 이자{" "}
+            {formatKRW(result.components.interestWon + result.components.depositInterestWon)}
+          </p>
+        )}
         <p className="mt-1">
           종합과세 예상:{" "}
           {result.projectedComprehensiveTaxStatus === "above"
@@ -216,7 +280,7 @@ export default function TaxProjectionPanel({
               <tr key={row.label} className="border-t border-border">
                 <td className="py-1.5 text-fg-muted">{row.label}</td>
                 <td className="py-1.5 text-right font-semibold tabular-nums">
-                  {row.amountWon == null ? "—" : formatKRW(row.amountWon)}
+                  {row.amountWon == null ? (awaitingReturn ? "산출 대기" : "—") : formatKRW(row.amountWon)}
                 </td>
               </tr>
             ))}

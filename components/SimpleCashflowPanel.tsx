@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CashFlow } from "@/lib/types";
-import { formatKRW, parseNumber } from "@/lib/format";
+import { formatKRW } from "@/lib/format";
+import MoneyManwonInput from "@/components/MoneyManwonInput";
 import PeriodCashflowLineChart from "./cashflow/PeriodCashflowLineChart";
 import {
   CASHFLOW_PERIOD_TYPE_OPTIONS,
@@ -21,6 +22,12 @@ import {
   summarizeSimpleCashflowRows,
   type SimpleCashflowRow,
 } from "@/lib/simpleCashflow";
+
+const CASHFLOW_AMOUNT_FIELDS = [
+  { key: "netInflow" as const, label: "총유입" },
+  { key: "netOutflowExTax" as const, label: "총유출" },
+  { key: "totalTax" as const, label: "총세금" },
+];
 
 interface Props {
   cashFlows: CashFlow[];
@@ -309,9 +316,12 @@ export default function SimpleCashflowPanel({
                 <thead className="bg-surface-2 text-fg-muted">
                   <tr>
                     <th className="px-3 py-2 font-bold">기간</th>
-                    <th className="px-3 py-2 font-bold">총유입</th>
-                    <th className="px-3 py-2 font-bold">총유출</th>
-                    <th className="px-3 py-2 font-bold">총세금</th>
+                    {CASHFLOW_AMOUNT_FIELDS.map((field) => (
+                      <th key={field.key} className="px-3 py-2 font-bold">
+                        {field.label}{" "}
+                        <span className="font-semibold text-fg-muted">(만원)</span>
+                      </th>
+                    ))}
                     <th className="px-3 py-2 font-bold">순자금</th>
                     <th className="px-3 py-2 font-bold" />
                   </tr>
@@ -331,16 +341,17 @@ export default function SimpleCashflowPanel({
                             {formatCashflowPeriodLabel(row.period, periodType)}
                           </p>
                         </td>
-                        {(["netInflow", "netOutflowExTax", "totalTax"] as const).map((field) => (
-                          <td key={field} className="px-3 py-2">
-                            <input
-                              className="input py-1 text-xs"
-                              inputMode="numeric"
-                              value={row[field] ? String(row[field]) : ""}
-                              placeholder="0"
-                              onChange={(e) =>
-                                updateRow(row.id, { [field]: Math.max(0, parseNumber(e.target.value)) })
+                        {CASHFLOW_AMOUNT_FIELDS.map((field) => (
+                          <td key={field.key} className="px-3 py-2">
+                            <MoneyManwonInput
+                              hideLabel
+                              label={field.label}
+                              valueWon={row[field.key]}
+                              onCommitWon={(won) =>
+                                updateRow(row.id, { [field.key]: Math.max(0, won ?? 0) })
                               }
+                              placeholder="0"
+                              inputClassName="input w-full min-w-[6.5rem] py-1 text-xs tabular-nums"
                             />
                           </td>
                         ))}

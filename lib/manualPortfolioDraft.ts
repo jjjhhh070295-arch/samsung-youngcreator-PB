@@ -5,6 +5,7 @@
  */
 
 import type { PbSelectedKoreanStock } from "./advisory/krTrendPortfolio";
+import type { PortfolioAnalyticsSnapshot } from "./returnAssumptions";
 
 export type ManualAssetClass =
   | "domesticEquity"
@@ -53,6 +54,8 @@ export type ManualPortfolioDraft = {
   trendChecked?: string[];
   /** KoreanStockTrendFilter의 「후보 확정」 결과 — 이 초안 안에 함께 저장한다. */
   trendConfirmed?: PbSelectedKoreanStock[];
+  /** 분석 스냅샷 — 승인·세금 산출에 사용 (decimal 수익률은 저장 시 %로 변환) */
+  analyticsSnapshot?: PortfolioAnalyticsSnapshot;
   savedAt?: string;
 };
 

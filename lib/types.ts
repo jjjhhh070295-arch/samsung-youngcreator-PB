@@ -453,10 +453,15 @@ export interface Portfolio {
   compositionRevision?: string;
   /** 수익률·변동성 산출 상태. unavailable 이면 숫자를 0으로 보여주지 않는다 */
   metricsStatus?: PortfolioMetricsStatus;
-  /** 예상 연수익률 %. metricsStatus==="ok" 일 때만 유효 */
+  /** 예상 연수익률 %. metricsStatus==="ok" 이고 값이 있을 때 유효(변동성 없이도 유지) */
   expectedReturn: number | null;
-  /** 예상 변동성 %. metricsStatus==="ok" 일 때만 유효 */
+  /** 예상 변동성 %. metricsStatus==="ok" 이고 값이 있을 때 유효 — 없어도 expectedReturn 을 지우지 않음 */
   expectedRisk: number | null;
+  /**
+   * 승인 시점 분석 스냅샷(기대수익·종목 가정). 세전·세후 preview 가정에 사용.
+   * 단위: expectedReturnDecimal=decimal, instrumentAssumptionsPct=*Pct=percent points.
+   */
+  analyticsSnapshot?: import("./returnAssumptions").PortfolioAnalyticsSnapshot;
   taxNote: string; // 세금 고려 메모
   rationale: string; // 산출 근거 설명
   editedByPb: boolean; // PB가 수정했는지

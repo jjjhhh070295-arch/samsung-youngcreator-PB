@@ -13,7 +13,8 @@ import {
 } from "@/lib/types";
 import { cellToText, parseCashflowRows, parseCsvRows, type CashflowUploadResult } from "@/lib/cashflowUpload";
 import { buildMonthlyCashflowSummarySeries, isPeriodCashFlow } from "@/lib/periodCashflow";
-import { formatKRW, formatKRWShort, parseNumber } from "@/lib/format";
+import { formatKRW, formatKRWShort } from "@/lib/format";
+import MoneyManwonInput from "@/components/MoneyManwonInput";
 import { EmptyView } from "./StateViews";
 import TaxReadinessRubricButton from "./TaxReadinessRubricButton";
 import PeriodCashflowAppendix from "./PeriodCashflowAppendix";
@@ -602,7 +603,7 @@ export default function CashFlowEditor({
                 <th className="px-3 py-2 text-left">자금주체</th>
                 <th className="px-3 py-2 text-left">항목 / 카테고리</th>
                 <th className="px-3 py-2 text-left">계좌유형</th>
-                <th className="px-3 py-2 text-right">금액 (원, 유출은 음수)</th>
+                <th className="px-3 py-2 text-right">금액 (만원, 유출은 음수)</th>
                 <th className="px-3 py-2 text-left">시점</th>
                 <th className="px-3 py-2 text-center">정기</th>
                 <th className="px-3 py-2 text-left">세무·회계 메모</th>
@@ -648,12 +649,14 @@ export default function CashFlowEditor({
                     />
                   </td>
                   <td className="px-3 py-2">
-                    <input
-                      className="input text-right"
-                      inputMode="numeric"
-                      value={r.amount || ""}
+                    <MoneyManwonInput
+                      hideLabel
+                      label="금액"
+                      allowSigned
+                      valueWon={r.amount}
+                      onCommitWon={(won) => update(r.id, { amount: won ?? 0 })}
                       placeholder="0"
-                      onChange={(e) => update(r.id, { amount: parseNumber(e.target.value) })}
+                      inputClassName="input w-full min-w-[7rem] text-right tabular-nums"
                     />
                     <p
                       className={`mt-0.5 text-right text-[11px] ${

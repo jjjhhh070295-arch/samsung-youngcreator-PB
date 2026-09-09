@@ -118,6 +118,8 @@ export function buildApprovedPortfolio(input: {
     fxUsdKrw: input.fxUsdKrw,
   });
   const metricsOk = input.metricsStatus === "ok";
+  // 수익률과 변동성은 독립 — 변동성 부재가 유효한 기대수익을 지우지 않는다.
+  const snap = draft.analyticsSnapshot;
   return {
     id: previous?.id ?? `manual-${Date.now()}`,
     label: "맞춤 포트폴리오",
@@ -125,8 +127,15 @@ export function buildApprovedPortfolio(input: {
     instruments,
     compositionRevision: newCompositionRevision(),
     metricsStatus: input.metricsStatus,
-    expectedReturn: metricsOk && input.expectedReturn != null ? input.expectedReturn : null,
-    expectedRisk: metricsOk && input.expectedRisk != null ? input.expectedRisk : null,
+    expectedReturn:
+      metricsOk && input.expectedReturn != null && Number.isFinite(input.expectedReturn)
+        ? input.expectedReturn
+        : null,
+    expectedRisk:
+      metricsOk && input.expectedRisk != null && Number.isFinite(input.expectedRisk)
+        ? input.expectedRisk
+        : null,
+    ...(snap ? { analyticsSnapshot: snap } : {}),
     taxNote: "확정 구성 기준 참고",
     rationale: "PB가 승인한 자산군 배분과 편입 종목 구성",
     editedByPb: true,
@@ -144,15 +153,14 @@ export function isLegacyIncompletePortfolio(pf: Portfolio | null | undefined): b
   return hasAlloc && !hasInstruments;
 }
 
+/** 기대수익이 있으면 표시 가능(변동성만 없어도 true). */
 export function portfolioHasDisplayableMetrics(pf: Portfolio | null | undefined): boolean {
   if (!pf) return false;
   if (pf.metricsStatus === "unavailable" || pf.metricsStatus === "legacy_incomplete") return false;
   return (
     pf.metricsStatus === "ok" &&
     pf.expectedReturn != null &&
-    Number.isFinite(pf.expectedReturn) &&
-    pf.expectedRisk != null &&
-    Number.isFinite(pf.expectedRisk)
+    Number.isFinite(pf.expectedReturn)
   );
 }
 

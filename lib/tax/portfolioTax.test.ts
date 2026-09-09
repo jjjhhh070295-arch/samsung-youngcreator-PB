@@ -201,6 +201,87 @@ describe("portfolio preview tax", () => {
     assert.equal(line.grossReturnWon, 8_000_000);
   });
 
+  it("price-only 8% plus 2% dividend is 10% gross", () => {
+    const pf = portfolio([
+      {
+        symbol: "005930",
+        name: "삼성전자",
+        assetClassKey: "domesticEquity",
+        assetClassLabel: "국내주식",
+        currency: "KRW",
+        weightWithinClass: 100,
+        totalWeightPct: 100,
+        allocationAmountWon: 100_000_000,
+        quantity: 1000,
+        priceSnapshot: 100000,
+        bookkeepingNote: "장부",
+      },
+    ]);
+    const preview = buildPreviewFromApprovedPortfolio({
+      client: client(),
+      portfolio: pf,
+      returnAssumptions: new Map([
+        ["005930", { priceReturnPct: 8, dividendYieldPct: 2, returnBasis: "price_only" }],
+      ]),
+    })!;
+    assert.equal(preview.instruments[0].grossReturnWon, 10_000_000);
+  });
+
+  it("portfolio-level 8% on 100m yields 8m pre-tax without instrument map", () => {
+    const pf = portfolio([
+      {
+        symbol: "005930",
+        name: "삼성전자",
+        assetClassKey: "domesticEquity",
+        assetClassLabel: "국내주식",
+        currency: "KRW",
+        weightWithinClass: 100,
+        totalWeightPct: 100,
+        allocationAmountWon: 100_000_000,
+        quantity: 1000,
+        priceSnapshot: 100000,
+        bookkeepingNote: "장부",
+      },
+    ]);
+    pf.expectedReturn = 8;
+    pf.metricsStatus = "ok";
+    const preview = buildPreviewFromApprovedPortfolio({
+      client: client(),
+      portfolio: pf,
+    })!;
+    assert.equal(preview.instruments[0].grossReturnWon, 8_000_000);
+    const result = projectPortfolioPreviewTax({
+      preview,
+      taxContext: {
+        taxYear: 2026,
+        declaredComprehensiveHistorically: true,
+        existingInterestWon: 0,
+        existingDividendWon: 0,
+        expectedWageGrossWon: 50_000_000,
+        otherComprehensiveIncomeWon: 0,
+        confirmedNonFinancialTaxableBaseWon: null,
+        employmentIncomeDeductionWon: null,
+        otherDeductionsWon: null,
+        taxCreditsWon: null,
+        withheldOrPrepaidWon: null,
+        priorYearWageGrossWon: null,
+        priorYearAssessedNationalWon: null,
+        priorYearAssessedLocalWon: null,
+        isLargeShareholderConfirmed: false,
+        majorShareholderStatus: "no",
+        cgtDeductionUsedWon: 0,
+        outsideTaxableCgtGainsWon: 0,
+      },
+    });
+    assert.equal(result.preTaxExpectedProfitWon, 8_000_000);
+    assert.equal(result.status, "ok");
+  });
+
+  it("decimal adapter 0.08 and pct 8 agree for portfolio expectedReturn path", () => {
+    const { decimalReturnToPctPoints } = require("../returnAssumptions") as typeof import("../returnAssumptions");
+    assert.equal(decimalReturnToPctPoints(0.08), 8);
+  });
+
   it("domestic-only portfolio has zero foreign CGT and zero domestic listed CGT", () => {
     const pf = portfolio([
       {
@@ -418,5 +499,83 @@ describe("portfolio preview tax", () => {
       result.afterTaxEndingAssetsWon,
       result.principalWon + result.afterTaxExpectedProfitWon!,
     );
+  });
+
+  it("marks incomplete when return assumptions are missing (no fake zero profit)", () => {
+    const pf = portfolio([
+      {
+        symbol: "005930",
+        name: "삼성전자",
+        assetClassKey: "domesticEquity",
+        assetClassLabel: "국내주식",
+        currency: "KRW",
+        weightWithinClass: 100,
+        totalWeightPct: 100,
+        allocationAmountWon: 100_000_000,
+        quantity: 1,
+        priceSnapshot: 1,
+        bookkeepingNote: "장부",
+      },
+    ]);
+    pf.expectedReturn = null;
+    pf.metricsStatus = "unavailable";
+    const preview = buildPreviewFromApprovedPortfolio({
+      client: client(),
+      portfolio: pf,
+    })!;
+    assert.equal(preview.instruments[0].missingReturnAssumption, true);
+    const result = projectPortfolioPreviewTax({
+      preview,
+      taxContext: {
+        taxYear: 2026,
+        declaredComprehensiveHistorically: true,
+        existingInterestWon: 0,
+        existingDividendWon: 0,
+        expectedWageGrossWon: 50_000_000,
+        otherComprehensiveIncomeWon: 0,
+        confirmedNonFinancialTaxableBaseWon: null,
+        employmentIncomeDeductionWon: null,
+        otherDeductionsWon: null,
+        taxCreditsWon: null,
+        withheldOrPrepaidWon: null,
+        priorYearWageGrossWon: null,
+        priorYearAssessedNationalWon: null,
+        priorYearAssessedLocalWon: null,
+        isLargeShareholderConfirmed: false,
+        majorShareholderStatus: "no",
+        cgtDeductionUsedWon: 0,
+        outsideTaxableCgtGainsWon: 0,
+      },
+    });
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.statusMessageKo, "수익률 정보 확인 필요");
+    assert.equal(result.preTaxExpectedProfitWon, null);
+    assert.equal(result.estimatedTaxWon, null);
+  });
+
+  it("resolves assumptions via identity-aware symbol keys", () => {
+    const pf = portfolio([
+      {
+        symbol: "aapl",
+        name: "Apple",
+        assetClassKey: "globalEquity",
+        assetClassLabel: "해외주식",
+        currency: "USD",
+        weightWithinClass: 100,
+        totalWeightPct: 100,
+        allocationAmountWon: 100_000_000,
+        quantity: 1,
+        priceSnapshot: 1,
+        bookkeepingNote: "장부",
+      },
+    ]);
+    pf.expectedReturn = null;
+    const preview = buildPreviewFromApprovedPortfolio({
+      client: client(),
+      portfolio: pf,
+      returnAssumptions: new Map([["AAPL", { totalReturnPct: 8 }]]),
+    })!;
+    assert.equal(preview.instruments[0].missingReturnAssumption, false);
+    assert.equal(preview.instruments[0].grossReturnWon, 8_000_000);
   });
 });

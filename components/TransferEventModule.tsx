@@ -17,6 +17,7 @@ import {
   searchParties,
 } from "@/lib/store";
 import { formatKRW, formatDate } from "@/lib/format";
+import MoneyManwonInput from "@/components/MoneyManwonInput";
 
 const ASSET_KIND_OPTIONS: { value: AssetKind; label: string }[] = [
   { value: "cash",         label: ASSET_KIND_LABEL.cash },
@@ -326,7 +327,7 @@ function AddTab({
   const [eventType, setEventType]   = useState<TransferEventType>("gift");
   const [direction, setDirection]   = useState<"i_am_from" | "i_am_to">("i_am_to");
   const [assetKind, setAssetKind]   = useState<AssetKind>("cash");
-  const [amount, setAmount]         = useState("");
+  const [amountWon, setAmountWon]   = useState<number | null>(null);
   const [eventDate, setEventDate]   = useState(new Date().toISOString().split("T")[0]);
   const [note, setNote]             = useState("");
   const [saving, setSaving]         = useState(false);
@@ -360,11 +361,12 @@ function AddTab({
         fromPartyId: fromPartyId ?? null,
         toPartyId,
         assetKind,
-        amount: amount ? Number(amount.replace(/,/g, "")) : null,
+        amount: amountWon,
         eventDate,
         note: note.trim() || null,
       });
       onSaved();
+      setAmountWon(null);
     } catch (e: any) {
       setErrMsg(e.message ?? "저장 실패");
     } finally {
@@ -468,17 +470,16 @@ function AddTab({
 
       {/* 금액 */}
       <div>
-        <label className="block text-xs text-fg-muted mb-1">평가액 (원)</label>
-        <input
-          className="input text-sm w-full"
-          type="text"
-          inputMode="numeric"
+        <MoneyManwonInput
+          className="block text-xs text-fg-muted"
+          label="평가액"
+          valueWon={amountWon}
+          onCommitWon={setAmountWon}
           placeholder="0"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
+          inputClassName="input text-sm w-full tabular-nums"
         />
-        {amount && (
-          <p className="text-xs text-fg-muted mt-1">{formatKRW(Number(amount))}</p>
+        {amountWon != null && (
+          <p className="text-xs text-fg-muted mt-1">{formatKRW(amountWon)}</p>
         )}
       </div>
 

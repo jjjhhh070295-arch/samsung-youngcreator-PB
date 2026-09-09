@@ -1,6 +1,12 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import MoneyManwonInput from '@/components/MoneyManwonInput';
+import {
+  isManwonDraftAllowed,
+  parseManwonInput,
+  WON_PER_MANWON,
+} from '@/lib/moneyManwon';
 
 // ── 공개 타입 (PortfolioPanel에서 import) ──────────────────────────────────
 export interface ExistingHolding {
@@ -125,17 +131,12 @@ const RECOMMEND_MIN_WEIGHT = 40;  // 섹터 비중 N% 이상
 
 // ── 표시 헬퍼 ─────────────────────────────────────────────────────────────
 function fmtAmt(won: number): string {
-  if (!Number.isFinite(won) || won === 0) return '0억';
+  if (!Number.isFinite(won) || won === 0) return '0만';
   const abs  = Math.abs(won);
   const sign = won < 0 ? '-' : '';
   if (abs >= 1_0000_0000) return `${sign}${(abs / 1_0000_0000).toFixed(1)}억`;
-  if (abs >= 1_0000)      return `${sign}${Math.round(abs / 1_0000).toLocaleString()}만`;
+  if (abs >= WON_PER_MANWON) return `${sign}${Math.round(abs / WON_PER_MANWON).toLocaleString()}만`;
   return `${sign}${abs.toLocaleString()}원`;
-}
-
-function wonToBillion(won: number): string {
-  if (won === 0) return '';
-  return (won / 1_0000_0000).toFixed(2).replace(/\.?0+$/, '');
 }
 
 function SectorFlags({ a }: { a: StockAnalysis }) {
@@ -222,19 +223,15 @@ function PlanStockRow({
         <SectorFlags a={a} />
       </div>
       <div className="flex items-center gap-2">
-        <div className="relative flex items-center">
-          <input
-            type="number" min="0" step="0.1"
-            value={wonToBillion(amountKrw)}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              onAmountChange(Number.isFinite(v) && v >= 0 ? Math.round(v * 1_0000_0000) : 0);
-            }}
-            placeholder="0"
-            className="w-[5.5rem] rounded-md border border-border bg-surface px-2 py-1 pr-6 text-right text-xs font-semibold text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-400 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-          <span className="pointer-events-none absolute right-2 text-[10px] text-fg-muted">억</span>
-        </div>
+        <MoneyManwonInput
+          hideLabel
+          label="금액"
+          valueWon={amountKrw || null}
+          onCommitWon={(won) => onAmountChange(Math.max(0, won ?? 0))}
+          placeholder="0"
+          className="text-[10px]"
+          inputClassName="w-[5.5rem] rounded-md border border-border bg-surface px-2 py-1 text-right text-xs font-semibold text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-400 tabular-nums"
+        />
         <div className="w-14 text-right">
           {weightPct !== null
             ? <span className="font-bold text-indigo-700">{weightPct.toFixed(1)}%</span>
@@ -314,7 +311,7 @@ export default function StockSectorPanel({
 
   // ── 신규 계획 state ────────────────────────────────────────────────────
   const [query,         setQuery]         = useState('');
-  const [amountBillion, setAmountBillion] = useState('');
+  const [amountDraft, setAmountDraft] = useState('');
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState<string | null>(null);
   const [planRows,      setPlanRows]      = useState<PlanRow[]>([]);
@@ -472,15 +469,16 @@ export default function StockSectorPanel({
     if (!q) return;
     const already = planRows.find((r) => r.analysis.stockCode === q || r.analysis.stockName === q);
     if (already) { setError(`${already.analysis.stockName}은(는) 이미 추가됐습니다.`); return; }
-    const billion   = parseFloat(amountBillion);
-    const amountKrw = Number.isFinite(billion) && billion > 0 ? Math.round(billion * 1_0000_0000) : 0;
+    const parsed = parseManwonInput(amountDraft);
+    if (!parsed.ok) { setError(parsed.error); return; }
+    const amountKrw = "empty" in parsed && parsed.empty ? 0 : Math.max(0, parsed.won ?? 0);
     setLoading(true); setError(null);
     try {
       const res = await fetch(`/api/sector-analysis/stock?q=${encodeURIComponent(q)}`);
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error ?? `HTTP ${res.status}`); }
       const data: StockAnalysis = await res.json();
       setPlanRows((prev) => [...prev, { analysis: data, amountKrw }]);
-      setQuery(''); setAmountBillion('');
+      setQuery(''); setAmountDraft('');
       nameRef.current?.focus();
     } catch (err) {
       setError(err instanceof Error ? err.message : '분석 실패');
@@ -576,15 +574,23 @@ export default function StockSectorPanel({
               placeholder="분석할 종목명 또는 6자리 코드" disabled={loading}
             className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
           />
-          <div className="relative flex items-center">
+          <label className="flex items-center gap-1 text-[10px]">
+            <span className="sr-only">금액 (만원)</span>
             <input
-              type="number" min="0" step="0.1" value={amountBillion}
-              onChange={(e) => setAmountBillion(e.target.value)}
-              placeholder="0" disabled={loading}
-              className="w-20 rounded-lg border border-border bg-surface px-2 py-2 pr-6 text-right text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              type="text"
+              inputMode="decimal"
+              value={amountDraft}
+              disabled={loading}
+              placeholder="0"
+              onChange={(e) => {
+                if (!isManwonDraftAllowed(e.target.value)) return;
+                setAmountDraft(e.target.value);
+                setError(null);
+              }}
+              className="w-24 rounded-lg border border-border bg-surface px-2 py-2 text-right text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50 tabular-nums"
             />
-            <span className="pointer-events-none absolute right-2 text-[10px] text-fg-muted">억</span>
-          </div>
+            <span className="shrink-0 font-semibold text-fg-muted">만원</span>
+          </label>
           <button
             type="submit" disabled={loading || !query.trim()}
             className="flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-indigo-700 disabled:opacity-40"

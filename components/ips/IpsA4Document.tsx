@@ -37,8 +37,13 @@ export function paginateIpsInstruments(instruments: ApprovedInstrument[]): Appro
 function metricLabel(pf: Portfolio | undefined, kind: "return" | "risk"): string {
   if (!pf) return "—";
   if (isLegacyIncompletePortfolio(pf)) return "확인 필요";
-  if (!portfolioHasDisplayableMetrics(pf)) return "산출 전";
-  return formatPercent1(kind === "return" ? pf.expectedReturn : pf.expectedRisk);
+  if (kind === "return") {
+    if (!portfolioHasDisplayableMetrics(pf)) return "산출 전";
+    return formatPercent1(pf.expectedReturn);
+  }
+  if (pf.metricsStatus === "unavailable" || pf.metricsStatus === "legacy_incomplete") return "산출 전";
+  if (pf.expectedRisk != null && Number.isFinite(pf.expectedRisk)) return formatPercent1(pf.expectedRisk);
+  return "산출 전";
 }
 
 function formatAmount(won: number | null): string {
@@ -180,7 +185,7 @@ export default function IpsA4Document({ documentClient, documentPbDisplay, inves
             <section className="ips-section ips-outlook-section">
               <SectionTitle number="04" note="상담용 추정">수익·위험 및 비용</SectionTitle>
               <dl className="ips-outlook"><div><dt>예상 연수익률</dt><dd>{metricLabel(pf, "return")}</dd></div><div><dt>예상 변동성</dt><dd>{metricLabel(pf, "risk")}</dd></div></dl>
-              {taxWaterfall && taxWaterfall.status !== "pending_income" && taxWaterfall.afterTaxEndingAssetsWon != null ? (
+              {taxWaterfall && taxWaterfall.status !== "pending_income" && taxWaterfall.status !== "incomplete" && taxWaterfall.afterTaxEndingAssetsWon != null ? (
                 <div className="ips-tax-summary">
                   <p>1년 · Portfolio preview 기준 · 세전·세후 예상</p>
                   <dl>
@@ -192,7 +197,7 @@ export default function IpsA4Document({ documentClient, documentPbDisplay, inves
                 </div>
               ) : (
                 <p className="ips-note">
-                  {taxWaterfall?.status === "pending_income"
+                  {taxWaterfall?.status === "pending_income" || taxWaterfall?.status === "incomplete"
                     ? taxWaterfall.statusMessageKo
                     : "세전·세후 예상은 Portfolio preview·소득 정보 확인 후 제공됩니다."}
                 </p>

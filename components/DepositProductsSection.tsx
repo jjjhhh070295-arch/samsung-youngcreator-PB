@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * 예·적금 섹션 — 단순화 입력(유형·잔액·이율·개시·만기연수).
+ * 예·적금 — 안정 입력(초안 문자열)·만원·제품별 저장.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatKRW } from "@/lib/format";
 import { formatPercent1 } from "@/lib/formatPercent";
 import type { DepositProduct } from "@/lib/tax/depositInterest";
@@ -24,11 +24,12 @@ import {
   saveDepositProducts,
 } from "@/lib/deposits/store";
 import { publishClientLiveSync } from "@/lib/clientLiveSync";
+import MoneyManwonInput from "@/components/MoneyManwonInput";
 
 interface Props {
   clientId: string;
   onChanged?: () => void;
-  /** 예·적금 예상 이자 집계 → 금융소득 프로파일(읽기전용) 반영 */
+  /** 예·적금 예상 이자 — 값이 바뀐 때만 호출 */
   onDerivedInterestChange?: (grossWon: number | null) => void;
 }
 
@@ -91,64 +92,126 @@ export default function DepositProductsSection({
   const [products, setProducts] = useState<DepositProduct[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "saving">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [rateDrafts, setRateDrafts] = useState<Record<string, string>>({});
+
+  const productsRef = useRef(products);
+  productsRef.current = products;
+  const dirtyRef = useRef(false);
+  const revisionRef = useRef(0);
+  const derivedCbRef = useRef(onDerivedInterestChange);
+  derivedCbRef.current = onDerivedInterestChange;
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+  const lastEmittedDerivedRef = useRef<number | null | undefined>(undefined);
 
   const year = new Date().getFullYear();
   const asOf = new Date().toISOString().slice(0, 10);
 
-  const emitDerived = useCallback(
-    (rows: DepositProduct[]) => {
-      const agg = aggregateDerivedDepositInterest(rows, {
-        asOf,
-        projectionYear: year,
-      });
-      onDerivedInterestChange?.(agg.incomplete && agg.totalGrossWon == null ? null : agg.totalGrossWon ?? 0);
-    },
-    [asOf, onDerivedInterestChange, year],
-  );
+  const emitDerivedIfChanged = useCallback((rows: DepositProduct[]) => {
+    const agg = aggregateDerivedDepositInterest(rows, { asOf, projectionYear: year });
+    const next =
+      agg.incomplete && agg.totalGrossWon == null ? null : (agg.totalGrossWon ?? 0);
+    if (lastEmittedDerivedRef.current === next) return;
+    lastEmittedDerivedRef.current = next;
+    derivedCbRef.current?.(next);
+  }, [asOf, year]);
 
-  const load = useCallback(async () => {
-    setStatus("loading");
-    try {
-      const rows = (await listDepositProducts(clientId)).map(normalizeLoaded);
-      setProducts(rows);
-      emitDerived(rows);
-      setStatus("ready");
-    } catch (e: any) {
-      setError(e?.message || "불러오기 실패");
-      setStatus("ready");
-    }
-  }, [clientId, emitDerived]);
-
+  // 고객 변경 시에만 로드 — 콜백 정체성으로 재로드하지 않음
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    dirtyRef.current = false;
+    revisionRef.current += 1;
+    const loadRev = revisionRef.current;
+    setStatus("loading");
+    setError(null);
+    void listDepositProducts(clientId)
+      .then((rows) => {
+        if (cancelled || loadRev !== revisionRef.current) return;
+        if (dirtyRef.current) return; // 로드 중 편집 보호
+        const normalized = rows.map(normalizeLoaded);
+        setProducts(normalized);
+        setRateDrafts({});
+        emitDerivedIfChanged(normalized);
+        setStatus("ready");
+      })
+      .catch((e: any) => {
+        if (cancelled || loadRev !== revisionRef.current) return;
+        setError(e?.message || "불러오기 실패");
+        setStatus("ready");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, emitDerivedIfChanged]);
 
-  const persist = async (next: DepositProduct[]) => {
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushPersist = useCallback(async () => {
+    const writeRev = revisionRef.current;
+    const latest = productsRef.current.map(withSyncedMaturity);
     setStatus("saving");
     setError(null);
-    const synced = next.map(withSyncedMaturity);
     try {
-      await saveDepositProducts(clientId, synced);
-      setProducts(synced);
-      emitDerived(synced);
-      publishClientLiveSync(clientId, "assets", "deposits");
-      onChanged?.();
+      const result = await saveDepositProducts(clientId, latest);
+      if (writeRev !== revisionRef.current) return;
+      if (!result.ok) {
+        setError(result.error || "저장 실패");
+      } else if (result.error) {
+        setError(result.error);
+      } else {
+        setError(null);
+      }
+      if (writeRev === revisionRef.current) {
+        dirtyRef.current = false;
+        publishClientLiveSync(clientId, "assets", "deposits");
+        onChangedRef.current?.();
+      }
     } catch (e: any) {
-      setError(e?.message || "저장 실패");
+      if (writeRev === revisionRef.current) {
+        setError(e?.message || "저장 실패");
+      }
     } finally {
-      setStatus("ready");
+      if (writeRev === revisionRef.current) setStatus("ready");
     }
-  };
+  }, [clientId]);
 
-  const patchAt = (idx: number, patch: Partial<DepositProduct>, save = false) => {
-    const next = [...products];
-    next[idx] = withSyncedMaturity({ ...next[idx], ...patch, asOf });
-    setProducts(next);
-    if (save) void persist(next);
-  };
+  const enqueuePersist = useCallback(
+    (next: DepositProduct[]) => {
+      dirtyRef.current = true;
+      revisionRef.current += 1;
+      const synced = next.map(withSyncedMaturity);
+      setProducts(synced);
+      productsRef.current = synced;
+      emitDerivedIfChanged(synced);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        void flushPersist();
+      }, 280);
+    },
+    [emitDerivedIfChanged, flushPersist],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  const patchProduct = useCallback(
+    (productId: string, patch: Partial<DepositProduct>, persist = true) => {
+      dirtyRef.current = true;
+      const next = productsRef.current.map((p) =>
+        p.id === productId ? withSyncedMaturity({ ...p, ...patch, asOf }) : p,
+      );
+      setProducts(next);
+      productsRef.current = next;
+      emitDerivedIfChanged(next);
+      if (persist) enqueuePersist(next);
+    },
+    [asOf, emitDerivedIfChanged, enqueuePersist],
+  );
 
   const totals = sumDepositBalances(products);
-
   const typeOrdinal = useMemo(() => {
     const counts = { deposit: 0, installment: 0 };
     return products.map((p) => {
@@ -171,13 +234,27 @@ export default function DepositProductsSection({
         <button
           type="button"
           className="btn-outline text-xs"
-          onClick={() => void persist([...products, emptyProduct()])}
+          onClick={() => {
+            const next = [...productsRef.current, emptyProduct()];
+            enqueuePersist(next);
+          }}
         >
           + 상품 추가
         </button>
       </div>
 
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && (
+        <p className="mt-2 text-xs text-red-600">
+          {error}{" "}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => enqueuePersist(productsRef.current)}
+          >
+            다시 저장
+          </button>
+        </p>
+      )}
 
       {products.length === 0 ? (
         <p className="mt-3 text-xs text-fg-muted">등록된 예·적금이 없습니다.</p>
@@ -216,83 +293,70 @@ export default function DepositProductsSection({
                     <select
                       className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
                       value={p.productType}
-                      onChange={(e) => {
-                        patchAt(
-                          idx,
-                          {
-                            productType: e.target.value === "installment" ? "installment" : "deposit",
-                          },
-                          true,
-                        );
-                      }}
+                      onChange={(e) =>
+                        patchProduct(p.id, {
+                          productType:
+                            e.target.value === "installment" ? "installment" : "deposit",
+                        })
+                      }
                     >
                       <option value="deposit">예금</option>
                       <option value="installment">적금</option>
                     </select>
                   </label>
-                  <label className="text-[11px]">
-                    잔액(원)
-                    <input
-                      type="number"
-                      className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
-                      value={p.principalWon ?? ""}
-                      placeholder="미입력"
-                      onChange={(e) =>
-                        patchAt(idx, {
-                          principalWon: e.target.value === "" ? null : Number(e.target.value),
-                        })
-                      }
-                      onBlur={() => {
-                        setProducts((current) => {
-                          void persist(current.map(withSyncedMaturity));
-                          return current;
-                        });
-                      }}
-                    />
-                  </label>
+                  <MoneyManwonInput
+                    label="잔액"
+                    valueWon={p.principalWon}
+                    onCommitWon={(won) => patchProduct(p.id, { principalWon: won })}
+                  />
                   <label className="text-[11px]">
                     약정 연이율(%)
                     <input
-                      type="number"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
-                      value={p.annualRatePct ?? ""}
-                      placeholder="미입력"
-                      onChange={(e) =>
-                        patchAt(idx, {
-                          annualRatePct: e.target.value === "" ? null : Number(e.target.value),
-                        })
+                      value={
+                        rateDrafts[p.id] ??
+                        (p.annualRatePct == null ? "" : String(p.annualRatePct))
                       }
+                      placeholder="미입력"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
+                        dirtyRef.current = true;
+                        setRateDrafts((d) => ({ ...d, [p.id]: v }));
+                      }}
                       onBlur={() => {
-                        setProducts((current) => {
-                          void persist(current.map(withSyncedMaturity));
-                          return current;
+                        const raw = rateDrafts[p.id];
+                        const draft =
+                          raw !== undefined
+                            ? raw
+                            : p.annualRatePct == null
+                              ? ""
+                              : String(p.annualRatePct);
+                        const parsed =
+                          draft.trim() === ""
+                            ? null
+                            : Number.isFinite(Number(draft))
+                              ? Number(draft)
+                              : null;
+                        setRateDrafts((d) => {
+                          const next = { ...d };
+                          delete next[p.id];
+                          return next;
                         });
+                        patchProduct(p.id, { annualRatePct: parsed });
                       }}
                     />
                   </label>
                   {p.productType === "installment" && (
-                    <label className="text-[11px]">
-                      회차 납입액(원)
-                      <input
-                        type="number"
-                        className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
-                        value={p.contributionAmountWon ?? ""}
-                        placeholder="미입력"
-                        onChange={(e) =>
-                          patchAt(idx, {
-                            contributionAmountWon:
-                              e.target.value === "" ? null : Number(e.target.value),
-                          })
-                        }
-                        onBlur={() => {
-                        setProducts((current) => {
-                          void persist(current.map(withSyncedMaturity));
-                          return current;
-                        });
-                      }}
-                      />
-                    </label>
+                    <MoneyManwonInput
+                      label="회차 납입액"
+                      valueWon={p.contributionAmountWon ?? null}
+                      onCommitWon={(won) =>
+                        patchProduct(p.id, { contributionAmountWon: won })
+                      }
+                    />
                   )}
                   <label className="text-[11px]">
                     개시일
@@ -300,13 +364,9 @@ export default function DepositProductsSection({
                       type="date"
                       className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
                       value={p.openedAt ?? ""}
-                      onChange={(e) => patchAt(idx, { openedAt: e.target.value || null })}
-                      onBlur={() => {
-                        setProducts((current) => {
-                          void persist(current.map(withSyncedMaturity));
-                          return current;
-                        });
-                      }}
+                      onChange={(e) =>
+                        patchProduct(p.id, { openedAt: e.target.value || null })
+                      }
                     />
                   </label>
                   <label className="text-[11px]">
@@ -316,17 +376,13 @@ export default function DepositProductsSection({
                       value={p.termYears ?? ""}
                       onChange={(e) => {
                         const years = e.target.value === "" ? null : Number(e.target.value);
-                        patchAt(
-                          idx,
-                          {
-                            termYears: years,
-                            maturesAt:
-                              years != null && p.openedAt
-                                ? addCalendarYears(p.openedAt, years)
-                                : p.maturesAt,
-                          },
-                          true,
-                        );
+                        patchProduct(p.id, {
+                          termYears: years,
+                          maturesAt:
+                            years != null && p.openedAt
+                              ? addCalendarYears(p.openedAt, years)
+                              : p.maturesAt,
+                        });
                       }}
                     >
                       <option value="">선택</option>
@@ -340,9 +396,7 @@ export default function DepositProductsSection({
                 </div>
                 <p className="mt-1 text-[10px] text-fg-muted">
                   만기일{" "}
-                  <span className="font-semibold text-fg">
-                    {resolved.maturesAt ?? "—"}
-                  </span>
+                  <span className="font-semibold text-fg">{resolved.maturesAt ?? "—"}</span>
                   {p.termYears != null ? " (연수 기준 자동 계산)" : ""}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-fg-muted">
@@ -351,7 +405,7 @@ export default function DepositProductsSection({
                       type="checkbox"
                       checked={p.identifiedInCashBalance}
                       onChange={(e) =>
-                        patchAt(idx, { identifiedInCashBalance: e.target.checked }, true)
+                        patchProduct(p.id, { identifiedInCashBalance: e.target.checked })
                       }
                     />
                     현금/자산에 이미 포함(이중계상 금지)
@@ -361,7 +415,7 @@ export default function DepositProductsSection({
                       type="checkbox"
                       checked={p.includeInManagedPreview}
                       onChange={(e) =>
-                        patchAt(idx, { includeInManagedPreview: e.target.checked }, true)
+                        patchProduct(p.id, { includeInManagedPreview: e.target.checked })
                       }
                     />
                     Portfolio preview 포함
@@ -369,7 +423,10 @@ export default function DepositProductsSection({
                   <button
                     type="button"
                     className="text-red-600"
-                    onClick={() => void persist(products.filter((x) => x.id !== p.id))}
+                    onClick={() => {
+                      const next = productsRef.current.filter((x) => x.id !== p.id);
+                      enqueuePersist(next);
+                    }}
                   >
                     삭제
                   </button>

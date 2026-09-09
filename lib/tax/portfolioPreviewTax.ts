@@ -16,6 +16,8 @@ import {
   roundWon,
 } from "./koreanResidentTax2026";
 import { deriveNonFinancialTaxableBaseWon } from "../financialIncome";
+import { getAssumptionForSymbol } from "../returnAssumptions";
+import type { InstrumentReturnAssumptionPct } from "../returnAssumptions";
 
 export type ListingJurisdiction = "kr_listed" | "foreign_listed" | "unlisted" | "unknown";
 export type LegalProductKind =
@@ -51,6 +53,8 @@ export interface PreviewInstrumentLine {
   priceReturnWon: number;
   dividendWon: number;
   interestWon: number;
+  /** 수익률 가정이 없어 0원으로 위장하지 않아야 함 */
+  missingReturnAssumption: boolean;
   /** 이미 펀드보수 차감된 수익률이면 true */
   expensesAlreadyInReturn: boolean;
   feeWon: number;
@@ -176,18 +180,7 @@ export function buildPreviewFromApprovedPortfolio(input: {
   revision?: string;
   horizonYears?: number;
   /** symbol → { totalReturnPct?, priceReturnPct?, dividendYieldPct?, expensesInNav? } */
-  returnAssumptions?: Map<
-    string,
-    {
-      totalReturnPct?: number | null;
-      priceReturnPct?: number | null;
-      dividendYieldPct?: number | null;
-      couponPct?: number | null;
-      expensesAlreadyInReturn?: boolean;
-      explicitFeeWon?: number | null;
-      returnBasis?: ReturnComponentBasis;
-    }
-  >;
+  returnAssumptions?: Map<string, InstrumentReturnAssumptionPct & { explicitFeeWon?: number | null }>;
   deposits?: DepositProduct[];
 }): PortfolioPreviewSnapshot | null {
   const pf = input.portfolio;
@@ -204,8 +197,7 @@ export function buildPreviewFromApprovedPortfolio(input: {
     if (mv == null || !Number.isFinite(mv) || mv < 0) continue;
     principalWon += mv;
     const { legalKind, listing } = classifyInstrument(inst);
-    const assume = input.returnAssumptions?.get(inst.symbol.trim().toUpperCase()) ??
-      input.returnAssumptions?.get(inst.symbol);
+    const assume = getAssumptionForSymbol(input.returnAssumptions, inst.symbol);
     const portReturn =
       pf.metricsStatus === "ok" && pf.expectedReturn != null && Number.isFinite(pf.expectedReturn)
         ? pf.expectedReturn
@@ -219,7 +211,7 @@ export function buildPreviewFromApprovedPortfolio(input: {
 
     if (assume) {
       expensesAlready = !!assume.expensesAlreadyInReturn;
-      basis = assume.returnBasis ?? "unknown";
+      basis = (assume.returnBasis as ReturnComponentBasis | undefined) ?? "unknown";
       if (assume.totalReturnPct != null && assume.dividendYieldPct != null) {
         // 총수익 8% + 배당 2% 포함 → 가격 6% + 배당 2% (이중가산 금지)
         priceReturnPct = assume.totalReturnPct - assume.dividendYieldPct;
@@ -253,13 +245,18 @@ export function buildPreviewFromApprovedPortfolio(input: {
       basis = "price_only";
     }
 
-    const priceReturnWon = priceReturnPct != null ? roundWon(mv * (priceReturnPct / 100) * horizonYears) : 0;
+    const hasAnyReturnPct =
+      priceReturnPct != null || dividendYieldPct != null || interestPct != null;
+    const missingReturnAssumption = legalKind !== "cash" && !hasAnyReturnPct;
+
+    const priceReturnWon =
+      priceReturnPct != null ? roundWon(mv * (priceReturnPct / 100) * horizonYears) : 0;
     const dividendWon =
       dividendYieldPct != null ? roundWon(mv * (dividendYieldPct / 100) * horizonYears) : 0;
     const interestWon = interestPct != null ? roundWon(mv * (interestPct / 100) * horizonYears) : 0;
     const feeWon =
-      assume?.explicitFeeWon != null && Number.isFinite(assume.explicitFeeWon)
-        ? Math.max(0, assume.explicitFeeWon)
+      assume && "explicitFeeWon" in assume && assume.explicitFeeWon != null && Number.isFinite(assume.explicitFeeWon)
+        ? Math.max(0, assume.explicitFeeWon as number)
         : 0;
 
     const grossReturnWon = priceReturnWon + dividendWon + interestWon;
@@ -278,6 +275,7 @@ export function buildPreviewFromApprovedPortfolio(input: {
       priceReturnWon,
       dividendWon,
       interestWon,
+      missingReturnAssumption,
       expensesAlreadyInReturn: expensesAlready,
       feeWon,
       returnBasis: basis,
@@ -366,7 +364,8 @@ export function projectPortfolioPreviewTax(input: {
     }
   }
 
-  const preTaxExpectedProfitWon = priceReturnWon + dividendWon + interestWon;
+  const preTaxExpectedProfitWonRaw = priceReturnWon + dividendWon + interestWon;
+  const missingReturnAssumption = preview.instruments.some((l) => l.missingReturnAssumption);
 
   const interestWithholdingWon = roundWon(interestWon * 0.154);
   const dividendWithholdingWon = roundWon(dividendWon * DIVIDEND_WITHHOLDING_COMBINED_RATE);
@@ -398,6 +397,7 @@ export function projectPortfolioPreviewTax(input: {
     otherComprehensiveIncomeWon: taxContext.otherComprehensiveIncomeWon,
   });
   const needsIncomeForm =
+    !missingReturnAssumption &&
     projectedComprehensiveTaxStatus === "above" &&
     (declaredNo || derivedOtherBase == null);
 
@@ -405,7 +405,11 @@ export function projectPortfolioPreviewTax(input: {
   let status: ProjectionStatus = "ok";
   let statusMessageKo = "Portfolio preview 기준 산출";
 
-  if (needsIncomeForm) {
+  if (missingReturnAssumption) {
+    status = "incomplete";
+    statusMessageKo = "수익률 정보 확인 필요";
+    comprehensiveExtraWon = null;
+  } else if (needsIncomeForm) {
     status = "pending_income";
     statusMessageKo =
       "예상 금융소득이 종합과세 기준을 초과합니다. 소득 정보를 입력해 주세요.";
@@ -434,7 +438,11 @@ export function projectPortfolioPreviewTax(input: {
   }
 
   let foreignStockCgtWon: number | null = 0;
-  if (input.assumeForeignShareSaleAfterHorizon && foreignPriceGainsForCgt > 0) {
+  if (
+    !missingReturnAssumption &&
+    input.assumeForeignShareSaleAfterHorizon &&
+    foreignPriceGainsForCgt > 0
+  ) {
     const outside = Math.max(0, taxContext.outsideTaxableCgtGainsWon);
     const combined = outside + foreignPriceGainsForCgt;
     const full = foreignStockCapitalGainsTax({
@@ -449,8 +457,8 @@ export function projectPortfolioPreviewTax(input: {
     assumptions.push(
       "해외주식 양도세는 '1년 후 매도 가정' 시뮬레이션이며 실제 매도·확정세액이 아닙니다.",
     );
-  } else if (!input.assumeForeignShareSaleAfterHorizon) {
-    foreignStockCgtWon = 0;
+  } else if (!input.assumeForeignShareSaleAfterHorizon || missingReturnAssumption) {
+    foreignStockCgtWon = missingReturnAssumption ? null : 0;
   }
 
   if (taxContext.majorShareholderStatus === "unknown") {
@@ -468,19 +476,27 @@ export function projectPortfolioPreviewTax(input: {
     (foreignStockCgtWon ?? 0) +
     transactionLevyWon;
 
-  if (status === "pending_income" || status === "unsupported") {
+  if (status === "pending_income" || status === "unsupported" || status === "incomplete") {
     estimatedTaxWon = null;
   }
 
+  const preTaxExpectedProfitWon = missingReturnAssumption ? null : preTaxExpectedProfitWonRaw;
+  const costsWonOut = missingReturnAssumption ? null : costsWon;
+
   const afterTaxExpectedProfitWon =
-    estimatedTaxWon == null ? null : preTaxExpectedProfitWon - estimatedTaxWon - costsWon;
+    estimatedTaxWon == null || preTaxExpectedProfitWon == null
+      ? null
+      : preTaxExpectedProfitWon - estimatedTaxWon - (costsWonOut ?? 0);
   const afterTaxEndingAssetsWon =
     afterTaxExpectedProfitWon == null
       ? null
       : preview.principalWon + afterTaxExpectedProfitWon;
 
-  if (preview.instruments.some((l) => l.returnBasis === "unknown")) {
+  if (preview.instruments.some((l) => l.returnBasis === "unknown" && !l.missingReturnAssumption)) {
     warnings.push("일부 종목은 수익 구성(가격/배당)이 미상입니다. 배당을 임의 분할하지 않았습니다.");
+  }
+  if (missingReturnAssumption) {
+    warnings.push("일부 종목의 기대수익률이 없어 세전·세후 금액을 확정하지 않았습니다.");
   }
 
   return {
@@ -490,7 +506,7 @@ export function projectPortfolioPreviewTax(input: {
     principalWon: preview.principalWon,
     preTaxExpectedProfitWon,
     estimatedTaxWon,
-    costsWon,
+    costsWon: costsWonOut,
     afterTaxExpectedProfitWon,
     afterTaxEndingAssetsWon,
     components: {
@@ -513,15 +529,15 @@ export function projectPortfolioPreviewTax(input: {
     assumptions,
     warnings,
     breakdown: [
-      { label: "가격 손익", amountWon: priceReturnWon },
-      { label: "배당·분배금(총액)", amountWon: dividendWon },
-      { label: "이자(총액)", amountWon: interestWon },
-      { label: "원천징수(이자)", amountWon: interestWithholdingWon },
-      { label: "원천징수(배당)", amountWon: dividendWithholdingWon },
+      { label: "가격 손익", amountWon: missingReturnAssumption ? null : priceReturnWon },
+      { label: "배당·분배금(총액)", amountWon: missingReturnAssumption ? null : dividendWon },
+      { label: "이자(총액)", amountWon: missingReturnAssumption ? null : interestWon },
+      { label: "원천징수(이자)", amountWon: missingReturnAssumption ? null : interestWithholdingWon },
+      { label: "원천징수(배당)", amountWon: missingReturnAssumption ? null : dividendWithholdingWon },
       { label: "종합과세 추가(귀속)", amountWon: comprehensiveExtraWon },
-      { label: "국내 상장주식 양도세", amountWon: domesticListedShareCgtWon },
+      { label: "국내 상장주식 양도세", amountWon: missingReturnAssumption ? null : domesticListedShareCgtWon },
       { label: "해외주식 양도세(가정)", amountWon: foreignStockCgtWon },
-      { label: "비용", amountWon: costsWon },
+      { label: "비용", amountWon: costsWonOut },
     ],
   };
 }
