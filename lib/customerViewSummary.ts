@@ -61,11 +61,24 @@ export type CustomerViewSummary = {
   legacyIncomplete: boolean;
 };
 
+/**
+ * 초안에서 "실제로 화면에 나올" 종목의 심볼 집합.
+ *
+ * 자산군 배분이 0%인 자산군은 제외한다 — buildInstrumentsFromDraft 가 `allocPct <= 0`
+ * 이면 그 자산군을 통째로 건너뛰기 때문이다. 예전에는 여기서 배분을 보지 않아,
+ * 표시되는 종목과 비교되는 종목이 달랐다. 실제로 그 때문에 오탐이 났다:
+ * 초안에 채권 2종(KODEX 단기채권·국고채3년)이 남아 있는데 domesticBond 배분이 0% 라
+ * 화면에는 안 나오고, 비교에만 잡혀서 위 표와 아래 목록이 글자 그대로 같은데도
+ * "미승인 제안 초안이 있습니다 (저장본과 다름)" 이 떴다.
+ *
+ * 표시 기준과 판정 기준은 같아야 한다 — 화면에 없는 종목으로 "다름"을 주장할 수 없다.
+ */
 function draftSymbolSet(draft: ManualPortfolioDraft | null): Set<string> {
   if (!draft) return new Set();
   return new Set(
     draft.selected
       .filter((s) => (Number(s.weightWithinClass) || 0) > 0)
+      .filter((s) => (Number(draft.allocation?.[s.assetClass]) || 0) > 0)
       .map((s) => s.symbol.trim().toUpperCase()),
   );
 }

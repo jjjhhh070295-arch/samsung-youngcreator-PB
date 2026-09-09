@@ -7,7 +7,7 @@
 // 토큰이 브라우저 → 서버로 다시 나갈 필요도 없다. 그 라우트는 점검용으로 남겨 둔다.
 
 import type { Metadata } from "next";
-import ClientFacingViewBody from "@/components/ClientFacingViewBody";
+import ClientViewLivePoller from "@/components/ClientViewLivePoller";
 import { clientViewSecret, verifyClientViewToken } from "@/lib/clientView/token";
 import { loadClientViewPayload } from "@/lib/clientView/server";
 
@@ -79,11 +79,12 @@ export default async function ClientViewTokenPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
-      {/* live 를 넘기지 않는다 — 공유 링크에는 동기화도, 새로고침 버튼도 없다.
-          onGoPb 도 없다. 고객은 PB 화면으로 갈 일이 없다.
+      {/* 첫 화면은 서버가 그린 것을 그대로 쓰고, 이후 갱신은 폴러가 /api/client-view 를
+          다시 불러 받는다(15초, PB 탭과 같은 주기). 그 라우트도 service_role 로 해당 고객
+          1건만 돌려주므로 anon 경로는 여전히 타지 않는다.
           표시 정책은 PB 탭과 같은 섹션별이다 — 기본정보 승인분은 보이고 포트폴리오
           미승인이면 그 섹션만 "승인 후 표시"로 가려진다. */}
-      <ClientFacingViewBody view={loaded.payload} />
+      <ClientViewLivePoller token={params.token} initial={loaded.payload} />
     </div>
   );
 }

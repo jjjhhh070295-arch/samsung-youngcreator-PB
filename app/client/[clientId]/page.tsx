@@ -10,7 +10,7 @@
 // 새 링크는 /view/[token] 을 쓴다. 이 주소는 ?t= 로 같은 토큰을 받아 처리한다.
 
 import type { Metadata } from "next";
-import ClientFacingViewBody from "@/components/ClientFacingViewBody";
+import ClientViewLivePoller from "@/components/ClientViewLivePoller";
 import { clientViewSecret, verifyClientViewToken } from "@/lib/clientView/token";
 import { loadClientViewPayload } from "@/lib/clientView/server";
 
@@ -90,9 +90,8 @@ export default async function ClientViewLegacyPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
-      {/* /view/[token] 과 같은 토큰을 요구하므로 표시 정책도 같다(섹션별).
-          예전의 통째 잠금은 이 라우트에 인증이 아예 없던 시절의 정책이었다. */}
-      <ClientFacingViewBody view={loaded.payload} />
+      {/* /view/[token] 과 같은 토큰을 요구하므로 표시 정책도, 자동 갱신도 같다. */}
+      <ClientViewLivePoller token={token} initial={loaded.payload} />
     </div>
   );
 }

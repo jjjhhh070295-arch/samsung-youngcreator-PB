@@ -154,6 +154,61 @@ describe("customerViewSummary", () => {
     assert.ok(summary.instruments.every((r) => r.source === "approved"));
   });
 
+  // 실제로 났던 오탐: 초안에 채권 2종이 남아 있는데 domesticBond 배분이 0% 라
+  // buildInstrumentsFromDraft 는 그 둘을 건너뛰어 화면에는 안 나오는데, 비교 쪽은
+  // 배분을 보지 않아 "다름"으로 판정했다. 위 표와 아래 목록이 글자 그대로 같은데도
+  // "미승인 제안 초안이 있습니다" 가 떴다. 표시 기준과 판정 기준을 맞춘다.
+  it("ignores draft rows whose asset class has 0% allocation", () => {
+    const client = sampleClient({
+      stages: { ...basicApprovalStagePatch(), ...portfolioApprovalStagePatch() },
+      portfolios: [samplePortfolio()],
+    });
+    const draft: ManualPortfolioDraft = {
+      ...sampleDraft(),
+      allocation: {
+        domesticEquity: 100,
+        globalEquity: 0,
+        domesticBond: 0, // ← 배분 0%
+        globalBond: 0,
+        alternatives: 0,
+        cash: 0,
+      },
+      selected: [
+        // 승인본과 같은 종목
+        {
+          symbol: "005930",
+          name: "삼성전자",
+          assetClass: "domesticEquity",
+          weightWithinClass: 100,
+          currency: "KRW",
+        },
+        // 배분 0% 자산군에 남아 있는 유령 종목 — 화면에 나오지 않는다
+        {
+          symbol: "273130",
+          name: "KODEX 단기채권",
+          assetClass: "domesticBond",
+          weightWithinClass: 100,
+          currency: "KRW",
+        },
+      ],
+    };
+    const summary = buildCustomerViewSummary({
+      client,
+      draft,
+      investableWon: 1_000_000_000,
+    });
+    assert.equal(
+      summary.hasProposedDiff,
+      false,
+      "배분 0% 자산군의 종목은 표시되지 않으므로 차이로 세지 않는다",
+    );
+    assert.equal(
+      summary.proposedInstruments.some((r) => r.symbol === "273130"),
+      false,
+      "표시 목록에도 나오지 않아야 한다",
+    );
+  });
+
   it("does not fabricate metrics when unavailable", () => {
     const pf = samplePortfolio();
     pf.metricsStatus = "unavailable";
