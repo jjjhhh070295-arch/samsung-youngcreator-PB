@@ -6,6 +6,7 @@ import { fetchReportContent } from "@/lib/reportContent";
 import { supabase } from "@/lib/supabase";
 import { ingestCanonicalResearch } from "@/lib/topPicks/researchStore";
 import type { ResearchDocumentType } from "@/lib/topPicks/researchPipeline";
+import { filterPendingCanonicalItems, selectCanonicalIngestBatch, type StoredCanonicalDocument } from "@/lib/topPicks/canonicalIngest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,21 +95,45 @@ export async function GET(req: Request) {
     const usedLLM = freshAnalyses.some((a) => a.model !== "dummy");
 
     // 기존 리서치 탭 분석과 별도로 canonical research_documents 파이프라인을 채운다.
-    // 한 실행당 신규 최대 8건만 처리하고 contentHash 중복은 researchStore에서 건너뛴다.
-    const canCanonicalIngest = Boolean(supabase && (process.env.ANTHROPIC_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim()));
+    // 완료된 문서를 제외한 뒤 종목 리포트 75% 슬롯을 보장하고 증권사별로 순환한다.
+    const canCanonicalIngest = Boolean(supabase && process.env.GEMINI_API_KEY?.trim());
+    let pendingCanonical = canonicalItems.filter((item) => item.date && item.documentType);
+    if (canCanonicalIngest && pendingCanonical.length) {
+      const urls = Array.from(new Set(pendingCanonical.map((item) => item.url).filter(Boolean)));
+      const documentsResult = await supabase!.from("research_documents").select("id,source_url,document_type").in("source_url", urls);
+      if (documentsResult.error) throw documentsResult.error;
+      const documents = (documentsResult.data ?? []) as StoredCanonicalDocument[];
+      const stockIds = documents.filter((row) => row.document_type === "STOCK").map((row) => row.id);
+      const marketIds = documents.filter((row) => row.document_type !== "STOCK").map((row) => row.id);
+      const [stockExtractions, marketExtractions] = await Promise.all([
+        stockIds.length ? supabase!.from("stock_research").select("document_id").in("document_id", stockIds) : Promise.resolve({ data: [], error: null }),
+        marketIds.length ? supabase!.from("market_research").select("document_id").in("document_id", marketIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (stockExtractions.error) throw stockExtractions.error;
+      if (marketExtractions.error) throw marketExtractions.error;
+      pendingCanonical = filterPendingCanonicalItems(pendingCanonical, documents,
+        (stockExtractions.data ?? []).map((row: any) => row.document_id),
+        (marketExtractions.data ?? []).map((row: any) => row.document_id));
+    }
+    const canonicalBatch = selectCanonicalIngestBatch(pendingCanonical, 8);
     const canonicalResults = canCanonicalIngest
       ? await mapWithConcurrency(
-          canonicalItems.filter((item) => item.date && item.documentType).slice(0, 8),
+          canonicalBatch,
           1,
           async (item) => {
             const rawText = await contentFor(item.url);
-            if (rawText.trim().length < 100) return { status: "skipped-empty", title: item.title };
+            const minimumLength = item.documentType === "STOCK" ? 60 : 100;
+            if (rawText.trim().length < minimumLength) return { status: "skipped-empty", reportId: item.id, title: item.title };
             try {
-              const result = await ingestCanonicalResearch({ source: item.source, broker: item.broker ?? item.source.split(" · ").at(-1) ?? null, analyst: item.analyst ?? null, publishedAt: item.date!, title: item.title, documentType: item.documentType as ResearchDocumentType, rawText, sourceUrl: item.url });
-              return { status: result.duplicate ? "cached" : "ingested", title: item.title };
+              const result = await ingestCanonicalResearch({ reportId: item.id, source: item.source,
+                broker: item.broker ?? item.source.split(" · ").at(-1) ?? null, analyst: item.analyst ?? null,
+                publishedAt: item.date!, title: item.title, documentType: item.documentType as ResearchDocumentType,
+                rawText, sourceUrl: item.url });
+              return { status: result.duplicate ? "cached" : result.repaired ? "repaired" : "ingested", reportId: item.id, title: item.title };
             } catch (error) {
-              console.warn(`[research canonical] ${item.title}`, (error as Error).message);
-              return { status: "failed", title: item.title };
+              console.warn("[research canonical]", { report_id: item.id, broker: item.broker ?? item.source,
+                error: (error as Error).message, attempt: 2, timestamp: new Date().toISOString() });
+              return { status: "failed", reportId: item.id, title: item.title };
             }
           },
         )
@@ -125,9 +150,13 @@ export async function GET(req: Request) {
       analyses, // [{id, summary, signals[]}]
       canonical: {
         available: canonicalItems.length,
-        ingested: canonicalResults.filter((result) => result.status === "ingested").length,
+        pending: pendingCanonical.length,
+        selected: canonicalBatch.length,
+        ingested: canonicalResults.filter((result) => ["ingested", "repaired"].includes(result.status)).length,
+        repaired: canonicalResults.filter((result) => result.status === "repaired").length,
         cached: canonicalResults.filter((result) => result.status === "cached").length,
-        skippedOrFailed: canonicalResults.filter((result) => !["ingested", "cached"].includes(result.status)).length,
+        skippedOrFailed: canonicalResults.filter((result) => !["ingested", "repaired", "cached"].includes(result.status)).length,
+        failures: canonicalResults.filter((result) => ["failed", "skipped-empty"].includes(result.status)),
       },
     });
   } catch (e: any) {

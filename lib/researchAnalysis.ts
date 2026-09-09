@@ -2,7 +2,6 @@
 // 키워드 매칭(portfolioResearch.inferSignals)의 한계(맥락·방향·강도 못 봄)를 보강한다.
 // 무겁고 비싸므로 결과는 Supabase에 캐싱(researchSignalsStore)해 재사용한다.
 
-import Anthropic from "@anthropic-ai/sdk";
 import type { MarketResearchItem, ResearchSignal } from "./portfolioResearch";
 
 export const SIGNAL_LIST: ResearchSignal[] = [
@@ -28,8 +27,6 @@ export interface ReportAnalysis {
   signals: AnalyzedSignal[];
   model: string; // 분석에 쓴 모델 ("dummy"=키 없음)
 }
-
-const MODEL = "claude-sonnet-4-6";
 
 const SYSTEM_PROMPT = `당신은 증권 리서치 리포트를 분석해 자산배분 신호를 추출하는 도구다.
 주어진 리포트(제목·출처·요약)를 읽고, 아래 7개 신호 각각을 평가한다.
@@ -133,8 +130,7 @@ async function callGemini(userText: string): Promise<string> {
       const json: any = await res.json();
       return json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     }
-    // 503(일시 과부하)만 재시도. 429는 무료 "일일 한도 소진"인 경우가 많아
-    // 재시도해도 안 풀리고 시간만 버리므로 즉시 실패(다음날/유료 전까지 더미 폴백).
+    // 503(일시 과부하)만 재시도. 429는 일일 한도 소진일 수 있어 즉시 실패 처리한다.
     if (res.status === 503 && attempt < maxTries) {
       await sleep(600 * attempt + Math.random() * 300);
       continue;
@@ -144,58 +140,28 @@ async function callGemini(userText: string): Promise<string> {
   throw new Error("gemini retries exhausted");
 }
 
-// Anthropic(Claude)
-async function callClaude(userText: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY!.trim();
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1500,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userText }],
-  });
-  const block = msg.content.find((b) => b.type === "text");
-  return block && block.type === "text" ? block.text : "";
-}
-
 // 리포트 1건 분석. content(본문)가 있으면 본문 기반, 없으면 제목·요약 기반.
-// 하이브리드: Gemini(무료) 우선 → 실패(429 한도/파싱)면 그 건만 Claude 폴백 → 둘 다 안 되면 더미.
-// 평소엔 거의 무료로 돌고, 무료 한도를 넘긴 건만 Claude가 메꿔 화면에 항상 요약이 차게 한다.
+// 이 리서치 경로는 Gemini만 사용하며 실패한 보고서는 더미로 표시해 후속 재시도가 가능하게 한다.
 export async function analyzeReport(
   item: MarketResearchItem,
   content?: string,
 ): Promise<ReportAnalysis> {
   const hasGemini = !!process.env.GEMINI_API_KEY?.trim();
-  const hasClaude = !!process.env.ANTHROPIC_API_KEY?.trim();
-  if (!hasGemini && !hasClaude) return dummyAnalysis(item);
+  if (!hasGemini) return dummyAnalysis(item);
 
   const userText = buildUserText(item, content);
   const geminiModel = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash-lite";
   const short = (e: unknown) => (e as Error)?.message?.slice(0, 70);
 
-  // 1) Gemini(무료) 우선
-  if (hasGemini) {
-    try {
-      const parsed = extractJson(await callGemini(userText));
-      if (parsed) return normalize(parsed, item.id, geminiModel);
-      console.warn(`[researchAnalysis] gemini JSON 파싱 실패 → Claude 폴백: "${item.title.slice(0, 40)}"`);
-    } catch (e) {
-      console.warn(`[researchAnalysis] gemini 실패(${short(e)}) → ${hasClaude ? "Claude 폴백" : "더미"}`);
-    }
+  try {
+    const parsed = extractJson(await callGemini(userText));
+    if (parsed) return normalize(parsed, item.id, geminiModel);
+    console.warn(`[researchAnalysis] gemini JSON 파싱 실패 → 더미: "${item.title.slice(0, 40)}"`);
+  } catch (e) {
+    console.warn(`[researchAnalysis] gemini 실패(${short(e)}) → 더미`);
   }
 
-  // 2) Claude 폴백 (Gemini 미설정/실패 시)
-  if (hasClaude) {
-    try {
-      const parsed = extractJson(await callClaude(userText));
-      if (parsed) return normalize(parsed, item.id, MODEL);
-      console.warn(`[researchAnalysis] claude JSON 파싱 실패 → 더미: "${item.title.slice(0, 40)}"`);
-    } catch (e) {
-      console.error(`[researchAnalysis] claude 실패, 더미 폴백:`, short(e));
-    }
-  }
-
-  // 3) 최종 더미(키워드 추정)
+  // 최종 더미(키워드 추정)
   return dummyAnalysis(item);
 }
 

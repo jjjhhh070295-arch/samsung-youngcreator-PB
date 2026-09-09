@@ -52,7 +52,7 @@ describe("Daily AI Market Intelligence 입력과 조회", () => {
         watch_points: ["미국 10년물"],
         asset_view: { equity: "선별" },
         indicators: [{ label: "KOSPI", value: "2800" }],
-        model: "research-only-v1:gemini-2.5-flash-lite",
+        model: "research-driven-v2:gemini-2.5-flash-lite",
       }, error: null },
     }));
     assert.equal(result.ready, true);
