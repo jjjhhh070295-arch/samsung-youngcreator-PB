@@ -24,6 +24,8 @@ import { getPortfolioDraft, savePortfolioDraft } from "@/lib/store";
 import { floorToIncrement, requiresMarketQuote } from "@/lib/advisory/ipsPurchasePlan";
 import { findQuoteBySymbol } from "@/lib/pricing/instrumentIdentity";
 import type { PriceQuote } from "@/lib/pricing/types";
+import type { PortfolioAnalyticsSnapshot } from "@/lib/returnAssumptions";
+import { WON_PER_MANWON } from "@/lib/moneyManwon";
 
 type AssetClass =
   | "domesticEquity"
@@ -158,6 +160,7 @@ export default function ManualPortfolioBuilder({
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [analyticsSnapshot, setAnalyticsSnapshot] = useState<PortfolioAnalyticsSnapshot | null>(null);
   const allocationWarningRef = useRef<HTMLDivElement | null>(null);
 
   /** Move a small slice from cash into a target class if that class is currently 0%. */
@@ -213,6 +216,7 @@ export default function ManualPortfolioBuilder({
       if (draft?.savedAt) setSavedAt(draft.savedAt);
       if (draft?.trendChecked) setTrendChecked(draft.trendChecked);
       if (draft?.trendConfirmed) setTrendConfirmed(draft.trendConfirmed);
+      if (draft?.analyticsSnapshot) setAnalyticsSnapshot(draft.analyticsSnapshot);
       setSavedTo(draft ? source : null);
       hasDraftRef.current = Boolean(draft);
       setHydrated(true);
@@ -381,6 +385,7 @@ export default function ManualPortfolioBuilder({
       trendChecked,
       trendConfirmed,
       savedAt: now,
+      ...(analyticsSnapshot ? { analyticsSnapshot } : {}),
     };
     setSaving(true);
     try {
@@ -392,7 +397,7 @@ export default function ManualPortfolioBuilder({
     } finally {
       setSaving(false);
     }
-  }, [allocation, allocatableWon, clientId, finalAllocation, investableWon, onDraftChanged, pbId, selected, trendChecked, trendConfirmed]);
+  }, [allocation, allocatableWon, analyticsSnapshot, clientId, finalAllocation, investableWon, onDraftChanged, pbId, selected, trendChecked, trendConfirmed]);
 
   const updateAllocation = (assetClass: AssetClass, value: number) => {
     if (assetClass === "cash") return;
@@ -413,8 +418,8 @@ export default function ManualPortfolioBuilder({
     updateAllocation(assetClass, Math.round(remainingAssetPct * 100) / 100);
   };
 
-  const updateFinalAllocationAmount = (assetClass: AssetClass, amountEok: number) => {
-    const finalPct = investableWon > 0 ? (amountEok * 100_000_000 / investableWon) * 100 : 0;
+  const updateFinalAllocationAmount = (assetClass: AssetClass, amountManwon: number) => {
+    const finalPct = investableWon > 0 ? ((amountManwon * WON_PER_MANWON) / investableWon) * 100 : 0;
     updateFinalAllocation(assetClass, finalPct);
   };
 
@@ -632,7 +637,7 @@ export default function ManualPortfolioBuilder({
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-border bg-surface-2 p-1">
             <button type="button" onClick={() => { setAllocationInputDrafts({}); setInputMode("percent"); }} className={`rounded-md px-4 py-1.5 text-xs font-black transition ${inputMode === "percent" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}>퍼센티지 %</button>
-            <button type="button" onClick={() => { setAllocationInputDrafts({}); setInputMode("amount"); }} disabled={allocatableWon <= 0} className={`rounded-md px-4 py-1.5 text-xs font-black transition disabled:opacity-40 ${inputMode === "amount" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}>금액 억원</button>
+            <button type="button" onClick={() => { setAllocationInputDrafts({}); setInputMode("amount"); }} disabled={allocatableWon <= 0} className={`rounded-md px-4 py-1.5 text-xs font-black transition disabled:opacity-40 ${inputMode === "amount" ? "bg-[#1428A0] text-white shadow-sm" : "text-fg-muted"}`}>금액 만원</button>
           </div>
         </div>
       </div>
@@ -660,10 +665,10 @@ export default function ManualPortfolioBuilder({
                       아래 onBlur·onKeyDown 은 동기 호출이라 currentTarget 을 그대로 쓴다. */}
                   <input
                     type="number"
-                    min={inputMode === "percent" ? fixedPct : fixedWon / 100_000_000}
-                    max={inputMode === "percent" ? 100 : investableWon / 100_000_000}
+                    min={inputMode === "percent" ? fixedPct : fixedWon / WON_PER_MANWON}
+                    max={inputMode === "percent" ? 100 : investableWon / WON_PER_MANWON}
                     step="0.1"
-                    value={allocationInputDrafts[item.id] ?? (inputMode === "percent" ? Number(finalAllocation[item.id].toFixed(2)) : Number((investableWon * finalAllocation[item.id] / 100 / 100_000_000).toFixed(2)))}
+                    value={allocationInputDrafts[item.id] ?? (inputMode === "percent" ? Number(finalAllocation[item.id].toFixed(2)) : Number((investableWon * finalAllocation[item.id] / 100 / WON_PER_MANWON).toFixed(2)))}
                     onFocus={(event) => setAllocationInputDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
                     onChange={(event) => setAllocationInputDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
                     onBlur={(event) => commitAllocationInput(item.id, event.currentTarget.value)}
@@ -674,9 +679,9 @@ export default function ManualPortfolioBuilder({
                       }
                     }}
                     disabled={item.id === "cash"}
-                    className="w-24 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-lg font-black text-fg outline-none transition focus:border-[#1428A0] focus:bg-white focus:ring-2 focus:ring-[#1428A0]/10"
+                    className="w-24 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-lg font-black tabular-nums text-fg outline-none transition focus:border-[#1428A0] focus:bg-white focus:ring-2 focus:ring-[#1428A0]/10"
                   />
-                  <span className="min-w-7 text-xs font-bold text-fg-muted">{inputMode === "percent" ? "%" : "억원"}</span>
+                  <span className="min-w-7 text-xs font-bold text-fg-muted">{inputMode === "percent" ? "%" : "만원"}</span>
                 </span>
               </span>
               <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-surface-2"><span className="block h-full rounded-full bg-gradient-to-r from-[#1428A0] to-[#4F67E8]" style={{ width: `${Math.min(finalAllocation[item.id], 100)}%` }} /></span>
@@ -1082,7 +1087,7 @@ export default function ManualPortfolioBuilder({
           </div>
         </section>
       )}
-      <PortfolioAnalyticsCards key={clientId} allocation={finalAllocation} selected={analyticsSelected} complete={hydrated && !loadingHoldings && isComplete && instrumentAllocationComplete} />
+      <PortfolioAnalyticsCards key={clientId} allocation={finalAllocation} selected={analyticsSelected} complete={hydrated && !loadingHoldings && isComplete && instrumentAllocationComplete} onAnalyticsSnapshot={setAnalyticsSnapshot} />
     </section>
   );
 }

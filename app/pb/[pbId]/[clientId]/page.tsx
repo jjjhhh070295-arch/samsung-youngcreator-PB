@@ -63,10 +63,12 @@ import { findQuoteBySymbol } from "@/lib/pricing/instrumentIdentity";
 import type { PriceQuote } from "@/lib/pricing/types";
 import {
   buildApprovedPortfolio,
+  draftMatchesApprovedInstruments,
   isLegacyIncompletePortfolio,
   recoverInstrumentsFromMatchingDraft,
   stampApprovedInstrumentsWithQuotes,
 } from "@/lib/advisory/approvedPortfolioComposition";
+import { decimalReturnToPctPoints } from "@/lib/returnAssumptions";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -111,6 +113,8 @@ export default function ClientDetailPage() {
     ).find((t) => t === searchParams?.get("tab")) ?? "portfolio2";
 
   const [client, setClient] = useState<Client | null>(null);
+  const clientRef = useRef<Client | null>(null);
+  clientRef.current = client;
   const [allClients, setAllClients] = useState<Client[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [pbs, setPbs] = useState<PB[]>([]);
@@ -540,22 +544,41 @@ export default function ClientDetailPage() {
     if (!confirm("포트폴리오·리스크·세전·세후 결과를 승인할까요?\n(상담 진행 4~6단계가 완료됩니다)")) return;
 
     const prev = client.portfolios[0] ?? null;
-    const prevReturn = prev?.expectedReturn;
-    const prevRisk = prev?.expectedRisk;
-    const metricsOk =
-      prevReturn != null &&
-      Number.isFinite(prevReturn) &&
-      prevRisk != null &&
-      Number.isFinite(prevRisk) &&
-      prev?.metricsStatus !== "unavailable" &&
-      prev?.metricsStatus !== "legacy_incomplete";
+    const snap = draft.analyticsSnapshot;
+    const compositionStillValid = draftMatchesApprovedInstruments(draft, prev);
+    const expectedReturnPct =
+      (snap?.returnStatus === "ok"
+        ? decimalReturnToPctPoints(snap.expectedReturnDecimal)
+        : null) ??
+      (compositionStillValid &&
+      prev?.expectedReturn != null &&
+      Number.isFinite(prev.expectedReturn) &&
+      prev.metricsStatus !== "unavailable" &&
+      prev.metricsStatus !== "legacy_incomplete"
+        ? prev.expectedReturn
+        : null);
+    const expectedRiskPct =
+      (snap?.riskStatus === "ok"
+        ? decimalReturnToPctPoints(snap.expectedRiskDecimal)
+        : null) ??
+      (compositionStillValid &&
+      prev?.expectedRisk != null &&
+      Number.isFinite(prev.expectedRisk) &&
+      prev.metricsStatus !== "unavailable" &&
+      prev.metricsStatus !== "legacy_incomplete"
+        ? prev.expectedRisk
+        : null);
+    const returnOk = expectedReturnPct != null;
+    const riskOk = expectedRiskPct != null;
+    // 기대수익만 있어도 metricsStatus ok — 변동성 부재가 수익을 지우지 않음
+    const metricsStatus = returnOk ? "ok" : "unavailable";
 
     const portfolio = buildApprovedPortfolio({
       draft,
       previous: prev,
-      expectedReturn: metricsOk ? prevReturn : null,
-      expectedRisk: metricsOk ? prevRisk : null,
-      metricsStatus: metricsOk ? "ok" : "unavailable",
+      expectedReturn: expectedReturnPct,
+      expectedRisk: riskOk ? expectedRiskPct : null,
+      metricsStatus,
     });
 
     if (!portfolio.instruments?.length) {
@@ -582,8 +605,10 @@ export default function ClientDetailPage() {
       draftSource === "local"
         ? "\n(초안은 로컬 저장본입니다. 다른 브라우저와 동기화되지 않을 수 있습니다.)"
         : "";
-    const metricsNote = metricsOk
-      ? ""
+    const metricsNote = returnOk
+      ? riskOk
+        ? ""
+        : "\n예상 변동성은 산출 전일 수 있습니다. 기대수익은 반영되었습니다."
       : "\n예상수익률·변동성은 산출 전 상태입니다. IPS에는 '산출 전'으로 표시됩니다.";
     alert(`${MSG_PORTFOLIO_APPROVED}${draftNote}${metricsNote}`);
   };
@@ -843,13 +868,48 @@ export default function ClientDetailPage() {
     await invalidateAfterEdit(next, "basic");
   };
 
-  const saveFinancialIncomeProfile = async (profile: FinancialIncomeProfile) => {
-    if (!client) return;
-    await updateClient(client.id, { financialIncomeProfile: profile });
-    const next = { ...client, financialIncomeProfile: profile };
+  const saveFinancialIncomeProfile = useCallback(async (
+    profile: FinancialIncomeProfile,
+    opts?: { skipInvalidation?: boolean },
+  ) => {
+    const current = clientRef.current;
+    if (!current) return;
+    const prev = current.financialIncomeProfile;
+    const onlyDerived =
+      prev != null &&
+      Object.keys(profile).every((k) => {
+        const key = k as keyof FinancialIncomeProfile;
+        if (key === "derivedDepositInterestWon") return true;
+        return prev[key] === profile[key];
+      }) &&
+      prev.derivedDepositInterestWon !== profile.derivedDepositInterestWon;
+
+    await updateClient(current.id, { financialIncomeProfile: profile });
+    const next = { ...current, financialIncomeProfile: profile };
+    clientRef.current = next;
     setClient(next);
+    if (opts?.skipInvalidation || onlyDerived) return;
     await invalidateAfterEdit(next, "basic");
-  };
+  }, []);
+
+  const onDerivedDepositInterest = useCallback(
+    (grossWon: number | null) => {
+      const current = clientRef.current;
+      if (!current) return;
+      const prev = current.financialIncomeProfile?.derivedDepositInterestWon ?? null;
+      if (prev === grossWon) return;
+      const profile: FinancialIncomeProfile = {
+        ...(current.financialIncomeProfile ?? {
+          interestIncomeWon: null,
+          dividendIncomeWon: null,
+          parseStatus: "none",
+        }),
+        derivedDepositInterestWon: grossWon,
+      };
+      void saveFinancialIncomeProfile(profile, { skipInvalidation: true });
+    },
+    [saveFinancialIncomeProfile],
+  );
 
   const applySurvey = async (ips: IPS, result: InvestmentSurveyResult) => {
     if (!client) return;
@@ -1017,18 +1077,7 @@ export default function ClientDetailPage() {
         <DepositProductsSection
           clientId={clientId}
           onChanged={onBasicAssetsChanged}
-          onDerivedInterestChange={(grossWon) => {
-            if (!client) return;
-            const profile = {
-              ...(client.financialIncomeProfile ?? {
-                interestIncomeWon: null,
-                dividendIncomeWon: null,
-                parseStatus: "none" as const,
-              }),
-              derivedDepositInterestWon: grossWon,
-            };
-            void saveFinancialIncomeProfile(profile);
-          }}
+          onDerivedInterestChange={onDerivedDepositInterest}
         />
 
         <FinancialIncomeTaxSection

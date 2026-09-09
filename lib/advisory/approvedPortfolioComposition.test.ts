@@ -111,6 +111,19 @@ describe("approvedPortfolioComposition", () => {
     assert.equal(portfolioHasDisplayableMetrics(pf), false);
   });
 
+  it("keeps expectedReturn when risk is missing", () => {
+    const pf = buildApprovedPortfolio({
+      draft: sampleDraft(),
+      expectedReturn: 8.25,
+      expectedRisk: null,
+      metricsStatus: "ok",
+    });
+    assert.equal(pf.expectedReturn, 8.25);
+    assert.equal(pf.expectedRisk, null);
+    assert.equal(pf.metricsStatus, "ok");
+    assert.equal(portfolioHasDisplayableMetrics(pf), true);
+  });
+
   it("detects legacy incomplete portfolios", () => {
     const legacy: Portfolio = {
       id: "legacy",

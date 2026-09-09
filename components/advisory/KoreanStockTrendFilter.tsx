@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { calculateRiskReward } from "@/lib/advisory/krTrendFilter";
 import type { PbSelectedKoreanStock } from "@/lib/advisory/krTrendPortfolio";
+import MoneyManwonInput from "@/components/MoneyManwonInput";
 
 type Tech = {
   passed: boolean;
@@ -443,16 +444,19 @@ export default function KoreanStockTrendFilter({
                 <div className="mt-3 rounded-lg border border-[#C5A572]/40 bg-[#FFF8EB]/60 p-2">
                   <p className="text-[11px] font-semibold text-[#8B6914]">손절·익절·매수예정 · 손익비 (결정론)</p>
                   <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <label className="text-[10px]">
-                      매수 예정 금액(원)
-                      <input
-                        className="input mt-0.5 text-xs"
-                        value={draft.seedWon}
-                        onChange={(e) =>
-                          setRr((p) => ({ ...p, [c.ticker]: { ...draft, seedWon: e.target.value } }))
-                        }
-                      />
-                    </label>
+                    <MoneyManwonInput
+                      className="text-[10px]"
+                      label="매수 예정 금액"
+                      valueWon={Number(draft.seedWon) || null}
+                      onCommitWon={(won) =>
+                        setRr((p) => ({
+                          ...p,
+                          [c.ticker]: { ...draft, seedWon: won == null ? "" : String(won) },
+                        }))
+                      }
+                      placeholder="100"
+                      inputClassName="input mt-0.5 w-full text-xs tabular-nums"
+                    />
                     <label className="text-[10px]">
                       손절가
                       <input

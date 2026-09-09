@@ -5,6 +5,17 @@ import { supabase } from "@/lib/supabase";
 import { deriveMetrics } from "@/lib/realestate/derive";
 import type { MarketValueResult, AptAreaResult } from "@/lib/realestate/fetch-market-value";
 import { searchLawd } from "@/lib/realestate/lawd-codes";
+import MoneyManwonInput from "@/components/MoneyManwonInput";
+
+function formWon(raw: string): number | null {
+  if (raw === "" || raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function wonToFormStr(won: number | null): string {
+  return won == null ? "" : String(won);
+}
 
 interface Props {
   clientId: string;
@@ -480,19 +491,43 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
     const debtAddForm = (propertyId: string) => (
       <div className="rounded-lg border border-dashed border-border p-2.5 space-y-2">
         <div className="grid grid-cols-2 gap-2">
-          {[
-            ["대출기관", "lender", "text", "예: 국민은행"],
-            ["잔액 (원) *", "balance", "number", "0"],
-            ["금리 (%)", "interest_rate", "number", "3.5"],
-            ["만기일", "maturity_date", "date", ""],
-          ].map(([label, key, type, ph]) => (
-            <div key={key as string}>
-              <label className="label text-[10px]">{label as string}</label>
-              <input className="input text-xs py-1" type={type as string} placeholder={ph as string}
-                value={(debtForm as Record<string, string>)[key as string]}
-                onChange={(e) => setDebtForm((p) => ({ ...p, [key as string]: e.target.value }))} />
-            </div>
-          ))}
+          <div>
+            <label className="label text-[10px]">대출기관</label>
+            <input
+              className="input text-xs py-1"
+              type="text"
+              placeholder="예: 국민은행"
+              value={debtForm.lender}
+              onChange={(e) => setDebtForm((p) => ({ ...p, lender: e.target.value }))}
+            />
+          </div>
+          <MoneyManwonInput
+            className="text-[10px]"
+            label="잔액"
+            valueWon={formWon(debtForm.balance)}
+            onCommitWon={(won) => setDebtForm((p) => ({ ...p, balance: wonToFormStr(won) }))}
+            placeholder="0"
+            inputClassName="input text-xs py-1 w-full tabular-nums"
+          />
+          <div>
+            <label className="label text-[10px]">금리 (%)</label>
+            <input
+              className="input text-xs py-1"
+              type="number"
+              placeholder="3.5"
+              value={debtForm.interest_rate}
+              onChange={(e) => setDebtForm((p) => ({ ...p, interest_rate: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="label text-[10px]">만기일</label>
+            <input
+              className="input text-xs py-1"
+              type="date"
+              value={debtForm.maturity_date}
+              onChange={(e) => setDebtForm((p) => ({ ...p, maturity_date: e.target.value }))}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <select className="input text-xs py-1 w-auto" value={debtForm.rate_type}
@@ -973,10 +1008,14 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                 onChange={f("area_m2")} />
             </div>
             <div>
-              <label className="label">추정 시세 (원) *</label>
-              <input className="input" type="number" placeholder="예: 500000000"
-                value={form.market_value}
-                onChange={f("market_value")} />
+              <MoneyManwonInput
+                className="label block"
+                label="추정 시세"
+                valueWon={formWon(form.market_value)}
+                onCommitWon={(won) => setForm((p) => ({ ...p, market_value: wonToFormStr(won) }))}
+                placeholder="예: 50000"
+                inputClassName="input w-full tabular-nums"
+              />
               {form.market_value != "" && (
                 <p className="text-xs text-fg-muted mt-0.5">{formatW(Number(form.market_value))}</p>
               )}
@@ -1000,10 +1039,16 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                   onChange={(e) => setAddDebtDraft((p) => ({ ...p, lender: e.target.value }))} />
               </div>
               <div>
-                <label className="label text-[10px]">대출 잔액 (원)</label>
-                <input className="input text-sm" type="number" placeholder="0"
-                  value={addDebtDraft.balance}
-                  onChange={(e) => setAddDebtDraft((p) => ({ ...p, balance: e.target.value }))} />
+                <MoneyManwonInput
+                  className="text-[10px]"
+                  label="대출 잔액"
+                  valueWon={formWon(addDebtDraft.balance)}
+                  onCommitWon={(won) =>
+                    setAddDebtDraft((p) => ({ ...p, balance: wonToFormStr(won) }))
+                  }
+                  placeholder="0"
+                  inputClassName="input text-sm w-full tabular-nums"
+                />
               </div>
               <div>
                 <label className="label text-[10px]">금리 (%)</label>
@@ -1050,14 +1095,53 @@ export default function RealEstateModule({ clientId, onAssetsChanged }: Props) {
                     ["primary_residence", "실거주"], ["rental", "임대"], ["investment", "투자"],
                   ])}
                   {inp("취득일", "acquired_at", "date")}
-                  {inp("취득가액 (원)", "acquired_price", "number", "0")}
+                  <MoneyManwonInput
+                    className="label block"
+                    label="취득가액"
+                    valueWon={formWon(form.acquired_price)}
+                    onCommitWon={(won) => setForm((p) => ({ ...p, acquired_price: wonToFormStr(won) }))}
+                    placeholder="0"
+                    inputClassName="input w-full tabular-nums"
+                  />
                   {sel("임대형태", "lease_type", [
                     ["none", "없음 (직접 거주·공실)"], ["jeonse", "전세"], ["monthly", "월세"],
                   ])}
-                  {form.lease_type !== "none" && inp("보증금 (원)", "deposit", "number", "0")}
-                  {form.lease_type === "monthly" && inp("월세 (원/월)", "monthly_rent", "number", "0")}
-                  {inp("시세 하한 (원)", "market_value_low", "number", "")}
-                  {inp("시세 상한 (원)", "market_value_high", "number", "")}
+                  {form.lease_type !== "none" && (
+                    <MoneyManwonInput
+                      className="label block"
+                      label="보증금"
+                      valueWon={formWon(form.deposit)}
+                      onCommitWon={(won) => setForm((p) => ({ ...p, deposit: wonToFormStr(won) }))}
+                      placeholder="0"
+                      inputClassName="input w-full tabular-nums"
+                    />
+                  )}
+                  {form.lease_type === "monthly" && (
+                    <MoneyManwonInput
+                      className="label block"
+                      label="월세"
+                      valueWon={formWon(form.monthly_rent)}
+                      onCommitWon={(won) => setForm((p) => ({ ...p, monthly_rent: wonToFormStr(won) }))}
+                      placeholder="0"
+                      inputClassName="input w-full tabular-nums"
+                    />
+                  )}
+                  <MoneyManwonInput
+                    className="label block"
+                    label="시세 하한"
+                    valueWon={formWon(form.market_value_low)}
+                    onCommitWon={(won) => setForm((p) => ({ ...p, market_value_low: wonToFormStr(won) }))}
+                    placeholder="미입력"
+                    inputClassName="input w-full tabular-nums"
+                  />
+                  <MoneyManwonInput
+                    className="label block"
+                    label="시세 상한"
+                    valueWon={formWon(form.market_value_high)}
+                    onCommitWon={(won) => setForm((p) => ({ ...p, market_value_high: wonToFormStr(won) }))}
+                    placeholder="미입력"
+                    inputClassName="input w-full tabular-nums"
+                  />
                   {sel("시세 출처", "market_source", [
                     ["manual", "수동 입력"], ["molit_realtxn", "국토부 실거래"],
                     ["public_price", "공시가격"], ["kb", "KB시세"],

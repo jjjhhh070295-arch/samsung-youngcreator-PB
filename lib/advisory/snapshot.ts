@@ -102,7 +102,7 @@ export function buildEngineSnapshot(
         taxContext: defaultTaxContextFromClient(client),
         assumeForeignShareSaleAfterHorizon: true,
       });
-      if (tax.status !== "pending_income" && tax.afterTaxEndingAssetsWon != null) {
+      if (tax.status !== "pending_income" && tax.status !== "incomplete" && tax.afterTaxEndingAssetsWon != null) {
         waterfall = {
           pretaxEnding: measured(
             tax.principalWon + (tax.preTaxExpectedProfitWon ?? 0),

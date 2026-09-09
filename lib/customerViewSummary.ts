@@ -212,9 +212,14 @@ export function buildCustomerViewSummary(input: {
     investableWon: input.investableWon ?? null,
     portfolioLabel: pf?.label ?? null,
     expectedReturnPct: metricsOk ? pf!.expectedReturn : null,
-    expectedRiskPct: metricsOk ? pf!.expectedRisk : null,
+    expectedRiskPct:
+      metricsOk && pf!.expectedRisk != null && Number.isFinite(pf!.expectedRisk)
+        ? pf!.expectedRisk
+        : null,
     metricsLabelKo: metricsOk
-      ? `수익 ${formatPercent1(pf!.expectedReturn)} · 변동성 ${formatPercent1(pf!.expectedRisk)}`
+      ? pf!.expectedRisk != null && Number.isFinite(pf!.expectedRisk)
+        ? `수익 ${formatPercent1(pf!.expectedReturn)} · 변동성 ${formatPercent1(pf!.expectedRisk)}`
+        : `수익 ${formatPercent1(pf!.expectedReturn)}`
       : isLegacyIncompletePortfolio(pf)
         ? "확인 필요"
         : "산출 전",

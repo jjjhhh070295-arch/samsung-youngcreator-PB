@@ -6,6 +6,7 @@ import { formatKRW } from "@/lib/format";
 import { resolveFinancialIncomeProfile } from "@/lib/financialIncome";
 import { listDepositProducts } from "@/lib/deposits/store";
 import { aggregateDerivedDepositInterest } from "@/lib/tax/depositInterest";
+import MoneyManwonInput from "@/components/MoneyManwonInput";
 
 type Props = {
   client: Client;
@@ -24,6 +25,8 @@ export default function FinancialIncomeTaxSection({
   const [liveDepositInterestWon, setLiveDepositInterestWon] = useState<number | null>(null);
   const comprehensive = Boolean(client.financialIncomeComprehensiveTax);
   const profile = resolveFinancialIncomeProfile(client);
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
 
   useEffect(() => {
     let cancelled = false;
@@ -40,13 +43,13 @@ export default function FinancialIncomeTaxSection({
   }, [client.id, client.financialIncomeProfile?.derivedDepositInterestWon, profile.taxYear]);
 
   const patchProfile = async (patch: Partial<FinancialIncomeProfile>, markManual = false) => {
+    const base = profileRef.current;
     const next: FinancialIncomeProfile = {
-      ...profile,
+      ...base,
       ...patch,
-      parseStatus: markManual
-        ? "manual"
-        : (patch.parseStatus ?? profile.parseStatus),
+      parseStatus: markManual ? "manual" : (patch.parseStatus ?? base.parseStatus),
     };
+    profileRef.current = next;
     await onChangeFinancialIncomeProfile(next);
   };
 
@@ -201,81 +204,33 @@ export default function FinancialIncomeTaxSection({
                   }
                 />
               </label>
-              <label className="text-[11px] font-bold">
-                작년 총급여
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
-                  value={profile.priorYearWageGrossWon ?? ""}
-                  placeholder="미입력"
-                  onChange={(e) =>
-                    void patchProfile(
-                      {
-                        priorYearWageGrossWon:
-                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
-                      },
-                      true,
-                    )
+              <MoneyManwonInput
+                label="작년 총급여"
+                valueWon={profile.priorYearWageGrossWon ?? null}
+                onCommitWon={(won) => void patchProfile({ priorYearWageGrossWon: won }, true)}
+              />
+              <div className="sm:col-span-2">
+                <MoneyManwonInput
+                  label="작년 총 결정세액(금융소득 제외·국세+지방세)"
+                  valueWon={profile.priorYearNonFinancialAssessedTaxWon ?? null}
+                  onCommitWon={(won) =>
+                    void patchProfile({ priorYearNonFinancialAssessedTaxWon: won }, true)
                   }
+                  hint="이자·배당 등 금융소득 관련 세액을 제외한 국세와 지방세의 합계입니다."
                 />
-              </label>
-              <label className="text-[11px] font-bold sm:col-span-2">
-                작년 총 결정세액(금융소득 제외·국세+지방세)
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
-                  value={profile.priorYearNonFinancialAssessedTaxWon ?? ""}
-                  placeholder="미입력"
-                  onChange={(e) =>
-                    void patchProfile(
-                      {
-                        priorYearNonFinancialAssessedTaxWon:
-                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
-                      },
-                      true,
-                    )
-                  }
-                />
-                <span className="mt-1 block text-[10px] font-normal text-fg-muted">
-                  이자·배당 등 금융소득 관련 세액을 제외한 국세와 지방세의 합계입니다.
-                </span>
-              </label>
-              <label className="text-[11px] font-bold">
-                올해 예상 총급여
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
-                  value={profile.expectedWageGrossWon ?? ""}
-                  placeholder="미입력"
-                  onChange={(e) =>
-                    void patchProfile(
-                      {
-                        expectedWageGrossWon:
-                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
-                      },
-                      true,
-                    )
-                  }
-                />
-              </label>
-              <label className="text-[11px] font-bold">
-                올해 기타 종합소득
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
-                  value={profile.otherComprehensiveIncomeWon ?? ""}
-                  placeholder="미입력"
-                  onChange={(e) =>
-                    void patchProfile(
-                      {
-                        otherComprehensiveIncomeWon:
-                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
-                      },
-                      true,
-                    )
-                  }
-                />
-              </label>
+              </div>
+              <MoneyManwonInput
+                label="올해 예상 총급여"
+                valueWon={profile.expectedWageGrossWon ?? null}
+                onCommitWon={(won) => void patchProfile({ expectedWageGrossWon: won }, true)}
+              />
+              <MoneyManwonInput
+                label="올해 기타 종합소득"
+                valueWon={profile.otherComprehensiveIncomeWon ?? null}
+                onCommitWon={(won) =>
+                  void patchProfile({ otherComprehensiveIncomeWon: won }, true)
+                }
+              />
             </div>
             <button
               type="button"
@@ -307,23 +262,12 @@ export default function FinancialIncomeTaxSection({
                 )}{" "}
                 · 채권 예상 {formatKRW(profile.derivedBondInterestWon ?? 0)}
               </p>
-              <label className="mt-2 block text-[11px] font-bold">
-                기존 확정 이자(외부·원천징수)
-                <input
-                  type="number"
-                  min={0}
-                  className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm font-bold"
-                  value={profile.interestIncomeWon ?? ""}
-                  placeholder="미입력"
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    void patchProfile(
-                      { interestIncomeWon: raw === "" ? null : Math.max(0, Number(raw) || 0) },
-                      true,
-                    );
-                  }}
-                />
-              </label>
+              <MoneyManwonInput
+                className="mt-2 block text-[11px]"
+                label="기존 확정 이자(외부·원천징수)"
+                valueWon={profile.interestIncomeWon}
+                onCommitWon={(won) => void patchProfile({ interestIncomeWon: won }, true)}
+              />
             </div>
             <div className="rounded-lg border border-dashed border-border bg-white p-3 text-xs">
               <p className="font-bold text-fg">배당소득 (총액·읽기전용 집계)</p>
@@ -333,23 +277,12 @@ export default function FinancialIncomeTaxSection({
               <p className="text-fg-muted">
                 주식·ETF 예상 {formatKRW(profile.derivedDividendWon ?? 0)}
               </p>
-              <label className="mt-2 block text-[11px] font-bold">
-                기존 확정 배당(외부·원천징수)
-                <input
-                  type="number"
-                  min={0}
-                  className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm font-bold"
-                  value={profile.dividendIncomeWon ?? ""}
-                  placeholder="미입력"
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    void patchProfile(
-                      { dividendIncomeWon: raw === "" ? null : Math.max(0, Number(raw) || 0) },
-                      true,
-                    );
-                  }}
-                />
-              </label>
+              <MoneyManwonInput
+                className="mt-2 block text-[11px]"
+                label="기존 확정 배당(외부·원천징수)"
+                valueWon={profile.dividendIncomeWon}
+                onCommitWon={(won) => void patchProfile({ dividendIncomeWon: won }, true)}
+              />
             </div>
           </div>
         </div>
