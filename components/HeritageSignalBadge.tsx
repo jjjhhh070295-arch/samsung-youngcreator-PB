@@ -1,105 +1,68 @@
 "use client";
 
-// 7요인 화면 상단 헤리티지 신호 배지.
-// 판정 로직은 lib/heritage/ 를 그대로 호출만 한다(그쪽 파일은 수정하지 않는다).
-// 세액 구간·납부재원 갭·전문가 핸드오프는 여기서 다루지 않는다 — 신호 노출만.
-// hasNeed=false 또는 조회 실패 시 아무것도 렌더하지 않아 7요인 화면을 막지 않는다.
+// 7요인 화면의 헤리티지 신호 배지.
+//
+// ── 판정 기준 (2026-09-09 단순화) ───────────────────────────────────────────
+//   개인 고객 AND 만 55세 이상 AND AUM 100억 이상  →  "헤리티지 상품 검토 필요"
+//   그 외에는 아무것도 그리지 않는다.
+//
+// 100억은 AUM(parties.asset_size) 기준이다. 과세초과액이 아니다 — 공제 추정을 거치지
+// 않으므로 가족관계 정보 유무에 결과가 흔들리지 않는다.
+//
+// 긴급도 라벨(즉시 / 3개월 내 / 6개월 내 / 1년 내)은 없앴다. 이 배지는 "검토해 볼 만한
+// 고객인가"만 알리고, 얼마나 급한지는 헤리티지 화면에서 판단한다.
+//
+// ── lib/heritage/ 의 점수 계산을 고치지 않은 이유 ───────────────────────────
+// assessHeritage 와 그 임계값(HERITAGE_DEMAND.needThresholdScore, HERITAGE_URGENCY)은
+// 이 배지 말고도 네 곳이 쓴다 — app/pb/[pbId]/page.tsx(고객 목록), HeritagePanel,
+// HeritageHandoffBlock(세무사 인계), lib/advisory/book.ts(URGENCY_RANK 로 우선순위 정렬).
+// 거기서 임계값을 바꾸면 배지와 무관한 화면들의 판정과 정렬이 함께 달라진다. 그래서
+// 판정 로직은 그대로 두고 이 배지에서만 새 기준으로 거른다.
+//
+// 그 결과 이 컴포넌트는 DB 를 전혀 읽지 않는다. 예전에는 벌크 쿼리 4종(지분관계·가족관계·
+// 부동산·증여이력)을 돌려 점수를 냈는데, 새 기준은 Client 객체에 이미 있는 값만 쓴다.
+//
+// 함께 사라진 것: 사업승계 검토 문구(flagBusinessSuccessionReview)와 "가족 정보 미입력 —
+// 추정치입니다" 안내. 전자는 별개 신호이고 후자는 추정을 하지 않게 되어 뜻이 없어졌다.
+// 사업승계 신호가 다시 필요하면 헤리티지 화면 쪽에 두는 편이 개념상 맞다.
 
-import { useEffect, useState } from "react";
 import type { Client } from "@/lib/types";
-import {
-  listOwnershipRelationshipsBulk,
-  listFamilyRelationshipsBulk,
-  listRealEstateWithDebtBulk,
-  listGiftEventsBulk,
-} from "@/lib/store";
-import { resolveHeritageInputsBulk, assessHeritage, flagBusinessSuccessionReview } from "@/lib/heritage";
-import type { HeritageAssessment, HeritageUrgencyLevel, BusinessSuccessionFlag } from "@/lib/heritage";
+import { calcAgeAt } from "@/lib/heritage/demand";
+
+/** 배지가 뜨는 최소 나이(만). */
+export const HERITAGE_SIGNAL_MIN_AGE = 55;
+
+/** 배지가 뜨는 최소 AUM(원). assetSize 그대로 비교한다. */
+export const HERITAGE_SIGNAL_MIN_AUM_WON = 10_000_000_000;
+
+/**
+ * 배지 표시 여부. 순수 함수라 화면 없이 검증할 수 있다.
+ *
+ * 생년월일이 없거나 파싱되지 않으면 표시하지 않는다 — 나이를 모르면 55세 이상이라고
+ * 단정할 수 없다. 자산만 크다고 띄우면 근거 없는 신호가 된다.
+ */
+export function shouldShowHeritageSignal(
+  client: Pick<Client, "clientType" | "birthDate" | "assetSize">,
+  asOf: Date = new Date(),
+): boolean {
+  if (client.clientType !== "individual") return false;
+  if ((client.assetSize ?? 0) < HERITAGE_SIGNAL_MIN_AUM_WON) return false;
+  if (!client.birthDate) return false;
+  const age = calcAgeAt(client.birthDate, asOf);
+  if (age == null) return false;
+  return age >= HERITAGE_SIGNAL_MIN_AGE;
+}
 
 interface Props {
   client: Client;
-  allClients: Client[];
 }
 
-const URGENCY_BADGE_CLASS: Record<HeritageUrgencyLevel, string> = {
-  "즉시": "badge-danger",
-  "3개월 내": "badge-warning",
-  "6개월 내": "badge-warning",
-  "1년 내": "badge-success",
-  "해당없음": "badge-muted",
-};
-
-export default function HeritageSignalBadge({ client, allClients }: Props) {
-  const [assessment, setAssessment] = useState<HeritageAssessment | null>(null);
-  const [successionFlag, setSuccessionFlag] = useState<BusinessSuccessionFlag | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      if (client.clientType !== "individual") {
-        setAssessment(null);
-        return;
-      }
-      try {
-        // HeritagePanel이 쓰던 것과 동일한 벌크 쿼리 4종 — 새 쿼리를 추가하지 않는다.
-        const [ownershipRelationships, familyRelationships, realEstate, giftEvents] = await Promise.all([
-          listOwnershipRelationshipsBulk([client.id]),
-          listFamilyRelationshipsBulk([client.id]),
-          listRealEstateWithDebtBulk([client.id]),
-          listGiftEventsBulk([client.id]),
-        ]);
-        if (cancelled) return;
-
-        const { heritageInputs, successionSignals } = resolveHeritageInputsBulk({
-          allClients,
-          targetClientIds: [client.id],
-          ownershipRelationships,
-          familyRelationships,
-          realEstate,
-          giftEvents,
-          asOf: new Date(),
-        });
-
-        const input = heritageInputs.get(client.id);
-        if (!input) {
-          setAssessment(null);
-          return;
-        }
-        const signal = successionSignals.get(client.id);
-        setAssessment(assessHeritage(input));
-        setSuccessionFlag(signal ? flagBusinessSuccessionReview(signal) : null);
-      } catch {
-        // 조회 실패는 배지를 숨기는 것으로 처리 — 7요인 화면 자체는 계속 보여야 한다.
-        if (!cancelled) setAssessment(null);
-      }
-    }
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [client.id, client.clientType, allClients]);
-
-  // hasNeed=false면 아무것도 렌더하지 않는다.
-  if (!assessment?.demand.hasNeed) return null;
-
-  const { urgency, dataAssumptionsUsed } = assessment;
+export default function HeritageSignalBadge({ client }: Props) {
+  if (!shouldShowHeritageSignal(client)) return null;
 
   return (
     <div className="mb-3 rounded-xl border border-border bg-surface-2 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="badge-navy">헤리티지 상품 검토 필요</span>
-        {urgency.level !== "해당없음" && (
-          <span className={URGENCY_BADGE_CLASS[urgency.level]}>{urgency.level}</span>
-        )}
-      </div>
-      {successionFlag?.flagged && (
-        <p className="mt-2 text-xs font-semibold text-[#1428A0]">{successionFlag.reason}</p>
-      )}
-      {dataAssumptionsUsed && (
-        <p className="mt-1.5 text-[11px] text-fg-muted">
-          가족 정보 미입력 — 추정치입니다. 배우자·자녀 등 가족관계가 확인되면 판정이 더 정확해집니다.
-        </p>
-      )}
+      <span className="badge-navy">헤리티지 상품 검토 필요</span>
     </div>
   );
 }

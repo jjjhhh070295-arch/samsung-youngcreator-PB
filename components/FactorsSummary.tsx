@@ -74,7 +74,7 @@ export default function FactorsSummary({
 
   return (
     <div>
-      <HeritageSignalBadge client={client} allClients={allClients} />
+      <HeritageSignalBadge client={client} />
       <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
