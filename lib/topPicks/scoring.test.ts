@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { calculateConsensusScore, calculateFundamentalScore, calculatePriceScore, exponentialDecay, scoreStock } from "./scoring";
+import type { ScoreInput } from "./types";
+
+const now = new Date("2026-09-09T00:00:00Z");
+const base = (ticker = "005930"): ScoreInput => ({ ticker, company: ticker, market: "KR", sector: "SEMICONDUCTOR", themes: ["AI"], minimumLiquidityMet: true, regimeByTheme: { AI: 0.8 }, research: [{ broker: "A", publishedAt: "2026-09-09T00:00:00Z", epsRevisionPct: 10, targetPriceRevisionPct: 10, ratingRevision: 1, investmentPointStrength: 4 }, { broker: "B", publishedAt: "2026-09-07T00:00:00Z", epsRevisionPct: 7, targetPriceRevisionPct: 5, ratingRevision: 0, investmentPointStrength: 3 }, { broker: "C", publishedAt: "2026-09-05T00:00:00Z", epsRevisionPct: 6, targetPriceRevisionPct: 7, ratingRevision: 1, investmentPointStrength: 4 }, { broker: "D", publishedAt: "2026-09-04T00:00:00Z", epsRevisionPct: 5, targetPriceRevisionPct: 5, ratingRevision: 0, investmentPointStrength: 3 }, { broker: "E", publishedAt: "2026-09-03T00:00:00Z", epsRevisionPct: 4, targetPriceRevisionPct: 4, ratingRevision: 0, investmentPointStrength: 3 }], fundamental: { epsRevisionPct: 8, earningsGrowthPct: 25, revenueGrowthPct: 15, roePct: 18, relativeValuationPct: -5 }, price: { momentum20Pct: 12, momentum60Pct: 20, relativeStrengthPct: 8, drawdownPct: -5, volatilityPct: 20, historyDays: 250 }, consensus: { buyRatioPct: 85, targetUpsidePct: 22, epsRevisionPct: 8, targetDispersionPct: 12 } });
+
+describe("top pick scoring", () => {
+  it("uses a five-day half life", () => assert.ok(Math.abs(exponentialDecay("2026-09-04T00:00:00Z", now) - 0.5) < 1e-9));
+  it("keeps every score in 0..100", () => { const score = scoreStock(base(), now); for (const value of [score.researchScore, score.fundamentalScore, score.priceScore, score.consensusScore, score.regimeScore, score.totalScore, score.confidenceScore]) assert.ok(value >= 0 && value <= 100); });
+  it("does not invent unavailable fundamental or consensus values", () => { assert.equal(calculateFundamentalScore({ epsRevisionPct: null, earningsGrowthPct: null, revenueGrowthPct: null, roePct: null, relativeValuationPct: null }).score, 50); assert.equal(calculateConsensusScore({ buyRatioPct: null, targetUpsidePct: null, epsRevisionPct: null, targetDispersionPct: null }).coverage, 0); });
+  it("penalizes extreme short-term surges", () => { const input = base().price; const normal = calculatePriceScore({ ...input, shortTermSurgePct: 10 }).score; const surge = calculatePriceScore({ ...input, shortTermSurgePct: 45 }).score; assert.ok(surge < normal); });
+  it("gives a single report insufficient default confidence", () => { const input = base(); input.research = input.research.slice(0, 1); input.fundamental = { epsRevisionPct: null, earningsGrowthPct: null, revenueGrowthPct: null, roePct: null, relativeValuationPct: null }; input.consensus = { buyRatioPct: null, targetUpsidePct: null, epsRevisionPct: null, targetDispersionPct: null }; assert.ok(scoreStock(input, now).confidenceScore < 60); });
+});

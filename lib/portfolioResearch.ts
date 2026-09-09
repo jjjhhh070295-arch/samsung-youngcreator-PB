@@ -30,6 +30,10 @@ export interface MarketResearchItem {
   signals: ResearchSignal[];
   // 캐시된 LLM 분석이 있으면 채워짐(/api/research가 주입). 있으면 가중치 계산이 방향·강도를 반영.
   analysis?: AnalyzedSignalLite[];
+  /** Top Pick canonical ingestion metadata. 기존 리서치 탭은 이 필드를 무시한다. */
+  documentType?: "STOCK" | "MARKET" | "INDUSTRY" | "MACRO";
+  broker?: string | null;
+  analyst?: string | null;
 }
 
 export interface ResearchSignalScore {
@@ -39,6 +43,11 @@ export interface ResearchSignalScore {
 }
 
 export const RESEARCH_SOURCES: ResearchSource[] = [
+  {
+    name: "네이버 금융 기업분석 리포트",
+    url: "https://finance.naver.com/research/company_list.naver",
+    category: "report",
+  },
   {
     name: "KB증권 리서치",
     url: "https://www.kbsec.com/go.able?linkcd=m04010000",

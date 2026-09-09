@@ -111,6 +111,13 @@ function isStockReport(title: string): boolean {
   return /\([0-9A-Z]{6}|\/\s*(매수|매도|중립|유지|비중축소|Not\s?Rated)/i.test(title);
 }
 
+function documentTypeFor(source: ResearchSource, title: string): MarketResearchItem["documentType"] {
+  if (source.url.includes("company_list") || isStockReport(title)) return "STOCK";
+  if (source.url.includes("industry_list") || /산업|업종|섹터/i.test(title)) return "INDUSTRY";
+  if (source.url.includes("economy_list") || /경제|거시|매크로|macro/i.test(title)) return "MACRO";
+  return "MARKET";
+}
+
 function extractMiraeItems(html: string, source: ResearchSource): MarketResearchItem[] {
   const items: MarketResearchItem[] = [];
   // 행(<tr>) 단위로 쪼개서 한 행씩 안전하게 파싱한다.
@@ -139,6 +146,8 @@ function extractMiraeItems(html: string, source: ResearchSource): MarketResearch
       date,
       excerpt: "미래에셋증권 리서치 목록에서 추출한 최신 리포트입니다.",
       signals: inferSignals(text),
+      documentType: documentTypeFor(source, title),
+      broker: source.name,
     });
   }
 
@@ -173,6 +182,8 @@ function extractNaverFinanceItems(html: string, source: ResearchSource): MarketR
       date,
       excerpt: `${brokerage}에서 제공한 ${source.name.replace("네이버 금융 ", "")}입니다.`,
       signals: inferSignals(text),
+      documentType: documentTypeFor(source, title),
+      broker: brokerage,
     });
   }
 
@@ -370,14 +381,30 @@ function uniqueLatest(items: MarketResearchItem[]) {
   return picked;
 }
 
+function uniqueCanonical(items: MarketResearchItem[]) {
+  const seen = new Set<string>();
+  return items
+    .filter(withinAgeFloor)
+    .filter((item) => {
+      const key = `${item.source}|${item.title}|${item.date ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
+    .slice(0, 80);
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const noauto = url.searchParams.get("noauto") === "1"; // ingest가 부를 때 자동 재트리거 방지
 
   const settled = await Promise.allSettled(RESEARCH_SOURCES.map(fetchSource));
   const fetched = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-  const fallbackNeeded = fetched.length === 0; // 크롤 결과가 전혀 없을 때만 폴백
-  const picked = uniqueLatest(fallbackNeeded ? [...fetched, ...FALLBACK_MARKET_RESEARCH] : fetched);
+  const canonicalItems = uniqueCanonical(fetched.map((item) => ({ ...item, documentType: item.documentType ?? documentTypeFor(RESEARCH_SOURCES.find((source) => item.source.startsWith(source.name)) ?? { name: item.source, url: item.url, category: "report" }, item.title) })));
+  const marketFetched = canonicalItems.filter((item) => item.documentType !== "STOCK");
+  const fallbackNeeded = marketFetched.length === 0; // 시장 리서치가 전혀 없을 때만 폴백
+  const picked = uniqueLatest(fallbackNeeded ? [...marketFetched, ...FALLBACK_MARKET_RESEARCH] : marketFetched);
 
   // 캐시된 LLM 분석(방향·강도)을 주입 → 포트폴리오 엔진이 방향/강도까지 반영해 가중치 계산.
   // (분석 없는 항목은 그대로 키워드 신호로 동작)
@@ -408,5 +435,6 @@ export async function GET(req: Request) {
     fallbackUsed: fallbackNeeded,
     sources: RESEARCH_SOURCES,
     items,
+    canonicalItems,
   });
 }
