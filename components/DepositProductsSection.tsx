@@ -144,7 +144,6 @@ export default function DepositProductsSection({
     const next = [...products];
     next[idx] = withSyncedMaturity({ ...next[idx], ...patch, asOf });
     setProducts(next);
-    emitDerived(next);
     if (save) void persist(next);
   };
 
