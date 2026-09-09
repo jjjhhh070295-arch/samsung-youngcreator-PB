@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import "./globals.css";
+import "./ips-document.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import AppNav from "@/components/AppNav";
 import SplashScreen from "@/components/SplashScreen";

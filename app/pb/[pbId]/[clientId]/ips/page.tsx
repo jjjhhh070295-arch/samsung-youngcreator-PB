@@ -658,7 +658,7 @@ export default function IPSDocumentPage() {
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
 
   return (
-    <div className="mx-auto max-w-3xl print:max-w-none">
+    <div className="mx-auto max-w-[210mm] print:max-w-none">
       <div className="mb-4 flex items-center justify-between print:hidden">
         <button
           className="btn-outline text-sm"
