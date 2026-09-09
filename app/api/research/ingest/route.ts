@@ -3,6 +3,9 @@ import type { MarketResearchItem } from "@/lib/portfolioResearch";
 import { analyzeReport, aggregateAnalyses, type ReportAnalysis } from "@/lib/researchAnalysis";
 import { getCachedAnalyses, putCachedAnalysis } from "@/lib/researchSignalsStore";
 import { fetchReportContent } from "@/lib/reportContent";
+import { supabase } from "@/lib/supabase";
+import { ingestCanonicalResearch } from "@/lib/topPicks/researchStore";
+import type { ResearchDocumentType } from "@/lib/topPicks/researchPipeline";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +43,7 @@ export async function GET(req: Request) {
     if (!res.ok) throw new Error(`/api/research ${res.status}`);
     const data = await res.json();
     const items: MarketResearchItem[] = Array.isArray(data.items) ? data.items : [];
+    const canonicalItems: MarketResearchItem[] = Array.isArray(data.canonicalItems) ? data.canonicalItems : [];
     if (items.length === 0) {
       return NextResponse.json({ ok: false, error: "분석할 리포트가 없습니다." }, { status: 200 });
     }
@@ -64,8 +68,16 @@ export async function GET(req: Request) {
     const newItems = items.filter((it) => !cached.has(it.id));
 
     // 무료 티어 RPM 한도가 낮아 동시 호출을 1로 제한(429 폭주 방지). 느려도 백그라운드 잡이라 OK.
+    const contentCache = new Map<string, Promise<string>>();
+    const contentFor = (url: string) => {
+      const cachedContent = contentCache.get(url);
+      if (cachedContent) return cachedContent;
+      const pending = fetchReportContent(url);
+      contentCache.set(url, pending);
+      return pending;
+    };
     const freshAnalyses = await mapWithConcurrency(newItems, 1, async (it) => {
-      const content = await fetchReportContent(it.url); // 본문(PDF/HTML) 추출
+      const content = await contentFor(it.url); // 본문(PDF/HTML) 추출
       const a = await analyzeReport(it, content);
       // 결과 캐시(더미 포함 — 구조가 비지 않게). 실제 분석은 ?force=1 로 재분석.
       await putCachedAnalysis(it, a);
@@ -81,6 +93,27 @@ export async function GET(req: Request) {
     const aggregated = aggregateAnalyses(analyses);
     const usedLLM = freshAnalyses.some((a) => a.model !== "dummy");
 
+    // 기존 리서치 탭 분석과 별도로 canonical research_documents 파이프라인을 채운다.
+    // 한 실행당 신규 최대 8건만 처리하고 contentHash 중복은 researchStore에서 건너뛴다.
+    const canCanonicalIngest = Boolean(supabase && (process.env.ANTHROPIC_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim()));
+    const canonicalResults = canCanonicalIngest
+      ? await mapWithConcurrency(
+          canonicalItems.filter((item) => item.date && item.documentType).slice(0, 8),
+          1,
+          async (item) => {
+            const rawText = await contentFor(item.url);
+            if (rawText.trim().length < 100) return { status: "skipped-empty", title: item.title };
+            try {
+              const result = await ingestCanonicalResearch({ source: item.source, broker: item.broker ?? item.source.split(" · ").at(-1) ?? null, analyst: item.analyst ?? null, publishedAt: item.date!, title: item.title, documentType: item.documentType as ResearchDocumentType, rawText, sourceUrl: item.url });
+              return { status: result.duplicate ? "cached" : "ingested", title: item.title };
+            } catch (error) {
+              console.warn(`[research canonical] ${item.title}`, (error as Error).message);
+              return { status: "failed", title: item.title };
+            }
+          },
+        )
+      : [];
+
     return NextResponse.json({
       ok: true,
       updatedAt: new Date().toISOString(),
@@ -90,6 +123,12 @@ export async function GET(req: Request) {
       usedLLM,
       aggregated, // [{signal, score, absStrength}] — 포트폴리오 엔진이 쓸 신호
       analyses, // [{id, summary, signals[]}]
+      canonical: {
+        available: canonicalItems.length,
+        ingested: canonicalResults.filter((result) => result.status === "ingested").length,
+        cached: canonicalResults.filter((result) => result.status === "cached").length,
+        skippedOrFailed: canonicalResults.filter((result) => !["ingested", "cached"].includes(result.status)).length,
+      },
     });
   } catch (e: any) {
     console.error("[/api/research/ingest]", e);

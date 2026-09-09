@@ -269,6 +269,10 @@ export async function fetchFinancialSnapshot(symbol: string) {
   const empty = {
     netIncome: null,
     revenueGrowthPct: null,
+    earningsGrowthPct: null,
+    roePct: null,
+    forwardPe: null,
+    priceToBook: null,
     asOf,
     source: "yahoo-finance:quoteSummary:financialData",
     currency: null,
@@ -280,11 +284,20 @@ export async function fetchFinancialSnapshot(symbol: string) {
     const j: any = await res.json();
     const fin = j?.quoteSummary?.result?.[0]?.financialData ?? {};
     const stats = j?.quoteSummary?.result?.[0]?.defaultKeyStatistics ?? {};
-    const netIncome = Number(fin.netIncomeToCommon ?? stats.netIncomeToCommon);
-    const revGrowth = Number(fin.revenueGrowth);
+    const rawNumber = (value: any) => Number(value?.raw ?? value);
+    const netIncome = rawNumber(fin.netIncomeToCommon ?? stats.netIncomeToCommon);
+    const revGrowth = rawNumber(fin.revenueGrowth);
+    const earningsGrowth = rawNumber(fin.earningsGrowth);
+    const roe = rawNumber(fin.returnOnEquity);
+    const forwardPe = rawNumber(stats.forwardPE ?? fin.forwardPE);
+    const priceToBook = rawNumber(stats.priceToBook);
     return {
       netIncome: Number.isFinite(netIncome) ? netIncome : null,
       revenueGrowthPct: Number.isFinite(revGrowth) ? revGrowth * 100 : null,
+      earningsGrowthPct: Number.isFinite(earningsGrowth) ? earningsGrowth * 100 : null,
+      roePct: Number.isFinite(roe) ? roe * 100 : null,
+      forwardPe: Number.isFinite(forwardPe) && forwardPe > 0 ? forwardPe : null,
+      priceToBook: Number.isFinite(priceToBook) && priceToBook > 0 ? priceToBook : null,
       asOf,
       source: "yahoo-finance:quoteSummary:financialData",
       currency: fin.financialCurrency ?? null,
