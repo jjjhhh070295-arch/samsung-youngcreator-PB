@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  calcAumWeightedReturn,
   calcPortfolioUnrealizedReturn,
   lossTagFromReturn,
 } from "./portfolioReturn";
@@ -59,6 +60,112 @@ describe("calcPortfolioUnrealizedReturn", () => {
     );
     assert.equal(result.status, "unavailable");
     assert.equal(result.lossTag, null);
+  });
+});
+
+describe("calcAumWeightedReturn", () => {
+  it("returns about +8.181818% for 100억 +10% and 10억 -10%", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 10_000_000_000, returnStatus: "ok", returnPct: 10 },
+      { clientId: "b", aumKrw: 1_000_000_000, returnStatus: "ok", returnPct: -10 },
+    ]);
+    assert.equal(result.status, "ok");
+    assert.ok(result.returnPct != null);
+    assert.ok(Math.abs(result.returnPct - 8.1818181818) < 1e-9);
+    assert.equal(result.totalAumKrw, 11_000_000_000);
+    assert.equal(result.totalPnlKrw, 900_000_000);
+    assert.equal(result.coveragePct, 100);
+  });
+
+  it("returns 0% for equal AUM +10% and -10%", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 5_000_000_000, returnStatus: "ok", returnPct: 10 },
+      { clientId: "b", aumKrw: 5_000_000_000, returnStatus: "ok", returnPct: -10 },
+    ]);
+    assert.equal(result.status, "ok");
+    assert.equal(result.returnPct, 0);
+    assert.equal(result.totalPnlKrw, 0);
+  });
+
+  it("preserves a genuine 0% return as valid", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 3_000_000_000, returnStatus: "ok", returnPct: 0 },
+    ]);
+    assert.equal(result.status, "ok");
+    assert.equal(result.returnPct, 0);
+    assert.equal(result.totalPnlKrw, 0);
+  });
+
+  it("marks missing return data as incomplete instead of 0%", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 3_000_000_000, returnStatus: "ok", returnPct: 2 },
+      { clientId: "b", aumKrw: 2_000_000_000, returnStatus: "incomplete", returnPct: null },
+    ]);
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.returnPct, null);
+    assert.equal(result.totalPnlKrw, null);
+    assert.equal(result.coveredAumKrw, 3_000_000_000);
+    assert.ok(Math.abs(result.coveragePct - 60) < 1e-9);
+    assert.equal(result.missingClientCount, 1);
+  });
+
+  it("returns unavailable when total positive AUM is zero", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 0, returnStatus: "ok", returnPct: 10 },
+      { clientId: "b", aumKrw: -10, returnStatus: "ok", returnPct: -10 },
+    ]);
+    assert.equal(result.status, "unavailable");
+    assert.equal(result.returnPct, null);
+    assert.equal(result.totalAumKrw, 0);
+  });
+
+  it("handles negative returns with correct pnl and pct", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 2_000_000_000, returnStatus: "ok", returnPct: -5 },
+      { clientId: "b", aumKrw: 3_000_000_000, returnStatus: "ok", returnPct: -10 },
+    ]);
+    assert.equal(result.status, "ok");
+    assert.ok(result.returnPct != null);
+    assert.ok(Math.abs(result.returnPct - -8) < 1e-9);
+    assert.equal(result.totalPnlKrw, -400_000_000);
+  });
+
+  it("is invariant to customer ordering", () => {
+    const forward = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 2_000_000_000, returnStatus: "ok", returnPct: 7 },
+      { clientId: "b", aumKrw: 1_000_000_000, returnStatus: "ok", returnPct: -2 },
+      { clientId: "c", aumKrw: 4_000_000_000, returnStatus: "ok", returnPct: 1 },
+    ]);
+    const reversed = calcAumWeightedReturn([
+      { clientId: "c", aumKrw: 4_000_000_000, returnStatus: "ok", returnPct: 1 },
+      { clientId: "b", aumKrw: 1_000_000_000, returnStatus: "ok", returnPct: -2 },
+      { clientId: "a", aumKrw: 2_000_000_000, returnStatus: "ok", returnPct: 7 },
+    ]);
+    assert.deepEqual(reversed, forward);
+  });
+
+  it("calculates AUM coverage using only positive-AUM clients", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: 5_000_000_000, returnStatus: "ok", returnPct: 1 },
+      { clientId: "b", aumKrw: 3_000_000_000, returnStatus: "unavailable", returnPct: null },
+      { clientId: "c", aumKrw: 0, returnStatus: "unavailable", returnPct: null },
+    ]);
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.totalAumKrw, 8_000_000_000);
+    assert.equal(result.coveredAumKrw, 5_000_000_000);
+    assert.ok(Math.abs(result.coveragePct - 62.5) < 1e-9);
+  });
+
+  it("never leaks NaN or Infinity", () => {
+    const result = calcAumWeightedReturn([
+      { clientId: "a", aumKrw: Number.POSITIVE_INFINITY, returnStatus: "ok", returnPct: 5 },
+      { clientId: "b", aumKrw: 1_000_000_000, returnStatus: "ok", returnPct: Number.NaN },
+    ]);
+    assert.equal(result.status, "incomplete");
+    assert.equal(result.returnPct, null);
+    assert.equal(result.totalPnlKrw, null);
+    assert.equal(result.totalAumKrw, 1_000_000_000);
+    assert.equal(result.missingClientCount, 1);
   });
 });
 

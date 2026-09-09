@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { PB, Client, Consultation } from "@/lib/types";
@@ -28,9 +28,21 @@ import ConsultationScheduleModal from "@/components/advisory/ConsultationSchedul
 import ExtraEventModal from "@/components/advisory/ExtraEventModal";
 import ClientAvatar from "@/components/ClientAvatar";
 import { buildClientBookRow } from "@/lib/advisory/book";
+import { calcAumWeightedReturn, type AumWeightedReturnResult } from "@/lib/advisory/portfolioReturn";
 import { listBookHoldings, enrichBookHoldingsWithQuotes } from "@/lib/advisory/holdingsStore";
 import { resolveHeritageInputsBulk } from "@/lib/heritage";
 import { resolveAssetBreakdownBulk } from "@/lib/assets";
+
+const EMPTY_AUM_WEIGHTED_RETURN: AumWeightedReturnResult = {
+  status: "unavailable",
+  returnPct: null,
+  totalPnlKrw: null,
+  totalAumKrw: 0,
+  coveredAumKrw: 0,
+  coveragePct: 0,
+  missingClientCount: 0,
+  note: "평가 가능한 운용자산 없음",
+};
 
 export default function PBPage() {
   const { pbId } = useParams<{ pbId: string }>();
@@ -51,12 +63,15 @@ export default function PBPage() {
   const [consultScheduleOpen, setConsultScheduleOpen] = useState(false);
   const [extraEventOpen, setExtraEventOpen] = useState(false);
   const [investableAum, setInvestableAum] = useState(0);
+  const [aumWeightedReturn, setAumWeightedReturn] = useState<AumWeightedReturnResult>(EMPTY_AUM_WEIGHTED_RETURN);
+  const loadSeqRef = useRef(0);
 
   const refreshSchedules = useCallback(() => {
     setScheduleRefreshKey((key) => key + 1);
   }, []);
 
   const load = useCallback(async () => {
+    const loadSeq = ++loadSeqRef.current;
     setStatus("loading");
     try {
       const [allPbs, clients, cons] = await Promise.all([
@@ -64,14 +79,11 @@ export default function PBPage() {
         listClients(),
         listAllConsultations(),
       ]);
-      setPbs(allPbs);
-      setPb(allPbs.find((p) => p.id === pbId) ?? null);
-      setAllClients(clients);
-      setConsultations(cons);
       const mine = clients.filter((c) => c.assignedPbId === pbId);
+      const asOf = new Date().toISOString();
       const holdingsRaw = await listBookHoldings(mine.map((c) => c.id));
       const { holdings, fxUsdKrw } = await enrichBookHoldingsWithQuotes(holdingsRaw);
-      const asOf = new Date().toISOString();
+      const assetBreakdownMap = await resolveAssetBreakdownBulk(mine.map((c) => c.id), { clients, holdings: holdingsRaw });
 
       // 헤리티지 판정 입력을 벌크로 조립 — 고객 한 명마다 쿼리를 새로 날리지 않고 4개 쿼리로
       // 전체를 가져온다(lib/heritage/resolveBulk.ts 참고). 개인 고객만 대상.
@@ -95,10 +107,35 @@ export default function PBPage() {
       const rows = mine.map((c) =>
         buildClientBookRow(c, holdings, cons, asOf, heritageInputs.get(c.id), fxUsdKrw),
       );
+      const rowByClientId = new Map(rows.map((row) => [row.clientId, row] as const));
+      const nextInvestableAum = Array.from(assetBreakdownMap.values()).reduce((sum, breakdown) => sum + breakdown.investableKrw, 0);
+      const nextAumWeightedReturn = calcAumWeightedReturn(
+        mine.map((client) => {
+          const row = rowByClientId.get(client.id);
+          const breakdown = assetBreakdownMap.get(client.id);
+          return {
+            clientId: client.id,
+            aumKrw: breakdown?.investableKrw ?? 0,
+            returnStatus: row?.returnStatus ?? null,
+            returnPct: row?.totalReturnPct ?? null,
+          };
+        }),
+      );
+      if (loadSeq !== loadSeqRef.current) return;
+
+      setPbs(allPbs);
+      setPb(allPbs.find((p) => p.id === pbId) ?? null);
+      setAllClients(clients);
+      setConsultations(cons);
       setBookRows(rows);
+      setInvestableAum(nextInvestableAum);
+      setAumWeightedReturn(nextAumWeightedReturn);
       setStatus("ready");
     } catch (e) {
+      if (loadSeq !== loadSeqRef.current) return;
       console.error(e);
+      setInvestableAum(0);
+      setAumWeightedReturn(EMPTY_AUM_WEIGHTED_RETURN);
       setStatus("error");
     }
   }, [pbId]);
@@ -106,21 +143,6 @@ export default function PBPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  // 대시보드 AUM = 부동산 제외 합계. assetSize 합계와 다르다.
-  useEffect(() => {
-    const mine = allClients.filter((c) => c.assignedPbId === pbId);
-    if (mine.length === 0) { setInvestableAum(0); return; }
-    let cancelled = false;
-    resolveAssetBreakdownBulk(mine.map((c) => c.id))
-      .then((map) => {
-        if (cancelled) return;
-        const sum = Array.from(map.values()).reduce((s, b) => s + b.investableKrw, 0);
-        setInvestableAum(sum);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [allClients, pbId]);
 
   useEffect(() => {
     refreshSchedules();
@@ -191,7 +213,7 @@ export default function PBPage() {
       </div>
 
       <section aria-label="PB 요약">
-        <PBDashboard clients={myClients} consultations={myConsultations} investableAum={investableAum} />
+        <PBDashboard clients={myClients} investableAum={investableAum} aumWeightedReturn={aumWeightedReturn} />
       </section>
 
       <PbTodayTodos pbId={pbId} refreshKey={scheduleRefreshKey} />

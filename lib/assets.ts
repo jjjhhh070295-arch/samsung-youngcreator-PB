@@ -40,8 +40,10 @@
 //   여기서 client_id 로 우회 조회하지 않는 이유는 그대로다 — 헤리티지(resolveBulk)와
 //   조회 경로가 갈라지면 두 화면의 부동산 값이 서로 달라진다.
 
+import type { Client } from "@/lib/types";
 import { listClients, listRealEstateWithDebtBulk } from "@/lib/store";
 import { listBookHoldings } from "@/lib/advisory/holdingsStore";
+import type { BookHolding } from "@/lib/advisory/types";
 
 export interface ClientAssetBreakdown {
   /**
@@ -81,14 +83,18 @@ export interface ClientAssetBreakdown {
 /** 고객 여러 명의 자산 분해를 쿼리 4번으로 한 번에. 개인/법인 구분 없이 전부 대상. */
 export async function resolveAssetBreakdownBulk(
   clientIds: string[],
+  options?: {
+    clients?: Client[];
+    holdings?: Array<BookHolding | Awaited<ReturnType<typeof listBookHoldings>>[number]>;
+  },
 ): Promise<Map<string, ClientAssetBreakdown>> {
   const out = new Map<string, ClientAssetBreakdown>();
   if (clientIds.length === 0) return out;
 
   const [clients, realEstate, holdings] = await Promise.all([
-    listClients(),
+    options?.clients ? Promise.resolve(options.clients) : listClients(),
     listRealEstateWithDebtBulk(clientIds),
-    listBookHoldings(clientIds),
+    options?.holdings ? Promise.resolve(options.holdings) : listBookHoldings(clientIds),
   ]);
 
   const assetSizeById = new Map(clients.map((c) => [c.id, c.assetSize || 0]));
