@@ -90,7 +90,9 @@ export default async function ClientViewLegacyPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
-      <ClientFacingViewBody view={loaded.payload} lockWithoutPortfolioApproval />
+      {/* /view/[token] 과 같은 토큰을 요구하므로 표시 정책도 같다(섹션별).
+          예전의 통째 잠금은 이 라우트에 인증이 아예 없던 시절의 정책이었다. */}
+      <ClientFacingViewBody view={loaded.payload} />
     </div>
   );
 }

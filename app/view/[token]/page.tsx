@@ -81,8 +81,9 @@ export default async function ClientViewTokenPage({
     <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
       {/* live 를 넘기지 않는다 — 공유 링크에는 동기화도, 새로고침 버튼도 없다.
           onGoPb 도 없다. 고객은 PB 화면으로 갈 일이 없다.
-          lockWithoutPortfolioApproval 은 외부 공유 화면의 기존 정책 그대로. */}
-      <ClientFacingViewBody view={loaded.payload} lockWithoutPortfolioApproval />
+          표시 정책은 PB 탭과 같은 섹션별이다 — 기본정보 승인분은 보이고 포트폴리오
+          미승인이면 그 섹션만 "승인 후 표시"로 가려진다. */}
+      <ClientFacingViewBody view={loaded.payload} />
     </div>
   );
 }

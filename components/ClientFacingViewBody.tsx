@@ -44,36 +44,19 @@ interface Props {
   live?: ClientFacingViewLive;
   /** PB 화면으로 돌아가는 동작. 없으면 그 버튼을 아예 그리지 않는다(공유 링크). */
   onGoPb?: () => void;
-  /**
-   * 외부 공유 화면용 통째 잠금 — 포트폴리오 미승인이면 섹션별 표시 대신 안내만 낸다.
-   * PB 탭은 false 로 두어 승인 진행에 맞춰 섹션이 차례로 열린다.
-   */
-  lockWithoutPortfolioApproval?: boolean;
 }
 
-export default function ClientFacingViewBody({
-  view,
-  live,
-  onGoPb,
-  lockWithoutPortfolioApproval = false,
-}: Props) {
+// 표시 정책은 어디서 열든 하나다 — 섹션마다 자기 승인 상태를 따른다.
+// 예전에는 외부 공유 화면용 "통째 잠금"(lockWithoutPortfolioApproval)이 따로 있었다.
+// /client/[clientId] 에 인증이 아예 없어서 미승인 내용이 인증 없이 노출되는 걸 막던
+// 장치였는데, 그 라우트와 /view/[token] 이 모두 서명 토큰을 요구하게 되면서 근거가
+// 사라졌다. 같은 고객이 어느 URL 형태를 받았느냐에 따라 다른 내용을 보게 되므로 걷어낸다.
+export default function ClientFacingViewBody({ view, live, onGoPb }: Props) {
   const [cashOpen, setCashOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
   const { profile, gates, summary } = view;
   const { basicReady, portfolioReady, ipsReady } = gates;
-
-  // 외부 공유 화면(/client/[clientId], /view/[token])은 통째로 잠근 채 둔다.
-  // 그쪽은 로그인 가드가 없어 섹션 단위로 열면 미승인 내용이 인증 없이 노출된다.
-  if (lockWithoutPortfolioApproval && !portfolioReady) {
-    return (
-      <div className="rounded-lg border border-border bg-white p-8 text-center">
-        <p className="text-sm font-bold text-fg">
-          고객화면을 표시하려면 포트폴리오 승인이 필요합니다.
-        </p>
-      </div>
-    );
-  }
 
   // 기본정보가 미승인이면 본문 전체를 가린다. 이 상태에서는 포트폴리오도 캐스케이드로
   // 풀려 있어 보여 줄 수 있는 섹션이 하나도 없다 — 빈 껍데기 여러 장 대신 안내 한 장.

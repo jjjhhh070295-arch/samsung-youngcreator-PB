@@ -1227,7 +1227,6 @@ export default function ClientDetailPage() {
           pbId={pbId}
           embedded
           investableWon={investableWon}
-          allowPreviewWithoutPortfolioApproval
         />
       )}
       {activeView === "analysis" && activeTab !== "customer" && (

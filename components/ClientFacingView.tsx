@@ -41,9 +41,10 @@ interface Props {
   investableWon?: number | null;
   /** 부모가 이미 로드한 초안(없으면 훅이 조회) */
   draft?: ManualPortfolioDraft | null;
-  /** false 이면 외부 공유용 — 포트폴리오 미승인 시 잠금 유지 */
-  allowPreviewWithoutPortfolioApproval?: boolean;
 }
+// allowPreviewWithoutPortfolioApproval 은 없앴다. 외부 공유 화면을 포트폴리오 미승인 시
+// 통째로 잠그던 옵션인데, /client/[clientId]·/view/[token] 이 모두 서명 토큰을 요구하게
+// 되면서 근거가 사라졌다. 이제 표시 정책은 어디서 열든 섹션별 하나다.
 
 export default function ClientFacingView({
   client: seedClient = null,
@@ -52,12 +53,10 @@ export default function ClientFacingView({
   embedded = false,
   investableWon: seedInvestable = null,
   draft: seedDraft = null,
-  allowPreviewWithoutPortfolioApproval,
 }: Props) {
   const router = useRouter();
   const clientId = clientIdProp ?? seedClient?.id ?? "";
   const resolvedPbId = pbId ?? seedClient?.assignedPbId ?? null;
-  const allowPreview = allowPreviewWithoutPortfolioApproval ?? embedded;
 
   const live = useLiveClient(clientId, {
     pbId: resolvedPbId,
@@ -149,7 +148,6 @@ export default function ClientFacingView({
                 client.assignedPbId ? `/pb/${client.assignedPbId}/${client.id}` : `/`,
               )
       }
-      lockWithoutPortfolioApproval={!allowPreview}
     />
   );
 }
