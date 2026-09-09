@@ -842,21 +842,55 @@ export interface EmailBriefingTarget {
   assignedPbId: string;
 }
 
-/** email이 있고, email_opt_in=true이고, email_opt_out_at이 null인 고객만 — 조건 전부 DB에서
- *  거른다. 모닝 브리핑 마이그레이션이 아직 안 돌았으면(email_opt_in 컬럼 없음, 42703) 발송
- *  대상이 하나도 없는 게 안전하므로 빈 배열을 반환한다(에러를 던지지 않는다). */
+/** listEmailBriefingTargets 가 쓰는 컬럼 중 모닝 브리핑 마이그레이션으로 생기는 것들.
+ *  42703 이 났을 때 "마이그레이션 미실행"인지 "쿼리가 잘못된 컬럼을 참조"인지 가른다. */
+const BRIEFING_TARGET_COLUMNS = new Set(["email", "email_opt_in", "email_opt_out_at"]);
+
+/** is_client=true 이고, email이 있고, email_opt_in=true이고, email_opt_out_at이 null인
+ *  고객만 — 조건 전부 DB에서 거른다.
+ *
+ *  is_client 를 거르는 이유: parties 에는 고객뿐 아니라 가족 party 도 들어 있다. 상속·가족
+ *  구성을 입력하면서 그쪽 행에 이메일과 수신 동의가 켜지면, 고객이 아닌 사람에게 브리핑이
+ *  나간다. 실제로 2026-09-09 실측에서 is_client 가 아닌 party 한 건이 동의 켜진 상태로
+ *  대상에 잡혔다.
+ *
+ *  select 에 parties 에 없는 컬럼을 넣으면 안 된다. 예전에는 assigned_pb_id 가 있었는데
+ *  그 컬럼은 clients 테이블에만 있어서 쿼리 전체가 42703 으로 죽었고, 아래 폴백이 그것을
+ *  "브리핑 마이그레이션 미실행"으로 오인해 발송 대상을 조용히 0명으로 만들었다.
+ *  HTTP 는 200 ok:true 라 화면에서는 성공처럼 보였다.
+ *
+ *  브리핑 컬럼이 아직 없는 환경(마이그레이션 미실행)에서는 발송 대상이 하나도 없는 게
+ *  안전하므로 빈 배열을 반환한다(에러를 던지지 않는다). 단, 어느 컬럼 때문인지 반드시
+ *  로그에 남긴다 — 아래 참고. */
 export async function listEmailBriefingTargets(): Promise<EmailBriefingTarget[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from("parties")
-    .select("id, email, pb_id, assigned_pb_id")
+    .select("id, email, pb_id")
+    .eq("is_client", true)
     .eq("email_opt_in", true)
     .is("email_opt_out_at", null)
-    .not("email", "is", null);
+    .not("email", "is", null)
+    // 정렬을 고정한다. 순서를 안 주면 DB가 돌려주는 순서가 보장되지 않아, limit 을 걸었을
+    // 때 누가 뽑힐지 불확정이다. 발송은 되돌릴 수 없으므로 "몇 명"뿐 아니라 "누구"까지
+    // dryRun 과 실발송이 같아야 한다. code 는 고객마다 유일해서 동률이 없다.
+    .order("code", { ascending: true });
 
   if (error) {
     if (MISSING_COLUMN_ERROR_CODES.has(error.code)) {
-      console.warn("[store] listEmailBriefingTargets: 모닝 브리핑 마이그레이션 미실행 — 발송 대상 0명으로 처리");
+      // 42703 은 "브리핑 마이그레이션 미실행"만의 신호가 아니다. 이 쿼리가 참조하는 어떤
+      // 컬럼이든 없으면 같은 코드가 나온다. 단정하지 말고 원문을 그대로 남긴다 —
+      // 메시지에 "column parties.<이름> does not exist" 로 범인이 찍혀 있다.
+      const missing = /column [\w.]*\.?(\w+) does not exist/i.exec(error.message ?? "")?.[1];
+      const expected = BRIEFING_TARGET_COLUMNS.has(missing ?? "");
+      console.warn(
+        `[store] listEmailBriefingTargets: 컬럼 없음(${error.code}) — 발송 대상 0명으로 처리. ` +
+          `없는 컬럼: ${missing ?? "확인 불가"} / ` +
+          (expected
+            ? "모닝 브리핑 마이그레이션(supabase-migration-morning-briefing.sql) 미실행으로 보인다."
+            : "브리핑 마이그레이션과 무관한 컬럼이다 — 이 쿼리의 select·필터를 확인하라.") +
+          ` 원문: ${error.message}`,
+      );
       return [];
     }
     throw error;
@@ -867,7 +901,10 @@ export async function listEmailBriefingTargets(): Promise<EmailBriefingTarget[]>
     .map((r: any) => ({
       clientId: r.id,
       email: r.email,
-      assignedPbId: r.pb_id ?? r.assigned_pb_id ?? "",
+      // parties 의 담당 PB 는 pb_id 하나뿐이다. assigned_pb_id 폴백이 있었으나 그 컬럼은
+      // clients 테이블에만 있어 여기서는 항상 undefined 였고, select 에 넣는 순간 위의
+      // 42703 을 일으켰다.
+      assignedPbId: r.pb_id ?? "",
     }));
 }
 
