@@ -28,6 +28,12 @@ import type {
 } from "./types";
 import { emptyIPS } from "./types";
 import { SAMPLE_BOOK_CLIENTS } from "./advisory/sampleBook";
+import {
+  mergeIpsSnapshotForUpdate,
+  packIpsSnapshotPayload,
+  unpackIpsSnapshotPayload,
+  type IpsDocumentSnapshot,
+} from "./advisory/consultationIpsDocument";
 import { mergeStagesPayload, splitStagesPayload } from "./advisory/approvalSnapshots";
 import type { PbScheduleItem, PbScheduleStatus } from "./advisory/pbScheduleStorage";
 import {
@@ -187,6 +193,9 @@ function clientToCorporateRow(c: Partial<Client>): any {
 }
 
 function rowToConsultation(r: any): Consultation {
+  const unpacked = unpackIpsSnapshotPayload(
+    r.ips_snapshot && Object.keys(r.ips_snapshot).length ? r.ips_snapshot : emptyIPS(),
+  );
   return {
     id: r.id,
     clientId: r.client_id,
@@ -195,9 +204,8 @@ function rowToConsultation(r: any): Consultation {
     endedAt: r.ended_at ?? "",
     durationSeconds: Number(r.duration_seconds ?? 0),
     notes: r.notes ?? "",
-    ipsSnapshot: (r.ips_snapshot && Object.keys(r.ips_snapshot).length
-      ? r.ips_snapshot
-      : emptyIPS()) as IPS,
+    ipsSnapshot: unpacked.ipsSnapshot,
+    ipsDocumentSnapshot: unpacked.ipsDocumentSnapshot,
     createdAt: r.created_at,
   };
 }
@@ -1309,16 +1317,39 @@ export interface NewConsultationInput {
   durationSeconds: number;
   notes: string;
   ipsSnapshot: IPS;
+  ipsDocumentSnapshot?: IpsDocumentSnapshot | null;
+  /** 로컬/테스트에서 ID 고정이 필요할 때 */
+  id?: string;
 }
 
 export async function createConsultation(input: NewConsultationInput): Promise<Consultation> {
+  const id = input.id ?? uid();
+  const boundDoc = input.ipsDocumentSnapshot
+    ? { ...input.ipsDocumentSnapshot, consultationId: id }
+    : null;
+  const packed = packIpsSnapshotPayload(input.ipsSnapshot, boundDoc);
   if (usingLocalFallback || isDemoPbId(input.pbId) || localClientExists(input.clientId)) {
     const db = loadLocal();
+    const unpacked = unpackIpsSnapshotPayload(packed);
     const cs: Consultation = {
-      id: uid(),
-      ...input,
+      id,
+      clientId: input.clientId,
+      pbId: input.pbId,
+      startedAt: input.startedAt,
+      endedAt: input.endedAt,
+      durationSeconds: input.durationSeconds,
+      notes: input.notes,
+      ipsSnapshot: unpacked.ipsSnapshot,
+      ipsDocumentSnapshot: unpacked.ipsDocumentSnapshot,
       createdAt: new Date().toISOString(),
     };
+    // 중복 완료 클릭 방지 — 같은 id 가 있으면 갱신
+    const existingIdx = db.consultations.findIndex((c) => c.id === cs.id);
+    if (existingIdx >= 0) {
+      db.consultations[existingIdx] = { ...db.consultations[existingIdx], ...cs };
+      saveLocal(db);
+      return db.consultations[existingIdx];
+    }
     db.consultations.push(cs);
     saveLocal(db);
     return cs;
@@ -1326,13 +1357,14 @@ export async function createConsultation(input: NewConsultationInput): Promise<C
   const { data, error } = await supabase!
     .from("consultations")
     .insert({
+      ...(input.id ? { id: input.id } : {}),
       client_id: input.clientId,
       pb_id: input.pbId || null,
       started_at: input.startedAt || null,
       ended_at: input.endedAt || null,
       duration_seconds: input.durationSeconds,
       notes: input.notes,
-      ips_snapshot: input.ipsSnapshot,
+      ips_snapshot: packed,
     })
     .select()
     .single();
@@ -1342,23 +1374,149 @@ export async function createConsultation(input: NewConsultationInput): Promise<C
 
 export async function updateConsultation(
   id: string,
-  patch: { notes?: string; ipsSnapshot?: IPS },
+  patch: {
+    notes?: string;
+    ipsSnapshot?: IPS;
+    ipsDocumentSnapshot?: IpsDocumentSnapshot | null;
+  },
 ): Promise<void> {
   if (usingLocalFallback || localConsultationExists(id)) {
     const db = loadLocal();
     const cs = db.consultations.find((c) => c.id === id);
     if (cs) {
       if (patch.notes !== undefined) cs.notes = patch.notes;
-      if (patch.ipsSnapshot !== undefined) cs.ipsSnapshot = patch.ipsSnapshot;
+      if (patch.ipsSnapshot !== undefined || patch.ipsDocumentSnapshot !== undefined) {
+        const packed = mergeIpsSnapshotForUpdate({
+          previousRawOrPacked: packIpsSnapshotPayload(
+            cs.ipsSnapshot,
+            cs.ipsDocumentSnapshot ?? null,
+          ),
+          nextFactors: patch.ipsSnapshot,
+          nextDocument: patch.ipsDocumentSnapshot,
+        });
+        const unpacked = unpackIpsSnapshotPayload(packed);
+        cs.ipsSnapshot = unpacked.ipsSnapshot;
+        cs.ipsDocumentSnapshot = unpacked.ipsDocumentSnapshot;
+      }
     }
     saveLocal(db);
     return;
   }
   const row: any = {};
   if (patch.notes !== undefined) row.notes = patch.notes;
-  if (patch.ipsSnapshot !== undefined) row.ips_snapshot = patch.ipsSnapshot;
+  if (patch.ipsSnapshot !== undefined || patch.ipsDocumentSnapshot !== undefined) {
+    // 서버 행의 기존 스냅샷을 읽어 문서 메타를 보존한다.
+    const { data: existing, error: readErr } = await supabase!
+      .from("consultations")
+      .select("ips_snapshot")
+      .eq("id", id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    row.ips_snapshot = mergeIpsSnapshotForUpdate({
+      previousRawOrPacked: existing?.ips_snapshot ?? emptyIPS(),
+      nextFactors: patch.ipsSnapshot,
+      nextDocument: patch.ipsDocumentSnapshot,
+    });
+  }
   const { error } = await supabase!.from("consultations").update(row).eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * 상담 완료 — 동일 consultation ID 에 메모 + (승인된 경우) 확정 IPS 문서를 한 번에 저장.
+ * 이미 문서가 있으면 문서는 유지하고 메모·요인을 갱신(중복 완료 클릭 안전).
+ */
+export async function finalizeConsultationRecord(input: {
+  consultationId?: string | null;
+  clientId: string;
+  pbId: string;
+  notes: string;
+  ipsSnapshot: IPS;
+  /** 문서를 만들 빌더 — 확정된 consultationId 를 인자로 받는다 */
+  buildDocument?: (consultationId: string) => IpsDocumentSnapshot | null;
+  ipsDocumentSnapshot?: IpsDocumentSnapshot | null;
+  startedAt?: string;
+  endedAt?: string;
+  durationSeconds?: number;
+}): Promise<Consultation> {
+  const notes = input.notes;
+  const endedAt = input.endedAt ?? new Date().toISOString();
+  const startedAt = input.startedAt ?? endedAt;
+  const durationSeconds = input.durationSeconds ?? 0;
+
+  const loadExisting = async (id: string): Promise<Consultation | undefined> => {
+    if (usingLocalFallback || localConsultationExists(id)) {
+      return loadLocal().consultations.find((c) => c.id === id);
+    }
+    const { data, error } = await supabase!
+      .from("consultations")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? rowToConsultation(data) : undefined;
+  };
+
+  if (input.consultationId) {
+    const existing = await loadExisting(input.consultationId);
+    if (existing) {
+      const keepDoc = existing.ipsDocumentSnapshot ?? null;
+      const built = input.buildDocument?.(existing.id) ?? null;
+      const nextDoc =
+        keepDoc ??
+        input.ipsDocumentSnapshot ??
+        built;
+      await updateConsultation(existing.id, {
+        notes,
+        ipsSnapshot: input.ipsSnapshot,
+        ipsDocumentSnapshot: nextDoc,
+      });
+      // endedAt/duration 도 로컬·원격에 반영
+      if (usingLocalFallback || localConsultationExists(existing.id)) {
+        const db = loadLocal();
+        const cs = db.consultations.find((c) => c.id === existing.id);
+        if (cs) {
+          if (!cs.endedAt) cs.endedAt = endedAt;
+          if (!cs.durationSeconds && durationSeconds) cs.durationSeconds = durationSeconds;
+          saveLocal(db);
+        }
+      } else {
+        await supabase!
+          .from("consultations")
+          .update({
+            ended_at: endedAt,
+            duration_seconds: existing.durationSeconds || durationSeconds,
+          })
+          .eq("id", existing.id);
+      }
+      return {
+        ...existing,
+        notes,
+        ipsSnapshot: input.ipsSnapshot,
+        ipsDocumentSnapshot: nextDoc,
+        endedAt: existing.endedAt || endedAt,
+        durationSeconds: existing.durationSeconds || durationSeconds,
+      };
+    }
+  }
+
+  const newId = input.consultationId || uid();
+  const built = input.buildDocument?.(newId) ?? null;
+  const nextDoc = input.ipsDocumentSnapshot
+    ? { ...input.ipsDocumentSnapshot, consultationId: newId }
+    : built;
+
+  return createConsultation({
+    id: newId,
+    clientId: input.clientId,
+    pbId: input.pbId,
+    startedAt,
+    endedAt,
+    durationSeconds,
+    notes,
+    ipsSnapshot: input.ipsSnapshot,
+    ipsDocumentSnapshot: nextDoc,
+  });
 }
 
 // ───────────────────────── PB 일정 (pb_schedules) ─────────────────────────

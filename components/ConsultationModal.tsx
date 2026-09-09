@@ -9,6 +9,7 @@ import { matchTagsInText } from "@/lib/rrttlluScoring";
 import { createConsultation, updateClient } from "@/lib/store";
 import { formatDuration, formatDurationKo } from "@/lib/format";
 import { mergeConsultationAiIps, type SurveyFactorChange } from "@/lib/surveyIpsMerge";
+import { rememberActiveConsultationId } from "@/lib/advisory/consultationIpsDocument";
 import ConsultationInput from "./ConsultationInput";
 import IPSForm from "./IPSForm";
 import SurveyApplyDiffModal from "./SurveyApplyDiffModal";
@@ -165,7 +166,8 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
       const endedAt = endIsoRef.current || new Date().toISOString();
 
       // 상담 1건 기록(스냅샷) + 고객 최신값 갱신
-      await createConsultation({
+      // 확정 IPS 문서는 아직 없을 수 있음 — IPS 승인 후 완료 모달에서 같은 ID 에 붙인다.
+      const created = await createConsultation({
         clientId: client.id,
         pbId,
         startedAt,
@@ -174,6 +176,7 @@ export default function ConsultationModal({ open, client, pbId, onClose, onSaved
         notes,
         ipsSnapshot: draftIps,
       });
+      rememberActiveConsultationId(client.id, created.id);
       await updateClient(client.id, { ips: draftIps, consultationNotes: notes });
 
       if (tickRef.current) clearInterval(tickRef.current);

@@ -493,6 +493,9 @@ export interface MacroFactorMeta {
 // 사용자가 슬라이더로 설정한 요인별 충격 (단위는 MacroFactorMeta.unit 기준)
 export type ScenarioShock = Record<MacroFactorId, number>;
 
+/** 상담 완료 시 동결한 확정 IPS 문서 — IpsA4Document 입력. 상세는 consultationIpsDocument.ts */
+export type { IpsDocumentSnapshot } from "./advisory/consultationIpsDocument";
+
 export interface Consultation {
   id: string;
   clientId: string;
@@ -502,6 +505,8 @@ export interface Consultation {
   durationSeconds: number;
   notes: string;
   ipsSnapshot: IPS; // 종료 시점 7요인(점수 포함) → 성향 변화 그래프 소스
+  /** 확정 IPS A4 문서 스냅샷. 레거시 행은 null — 현재 고객 데이터로 재구성하지 않는다. */
+  ipsDocumentSnapshot?: import("./advisory/consultationIpsDocument").IpsDocumentSnapshot | null;
   createdAt: string;
 }
 
