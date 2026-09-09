@@ -85,7 +85,7 @@ export default function ConsultationHistory({ consultations, client, onSaved }: 
                       빈 상담이 그렇다 — 소요 0분으로 보여주면 끝난 상담처럼 읽힌다. */}
                   {c.endedAt ? `소요 ${formatDurationKo(c.durationSeconds)}` : "진행 중"}
                   {` · 점수 확정 ${scoreCount(c)}개`}
-                  {consultationHasPbMemo(c) || c.pbMemo ? " · PB 메모 있음" : ""}
+                  {consultationHasPbMemo(c) ? " · PB 메모 있음" : ""}
                   {c.ipsDocumentSnapshot ? " · 확정 IPS" : ""}
                 </p>
               </div>

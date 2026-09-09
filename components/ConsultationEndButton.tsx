@@ -69,7 +69,11 @@ export default function ConsultationEndButton({ client, onEnded }: Props) {
         ? Math.max(0, Math.round((Date.parse(endedAt) - startedMs) / 1000))
         : 0;
       await updateConsultation(open.id, {
-        pbMemo: memo.trim() || null,
+        // PB 메모는 notes 에 쓴다. 예전에는 pb_memo 컬럼에 넣었는데, 상담 완료 흐름
+        // (ConsultationCompletionModal → finalizeConsultationRecord)이 같은 메모를
+        // notes 에 담아서 두 경로가 같은 상담을 만지면 메모가 두 칸으로 갈라졌다.
+        // 정본을 notes 하나로 모은다 — consultationHasPbMemo 와 상세 모달이 읽는 칸이다.
+        notes: memo.trim(),
         endedAt,
         durationSeconds,
         // 종료 시점의 IPS 를 그 건에 박는다. 승인 상태에서는 client.ips 가 곧 확정본이다

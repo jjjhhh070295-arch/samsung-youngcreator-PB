@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Client, IPS } from "@/lib/types";
-import { finalizeConsultationRecord, updateClient } from "@/lib/store";
+import { finalizeConsultationRecord, findOpenConsultation, updateClient } from "@/lib/store";
 import {
   buildIpsDocumentSnapshot,
   canCaptureFinalizedIpsDocument,
@@ -68,8 +68,17 @@ export default function ConsultationCompletionModal({
         return;
       }
 
-      const trackedId =
+      // 어느 상담에 붙일지 정한다. sessionStorage 는 같은 탭에서만 살아 있어서
+      // "상담 시작"(StartConsultationButton)으로 연 상담이나, 새로고침·다른 탭·다른
+      // 기기로 넘어온 상담은 여기서 못 찾는다. 그때는 DB 의 진행 중인 건(ended_at IS
+      // NULL)으로 폴백한다 — 진행 상태의 정본은 sessionStorage 가 아니라 DB 다.
+      // 끝까지 못 찾으면 finalizeConsultationRecord 가 새 행을 만든다.
+      let trackedId =
         consultationId || readActiveConsultationId(client.id) || undefined;
+      if (!trackedId) {
+        const open = await findOpenConsultation(client.id);
+        trackedId = open?.id;
+      }
       const factors = ipsSnapshot ?? client.ips;
 
       const finalized = await finalizeConsultationRecord({

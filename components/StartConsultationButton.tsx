@@ -55,7 +55,7 @@ export default function StartConsultationButton({ client, pbId, onStarted, class
           // 빈 문자열을 넘기면 store 가 ended_at 을 null 로 넣는다 = 진행 중 표시.
           endedAt: "",
           durationSeconds: 0,
-          // 전문 텍스트는 더 이상 받지 않는다. PB 메모는 종료 시 pb_memo 에 들어간다.
+          // 전문 텍스트는 더 이상 받지 않는다. PB 메모는 종료 시 이 칸에 들어간다.
           notes: "",
           // 시작 시점 7요인. 종료 시 확정 IPS 로 덮어쓴다.
           ipsSnapshot: client.ips,

@@ -1542,14 +1542,15 @@ export async function finalizeConsultationRecord(input: {
     }
   }
 
-  const newId = input.consultationId || uid();
-  const built = input.buildDocument?.(newId) ?? null;
-  const nextDoc = input.ipsDocumentSnapshot
-    ? { ...input.ipsDocumentSnapshot, consultationId: newId }
-    : built;
-
-  return createConsultation({
-    id: newId,
+  // 이어붙일 상담을 못 찾았으면 새로 만든다.
+  //
+  // id 를 넘기지 않는다. 예전에는 `input.consultationId || uid()` 로 ID 를 직접 만들어
+  // 넘겼는데, uid() 는 base36 로컬 전용 값이라 consultations.id(uuid) 에 넣으면
+  // Postgres 가 22P02(invalid input syntax for type uuid)로 거절한다 — sessionStorage 가
+  // 비어 있기만 하면(새 탭·새로고침·다른 기기) 항상 그 경로로 빠졌다. id 를 생략하면
+  // 서버 경로에서는 Postgres 가 uuid 를 만들고, 로컬 폴백 경로에서는 createConsultation
+  // 안에서 uid() 가 쓰인다 — 로컬 저장소에는 그게 맞는 형식이다.
+  const created = await createConsultation({
     clientId: input.clientId,
     pbId: input.pbId,
     startedAt,
@@ -1557,8 +1558,17 @@ export async function finalizeConsultationRecord(input: {
     durationSeconds,
     notes,
     ipsSnapshot: input.ipsSnapshot,
-    ipsDocumentSnapshot: nextDoc,
   });
+
+  // 문서는 insert 이후에 만든다. 예전에는 insert 전에 만들어 문서 안 consultationId 가
+  // 실제 행의 ID 와 달랐다(위의 가짜 ID 가 그대로 박혔다).
+  const nextDoc = input.ipsDocumentSnapshot
+    ? { ...input.ipsDocumentSnapshot, consultationId: created.id }
+    : (input.buildDocument?.(created.id) ?? null);
+  if (!nextDoc) return created;
+
+  await updateConsultation(created.id, { ipsDocumentSnapshot: nextDoc });
+  return { ...created, ipsDocumentSnapshot: nextDoc };
 }
 
 // ───────────────────────── PB 일정 (pb_schedules) ─────────────────────────

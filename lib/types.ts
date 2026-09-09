@@ -503,14 +503,22 @@ export interface Consultation {
   startedAt: string;
   endedAt: string;
   durationSeconds: number;
-  /** 상담 전문(고객 발화). 새 흐름에서는 쓰지 않고 빈 문자열로 둔다 — PB 메모는 pbMemo. */
+  /**
+   * PB 메모의 정본. 상담 완료·상담 종료 두 흐름이 모두 여기에 쓰고,
+   * consultationHasPbMemo 와 상세 모달이 여기를 읽는다.
+   *
+   * 원래는 "상담 전문(고객 발화)" 칸이었다. 전문 텍스트를 더 받지 않게 되면서
+   * PB 메모가 이 칸을 이어받았다.
+   */
   notes: string;
   /**
-   * PB 개인 메모(consultations.pb_memo). "상담 종료" 흐름이 채운다.
+   * @deprecated consultations.pb_memo. 더 이상 쓰지 않는다 — 메모 정본은 notes 다.
    *
-   * 선택 필드인 이유: 상담 완료 흐름(ConsultationCompletionModal)은 메모를 notes 에
-   * 담고 consultationHasPbMemo 로 판정한다 — 그쪽 경로로 만든 객체에는 이 필드가 없다.
-   * 마이그레이션 전 행도 null 이다. 읽는 쪽은 두 경로를 모두 확인해야 한다.
+   * 컬럼과 이 필드를 남겨 둔 이유는 짧게 이 칸에 쓰던 시기의 행이 실제로 있어서다.
+   * 지우면 그 메모가 사라진다. 읽기만 하고 새로 쓰지 않는다.
+   *
+   * 선택 필드인 이유: 상담 완료 흐름으로 만든 객체에는 이 필드가 없고, 마이그레이션
+   * 전 행도 null 이다.
    */
   pbMemo?: string | null;
   ipsSnapshot: IPS; // 종료 시점 7요인(점수 포함) → 성향 변화 그래프 소스
