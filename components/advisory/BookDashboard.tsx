@@ -3,13 +3,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ClientBookRow } from "@/lib/advisory/types";
-import { CLIENT_TYPE_LABEL, type ClientType } from "@/lib/types";
+import { CLIENT_TYPE_LABEL, type Client, type ClientType } from "@/lib/types";
 import { formatKRWShort, formatDate } from "@/lib/format";
 import ClientAvatar from "@/components/ClientAvatar";
+import StartConsultationButton from "@/components/StartConsultationButton";
 
 interface Props {
   pbId: string;
   rows: ClientBookRow[];
+  /** 상담 시작 버튼이 ConsultationModal 에 넘길 원본 고객. rows 는 표시용 파생값이라
+   *  Client 객체를 갖고 있지 않다. */
+  clients?: Client[];
+  /** 상담 저장 후 상위 새로고침 + 승인 해제. 어느 고객인지 알아야 해제 대상을 정한다. */
+  onConsultationSaved?: (clientId: string) => void;
 }
 
 type View = "table" | "card";
@@ -143,7 +149,7 @@ function SortTh({
   );
 }
 
-export default function BookDashboard({ pbId, rows }: Props) {
+export default function BookDashboard({ pbId, rows, clients = [], onConsultationSaved }: Props) {
   const router = useRouter();
   const [view, setView] = useState<View>("table");
   const [q, setQ] = useState("");
@@ -223,7 +229,7 @@ export default function BookDashboard({ pbId, rows }: Props) {
 
   return (
     <section id="customer-book" className="relative overflow-hidden border border-border bg-white">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5 lg:px-4">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-2.5 lg:px-4">
         <div className="mr-auto flex items-baseline gap-2">
           <h2 className="text-base font-black text-[#0D57BA]">고객 Book</h2>
           <span className="text-[11px] font-medium text-fg-muted">{filtered.length} Clients</span>
@@ -321,7 +327,7 @@ export default function BookDashboard({ pbId, rows }: Props) {
           <table className="w-full min-w-[1180px] text-[13px]">
             <thead className="border-b border-border bg-[#F2F6FC] text-[11px] text-[#52647C]">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-semibold">식별코드</th>
+                <th className="px-2 py-2 text-left text-xs font-semibold">식별코드</th>
                 <SortTh
                   label="고객명"
                   align="left"
@@ -333,8 +339,8 @@ export default function BookDashboard({ pbId, rows }: Props) {
                   }
                   onClick={() => toggleHeaderSort("name-asc", "name-desc", "asc")}
                 />
-                <th className="px-3 py-2 text-left text-xs font-semibold">구분</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold">생년월일/설립일</th>
+                <th className="px-2 py-2 text-left text-xs font-semibold">구분</th>
+                <th className="px-2 py-2 text-left text-xs font-semibold">생년월일/설립일</th>
                 <SortTh
                   label="총자산"
                   align="right"
@@ -363,8 +369,9 @@ export default function BookDashboard({ pbId, rows }: Props) {
                   }
                   onClick={() => toggleHeaderSort("return-asc", "return-desc", "desc")}
                 />
-                <th className="px-3 py-2 text-left text-xs font-semibold">위험성향</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold">보유상품</th>
+                <th className="px-2 py-2 text-left text-xs font-semibold">위험성향</th>
+                <th className="px-2 py-2 text-left text-xs font-semibold">보유상품</th>
+                <th className="px-2 py-2 text-left text-xs font-semibold">상담</th>
                 <SortTh
                   label="최근 상담"
                   align="left"
@@ -379,7 +386,7 @@ export default function BookDashboard({ pbId, rows }: Props) {
                   }
                   onClick={() => toggleHeaderSort("consult-asc", "consult-desc", "desc")}
                 />
-                <th className="px-3 py-2 text-left text-xs font-semibold">태그</th>
+                <th className="px-2 py-2 text-left text-xs font-semibold">태그</th>
               </tr>
             </thead>
             <tbody>
@@ -389,25 +396,25 @@ export default function BookDashboard({ pbId, rows }: Props) {
                   onClick={() => goClient(r.clientId)}
                   className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-2"
                 >
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-[#1428A0]">{r.code}</td>
-                  <td className="px-3 py-2">
+                  <td className="whitespace-nowrap px-2 py-2 font-mono text-xs text-[#1428A0]">{r.code}</td>
+                  <td className="px-2 py-2">
                     <div className="flex items-center gap-2">
                       <ClientAvatar name={r.name} type={r.clientType as ClientType} size="sm" />
                       <span className="font-bold text-fg">{r.name}</span>
                     </div>
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-fg-muted">
+                  <td className="whitespace-nowrap px-2 py-2 text-xs text-fg-muted">
                     {CLIENT_TYPE_LABEL[r.clientType as ClientType] ?? r.clientType}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-fg-muted">{formatDate(r.birthDate)}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold">
+                  <td className="whitespace-nowrap px-2 py-2 text-xs text-fg-muted">{formatDate(r.birthDate)}</td>
+                  <td className="whitespace-nowrap px-2 py-2 text-right font-semibold">
                     {formatKRWShort(r.totalAssets)}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right">
+                  <td className="whitespace-nowrap px-2 py-2 text-right">
                     <ReturnText value={r.totalReturnPct} status={r.returnStatus} note={r.returnNote} />
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-xs">{r.riskGrade}</td>
-                  <td className="px-3 py-2.5">
+                  <td className="whitespace-nowrap px-2 py-2 text-xs">{r.riskGrade}</td>
+                  <td className="px-2 py-2.5">
                     <div className="flex flex-wrap gap-1">
                       {r.holdings.length === 0 ? (
                         <span className="text-[11px] text-fg-muted">—</span>
@@ -437,12 +444,19 @@ export default function BookDashboard({ pbId, rows }: Props) {
                       )}
                     </div>
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-xs text-fg-muted">
+                  <td className="whitespace-nowrap px-2 py-2.5">
+                    <StartConsultationButton
+                      client={clients.find((c) => c.id === r.clientId) ?? null}
+                      pbId={pbId}
+                      onSaved={() => onConsultationSaved?.(r.clientId)}
+                    />
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2.5 text-xs text-fg-muted">
                     {r.lastConsultation
                       ? `${r.lastConsultation.label} · ${formatDate(r.lastConsultation.at)}`
                       : "—"}
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td className="px-2 py-2.5">
                     <LossTagBadge tag={r.bookLossTag} />
                   </td>
                 </tr>

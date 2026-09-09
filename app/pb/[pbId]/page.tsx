@@ -16,6 +16,8 @@ import {
   listFamilyRelationshipsBulk,
   listRealEstateWithDebtBulk,
   listGiftEventsBulk,
+  getClient,
+  updateClient,
 } from "@/lib/store";
 import PBDashboard from "@/components/PBDashboard";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -26,7 +28,8 @@ import BookDashboard from "@/components/advisory/BookDashboard";
 import { PbTodayTodos } from "@/components/advisory/PbTodayTodos";
 import ConsultationScheduleModal from "@/components/advisory/ConsultationScheduleModal";
 import ExtraEventModal from "@/components/advisory/ExtraEventModal";
-import ClientAvatar from "@/components/ClientAvatar";
+import ClientConsultationLog from "@/components/ClientConsultationLog";
+import { buildUnapprovalPatch, isLevelApproved } from "@/lib/advisory/approvalTransition";
 import { buildClientBookRow } from "@/lib/advisory/book";
 import { listBookHoldings, enrichBookHoldingsWithQuotes } from "@/lib/advisory/holdingsStore";
 import { resolveHeritageInputsBulk } from "@/lib/heritage";
@@ -105,6 +108,28 @@ export default function PBPage() {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // 상담 저장 후 처리. 고객 상세와 동작을 맞춘다.
+  //
+  // ConsultationModal 은 저장 시 updateClient(client.id, { ips, consultationNotes }) 로
+  // 7요인을 덮어쓴다. 그 두 값은 기본정보 승인 해시 payload 에 들어 있어(approvalSnapshots
+  // 의 buildBasicApprovalPayload) 승인이 풀려야 맞다. 고객 상세에서는 load() 가 status 를
+  // loading→ready 로 되돌리면서 스테일 승인 검사 effect 가 다시 돌아 자동으로 해제되는데,
+  // PB Home 에는 그 effect 가 없어 여기서 명시적으로 처리한다. 같은 화면에서 같은 모달을
+  // 썼는데 한쪽만 승인이 남아 있으면 안 된다.
+  const handleConsultationSaved = useCallback(async (clientId: string) => {
+    try {
+      const fresh = await getClient(clientId);
+      if (fresh && isLevelApproved(fresh, "basic")) {
+        await updateClient(clientId, buildUnapprovalPatch(fresh, "basic"));
+      }
+    } catch (e) {
+      // 해제 실패를 조용히 넘기지 않는다 — 승인이 남은 채로 7요인만 바뀌면 화면과 승인
+      // 상태가 어긋난다. 다만 재조회는 계속 진행해 방금 저장한 상담이 보이게 한다.
+      console.error("[PB Home] 상담 저장 후 기본정보 승인 해제 실패", e);
+    }
+    await load();
   }, [load]);
 
   // 대시보드 AUM = 부동산 제외 합계. assetSize 합계와 다르다.
@@ -196,34 +221,18 @@ export default function PBPage() {
 
       <PbTodayTodos pbId={pbId} refreshKey={scheduleRefreshKey} />
 
-      <BookDashboard pbId={pbId} rows={bookRows} />
+      <BookDashboard pbId={pbId} rows={bookRows} clients={myClients} onConsultationSaved={handleConsultationSaved} />
 
-      <div className="grid border border-border bg-white md:grid-cols-2">
-          <section className="relative border-b border-border p-4 md:border-b-0 md:border-r">
-            <span className="absolute left-4 top-2 h-[3px] w-16 rounded bg-[#1769D2]" aria-hidden="true" />
-            <div className="flex items-center justify-between">
-              <div><p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#1428A0]">Book Insight</p><h2 className="mt-0.5 text-sm font-black text-fg">고객 구성</h2></div>
-              <span className="badge-muted">총 {myClients.length}명</span>
-            </div>
-            <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-slate-100" aria-label="고객 유형 구성">
-              {myClients.length > 0 && <>
-                <span className="bg-[#1769D2]" style={{ width: `${myClients.filter((c) => c.clientType === "individual").length / myClients.length * 100}%` }} />
-                <span className="bg-[#84B2EE]" style={{ width: `${myClients.filter((c) => c.clientType === "corporate").length / myClients.length * 100}%` }} />
-                <span className="bg-slate-400" style={{ width: `${myClients.filter((c) => c.clientType === "sole_proprietor").length / myClients.length * 100}%` }} />
-              </>}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600">
-              <span><i className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#1428A0]" />개인 {myClients.filter((c) => c.clientType === "individual").length}명</span>
-              <span><i className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#2563EB]" />법인 {myClients.filter((c) => c.clientType === "corporate").length}명</span>
-              <span><i className="mr-1.5 inline-block h-2 w-2 rounded-full bg-slate-400" />개인사업자 {myClients.filter((c) => c.clientType === "sole_proprietor").length}명</span>
-            </div>
-          </section>
-          <section className="relative p-4">
-            <span className="absolute left-4 top-2 h-1.5 w-1.5 rounded-full bg-[#1769D2]" aria-hidden="true" />
-            <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-fg">최근 상담 고객</h2><span className="text-[11px] text-fg-muted">최근 {Math.min(5, myConsultations.length)}건</span></div>
-            {myConsultations.length > 0 ? <ul className="mt-3 space-y-2">{myConsultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1)).slice(0, 5).map((consultation) => { const target = myClients.find((client) => client.id === consultation.clientId); return target ? <li key={consultation.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"><button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => router.push(`/pb/${pbId}/${target.id}?view=consultation`)}><ClientAvatar name={target.name} type={target.clientType} size="sm" /><span className="min-w-0"><span className="block truncate text-xs font-bold text-fg">{target.name}</span><span className="text-[10px] text-fg-muted">{new Date(consultation.createdAt).toLocaleDateString("ko-KR")}</span></span></button><span className="badge-muted">상담 보기</span></li> : null; })}</ul> : <p className="mt-3 rounded-lg bg-slate-50 px-3 py-4 text-xs text-fg-muted">아직 기록된 상담이 없습니다.</p>}
-          </section>
-      </div>
+      {/* 고객 구성(선택) + 선택 고객 상담 이력. 예전에는 정적 "고객 구성" 카드와
+          "최근 상담 고객" 목록이었는데, 담당 고객 상담이 0건이면 양쪽 다 알맹이가 없어
+          상담 기능이 없는 것처럼 보였다. 고객을 고르고 그 고객의 이력을 보는 흐름으로
+          바꾸고, 0건일 때도 섹션과 다음 행동(상담 시작)을 남긴다. */}
+      <ClientConsultationLog
+        pbId={pbId}
+        clients={myClients}
+        consultations={myConsultations}
+        onConsultationSaved={handleConsultationSaved}
+      />
 
       {/* 모달들 */}
       <ClientForm
