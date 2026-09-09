@@ -6,7 +6,8 @@ export const RESEARCH_TOP_PICK_RULES = {
   candidateLimit: 30,
   minimumScore: 35,
   maxPerSector: 3,
-  lookbackBusinessDays: 3,
+  primaryLookbackBusinessDays: 3,
+  expandedLookbackBusinessDays: 20,
 } as const;
 
 type Stance = "POSITIVE" | "NEUTRAL" | "NEGATIVE" | "UNKNOWN";
@@ -81,7 +82,7 @@ export type ResearchDataWindow = {
   start: string;
   end: string;
   businessDays: number;
-  fallbackStage: "TODAY" | "PREVIOUS_BUSINESS_DAY" | "LAST_3_BUSINESS_DAYS";
+  fallbackStage: "TODAY" | "PREVIOUS_BUSINESS_DAY" | "LAST_3_BUSINESS_DAYS" | "RECENT_RESEARCH";
 };
 
 export type StockResearchGroup = {
@@ -163,7 +164,7 @@ function previousBusinessDate(value: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(date);
 }
 
-export function businessDateSequence(asOf: string, count: number = RESEARCH_TOP_PICK_RULES.lookbackBusinessDays): string[] {
+export function businessDateSequence(asOf: string, count: number = RESEARCH_TOP_PICK_RULES.expandedLookbackBusinessDays): string[] {
   const dates = [asOf];
   while (dates.length < count) dates.push(previousBusinessDate(dates.at(-1)!));
   return dates;
@@ -259,11 +260,12 @@ function eligibleGroup(group: StockResearchGroup): boolean {
 
 export function selectStockResearchWindow(rows: StockResearchFact[], asOf: string,
   minimumCandidates: number = RESEARCH_TOP_PICK_RULES.pickLimit) {
-  const dates = businessDateSequence(asOf, 3);
+  const dates = businessDateSequence(asOf, RESEARCH_TOP_PICK_RULES.expandedLookbackBusinessDays);
   const stages: Array<{ dates: string[]; fallbackStage: ResearchDataWindow["fallbackStage"] }> = [
     { dates: dates.slice(0, 1), fallbackStage: "TODAY" },
     { dates: dates.slice(0, 2), fallbackStage: "PREVIOUS_BUSINESS_DAY" },
-    { dates, fallbackStage: "LAST_3_BUSINESS_DAYS" },
+    { dates: dates.slice(0, RESEARCH_TOP_PICK_RULES.primaryLookbackBusinessDays), fallbackStage: "LAST_3_BUSINESS_DAYS" },
+    { dates, fallbackStage: "RECENT_RESEARCH" },
   ];
   let selected = stages.at(-1)!;
   let selectedRows: StockResearchFact[] = [];
@@ -362,6 +364,7 @@ export function scoreResearchCandidate(group: StockResearchGroup, options: {
   dataWindow: ResearchDataWindow;
   bullishSectorCodes?: Iterable<string>;
   currentPrice?: number | null;
+  minimumScore?: number;
 }): ResearchRankedPick | null {
   if (!eligibleGroup(group)) return null;
   const rows = group.reports;
@@ -385,7 +388,7 @@ export function scoreResearchCandidate(group: StockResearchGroup, options: {
   const targetUpside = targetPrice != null && options.currentPrice != null && options.currentPrice > 0 && targetPrice > options.currentPrice ? 5 : 0;
   const risk = riskPenalty(rows);
   const totalScore = round1(consensus + freshness + rating + targetRevisionScore + earnings + catalyst + themeAlignment + targetUpside + risk);
-  if (totalScore < RESEARCH_TOP_PICK_RULES.minimumScore) return null;
+  if (totalScore < (options.minimumScore ?? RESEARCH_TOP_PICK_RULES.minimumScore)) return null;
   const hasRevision = targetChange != null || earnings > 0;
   const confidenceLabel = group.supportingBrokers.length >= 2 && freshness >= 10 && hasRevision && catalyst >= 6 ? "HIGH"
     : freshness >= 5 && (hasRevision || catalyst >= 6) ? "MEDIUM" : "LOW";

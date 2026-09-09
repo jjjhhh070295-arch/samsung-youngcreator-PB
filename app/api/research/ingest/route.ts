@@ -5,12 +5,12 @@ import { getCachedAnalyses, putCachedAnalysis } from "@/lib/researchSignalsStore
 import { fetchReportContent } from "@/lib/reportContent";
 import { supabase } from "@/lib/supabase";
 import { ingestCanonicalResearch } from "@/lib/topPicks/researchStore";
-import type { ResearchDocumentType } from "@/lib/topPicks/researchPipeline";
+import { extractResearchBatch, type ResearchDocumentInput, type ResearchDocumentType } from "@/lib/topPicks/researchPipeline";
 import { filterPendingCanonicalItems, selectCanonicalIngestBatch, type StoredCanonicalDocument } from "@/lib/topPicks/canonicalIngest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 // 리서치 "내용" 분석 잡:
 //  1) 기존 /api/research 에서 최신 리포트 목록을 받아
@@ -115,29 +115,52 @@ export async function GET(req: Request) {
         (stockExtractions.data ?? []).map((row: any) => row.document_id),
         (marketExtractions.data ?? []).map((row: any) => row.document_id));
     }
-    const canonicalBatch = selectCanonicalIngestBatch(pendingCanonical, 8);
-    const canonicalResults = canCanonicalIngest
-      ? await mapWithConcurrency(
-          canonicalBatch,
-          1,
-          async (item) => {
-            const rawText = await contentFor(item.url);
-            const minimumLength = item.documentType === "STOCK" ? 60 : 100;
-            if (rawText.trim().length < minimumLength) return { status: "skipped-empty", reportId: item.id, title: item.title };
-            try {
-              const result = await ingestCanonicalResearch({ reportId: item.id, source: item.source,
-                broker: item.broker ?? item.source.split(" · ").at(-1) ?? null, analyst: item.analyst ?? null,
-                publishedAt: item.date!, title: item.title, documentType: item.documentType as ResearchDocumentType,
-                rawText, sourceUrl: item.url });
-              return { status: result.duplicate ? "cached" : result.repaired ? "repaired" : "ingested", reportId: item.id, title: item.title };
-            } catch (error) {
-              console.warn("[research canonical]", { report_id: item.id, broker: item.broker ?? item.source,
-                error: (error as Error).message, attempt: 2, timestamp: new Date().toISOString() });
-              return { status: "failed", reportId: item.id, title: item.title };
-            }
-          },
-        )
-      : [];
+    // 첫 실행에서도 Top Pick 10종목을 만들 수 있도록 종목 슬롯을 15개 확보한다.
+    // 실패·중립 의견·동일 종목 중복이 있어도 충분한 후보 풀이 남도록 총 20건을 처리한다.
+    const canonicalBatch = selectCanonicalIngestBatch(pendingCanonical, 20);
+    const canonicalResults: Array<{ status: string; reportId: string; title: string; error?: string }> = [];
+    if (canCanonicalIngest) {
+      const prepared = await mapWithConcurrency(canonicalBatch, 4, async (item) => {
+        const rawText = await contentFor(item.url);
+        const minimumLength = item.documentType === "STOCK" ? 60 : 100;
+        if (rawText.trim().length < minimumLength) {
+          canonicalResults.push({ status: "skipped-empty", reportId: item.id, title: item.title });
+          return null;
+        }
+        return { item, input: { reportId: item.id, source: item.source,
+          broker: item.broker ?? item.source.split(" · ").at(-1) ?? null, analyst: item.analyst ?? null,
+          publishedAt: item.date!, title: item.title, documentType: item.documentType as ResearchDocumentType,
+          rawText, sourceUrl: item.url } satisfies ResearchDocumentInput };
+      });
+      const valid = prepared.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+      const groups = [
+        valid.filter(({ input }) => input.documentType === "STOCK"),
+        valid.filter(({ input }) => input.documentType !== "STOCK"),
+      ];
+      // Gemini 호출량을 줄이기 위해 같은 스키마의 보고서를 5개씩 한 번에 구조화한다.
+      for (const group of groups) for (let start = 0; start < group.length; start += 5) {
+        const batch = group.slice(start, start + 5);
+        const extractions = await extractResearchBatch(batch.map(({ input }) => input));
+        for (const extraction of extractions) {
+          const matched = batch.find(({ input }) => input === extraction.input)!;
+          if (!extraction.result) {
+            canonicalResults.push({ status: "failed", reportId: matched.item.id, title: matched.item.title,
+              error: extraction.error ?? "구조화 결과 없음" });
+            continue;
+          }
+          try {
+            const result = await ingestCanonicalResearch(matched.input, supabase!, extraction.result);
+            canonicalResults.push({ status: result.duplicate ? "cached" : result.repaired ? "repaired" : "ingested",
+              reportId: matched.item.id, title: matched.item.title });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn("[research canonical]", { report_id: matched.item.id, broker: matched.item.broker ?? matched.item.source,
+              error: message, attempt: 2, timestamp: new Date().toISOString() });
+            canonicalResults.push({ status: "failed", reportId: matched.item.id, title: matched.item.title, error: message });
+          }
+        }
+      }
+    }
 
     return NextResponse.json({
       ok: true,

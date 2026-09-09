@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { chunkResearchText, cleanResearchText, extractResearch, researchContentHash } from "./researchPipeline";
+import { chunkResearchText, cleanResearchText, extractResearch, extractResearchBatch, researchContentHash } from "./researchPipeline";
 
 describe("research ingestion utilities", () => {
   it("normalizes text and creates stable hashes", () => { const input = { source: "A", publishedAt: "2026-09-09", title: "T", documentType: "STOCK" as const, rawText: "a   b\r\n\r\n\r\nc" }; assert.equal(cleanResearchText(input.rawText), "a b\n\nc"); assert.equal(researchContentHash(input), researchContentHash({ ...input })); });
@@ -34,5 +34,34 @@ describe("research ingestion utilities", () => {
       analystStance: "POSITIVE", catalystSpecificity: "NONE", riskLevel: "UNKNOWN", confidence: 0.5, investmentPoints: [],
     } }));
     assert.equal("ticker" in result.value ? result.value.ticker : undefined, null);
+  });
+  it("여러 종목 리포트를 한 번의 Gemini 호출로 구조화하고 서버 reportId를 보존한다", async () => {
+    const inputs = [
+      { reportId: "real-samsung", source: "증권사A", broker: "증권사A", publishedAt: "2026-09-10",
+        title: "삼성전자(005930) 실적 전망", documentType: "STOCK" as const, rawText: "삼성전자 005930 매수 의견과 HBM 실적 개선" },
+      { reportId: "real-sk", source: "증권사B", broker: "증권사B", publishedAt: "2026-09-09",
+        title: "SK하이닉스(000660) HBM 전망", documentType: "STOCK" as const, rawText: "SK하이닉스 000660 매수 의견과 HBM 수요 증가" },
+    ];
+    let calls = 0;
+    const result = await extractResearchBatch(inputs, async (prompt) => {
+      calls++;
+      assert.match(prompt, /batchKey: R1/);
+      assert.match(prompt, /batchKey: R2/);
+      const row = (reportId: string, ticker: string, companyName: string) => ({
+        reportId, broker: "모델값", publishedAt: "2030-01-01", ticker, companyName, market: "KR",
+        sector: "SEMICONDUCTOR", rating: "BUY", previousRating: null, targetPrice: null,
+        previousTargetPrice: null, epsRevisionPct: null, sentimentScore: 0.5, ratingChange: "MAINTAIN",
+        targetPriceChangePct: null, earningsRevisionDirection: "UNKNOWN", earningsRevisionDetails: null,
+        investmentThesis: "HBM 성장", catalysts: ["HBM 수요"], riskFactors: [], themes: ["SEMICONDUCTOR"],
+        analystStance: "POSITIVE", catalystSpecificity: "MEDIUM", riskLevel: "LOW", confidence: 0.8,
+        investmentPoints: ["수요 증가"],
+      });
+      return { model: "gemini-test", value: { reports: [row("R1", "005930", "삼성전자"), row("R2", "000660", "SK하이닉스")] } };
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].result?.value.reportId, "real-samsung");
+    assert.equal(result[1].result?.value.reportId, "real-sk");
+    assert.equal("ticker" in result[1].result!.value ? result[1].result!.value.ticker : null, "000660");
   });
 });

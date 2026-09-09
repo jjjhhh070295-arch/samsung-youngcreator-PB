@@ -19,6 +19,16 @@ describe("canonical research ingest scheduling", () => {
     assert.ok(selected.slice(0, 2).some((row) => row.source.startsWith("증권사B")));
   });
 
+  it("첫 운영 배치에서 종목 리서치 슬롯을 15개 확보한다", () => {
+    const rows = [
+      ...Array.from({ length: 18 }, (_, index) => item(`stock-${index}`, "STOCK", `broker-${index % 3}`)),
+      ...Array.from({ length: 10 }, (_, index) => item(`market-${index}`, "MARKET", `market-${index % 2}`)),
+    ];
+    const selected = selectCanonicalIngestBatch(rows, 20);
+    assert.equal(selected.length, 20);
+    assert.equal(selected.filter((row) => row.documentType === "STOCK").length, 15);
+  });
+
   it("문서는 있으나 추출 행이 없으면 재처리하고 완성된 문서는 제외한다", () => {
     const rows = [item("stock", "STOCK", "A"), item("market", "MARKET", "B")];
     const documents = [

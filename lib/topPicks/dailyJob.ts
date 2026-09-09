@@ -36,7 +36,7 @@ export async function runDailyTopPicks(origin: string, dependencies: {
   if (!db) throw new Error("Supabase 미설정");
   const now = dependencies.now ?? new Date();
   const tradeDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(now);
-  const cutoffDate = businessDateSequence(tradeDate, 8).at(-1)!;
+  const cutoffDate = businessDateSequence(tradeDate, RESEARCH_TOP_PICK_RULES.expandedLookbackBusinessDays).at(-1)!;
   const cutoff = `${cutoffDate}T00:00:00+09:00`;
   const through = now.toISOString();
   const [{ data: stockRows, error: stockError }, { data: marketRows, error: marketError }, savedReports] = await Promise.all([
@@ -72,7 +72,10 @@ export async function runDailyTopPicks(origin: string, dependencies: {
       const minimumLiquidityMet = snapshot.domestic ? snapshot.averageTurnover >= 1_000_000_000 : snapshot.averageTurnover >= 1_000_000;
       if (!minimumLiquidityMet) continue;
       const scored = scoreResearchCandidate(group, { dataWindow: selectedWindow.dataWindow, bullishSectorCodes: bullishSectors,
-        currentPrice: snapshot.lastPrice });
+        currentPrice: snapshot.lastPrice,
+        // 10개를 채우기 위해 기간을 확장한 경우에도 긍정 리서치 근거는 유지하되
+        // 오래됐다는 이유만으로 점수 문턱에서 다시 잘리지 않게 한다.
+        minimumScore: selectedWindow.dataWindow.fallbackStage === "RECENT_RESEARCH" ? 0 : undefined });
       if (scored) candidates.push(scored);
     } catch (error) {
       console.warn("[dailyTopPicks] price unavailable", { ticker: group.ticker,

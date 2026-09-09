@@ -86,6 +86,30 @@ describe("리서치 기반 Top Pick 규칙", () => {
     assert.equal(selectStockResearchWindow([today, prior, twoDays], asOf, 3).dataWindow.fallbackStage, "LAST_3_BUSINESS_DAYS");
   });
 
+  it("최근 3영업일에도 10개가 없으면 실제 최근 리서치까지 확장한다", () => {
+    const recent = Array.from({ length: 10 }, (_, index) => {
+      const date = index < 3 ? ["2026-09-10", "2026-09-09", "2026-09-08"][index]
+        : ["2026-09-07", "2026-09-04", "2026-09-03", "2026-09-02", "2026-09-01", "2026-08-31", "2026-08-28"][index - 3];
+      return fact({ ticker: String(100000 + index), company_name: `종목${index}`, report_id: `recent-${index}`,
+        published_at: `${date}T08:00:00+09:00`, research_documents: { source_report_id: `recent-${index}`,
+          broker: `증권사${index}`, source: "리서치", published_at: `${date}T08:00:00+09:00` } });
+    });
+    const selected = selectStockResearchWindow(recent, asOf, 10);
+    assert.equal(selected.dataWindow.fallbackStage, "RECENT_RESEARCH");
+    assert.equal(groupStockResearch(selected.rows).length, 10);
+  });
+
+  it("확장 기간에서는 오래된 긍정 리서치도 10개 후보 풀에 남길 수 있다", () => {
+    const oldWindow: ResearchDataWindow = { asOf, start: "2026-08-28", end: asOf,
+      businessDays: 10, fallbackStage: "RECENT_RESEARCH" };
+    const row = fact({ published_at: "2026-08-28T08:00:00+09:00", target_price: null,
+      previous_target_price: null, target_price_change_pct: null, earnings_revision_direction: "UNKNOWN",
+      earnings_revision_details: null, sector: null });
+    const group = groupStockResearch([row])[0];
+    assert.equal(scoreResearchCandidate(group, { dataWindow: oldWindow, currentPrice: null }), null);
+    assert.ok(scoreResearchCandidate(group, { dataWindow: oldWindow, currentPrice: null, minimumScore: 0 }));
+  });
+
   it("시장 자료도 종목 자료와 독립적으로 전 영업일까지 폴백한다", () => {
     const selected = selectMarketResearchWindow([{ report_id: "market-1", published_at: "2026-09-09T08:00:00+09:00",
       topic: "반도체 전망", research_documents: { source_report_id: "market-1", broker: "증권사A" } }], asOf);

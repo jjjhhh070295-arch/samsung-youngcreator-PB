@@ -1,7 +1,11 @@
 import { supabase } from "@/lib/supabase";
-import { chunkResearchText, cleanResearchText, embedResearchChunks, extractResearch, researchContentHash, type ResearchDocumentInput, type StockExtraction } from "./researchPipeline";
+import { chunkResearchText, cleanResearchText, extractResearch, researchContentHash,
+  type MarketExtraction, type ResearchDocumentInput, type StockExtraction } from "./researchPipeline";
 
-export async function ingestCanonicalResearch(input: ResearchDocumentInput, db = supabase) {
+type PrecomputedExtraction = { value: StockExtraction | MarketExtraction; model: string };
+
+export async function ingestCanonicalResearch(input: ResearchDocumentInput, db = supabase,
+  precomputedExtraction?: PrecomputedExtraction) {
   if (!db) throw new Error("Supabase 미설정");
   const cleanedText = cleanResearchText(input.rawText);
   const contentHash = researchContentHash(input, cleanedText);
@@ -23,7 +27,7 @@ export async function ingestCanonicalResearch(input: ResearchDocumentInput, db =
     if (inserted.error || !inserted.data) throw new Error(inserted.error?.message ?? "문서 저장 실패");
     document = inserted.data;
   }
-  const extraction = await extractResearch({ ...input, reportId: input.reportId ?? contentHash });
+  const extraction = precomputedExtraction ?? await extractResearch({ ...input, reportId: input.reportId ?? contentHash });
   const stock = extraction.value as StockExtraction;
   const row = isStock
     ? { document_id: document.id, report_id: stock.reportId, ticker: stock.ticker, company_name: stock.companyName,
@@ -40,13 +44,8 @@ export async function ingestCanonicalResearch(input: ResearchDocumentInput, db =
   const { error: extractionError } = await db.from(table).upsert(row as any, { onConflict: "document_id" });
   if (extractionError) throw extractionError;
   const chunks = chunkResearchText(cleanedText);
-  let embeddingStatus = "skipped-no-key";
-  if (process.env.GEMINI_API_KEY?.trim() && chunks.length) {
-    const embeddings = await embedResearchChunks(chunks);
-    const { error: chunkError } = await db.from("research_chunks").upsert(chunks.map((content, chunkIndex) => ({ document_id: document.id, chunk_index: chunkIndex, content, embedding: embeddings[chunkIndex], ticker: isStock ? stock.ticker : null, published_at: input.publishedAt })), { onConflict: "document_id,chunk_index" });
-    if (chunkError) throw chunkError;
-    embeddingStatus = "embedded";
-  } else if (chunks.length) {
+  const embeddingStatus = "not-required";
+  if (chunks.length) {
     const { error: chunkError } = await db.from("research_chunks").upsert(chunks.map((content, chunkIndex) => ({ document_id: document.id, chunk_index: chunkIndex, content, embedding: null, ticker: isStock ? stock.ticker : null, published_at: input.publishedAt })), { onConflict: "document_id,chunk_index" });
     if (chunkError) throw chunkError;
   }
