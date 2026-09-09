@@ -23,6 +23,7 @@ import IPSSummary from "@/components/IPSSummary";
 import { useLiveClient } from "@/hooks/useLiveClient";
 import { buildCustomerViewSummary } from "@/lib/customerViewSummary";
 import {
+  isBasicWorkflowApproved,
   isIpsWorkflowApproved,
   isPortfolioWorkflowApproved,
 } from "@/lib/advisory/workflowApprovals";
@@ -109,13 +110,19 @@ export default function ClientFacingView({
 
   if (!client || !summary) return null;
 
+  // 본문은 배지가 아니라 승인 상태를 따른다. 섹션마다 자기 승인의 산출물만 보여 준다:
+  //   기본정보(1~3단계) — 헤더, AUM, 월 순현금흐름, 투자 목적·성향, 현금흐름 상세
+  //   포트폴리오(4~6단계) — 구성 배정 합계, 예상 수익, 포트폴리오 구성, 초안 박스, 세금 요약
+  // 기본정보를 풀면 캐스케이드로 포트폴리오 승인까지 내려가고, 다시 승인해도 기본정보
+  // 3개만 켜진다. 그래서 "기본정보만 승인된" 구간을 반드시 거치는데, 그때 미승인 구성이
+  // 확정처럼 보이면 안 된다 — 섹션 단위로 나눈 이유다.
+  const basicReady = isBasicWorkflowApproved(client);
   const portfolioReady = isPortfolioWorkflowApproved(client);
   const ipsReady = isIpsWorkflowApproved(client);
 
-  // 기본정보 미승인 게이트는 두지 않는다. 승인 전에도 PB 탭에서 화면을 띄울 수 있어야
-  // 회의를 바로 시작할 수 있고, 승인된 내용이 없으면 각 섹션이 알아서 비어 보인다.
-  // 아래 포트폴리오 게이트는 allowPreview=false 인 외부 공유 라우트(/client/[clientId])
-  // 전용으로 남긴다 — 그쪽은 로그인 가드가 없어 게이트를 낮추면 인증 없이 노출된다.
+  // 외부 공유 라우트(/client/[clientId], allowPreview=false)는 통째로 잠근 채 둔다.
+  // 그쪽은 로그인 가드가 없어(app/client 에 layout 이 없다) 섹션 단위로 열면 미승인
+  // 내용이 인증 없이 노출된다. 섹션별 표시는 로그인이 걸린 PB 탭 전용이다.
   if (!portfolioReady && !allowPreview) {
     return (
       <div className="rounded-lg border border-border bg-white p-8 text-center">
@@ -141,6 +148,20 @@ export default function ClientFacingView({
 
   const goPb = () =>
     router.push(client.assignedPbId ? `/pb/${client.assignedPbId}/${client.id}` : `/`);
+
+  // 기본정보가 미승인이면 본문 전체를 가린다. 이 상태에서는 포트폴리오도 캐스케이드로
+  // 풀려 있어 보여 줄 수 있는 섹션이 하나도 없다 — 빈 껍데기 여러 장 대신 안내 한 장.
+  // 화면을 열어 둔 채 PB 가 승인하면 useLiveClient 가 받아 자동으로 채워진다.
+  if (!basicReady) {
+    return (
+      <div className="rounded-lg border border-border bg-white p-8 text-center">
+        <p className="text-sm font-bold text-fg">기본정보 승인이 필요합니다.</p>
+        <p className="mt-1 text-xs text-fg-muted">
+          승인하면 이 화면에 내용이 바로 표시됩니다.
+        </p>
+      </div>
+    );
+  }
 
   const reviewTone =
     summary.reviewStatus === "needs_review"
@@ -211,22 +232,37 @@ export default function ClientFacingView({
           label="투자가능자산(AUM)"
           value={formatKRW(investableWon ?? client.assetSize)}
         />
+        {/* 아래 둘은 포트폴리오 승인의 산출물이다. 미승인이면 칸은 남기고 값만 바꾼다 —
+            칸을 빼면 4열 그리드가 무너지고, 무엇이 빠졌는지도 보이지 않는다. */}
         <Kpi
           label="구성 배정 합계"
           value={
-            summary.portfolioValueWon == null
-              ? "—"
-              : formatKRW(summary.portfolioValueWon)
+            !portfolioReady
+              ? "승인 후 표시"
+              : summary.portfolioValueWon == null
+                ? "—"
+                : formatKRW(summary.portfolioValueWon)
           }
           note={
-            summary.portfolioValueWon == null
+            !portfolioReady || summary.portfolioValueWon == null
               ? undefined
               : summary.portfolioValueComplete
                 ? "승인 구성 기준"
                 : "일부 금액 미확정"
           }
+          muted={!portfolioReady}
         />
-        <Kpi label="예상 수익" value={summary.expectedReturnPct == null ? "산출 전" : formatPercent1(summary.expectedReturnPct)} />
+        <Kpi
+          label="예상 수익"
+          value={
+            !portfolioReady
+              ? "승인 후 표시"
+              : summary.expectedReturnPct == null
+                ? "산출 전"
+                : formatPercent1(summary.expectedReturnPct)
+          }
+          muted={!portfolioReady}
+        />
         <Kpi
           label="월 순현금흐름"
           value={
@@ -243,121 +279,129 @@ export default function ClientFacingView({
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0] px-3 py-2">
           <div>
             <h2 className="text-sm font-bold text-[#0F172A]">포트폴리오 구성</h2>
-            <p className="text-[11px] text-[#64748B]">
-              {summary.portfolioLabel ?? "맞춤 포트폴리오"}
-              {showingProposedOnly ? " · 제안(미승인)" : " · 현재 저장본"}
-              {" · "}
-              {summary.metricsLabelKo}
-            </p>
+            {portfolioReady && (
+              <p className="text-[11px] text-[#64748B]">
+                {summary.portfolioLabel ?? "맞춤 포트폴리오"}
+                {showingProposedOnly ? " · 제안(미승인)" : " · 현재 저장본"}
+                {" · "}
+                {summary.metricsLabelKo}
+              </p>
+            )}
           </div>
-          {summary.legacyIncomplete && (
+          {portfolioReady && summary.legacyIncomplete && (
             <span className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
               종목 상세 확인 필요
             </span>
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_140px]">
-          <div className="overflow-x-auto">
-            {instrumentRows.length === 0 ? (
-              <p className="py-6 text-center text-xs text-[#64748B]">
-                {summary.allocations.length
-                  ? "자산군 비중만 있습니다. 편입 종목은 포트폴리오 재승인 후 표시됩니다."
-                  : "표시할 구성이 없습니다."}
-              </p>
-            ) : (
-              <table className="w-full min-w-[520px] border-collapse text-xs">
-                <thead>
-                  <tr className="text-left text-[10px] uppercase tracking-wide text-[#64748B]">
-                    <th className="pb-1.5 font-semibold">종목</th>
-                    <th className="pb-1.5 font-semibold">자산군</th>
-                    <th className="pb-1.5 text-right font-semibold">군내</th>
-                    <th className="pb-1.5 text-right font-semibold">전체</th>
-                    <th className="pb-1.5 text-right font-semibold">배정</th>
-                    <th className="pb-1.5 text-right font-semibold">수량</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {instrumentRows.map((row) => (
-                    <tr key={`${row.source}-${row.symbol}`} className="border-t border-[#F1F5F9]">
-                      <td className="py-1.5 pr-2">
-                        <span className="font-semibold">{row.name}</span>
-                        <span className="ml-1 text-[10px] text-[#94A3B8]">{row.symbol}</span>
-                      </td>
-                      <td className="py-1.5 text-[#475569]">{row.assetClassLabel}</td>
-                      <td className="py-1.5 text-right tabular-nums">
-                        {formatPercent1(row.weightWithinClass)}
-                      </td>
-                      <td className="py-1.5 text-right font-semibold tabular-nums">
-                        {formatPercent1(row.totalWeightPct)}
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums">
-                        {row.allocationAmountWon != null
-                          ? formatKRW(row.allocationAmountWon)
-                          : "—"}
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums">
-                        {row.quantity != null ? row.quantity.toLocaleString() : "—"}
-                      </td>
+        {portfolioReady ? (
+          <div className="grid grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_140px]">
+            <div className="overflow-x-auto">
+              {instrumentRows.length === 0 ? (
+                <p className="py-6 text-center text-xs text-[#64748B]">
+                  {summary.allocations.length
+                    ? "자산군 비중만 있습니다. 편입 종목은 포트폴리오 재승인 후 표시됩니다."
+                    : "표시할 구성이 없습니다."}
+                </p>
+              ) : (
+                <table className="w-full min-w-[520px] border-collapse text-xs">
+                  <thead>
+                    <tr className="text-left text-[10px] uppercase tracking-wide text-[#64748B]">
+                      <th className="pb-1.5 font-semibold">종목</th>
+                      <th className="pb-1.5 font-semibold">자산군</th>
+                      <th className="pb-1.5 text-right font-semibold">군내</th>
+                      <th className="pb-1.5 text-right font-semibold">전체</th>
+                      <th className="pb-1.5 text-right font-semibold">배정</th>
+                      <th className="pb-1.5 text-right font-semibold">수량</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <p className="mt-2 text-[10px] leading-snug text-[#94A3B8]">
-              위 수량·배정은 상담 구성(장부) 기준이며 증권사 주문·체결 내역이 아닙니다.
-            </p>
-          </div>
+                  </thead>
+                  <tbody>
+                    {instrumentRows.map((row) => (
+                      <tr key={`${row.source}-${row.symbol}`} className="border-t border-[#F1F5F9]">
+                        <td className="py-1.5 pr-2">
+                          <span className="font-semibold">{row.name}</span>
+                          <span className="ml-1 text-[10px] text-[#94A3B8]">{row.symbol}</span>
+                        </td>
+                        <td className="py-1.5 text-[#475569]">{row.assetClassLabel}</td>
+                        <td className="py-1.5 text-right tabular-nums">
+                          {formatPercent1(row.weightWithinClass)}
+                        </td>
+                        <td className="py-1.5 text-right font-semibold tabular-nums">
+                          {formatPercent1(row.totalWeightPct)}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums">
+                          {row.allocationAmountWon != null
+                            ? formatKRW(row.allocationAmountWon)
+                            : "—"}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums">
+                          {row.quantity != null ? row.quantity.toLocaleString() : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <p className="mt-2 text-[10px] leading-snug text-[#94A3B8]">
+                위 수량·배정은 상담 구성(장부) 기준이며 증권사 주문·체결 내역이 아닙니다.
+              </p>
+            </div>
 
-          <div className="flex flex-col items-center">
-            <p className="mb-1 text-[10px] font-semibold text-[#64748B]">자산군 비중</p>
-            {allocationChartData.length > 0 ? (
-              <>
-                <div className="h-[112px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={allocationChartData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={28}
-                        outerRadius={48}
-                        paddingAngle={1}
-                        isAnimationActive={false}
-                      >
-                        {allocationChartData.map((entry, index) => (
-                          <Cell
-                            key={entry.name}
-                            fill={CHART_COLORS[index % CHART_COLORS.length]}
+            <div className="flex flex-col items-center">
+              <p className="mb-1 text-[10px] font-semibold text-[#64748B]">자산군 비중</p>
+              {allocationChartData.length > 0 ? (
+                <>
+                  <div className="h-[112px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={allocationChartData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={28}
+                          outerRadius={48}
+                          paddingAngle={1}
+                          isAnimationActive={false}
+                        >
+                          {allocationChartData.map((entry, index) => (
+                            <Cell
+                              key={entry.name}
+                              fill={CHART_COLORS[index % CHART_COLORS.length]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: unknown) => formatPercent1(Number(v))} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <ul className="mt-1 w-full space-y-0.5 text-[10px] text-[#475569]">
+                    {allocationChartData.map((entry, index) => (
+                      <li key={entry.name} className="flex items-center justify-between gap-1">
+                        <span className="flex min-w-0 items-center gap-1 truncate">
+                          <span
+                            className="inline-block h-1.5 w-1.5 shrink-0 rounded-sm"
+                            style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
                           />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v: unknown) => formatPercent1(Number(v))} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <ul className="mt-1 w-full space-y-0.5 text-[10px] text-[#475569]">
-                  {allocationChartData.map((entry, index) => (
-                    <li key={entry.name} className="flex items-center justify-between gap-1">
-                      <span className="flex min-w-0 items-center gap-1 truncate">
-                        <span
-                          className="inline-block h-1.5 w-1.5 shrink-0 rounded-sm"
-                          style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-                        />
-                        {entry.name}
-                      </span>
-                      <span className="tabular-nums">{formatPercent1(entry.value)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="py-6 text-[10px] text-[#94A3B8]">비중 없음</p>
-            )}
+                          {entry.name}
+                        </span>
+                        <span className="tabular-nums">{formatPercent1(entry.value)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="py-6 text-[10px] text-[#94A3B8]">비중 없음</p>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <p className="px-3 py-10 text-center text-xs text-[#64748B]">
+            포트폴리오 승인 후 표시됩니다.
+          </p>
+        )}
 
-        {summary.hasProposedDiff && (
+        {portfolioReady && summary.hasProposedDiff && (
           <div className="border-t border-dashed border-amber-200 bg-amber-50/60 px-3 py-2">
             <p className="text-[11px] font-semibold text-amber-900">
               미승인 제안 초안이 있습니다 (저장본과 다름)
@@ -444,8 +488,10 @@ export default function ClientFacingView({
         )}
       </section>
 
-      {/* 세금 메모 */}
-      {(client.portfolios[0]?.taxNote || client.financialIncomeComprehensiveTax != null) && (
+      {/* 세금 메모 — taxNote 가 포트폴리오 산출물이라 포트폴리오 승인에 묶는다.
+          종합과세 해당 여부만 따로 남겨 봐야 읽을 거리가 되지 않는다. */}
+      {portfolioReady &&
+        (client.portfolios[0]?.taxNote || client.financialIncomeComprehensiveTax != null) && (
         <section className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2">
           <h2 className="text-sm font-bold">세금 요약</h2>
           <p className="mt-1 text-xs text-[#475569]">
@@ -466,11 +512,9 @@ export default function ClientFacingView({
         </p>
       )}
 
-      {!portfolioReady && allowPreview && (
-        <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-          포트폴리오 미승인 상태의. 표시 내용은 현재 저장본이며 최종 확정이 아닙니다.
-        </p>
-      )}
+      {/* 예전에는 여기에 "포트폴리오 미승인 — 표시 내용은 최종 확정이 아닙니다" 배너가
+          있었다. 이제 미승인이면 그 내용 자체를 보여 주지 않으므로 가리키는 대상이
+          없어졌다. 안내는 가려진 자리("포트폴리오 승인 후 표시됩니다")가 대신한다. */}
 
       {!embedded && (
         <div className="text-center">
@@ -488,18 +532,23 @@ function Kpi({
   value,
   note,
   danger,
+  muted,
 }: {
   label: string;
   value: string;
   note?: string;
   danger?: boolean;
+  /** 승인 전 자리표시자 — 실제 수치와 같은 무게로 읽히지 않게 흐리게 그린다. */
+  muted?: boolean;
 }) {
   return (
     <div className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2">
       <p className="text-[10px] font-semibold text-[#64748B]">{label}</p>
       <p
-        className={`mt-0.5 text-sm font-bold tabular-nums sm:text-base ${
-          danger ? "text-red-600" : "text-[#0F172A]"
+        className={`mt-0.5 tabular-nums ${
+          muted
+            ? "text-xs font-medium text-[#94A3B8]"
+            : `text-sm font-bold sm:text-base ${danger ? "text-red-600" : "text-[#0F172A]"}`
         }`}
       >
         {value}
