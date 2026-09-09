@@ -448,7 +448,7 @@ export default function BookDashboard({ pbId, rows, clients = [], onConsultation
                     <StartConsultationButton
                       client={clients.find((c) => c.id === r.clientId) ?? null}
                       pbId={pbId}
-                      onSaved={() => onConsultationSaved?.(r.clientId)}
+                      onStarted={() => onConsultationSaved?.(r.clientId)}
                     />
                   </td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-xs text-fg-muted">

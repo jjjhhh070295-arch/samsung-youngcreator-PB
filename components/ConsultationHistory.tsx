@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Consultation, Client } from "@/lib/types";
 import { FACTOR_META } from "@/lib/types";
 import { formatDateTime, formatDurationKo } from "@/lib/format";
+import { deleteConsultation } from "@/lib/store";
 import { EmptyView } from "./StateViews";
 import ConsultationDetailModal from "./ConsultationDetailModal";
 
@@ -17,6 +18,24 @@ interface Props {
 export default function ConsultationHistory({ consultations, client, onSaved }: Props) {
   const [selected, setSelected] = useState<Consultation | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | undefined>();
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // 삭제는 되돌릴 수 없다 — DB 하드 삭제이고 소프트 삭제 플래그가 없다. 그래서 확인을
+  // 반드시 받고, 무엇이 사라지는지(회차·일시)를 문구에 넣는다. 실패는 조용히 넘기지 않는다.
+  const remove = async (target: Consultation, idx?: number) => {
+    const label = `${idx ? `${idx}회차 ` : ""}${formatDateTime(target.createdAt)}`;
+    if (!confirm(`상담 기록을 삭제할까요?\n\n${label}\n\n되돌릴 수 없습니다.`)) return;
+    setDeleting(target.id);
+    try {
+      await deleteConsultation(target.id);
+      onSaved?.();
+    } catch (e) {
+      console.error("[상담 삭제] 실패", e);
+      alert("상담 기록을 삭제하지 못했습니다.");
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   if (consultations.length === 0) {
     return <EmptyView title="상담 이력이 없어요" hint="상담을 시작하고 종료하면 이력이 쌓입니다." />;
@@ -51,20 +70,34 @@ export default function ConsultationHistory({ consultations, client, onSaved }: 
               <div>
                 <p className="text-sm font-medium text-fg">{formatDateTime(c.createdAt)}</p>
                 <p className="text-xs text-fg-muted">
-                  소요 {formatDurationKo(c.durationSeconds)} · 점수 확정 {scoreCount(c)}개
-                  {c.notes ? " · 메모 있음" : ""}
+                  {/* ended_at 이 비어 있으면 아직 진행 중인 상담이다. 소요 시간을 0분으로
+                      보여주면 끝난 상담처럼 읽히므로 상태를 그대로 적는다. */}
+                  {c.endedAt ? `소요 ${formatDurationKo(c.durationSeconds)}` : "진행 중"}
+                  {` · 점수 확정 ${scoreCount(c)}개`}
+                  {c.pbMemo ? " · PB 메모 있음" : c.notes ? " · 상담 전문 있음" : ""}
                 </p>
               </div>
             </div>
-            <button
-              className="btn-gold shrink-0 text-xs"
-              onClick={() => {
-                setSelected(c);
-                setSelectedIdx(indexOf.get(c.id));
-              }}
-            >
-              상세 보기
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                className="btn-gold text-xs"
+                onClick={() => {
+                  setSelected(c);
+                  setSelectedIdx(indexOf.get(c.id));
+                }}
+              >
+                상세 보기
+              </button>
+              <button
+                type="button"
+                className="px-1 text-red-400 transition-colors hover:text-red-600 disabled:opacity-40"
+                disabled={deleting === c.id}
+                title="이 상담 기록 삭제 — 되돌릴 수 없습니다"
+                onClick={() => void remove(c, indexOf.get(c.id))}
+              >
+                {deleting === c.id ? "…" : "✕"}
+              </button>
+            </div>
           </li>
         ))}
       </ul>

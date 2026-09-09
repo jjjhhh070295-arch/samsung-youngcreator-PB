@@ -195,6 +195,7 @@ function rowToConsultation(r: any): Consultation {
     endedAt: r.ended_at ?? "",
     durationSeconds: Number(r.duration_seconds ?? 0),
     notes: r.notes ?? "",
+    pbMemo: r.pb_memo ?? null,
     ipsSnapshot: (r.ips_snapshot && Object.keys(r.ips_snapshot).length
       ? r.ips_snapshot
       : emptyIPS()) as IPS,
@@ -502,6 +503,7 @@ function ensureLocalSample(db: LocalDB): { db: LocalDB; changed: boolean } {
   if (!consultationExists) {
     db.consultations.push({
       id: "consultation-hanbit-cashflow-sample",
+      pbMemo: null,
       clientId: SAMPLE_CLIENT_ID,
       pbId: pb.id,
       startedAt: nowIso,
@@ -1317,6 +1319,7 @@ export async function createConsultation(input: NewConsultationInput): Promise<C
     const cs: Consultation = {
       id: uid(),
       ...input,
+      pbMemo: null,
       createdAt: new Date().toISOString(),
     };
     db.consultations.push(cs);
@@ -1342,7 +1345,14 @@ export async function createConsultation(input: NewConsultationInput): Promise<C
 
 export async function updateConsultation(
   id: string,
-  patch: { notes?: string; ipsSnapshot?: IPS },
+  patch: {
+    notes?: string;
+    ipsSnapshot?: IPS;
+    pbMemo?: string | null;
+    /** 상담 종료 시각. 이 값이 채워지면 ended_at IS NULL 조건에서 빠져 "진행 중"이 아니게 된다. */
+    endedAt?: string;
+    durationSeconds?: number;
+  },
 ): Promise<void> {
   if (usingLocalFallback || localConsultationExists(id)) {
     const db = loadLocal();
@@ -1350,6 +1360,9 @@ export async function updateConsultation(
     if (cs) {
       if (patch.notes !== undefined) cs.notes = patch.notes;
       if (patch.ipsSnapshot !== undefined) cs.ipsSnapshot = patch.ipsSnapshot;
+      if (patch.pbMemo !== undefined) cs.pbMemo = patch.pbMemo;
+      if (patch.endedAt !== undefined) cs.endedAt = patch.endedAt;
+      if (patch.durationSeconds !== undefined) cs.durationSeconds = patch.durationSeconds;
     }
     saveLocal(db);
     return;
@@ -1357,7 +1370,39 @@ export async function updateConsultation(
   const row: any = {};
   if (patch.notes !== undefined) row.notes = patch.notes;
   if (patch.ipsSnapshot !== undefined) row.ips_snapshot = patch.ipsSnapshot;
+  if (patch.pbMemo !== undefined) row.pb_memo = patch.pbMemo;
+  if (patch.endedAt !== undefined) row.ended_at = patch.endedAt;
+  if (patch.durationSeconds !== undefined) row.duration_seconds = patch.durationSeconds;
   const { error } = await supabase!.from("consultations").update(row).eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * 진행 중인 상담 — ended_at 이 비어 있는 가장 최근 1건. 없으면 null.
+ *
+ * 진행 상태를 localStorage 나 React state 에 들지 않는 이유는 그것들이 기기·새로고침을
+ * 넘지 못해서다. "상담 시작"과 "상담 종료" 사이에 화면이 바뀌는 흐름이라 그 방식으로는
+ * 연결이 끊긴다. DB 에서 파생시키면 어느 기기·어느 화면에서 물어도 같은 답이 나온다.
+ */
+export async function findOpenConsultation(clientId: string): Promise<Consultation | null> {
+  if (!clientId) return null;
+  const all = await listConsultations(clientId);
+  const open = all.filter((c) => !c.endedAt);
+  if (open.length === 0) return null;
+  // 여러 건이 열려 있을 수 있다(예전 데이터·예외 종료). 가장 최근 것을 이어간다.
+  return open.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))[0];
+}
+
+/** 상담 1건 삭제. 되돌릴 수 없다 — 호출부가 반드시 확인을 받는다. */
+export async function deleteConsultation(id: string): Promise<void> {
+  if (!id) return;
+  if (usingLocalFallback || localConsultationExists(id)) {
+    const db = loadLocal();
+    db.consultations = db.consultations.filter((c) => c.id !== id);
+    saveLocal(db);
+    return;
+  }
+  const { error } = await supabase!.from("consultations").delete().eq("id", id);
   if (error) throw error;
 }
 

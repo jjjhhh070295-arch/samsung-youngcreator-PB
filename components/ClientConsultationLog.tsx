@@ -160,7 +160,7 @@ export default function ClientConsultationLog({
               <StartConsultationButton
                 client={selected}
                 pbId={pbId}
-                onSaved={() => onConsultationSaved(selected.id)}
+                onStarted={() => onConsultationSaved(selected.id)}
               />
             </div>
           </div>

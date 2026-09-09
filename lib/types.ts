@@ -500,7 +500,10 @@ export interface Consultation {
   startedAt: string;
   endedAt: string;
   durationSeconds: number;
+  /** 상담 전문(고객 발화). 새 흐름에서는 쓰지 않고 빈 문자열로 둔다 — PB 메모는 pbMemo. */
   notes: string;
+  /** PB 개인 메모. 상담 종료 시 입력한다. 마이그레이션 전 행은 null. */
+  pbMemo: string | null;
   ipsSnapshot: IPS; // 종료 시점 7요인(점수 포함) → 성향 변화 그래프 소스
   createdAt: string;
 }

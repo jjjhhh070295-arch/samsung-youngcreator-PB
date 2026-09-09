@@ -11,6 +11,7 @@ import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
 import TaxProjectionPanel from "./TaxProjectionPanel";
 import ManualPortfolioBuilder from "./ManualPortfolioBuilder";
+import ConsultationEndButton from "./ConsultationEndButton";
 import PortfolioWorkflowStepper from "./PortfolioWorkflowStepper";
 import ScoreRubricButton from "./ScoreRubricButton";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
@@ -692,6 +693,9 @@ export default function IPSResultTabs({
               </button>
             </div>
           </div>
+          {/* 상담 종료 — 진행 중인 상담이 있을 때만 나타난다. PB 메모와 이 시점의 IPS 를
+              그 건에 기록한다. 컴포넌트가 스스로 열린 상담을 찾으므로 고객만 넘긴다. */}
+          <ConsultationEndButton client={client} />
         </div>
       )}
     </div>
