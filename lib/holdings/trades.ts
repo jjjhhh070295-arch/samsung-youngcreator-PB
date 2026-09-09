@@ -1,31 +1,41 @@
 /**
  * 보유종목 거래 이력 — 매도 기록과 실현손익.
  *
- * ── 1단계 범위 ─────────────────────────────────────────────────────────────
- * 이력 기록 + 잔고 차감까지만 한다. AUM(parties.asset_size)은 건드리지 않는다.
- * 따라서 이 단계에서는 화면 숫자가 지금과 똑같이 움직인다 — 종목이 줄면 장부가만큼
- * cashKrw 잔차가 늘 뿐이다(lib/assets.ts). 달라지는 것은 "무엇을 얼마에 팔았는지"가
- * 남는다는 것뿐이라, 기존 계산에 회귀 위험이 없다.
+ * ── 범위 (2단계까지 반영됨) ────────────────────────────────────────────────
+ * 매도 1건이 이력·잔고·AUM 세 곳에 원자적으로 반영된다. 실제 쓰기는 전부
+ * record_holding_sale RPC 안에서 일어난다(supabase-migration-holding-sale-rpc.sql).
  *
- * ── 2단계에서 여기에 붙을 것 (지금은 하지 않는다) ───────────────────────────
- *  1) assetSize += realized_pnl_won.
- *     시세로는 AUM 이 움직이지 않지만 확정된 거래로는 움직인다는 규칙이다.
- *     ⚠️ 실현손실이 커서 AUM 이 음수가 되는 경우는 조용히 0 으로 막지 않는다 —
- *        거부하고 PB 에게 알린다. 0 으로 눌러 버리면 또 하나의 조용한 실패가 된다.
- *  2) 승인 해제. assetSize 가 기본정보 승인 해시 payload 에 들어 있어
- *     (lib/advisory/approvalSnapshots.ts) 값만 바꿔도 다음 진입에서 스테일로 잡히지만,
- *     즉시 반영하려면 invalidateAfterEdit(next, "basic") 을 명시 호출한다.
- *  3) 원자성. PostgREST 에는 트랜잭션이 없다. 이력·잔고·AUM 세 쓰기를 한 번에 묶으려면
- *     SECURITY DEFINER RPC 가 필요하다(authenticate_pb 선례). 1단계는 AUM 을 건드리지
- *     않아 쓰기가 둘뿐이고, 아래 순서(이력 먼저)로 복구 가능하게 두었다.
+ *  · 이력 : client_holding_trades 에 append. 취득원가와 실현손익을 체결 시점 값으로 고정.
+ *  · 잔고 : client_holdings.quantity 차감(0 이면 행 삭제). avg_price 는 바꾸지 않는다 —
+ *           남은 수량의 취득원가는 그대로다. 평단이 바뀌는 것은 매수(가중평균)뿐이다.
+ *  · AUM  : parties.asset_size += 실현손익.
  *
- * ── 미정: 매도대금을 현금 행에 반영할지 ─────────────────────────────────────
- * lib/advisory/ipsHoldingsSync.ts 는 IPS 확정 시 market="CASH" 또는 이름에 CMA·현금·
- * 예수금이 든 client_holdings 행을 찾아 매수액만큼 차감한다. 즉 현금을 보유종목 한 행으로
- * 두는 관행이 이미 있다. 매도대금을 그 행에 더할지, 아니면 잔차 방식(AUM 만 조정)에
- * 맡길지는 박상혁님과 합의가 필요하다 — 두 방식이 섞이면 현금이 이중 계상된다.
- * 합의되면 아래 recordSell 의 잔고 차감 직후가 그 자리다(§CASH-CREDIT 표시).
- * 1단계는 AUM 도 현금도 건드리지 않으므로 이 결정 없이 진행할 수 있다.
+ * ── AUM 규칙: 시세로는 안 움직이고 확정된 거래로만 움직인다 ─────────────────
+ * assetSize 는 여전히 "PB 가 입력한 확정 AUM"이고 시세 변동으로 자동으로 흔들리지 않는다.
+ * 매도는 예외가 아니라 그 규칙이 적용되는 지점이다 — 체결가로 확정된 현금 흐름이기 때문이다.
+ * 더하는 값이 매도대금이 아니라 실현손익인 이유도 같다. 매도대금이 계좌에 남으면 주식이
+ * 현금으로 바뀐 것뿐이라 AUM 은 그대로여야 하고, 실제로 늘어난 것은 차익뿐이다.
+ *
+ * ⚠️ 실현손실로 AUM 이 음수가 되면 0 으로 막지 않는다. RPC 가 예외를 던져 트랜잭션 전체를
+ *    되돌리고 PB 에게 알린다 — 아무것도 기록되지 않은 상태가 되므로 자산규모를 정정한 뒤
+ *    다시 시도하면 된다. 조용히 0 이 되면 "왜 자산이 0 인가"의 근거가 사라진다.
+ *
+ * 승인 해제는 따로 배선하지 않았다. assetSize 가 기본정보 승인 해시 payload 에 들어 있고
+ * (lib/advisory/approvalSnapshots.ts), 화면의 onBasicAssetsChanged 가 이미
+ * invalidateAfterEdit({}, "basic") 을 부른다. 매도 성공 시 onAssetsChanged 를 태우면
+ * 승인이 즉시 해제되고 새 assetSize 까지 반영된다.
+ *
+ * ── §CASH-CREDIT 결론: 현금 행에 매도대금을 더하지 않는다 ───────────────────
+ * lib/advisory/ipsHoldingsSync.ts 가 IPS 확정 시 market="CASH" 행을 매수액만큼 차감하는
+ * 관행이 있어 대칭으로 증액할지 검토했으나, 하지 않기로 했다. 잔차 모델
+ * (lib/assets.ts: cash = AUM − stocks)에서 AUM 에 실현손익만 더하면 현금이 자동으로
+ * 매도대금만큼 늘기 때문이다:
+ *
+ *     매도 후 cash = (A + q(p−c)) − (S − q·c) = (A − S) + q·p = 기존 현금 + 매도대금
+ *
+ * 여기에 CASH 행까지 증액하면 이중 계상이다. 덧붙여 lib/assets.ts 는 CASH 행도
+ * stocksKrw 에 합산하므로 명시적 현금 행을 가진 고객은 이미 잔차 모델과 어긋나 있다 —
+ * 그건 이 작업이 만든 문제가 아니라 기존 사안이라 별건으로 다룬다.
  */
 
 import { supabase, isSupabaseConfigured } from "../supabase";
@@ -185,17 +195,52 @@ export interface RecordSellResult {
   /** 매도 후 남은 수량. 0 이면 잔고 행을 삭제했다. */
   remainingQuantity: number;
   holdingRemoved: boolean;
+  /** AUM 반영 전후. 화면이 "무엇 때문에 자산이 바뀌었는지"를 보여 주는 데 쓴다. */
+  assetSizeBeforeWon: number;
+  assetSizeAfterWon: number;
+}
+
+export class HoldingSaleRpcMissingError extends Error {
+  constructor() {
+    super(
+      "매도 처리 함수(record_holding_sale)가 없습니다. " +
+        "supabase-migration-holding-sale-rpc.sql 을 먼저 실행하세요.",
+    );
+    this.name = "HoldingSaleRpcMissingError";
+  }
+}
+
+const MISSING_FUNCTION_CODES = new Set(["PGRST202", "42883"]);
+
+/** uuid v4. RPC 인자가 uuid 라 형식이 맞아야 한다. */
+function newTradeId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 /**
- * 매도 기록. 이력을 먼저 남기고 잔고를 줄인다.
+ * 매도 기록 — 이력·잔고·AUM 을 RPC 한 번으로 원자적으로 반영한다.
  *
- * 순서가 중요하다. 이력이 먼저여야 2 단계가 실패해도 "무엇을 팔았는지"가 남는다.
- * 반대로 잔고를 먼저 지우면 실패 시 종목이 사라진 채 근거가 없다 — 되돌릴 수 있는 쪽을
- * 나중에 둔다.
+ * 1단계에서는 이력 INSERT 와 잔고 UPDATE 를 순차로 했다. 2단계에서 AUM 갱신이 붙으면서
+ * 그 방식을 버렸다. 이유는 둘이다.
  *
- * 테이블이 없으면 던진다. 이 프로젝트의 다른 폴백들처럼 localStorage 로 조용히 넘어가지
- * 않는다 — 장부는 조용히 실패하면 안 되고, 기록이 남지 않은 채 잔고만 줄면 그게 최악이다.
+ *  · assetSize += 실현손익 은 읽고-더하고-쓰는 연산이라 REST 로는 원자적일 수 없다.
+ *    매도가 겹치거나 클라이언트가 쥔 값이 오래되면 한쪽 손익이 사라진다(lost update).
+ *  · 세 쓰기가 부분 적용되면 장부와 잔고와 자산이 서로 어긋난 채 남는다. 되돌릴 방법이
+ *    사람 손밖에 없다.
+ *
+ * 취득원가도 서버가 client_holdings.avg_price 에서 직접 읽는다 — 화면이 오래된 평단을
+ * 쥐고 있어도 장부에 틀린 실현손익이 확정값으로 남지 않는다. 그래서 이 함수가 넘기는
+ * costBasisUnitPrice 는 화면 미리보기용일 뿐 기록에는 쓰이지 않는다.
+ *
+ * RPC 나 테이블이 없으면 던진다. 조용히 로컬로 넘어가지 않는다 — 기록이 남지 않은 채
+ * 잔고나 자산만 바뀌는 것이 최악이다.
  */
 export async function recordSell(input: RecordSellInput): Promise<RecordSellResult> {
   const reasons = validateSellInput({
@@ -212,95 +257,41 @@ export async function recordSell(input: RecordSellInput): Promise<RecordSellResu
     throw new Error("Supabase 연결이 없어 매도를 기록할 수 없습니다.");
   }
 
-  const realizedPnlWon = computeRealizedPnlWon({
-    quantity: input.quantity,
-    unitPrice: input.unitPrice,
-    costBasisUnitPrice: input.costBasisUnitPrice,
-    fxRate: input.fxRate,
-    feeWon: input.feeWon,
-    taxWon: input.taxWon,
+  const tradeId = newTradeId();
+
+  const { data, error } = await supabase.rpc("record_holding_sale", {
+    p_trade_id: tradeId,
+    p_client_id: input.clientId,
+    p_holding_id: input.holdingId,
+    p_quantity: input.quantity,
+    p_unit_price: input.unitPrice,
+    p_fx_rate: input.fxRate ?? null,
+    p_traded_at: input.tradedAt,
+    p_fee_won: input.feeWon ?? 0,
+    p_tax_won: input.taxWon ?? 0,
+    p_memo: input.memo ?? null,
   });
-  const grossProceedsWon = computeGrossProceedsWon(
-    input.quantity,
-    input.unitPrice,
-    input.fxRate,
-  );
 
-  // id 를 여기서 만든다. 2 단계(잔고 차감)가 실패해 사용자가 다시 시도하면 같은 id 로
-  // 충돌(23505)이 나므로 이력이 중복되지 않는다. 아래에서 그 충돌을 성공으로 취급한다.
-  const tradeId =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
-
-  // ① 이력
-  const { error: insertError } = await supabase.from(HOLDING_TRADES_TABLE).insert([
-    {
-      id: tradeId,
-      client_id: input.clientId,
-      holding_id: input.holdingId,
-      ticker: input.ticker,
-      name: input.name,
-      market: input.market,
-      currency: input.currency,
-      side: "sell",
-      quantity: input.quantity,
-      unit_price: input.unitPrice,
-      fx_rate: input.fxRate ?? null,
-      traded_at: input.tradedAt,
-      fee_won: input.feeWon ?? 0,
-      tax_won: input.taxWon ?? 0,
-      cost_basis_unit_price: input.costBasisUnitPrice,
-      realized_pnl_won: realizedPnlWon,
-      source: "manual",
-      memo: input.memo ?? null,
-    },
-  ]);
-  if (insertError && insertError.code !== "23505") {
-    if (MISSING_TABLE_CODES.has(insertError.code ?? "")) throw new HoldingTradesTableMissingError();
-    throw new Error(`매도 이력 기록 실패: ${insertError.message}`);
+  if (error) {
+    if (MISSING_FUNCTION_CODES.has(error.code ?? "")) throw new HoldingSaleRpcMissingError();
+    if (MISSING_TABLE_CODES.has(error.code ?? "")) throw new HoldingTradesTableMissingError();
+    if (error.code === "23505") {
+      throw new Error("이미 기록된 매도입니다. 목록을 새로고침해 확인하세요.");
+    }
+    // RPC 안에서 raise exception 으로 던진 메시지는 그대로 보여 준다 — 수량 초과·평단 없음·
+    // AUM 음수 같은, PB 가 무엇을 해야 하는지 아는 문구들이다.
+    throw new Error(error.message || "매도 기록에 실패했습니다.");
   }
 
-  // ② 잔고
-  const remainingQuantity = Number(input.heldQuantity) - Number(input.quantity);
-  // 부동소수 오차로 0 이 1e-9 처럼 남는 것을 막는다.
-  const cleared = Math.abs(remainingQuantity) < 1e-9;
-
-  if (cleared) {
-    const { error } = await supabase
-      .from("client_holdings")
-      .delete()
-      .eq("id", input.holdingId)
-      .eq("client_id", input.clientId);
-    if (error) {
-      throw new Error(
-        `매도 이력은 기록됐으나(거래 ${tradeId}) 보유종목 삭제에 실패했습니다: ${error.message}`,
-      );
-    }
-  } else {
-    // avg_price 는 건드리지 않는다. 매도는 평단을 바꾸지 않는다 — 남은 수량의 취득원가는
-    // 그대로다. 평단이 바뀌는 것은 매수뿐이다(가중평균).
-    const { error } = await supabase
-      .from("client_holdings")
-      .update({ quantity: remainingQuantity })
-      .eq("id", input.holdingId)
-      .eq("client_id", input.clientId);
-    if (error) {
-      throw new Error(
-        `매도 이력은 기록됐으나(거래 ${tradeId}) 보유수량 차감에 실패했습니다: ${error.message}`,
-      );
-    }
-  }
-
-  // §CASH-CREDIT — 매도대금을 현금 행에 더할지 결정되면 여기에 붙인다(파일 상단 주석 참고).
-  // 지금은 아무것도 하지 않는다. AUM 도 현금도 1 단계 범위 밖이다.
-
+  const r = (data ?? {}) as Record<string, unknown>;
   return {
-    tradeId,
-    realizedPnlWon,
-    grossProceedsWon,
-    remainingQuantity: cleared ? 0 : remainingQuantity,
-    holdingRemoved: cleared,
+    tradeId: String(r.tradeId ?? tradeId),
+    realizedPnlWon: Number(r.realizedPnlWon ?? 0),
+    grossProceedsWon: Number(r.grossProceedsWon ?? 0),
+    remainingQuantity: Number(r.remainingQuantity ?? 0),
+    holdingRemoved: Boolean(r.holdingRemoved),
+    assetSizeBeforeWon: Number(r.assetSizeBefore ?? 0),
+    assetSizeAfterWon: Number(r.assetSizeAfter ?? 0),
   };
 }
 

@@ -6,8 +6,10 @@
 // 시세 스냅샷 등) 매도 UI 를 그 안에 넣으면 충돌면적이 커진다. 여기로 빼고 저쪽에는
 // 버튼 한 줄만 둔다.
 //
-// 1단계 범위 — 이력 기록과 잔고 차감까지. AUM 은 건드리지 않는다. 그래서 이 모달은
-// 실현손익을 "기록됩니다"라고만 말하고 "자산에 반영됩니다"라고 말하지 않는다.
+// 매도 1건은 이력·잔고·AUM 에 원자적으로 반영된다(record_holding_sale RPC).
+// 미리보기 실현손익은 화면이 쥔 평단으로 계산한 값이고, 장부에 남는 값은 서버가
+// client_holdings.avg_price 를 직접 읽어 다시 계산한다 — 화면이 오래된 평단을 쥐고 있어도
+// 틀린 숫자가 확정값으로 남지 않는다. 그래서 둘이 어긋나면 서버 값이 맞다.
 
 import { useEffect, useMemo, useState } from "react";
 import { formatKRW } from "@/lib/format";
@@ -16,6 +18,7 @@ import {
   computeRealizedPnlWon,
   recordSell,
   validateSellInput,
+  type RecordSellResult,
 } from "@/lib/holdings/trades";
 
 export interface SellTargetHolding {
@@ -34,7 +37,7 @@ interface Props {
   holding: SellTargetHolding | null;
   onClose: () => void;
   /** 기록 성공 후. 부모가 목록을 다시 읽고 자산 변경을 알린다. */
-  onSold: () => void;
+  onSold: (result: RecordSellResult) => void;
 }
 
 export default function SellHoldingModal({ open, clientId, holding, onClose, onSold }: Props) {
@@ -120,7 +123,7 @@ export default function SellHoldingModal({ open, clientId, holding, onClose, onS
 
     setSaving(true);
     try {
-      await recordSell({
+      const result = await recordSell({
         clientId,
         holdingId: holding.id,
         name: holding.name,
@@ -137,7 +140,7 @@ export default function SellHoldingModal({ open, clientId, holding, onClose, onS
         taxWon,
         memo: memo.trim() || null,
       });
-      onSold();
+      onSold(result);
       onClose();
     } catch (e) {
       // 기록 실패는 반드시 화면에 드러낸다. 조용히 넘어가면 잔고만 줄고 근거가 사라진다.
@@ -266,8 +269,9 @@ export default function SellHoldingModal({ open, clientId, holding, onClose, onS
               </span>
             </div>
             <p className="mt-2 leading-relaxed text-fg-muted">
-              실현손익은 거래 이력에 기록됩니다. 이번 단계에서는 자산규모(AUM)에 자동
-              반영되지 않으므로, 필요하면 기본정보에서 직접 갱신해 주세요.
+              실현손익이 거래 이력에 기록되고 자산규모(AUM)에 그만큼 반영됩니다.
+              시세로는 AUM 이 움직이지 않지만 체결된 거래는 반영합니다.
+              자산이 바뀌므로 기본정보 승인은 해제되며 재승인이 필요합니다.
             </p>
           </div>
         )}

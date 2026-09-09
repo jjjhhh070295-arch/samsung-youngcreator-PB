@@ -8,6 +8,7 @@ import { identityKeyForSymbol } from "@/lib/pricing/instrumentIdentity";
 import { formatKRWShort } from "@/lib/format";
 import { pickAutoSelection, type LookupHit } from "@/lib/instruments/lookup";
 import SellHoldingModal, { type SellTargetHolding } from "./SellHoldingModal";
+import type { RecordSellResult } from "@/lib/holdings/trades";
 
 interface Props {
   clientId: string;
@@ -119,6 +120,9 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
   // 매도 대상. null 이면 모달이 닫힌다. 매도 UI 자체는 SellHoldingModal 로 분리했다 —
   // 이 파일은 팀원 접촉이 잦아 충돌면적을 줄인다.
   const [sellTarget, setSellTarget] = useState<SellTargetHolding | null>(null);
+  // 직전 매도 결과. AUM 이 코드로 바뀌었다는 사실을 화면에 남긴다 — PB 가 입력한 값이
+  // 시스템에 의해 변경되므로 근거 없이 바뀌면 안 된다. 닫기 전까지 유지된다.
+  const [lastSale, setLastSale] = useState<{ name: string; result: RecordSellResult } | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveMsg, setResolveMsg] = useState<string | null>(null);
 
@@ -540,12 +544,39 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
       clientId={clientId}
       holding={sellTarget}
       onClose={() => setSellTarget(null)}
-      onSold={() => {
+      onSold={(result) => {
+        setLastSale({ name: sellTarget?.name ?? "", result });
         void loadSaved();
         onAssetsChanged?.();
       }}
     />
   );
+
+  // 매도 직후 배너. assetSize 는 PB 가 입력하는 값인데 매도가 그것을 코드로 바꾼다.
+  // 무엇 때문에 얼마가 바뀌었는지 화면에 남기지 않으면 "자산이 저절로 달라졌다"가 된다.
+  const saleBanner = lastSale ? (
+    <div className="mb-3 rounded-xl border border-[#1769D2]/30 bg-[#EAF2FF] p-3 dark:bg-[#0D57BA]/15">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-xs leading-relaxed text-fg">
+          <p className="font-black">매도 기록 완료 — {lastSale.name}</p>
+          <p className="mt-1">
+            매도대금 <b>{formatKRWShort(lastSale.result.grossProceedsWon)}</b>
+            {" · "}실현손익{" "}
+            <b className={lastSale.result.realizedPnlWon > 0 ? "text-red-500" : lastSale.result.realizedPnlWon < 0 ? "text-blue-600" : ""}>
+              {lastSale.result.realizedPnlWon > 0 ? "+" : ""}
+              {formatKRWShort(lastSale.result.realizedPnlWon)}
+            </b>
+          </p>
+          <p className="mt-1">
+            자산규모 {formatKRWShort(lastSale.result.assetSizeBeforeWon)} → <b>{formatKRWShort(lastSale.result.assetSizeAfterWon)}</b>
+            {lastSale.result.holdingRemoved ? " · 전량 매도로 종목 제거" : " · 잔여 " + lastSale.result.remainingQuantity.toLocaleString("ko-KR") + "주"}
+          </p>
+          <p className="mt-1 text-fg-muted">자산이 바뀌어 기본정보 승인이 해제되었습니다. 재승인이 필요합니다.</p>
+        </div>
+        <button className="shrink-0 text-fg-muted hover:text-fg" onClick={() => setLastSale(null)} aria-label="닫기">✕</button>
+      </div>
+    </div>
+  ) : null;
 
   // ── 저장된 종목 탭 ──
   if (tab === "saved") {
@@ -554,6 +585,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
       <div>
         {tabBar}
         {sellModal}
+        {saleBanner}
         {savedLoading ? (
           <p className="py-8 text-center text-sm text-fg-muted">불러오는 중…</p>
         ) : saved.length === 0 ? (
