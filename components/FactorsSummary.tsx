@@ -73,7 +73,6 @@ export default function FactorsSummary({
 
   return (
     <div>
-      <HeritageSignalBadge client={client} />
       <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
@@ -147,12 +146,19 @@ export default function FactorsSummary({
           요인별 점수는 아래 FactorGroups 카드의 상/중/하 배지가 계속 보여 준다. */}
       <section className="mb-4">
         <div className="console-panel p-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
               <p className="console-label">최종 투자성향</p>
               <p className="mt-1 text-2xl font-black text-[#0D57BA]">{ips.risk.value || "검토 필요"}</p>
             </div>
-            <span className="badge-navy">7요인 분석</span>
+            {/* 배지 줄. 헤리티지 신호는 7요인 판정이 아니라 나이·AUM 으로 판정하는 별개
+                신호다 — 예전처럼 7요인 제목 바로 아래 카드로 두면 7요인 결과처럼 읽혔다.
+                조건에 안 맞는 고객에서는 HeritageSignalBadge 가 null 을 반환해 이 줄에
+                "7요인 분석" 하나만 남는다. 자리 표시자를 두지 않아도 레이아웃이 그대로다. */}
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <HeritageSignalBadge client={client} />
+              <span className="badge-navy">7요인 분석</span>
+            </div>
           </div>
           <div className="mt-4 grid grid-cols-3 gap-2">
             <div className="console-metric">

@@ -58,11 +58,17 @@ interface Props {
 }
 
 export default function HeritageSignalBadge({ client }: Props) {
+  // 조건에 맞지 않으면 아무것도 그리지 않는다. 호출부가 배지 줄 안에 두므로 null 이면
+  // 그 자리가 사라질 뿐 줄 자체가 무너지지 않는다(빈 자리 표시자를 두지 않는 이유).
   if (!shouldShowHeritageSignal(client)) return null;
 
-  return (
-    <div className="mb-3 rounded-xl border border-border bg-surface-2 px-4 py-3">
-      <span className="badge-navy">헤리티지 상품 검토 필요</span>
-    </div>
-  );
+  // 카드가 아니라 배지 하나만 낸다.
+  //
+  // 예전에는 7요인 섹션 최상단에 별도 카드로 떠 있었다. 제목 바로 아래라 7요인 판정
+  // 결과처럼 읽혔는데, 헤리티지는 나이·AUM 으로 판정하는 별개 신호다. "최종 투자성향"
+  // 카드의 "7요인 분석" 배지 옆으로 옮기면서 카드 껍데기를 벗겨 같은 줄에 앉힌다.
+  //
+  // badge-navy 를 쓰지 않는 이유: 바로 옆 "7요인 분석"이 navy 라 색이 같으면 한 덩어리로
+  // 읽힌다. 별개 신호라는 것이 색으로도 드러나야 한다.
+  return <span className="badge-warning whitespace-nowrap">헤리티지 상품 검토 필요</span>;
 }
