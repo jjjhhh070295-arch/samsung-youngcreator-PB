@@ -84,7 +84,7 @@ export const SAMPLE_BOOK_CLIENTS: SampleBookSeed[] = [
       { id: "h-sj-1", clientId: "client-book-seojin", name: "KODEX 미국S&P500", ticker: "379800", market: "KRX", currency: "KRW", quantity: 12000, avgPrice: 15200, lastPrice: 16840 },
       { id: "h-sj-2", clientId: "client-book-seojin", name: "NVIDIA", ticker: "NVDA", market: "NASDAQ", currency: "USD", quantity: 80, avgPrice: 120, lastPrice: 178 },
       { id: "h-sj-3", clientId: "client-book-seojin", name: "삼성전자", ticker: "005930", market: "KRX", currency: "KRW", quantity: 2500, avgPrice: 72000, lastPrice: 78100 },
-      { id: "h-sj-4", clientId: "client-book-seojin", name: "KODEX 단기채권", ticker: "273130", market: "KRX", currency: "KRW", quantity: 8000, avgPrice: 108200, lastPrice: 109050 },
+      { id: "h-sj-4", clientId: "client-book-seojin", name: "KODEX 종합채권(AA-이상)액티브", ticker: "273130", market: "KRX", currency: "KRW", quantity: 8000, avgPrice: 108200, lastPrice: 109050 },
     ],
   },
   {
@@ -213,14 +213,14 @@ export const SAMPLE_BOOK_CLIENTS: SampleBookSeed[] = [
     holdings: [
       { id: "h-sb-1", clientId: "client-book-sejinbio", name: "삼성증권 ELB 원금부분보장형", ticker: null, market: "OTC", currency: "KRW", quantity: 1, avgPrice: 2_000_000_000, lastPrice: 2_040_000_000 },
       { id: "h-sb-2", clientId: "client-book-sejinbio", name: "국고채 3년", ticker: "KR103501", market: "KRX", currency: "KRW", quantity: 1, avgPrice: 3_500_000_000, lastPrice: 3_470_000_000 },
-      { id: "h-sb-3", clientId: "client-book-sejinbio", name: "KODEX 단기채권", ticker: "273130", market: "KRX", currency: "KRW", quantity: 15000, avgPrice: 108000, lastPrice: 109050 },
+      { id: "h-sb-3", clientId: "client-book-sejinbio", name: "KODEX 종합채권(AA-이상)액티브", ticker: "273130", market: "KRX", currency: "KRW", quantity: 15000, avgPrice: 108000, lastPrice: 109050 },
       { id: "h-sb-4", clientId: "client-book-sejinbio", name: "KODEX 미국S&P500", ticker: "379800", market: "KRX", currency: "KRW", quantity: 6000, avgPrice: 14900, lastPrice: 16840 },
     ],
   },
 ];
 
 export const SAMPLE_HANBIT_HOLDINGS: SampleBookSeed["holdings"] = [
-  { id: "h-hb-1", clientId: "client-hanbit-cashflow-sample", name: "KODEX 단기채권", ticker: "273130", market: "KRX", currency: "KRW", quantity: 20000, avgPrice: 108000, lastPrice: 109050 },
+  { id: "h-hb-1", clientId: "client-hanbit-cashflow-sample", name: "KODEX 종합채권(AA-이상)액티브", ticker: "273130", market: "KRX", currency: "KRW", quantity: 20000, avgPrice: 108000, lastPrice: 109050 },
   { id: "h-hb-2", clientId: "client-hanbit-cashflow-sample", name: "KODEX 미국S&P500", ticker: "379800", market: "KRX", currency: "KRW", quantity: 8000, avgPrice: 15000, lastPrice: 16840 },
   { id: "h-hb-3", clientId: "client-hanbit-cashflow-sample", name: "삼성전자", ticker: "005930", market: "KRX", currency: "KRW", quantity: 5000, avgPrice: 69000, lastPrice: 78100 },
   { id: "h-hb-4", clientId: "client-hanbit-cashflow-sample", name: "삼성증권 일임형 랩 균형", ticker: null, market: "WRAP", currency: "KRW", quantity: 1, avgPrice: 4_200_000_000, lastPrice: 4_380_000_000 },

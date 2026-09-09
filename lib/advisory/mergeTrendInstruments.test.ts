@@ -25,7 +25,7 @@ describe("mergeTrendConfirmedIntoSelected", () => {
   it("keeps unrelated asset-class selections", () => {
     const current = [
       {
-        symbol: "273130.KS",
+        symbol: "153130.KS",
         name: "KODEX 단기채권",
         exchange: "KRX",
         currency: "KRW",
@@ -54,7 +54,7 @@ describe("redistributeAssetClassWeights", () => {
       changePct: null, asOf: null, source: "catalog", assetClass: "domesticBond" as const,
     };
     const result = redistributeAssetClassWeights([
-      { ...base, symbol: "273130.KS", name: "단기채", weightWithinClass: 100 },
+      { ...base, symbol: "153130.KS", name: "단기채", weightWithinClass: 100 },
       { ...base, symbol: "114260.KS", name: "중기채", weightWithinClass: 0 },
       { ...base, symbol: "148070.KS", name: "장기채", weightWithinClass: 0 },
     ], "domesticBond");

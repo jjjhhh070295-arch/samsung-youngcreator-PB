@@ -7,6 +7,10 @@ import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
 import type { PbSelectedKoreanStock } from "@/lib/advisory/krTrendPortfolio";
 import { BOND_INSTRUMENT_CATALOG, type BondCatalogEntry } from "@/lib/advisory/bondInstrumentCatalog";
 import {
+  findLegacyGenericCorpBondsInSelection,
+  replaceLegacyCorpBondWithEtf,
+} from "@/lib/advisory/legacyCorpBondReselection";
+import {
   mergePortfolioPreviewRows,
   mergeTrendConfirmedIntoSelected,
   redistributeAssetClassWeights,
@@ -544,6 +548,8 @@ export default function ManualPortfolioBuilder({
     setActiveClass(entry.assetClass);
   };
 
+  const legacyCorpBonds = useMemo(() => findLegacyGenericCorpBondsInSelection(selected), [selected]);
+
   const classValidationWarnings = useMemo(() => {
     return ASSET_CLASSES.filter((item) => item.searchable && allocation[item.id] > 0)
       .map((item) => {
@@ -1076,20 +1082,50 @@ export default function ManualPortfolioBuilder({
         </div>
       )}
 
+      {legacyCorpBonds.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+          <p className="font-bold">레거시 회사채 대표 심볼이 초안에 있습니다</p>
+          <p className="mt-1 text-[11px] leading-relaxed">
+            신규 선택은 실제 회사채 ETF(ACE·LQD 등)만 사용합니다. 비중은 유지한 채 ETF로 재선택할 수 있으며,
+            직접채권 수량을 ETF 주로 복사하지 않습니다. 실보유·승인 IPS는 자동 변경되지 않습니다.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {legacyCorpBonds.map((row) => (
+              <button
+                key={row.legacySymbol}
+                type="button"
+                className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-[11px] font-bold text-amber-900 disabled:opacity-40"
+                disabled={!row.suggestedReplacement}
+                onClick={() => {
+                  if (!row.suggestedReplacement) return;
+                  setSelected((current) =>
+                    replaceLegacyCorpBondWithEtf(current, row.legacySymbol, row.suggestedReplacement!),
+                  );
+                }}
+              >
+                {row.legacyName} → {row.suggestedReplacement?.name ?? "대안 없음"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {isComplete && (
         <div className="space-y-3 border-t border-border pt-4">
           <div className="rounded-2xl border border-border bg-white p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Bond selection</p>
-            <h3 className="mt-1 text-base font-bold text-fg">대표 채권 선택</h3>
+            <h3 className="mt-1 text-base font-bold text-fg">대표 채권 ETF 선택</h3>
             <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-              주요 채권형 상품을 선택하면 선택 종목과 포트폴리오에 반영됩니다.
+              국채·회사채 ETF를 선택하면 실제 상품명·코드가 선택 종목과 포트폴리오에 반영됩니다.
+              개별 회사채(한전채·알파벳 등) 직접투자는 신규 선택에서 제공하지 않으며, 실보유·승인 IPS는 그대로 유지됩니다.
             </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {BOND_INSTRUMENT_CATALOG.map((entry) => {
                 const already = selected.some(
                   (item) => item.assetClass === entry.assetClass && sameInstrument(item.symbol, entry.symbol),
                 );
                 const classLabel = entry.assetClass === "globalBond" ? "해외채권" : "국내채권";
+                const code = entry.symbol.replace(/\.(KS|KQ)$/i, "");
                 return (
                   <button
                     key={entry.id}
@@ -1100,8 +1136,12 @@ export default function ManualPortfolioBuilder({
                   >
                     <span className="block text-xs font-black text-[#1428A0]">{entry.label}</span>
                     <span className="mt-0.5 block text-sm font-bold text-fg">{entry.name}</span>
+                    <span className="mt-1 block text-[10px] font-semibold text-fg">
+                      {code} · {entry.exchange}
+                    </span>
                     <span className="mt-1 block text-[10px] text-fg-muted">
                       {classLabel} · {entry.kind}
+                      {entry.targetMaturity ? " · 만기매칭" : ""}
                     </span>
                     <span className="mt-0.5 block text-[10px] text-fg-muted">{entry.note}</span>
                     <span className={`mt-2 inline-block text-[10px] font-bold ${already ? "text-emerald-700" : "text-fg-muted"}`}>

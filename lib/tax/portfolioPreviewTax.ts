@@ -148,17 +148,23 @@ function classifyInstrument(inst: ApprovedInstrument): {
   const kind = (inst.kind || "").toLowerCase();
   const asset = (inst.assetClassKey || "").toLowerCase();
   const cur = (inst.currency || "KRW").toUpperCase();
-  const isEtf = kind.includes("etf") || kind.includes("etn");
+  const sym = (inst.symbol || "").trim().toUpperCase().replace(/\.(KS|KQ)$/i, "");
+  const isEtf = kind.includes("etf") || kind.includes("etn") || /\betf\b|kodex|tiger|ace|kosef|arirang|ishares/i.test(`${inst.name} ${inst.symbol}`);
+  const isUsListedBondEtf = sym === "LQD" || (cur === "USD" && isEtf && asset.includes("bond"));
   if (asset === "cash" || kind.includes("mmf") || kind.includes("rp")) {
     return { legalKind: "cash", listing: "kr_listed" };
+  }
+  if ((asset.includes("bond") && isEtf) || isUsListedBondEtf) {
+    // 국내 상장 채권 ETF vs 해외 상장(LQD 등) — 통화만으로 과세 경로를 단정하지 않음
+    return {
+      legalKind: "bond_etf",
+      listing: isUsListedBondEtf || cur === "USD" ? "foreign_listed" : "kr_listed",
+    };
   }
   if (asset.includes("bond") && !isEtf) {
     return { legalKind: "bond_direct", listing: cur === "KRW" ? "kr_listed" : "foreign_listed" };
   }
-  if (asset.includes("bond") && isEtf) {
-    return { legalKind: "bond_etf", listing: cur === "KRW" ? "kr_listed" : "foreign_listed" };
-  }
-  if (isEtf || /\betf\b|kodex|tiger|ace|kosef|arirang/i.test(`${inst.name} ${inst.symbol}`)) {
+  if (isEtf) {
     // 국내 상장 해외지수 ETF ≠ 해외 상장 주식
     return {
       legalKind: cur === "KRW" ? "etf_kr" : "etf_foreign",
@@ -225,6 +231,15 @@ export function buildPreviewFromApprovedPortfolio(input: {
         priceReturnPct = assume.priceReturnPct;
         dividendYieldPct = assume.dividendYieldPct;
         basis = "price_only";
+      } else if (
+        assume.totalReturnPct != null &&
+        assume.couponPct != null &&
+        (legalKind === "bond_etf" || legalKind === "bond_direct")
+      ) {
+        // ETF/직접채권: couponPct 는 총수익에 포함된 인컴 성분 — 이자로 다시 가산하지 않음
+        priceReturnPct = assume.totalReturnPct - assume.couponPct;
+        interestPct = assume.couponPct;
+        basis = "total_return";
       } else if (assume.totalReturnPct != null) {
         priceReturnPct = assume.totalReturnPct;
         basis = "total_return";
@@ -232,7 +247,7 @@ export function buildPreviewFromApprovedPortfolio(input: {
         priceReturnPct = assume.priceReturnPct;
         basis = "price_only";
       }
-      if (assume.couponPct != null) interestPct = assume.couponPct;
+      if (assume.couponPct != null && interestPct == null) interestPct = assume.couponPct;
       if (assume.dividendYieldPct != null && dividendYieldPct == null) {
         dividendYieldPct = assume.dividendYieldPct;
       }

@@ -64,6 +64,8 @@ const SEARCHABLE: ManualAssetClass[] = [
 function inferQuotationKind(item: ManualSelectedInstrument): QuotationKind {
   if (item.quotationKind) return item.quotationKind;
   const kind = (item.kind || "").toLowerCase();
+  // 채권 ETF/ETN 은 주당 시세(share). 액면·미수이자(bond_face) 금지.
+  if (kind.includes("etf") || kind.includes("etn")) return "share";
   if (item.assetClass === "domesticBond" || item.assetClass === "globalBond" || kind.includes("bond")) {
     return "bond_face";
   }

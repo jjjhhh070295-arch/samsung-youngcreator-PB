@@ -45,8 +45,15 @@ export function validateHoldings(parsed: { holdings: Holding[]; warnings?: strin
       // current_price 없으면 교차검증 생략 (ok 유지)
     }
 
-    // 국내 ticker 형식 보정
-    if (fixed.ticker && !/^\d{6}$/.test(fixed.ticker)) fixed.ticker = null;
+    // 국내 ticker 형식 보정 — 영문 포함 6자리(0099L0 등) 허용, 문자열로 보존
+    if (fixed.ticker) {
+      const t = fixed.ticker.trim().toUpperCase();
+      if (/^[0-9A-Z]{6}$/.test(t) && /\d/.test(t)) {
+        fixed.ticker = t;
+      } else if (!/^[0-9A-Z]{1,12}(\.(KS|KQ))?$/i.test(t) && !/^[A-Z]{1,6}$/.test(t)) {
+        fixed.ticker = null;
+      }
+    }
 
     return { ...fixed, validation: ok ? ("ok" as const) : ("warn" as const) };
   });
