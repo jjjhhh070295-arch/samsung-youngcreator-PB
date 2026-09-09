@@ -3,6 +3,7 @@ import { fetchFinancialSnapshot, fetchTickerOhlcDaily, resolveTickerInput } from
 import { scoreStock } from "./scoring";
 import { droppedTickers, selectTopPicks } from "./selection";
 import { generateStructured } from "./researchPipeline";
+import { buildMarketIntelligencePrompt, usableSavedResearch, type SavedResearchAnalysis } from "./sharedMarket";
 import type { ResearchObservation, ScoreInput, SelectedTopPick } from "./types";
 import { localizeTheme } from "./themeLabels";
 
@@ -35,16 +36,12 @@ function reportObservation(row: any): ResearchObservation {
   return { broker: row.research_documents?.broker ?? row.research_documents?.source ?? null, publishedAt: row.published_at, epsRevisionPct: row.eps_revision_pct == null ? null : Number(row.eps_revision_pct), targetPriceRevisionPct: pct(row.target_price == null ? null : Number(row.target_price), row.previous_target_price == null ? null : Number(row.previous_target_price)), ratingRevision: currentRating == null || previousRating == null ? null : Math.sign(currentRating - previousRating) as -1 | 0 | 1, investmentPointStrength: Array.isArray(row.investment_points) ? Math.min(5, row.investment_points.length) : null };
 }
 
-const BRIEF_SCHEMA = { type: "object", properties: { headline: { type: "string" }, marketSummary: { type: "string" }, timeline: { type: "object", properties: { twoWeeks: { type: "string" }, threeDays: { type: "string" }, today: { type: "string" } }, required: ["twoWeeks","threeDays","today"] }, keyIssues: { type: "array", items: { type: "object", properties: { title: { type: "string" }, summary: { type: "string" }, whatChanged: { type: "string" }, marketImpact: { type: "string" }, watchPoint: { type: "string" } }, required: ["title","summary","whatChanged","marketImpact","watchPoint"] } }, themes: { type: "array", items: { type: "object", properties: { theme: { type: "string" }, score: { type: "number" }, direction: { type: "string", enum: ["POSITIVE","NEUTRAL","NEGATIVE"] }, reason: { type: "string" } }, required: ["theme","score","direction","reason"] } }, watchPoints: { type: "array", items: { type: "string" } }, assetView: { type: "object", properties: { equity: { type: "string" }, bond: { type: "string" }, usd: { type: "string" }, oil: { type: "string" } }, required: ["equity","bond","usd","oil"] } }, required: ["headline","marketSummary","timeline","keyIssues","themes","watchPoints","assetView"] };
+const nullableString = { anyOf: [{ type: "string" }, { type: "null" }] };
+const BRIEF_SCHEMA = { type: "object", properties: { headline: { type: "string" }, marketSummary: { type: "string" }, timeline: { type: "object", properties: { twoWeeks: { type: "string" }, threeDays: { type: "string" }, today: { type: "string" } }, required: ["twoWeeks","threeDays","today"] }, keyIssues: { type: "array", items: { type: "object", properties: { title: { type: "string" }, summary: { type: "string" }, whatChanged: { type: "string" }, marketImpact: { type: "string" }, watchPoint: { type: "string" }, source: nullableString, url: nullableString, date: nullableString }, required: ["title","summary","whatChanged","marketImpact","watchPoint","source","url","date"] } }, themes: { type: "array", items: { type: "object", properties: { theme: { type: "string" }, score: { type: "number" }, direction: { type: "string", enum: ["POSITIVE","NEUTRAL","NEGATIVE"] }, reason: { type: "string" } }, required: ["theme","score","direction","reason"] } }, watchPoints: { type: "array", items: { type: "string" } }, assetView: { type: "object", properties: { equity: { type: "string" }, bond: { type: "string" }, usd: { type: "string" }, oil: { type: "string" } }, required: ["equity","bond","usd","oil"] } }, required: ["headline","marketSummary","timeline","keyIssues","themes","watchPoints","assetView"] };
 const EXPLANATION_SCHEMA = { type: "object", properties: { explanations: { type: "array", items: { type: "object", properties: { ticker: { type: "string" }, summary: { type: "string" }, keyReasons: { type: "array", items: { type: "string" } }, risks: { type: "array", items: { type: "string" } } }, required: ["ticker","summary","keyReasons","risks"] } } }, required: ["explanations"] };
 
-async function buildMarketBrief(indicators: unknown[], marketResearch: any[], morningBrief: any | null) {
-  const prompt = `PB용 오늘의 시장 브리프를 한국어로 구체적으로 구조화하라.
-규칙: 최근 14일→최근 3일→오늘 사이에 무엇이 바뀌었는지 분리한다. 각 이슈에는 변화, 시장 영향, 다음 확인 포인트를 쓴다. 수치는 입력에 있는 것만 사용하고 없으면 숫자를 만들지 않는다. 과장·투자보장 표현 금지. themes의 theme은 영문 표준 코드, score는 -1~1이다.
-시장지표:${JSON.stringify(indicators)}
-기존 Claude 모닝 브리핑(웹검색·출처 포함):${JSON.stringify(morningBrief ? { headline: morningBrief.headline, text: String(morningBrief.text_body ?? "").slice(0, 35_000), sources: morningBrief.sources ?? [] } : null)}
-최근 구조화 리서치:${JSON.stringify(marketResearch.slice(0, 60))}`;
-  return generateStructured(prompt, BRIEF_SCHEMA);
+async function buildMarketBrief(indicators: unknown[], marketResearch: any[], researchAnalyses: SavedResearchAnalysis[], morningBrief: any | null) {
+  return generateStructured(buildMarketIntelligencePrompt({ indicators, morningBrief, researchAnalyses, canonicalResearch: marketResearch }), BRIEF_SCHEMA);
 }
 
 async function explainPicks(picks: SelectedTopPick[], researchByTicker: Map<string, any[]>) {
@@ -59,18 +56,23 @@ export async function runDailyTopPicks(origin: string) {
   if (!supabase) throw new Error("Supabase 미설정");
   const tradeDate = todayKst();
   const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString();
-  const [{ data: stockRows, error: stockError }, { data: marketRows, error: marketError }, { data: morningBrief }] = await Promise.all([
+  const [{ data: stockRows, error: stockError }, { data: marketRows, error: marketError }, { data: analyzedRows, error: analyzedError }, { data: morningBrief }] = await Promise.all([
     supabase.from("stock_research").select("*, research_documents(id,title,source,broker,analyst,source_url)").gte("published_at", cutoff).not("ticker", "is", null).order("published_at", { ascending: false }).limit(500),
-    supabase.from("market_research").select("*, research_documents(id,title,source,broker,published_at)").order("created_at", { ascending: false }).limit(100),
-    supabase.from("daily_reports").select("headline,text_body,sources,model").eq("report_date", tradeDate).maybeSingle(),
+    supabase.from("market_research").select("*, research_documents(id,title,source,broker,published_at,source_url)").order("created_at", { ascending: false }).limit(100),
+    supabase.from("research_signals").select("report_id,title,source,url,date,summary,signals,model").gte("date", cutoff.slice(0, 10)).neq("model", "dummy").order("date", { ascending: false }).limit(60),
+    supabase.from("daily_reports").select("report_date,headline,text_body,sources,model,status").lte("report_date", tradeDate).order("report_date", { ascending: false }).limit(1).maybeSingle(),
   ]);
   if (stockError) throw stockError;
   if (marketError) throw marketError;
+  if (analyzedError) throw analyzedError;
   const indicatorResponse = await fetch(`${origin}/api/market`, { cache: "no-store" }).then((r) => r.json()).catch(() => ({ items: [] }));
-  const briefResult = await buildMarketBrief(indicatorResponse.items ?? [], marketRows ?? [], morningBrief ?? null);
+  const researchAnalyses = usableSavedResearch((analyzedRows ?? []) as SavedResearchAnalysis[]);
+  const briefResult = await buildMarketBrief(indicatorResponse.items ?? [], marketRows ?? [], researchAnalyses, morningBrief ?? null);
   const brief: any = briefResult.value;
   const localizedThemes = (brief.themes ?? []).map((theme: any) => localizeTheme(theme));
-  await supabase.from("daily_market_briefs").upsert({ trade_date: tradeDate, headline: brief.headline, market_summary: brief.marketSummary, narrative_timeline: brief.timeline, key_issues: brief.keyIssues, themes: localizedThemes, watch_points: brief.watchPoints, asset_view: brief.assetView, indicators: indicatorResponse.items ?? [], source_document_ids: (marketRows ?? []).map((r: any) => r.document_id), model: `${briefResult.model}${morningBrief?.model ? ` + ${morningBrief.model}` : ""}` }, { onConflict: "trade_date" });
+  const inputModels = Array.from(new Set([briefResult.model, morningBrief?.model, ...researchAnalyses.map((row) => row.model)].filter(Boolean)));
+  const sourceDocumentIds = Array.from(new Set([...(marketRows ?? []).map((row: any) => row.document_id), ...researchAnalyses.map((row) => row.report_id)].filter(Boolean)));
+  await supabase.from("daily_market_briefs").upsert({ trade_date: tradeDate, headline: brief.headline, market_summary: brief.marketSummary, narrative_timeline: brief.timeline, key_issues: brief.keyIssues, themes: localizedThemes, watch_points: brief.watchPoints, asset_view: brief.assetView, indicators: indicatorResponse.items ?? [], source_document_ids: sourceDocumentIds, model: inputModels.join(" + ") }, { onConflict: "trade_date" });
   const regimeByTheme = Object.fromEntries(localizedThemes.map((theme: any) => [String(theme.themeCode), Math.max(-1, Math.min(1, Number(theme.score) || 0))]));
   const byTicker = new Map<string, any[]>();
   for (const row of stockRows ?? []) { const rows = byTicker.get(row.ticker) ?? []; rows.push(row); byTicker.set(row.ticker, rows); }
@@ -124,5 +126,5 @@ export async function runDailyTopPicks(origin: string) {
     topRows.push({ trade_date: tradeDate, ticker, rank: null, previous_rank: previousRanks.get(ticker)!, rank_change: null, is_new: false, is_dropped: true, total_score: current?.totalScore ?? Number(previous?.total_score), confidence_score: current?.confidenceScore ?? Number(previous?.confidence_score), pick_type: current?.pickType ?? previous?.pick_type, summary: null, key_reasons: [], risks: [], signal_changes: changeSnapshot(ticker, current), source_document_ids: (byTicker.get(ticker) ?? []).map((r) => r.document_id) });
   }
   if (topRows.length) { const { error } = await supabase.from("daily_top_picks").upsert(topRows, { onConflict: "trade_date,ticker" }); if (error) throw error; }
-  return { tradeDate, candidateCount: scored.length, topPickCount: picks.length, droppedCount: topRows.filter((r) => r.is_dropped).length, model: briefResult.model };
+  return { tradeDate, researchCount: researchAnalyses.length, candidateCount: scored.length, topPickCount: picks.length, droppedCount: topRows.filter((r) => r.is_dropped).length, model: briefResult.model };
 }

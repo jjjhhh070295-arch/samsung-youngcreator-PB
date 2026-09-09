@@ -1,22 +1,18 @@
 import { supabase } from "@/lib/supabase";
 import { fetchTickerOhlcDaily, resolveTickerInput } from "@/lib/advisory/tickerOhlcData";
 import { demoTopPickDetail } from "./demoData";
-import { sharedMarketBrief } from "./sharedMarket";
 
 const MISSING = new Set(["42P01", "PGRST205"]);
 const arrays = (value: unknown): string[] => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 
 export async function getDashboardHome(db = supabase) {
   if (!db) return { ready: false, date: null, marketBrief: null, topPicks: [] };
-  const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
-  const [latestResult, morningResult, researchResult] = await Promise.all([
+  const [latestResult, briefResult] = await Promise.all([
     db.from("daily_top_picks").select("trade_date").eq("is_dropped", false).order("trade_date", { ascending: false }).limit(1).maybeSingle(),
-    db.from("daily_reports").select("report_date,headline,text_body,model,status").order("report_date", { ascending: false }).limit(1).maybeSingle(),
-    db.from("research_signals").select("report_id,title,source,url,date,summary,signals,model").gte("date", cutoff).neq("model", "dummy").order("date", { ascending: false }).limit(30),
+    db.from("daily_market_briefs").select("*").order("trade_date", { ascending: false }).limit(1).maybeSingle(),
   ]);
-  const errors = [latestResult, morningResult, researchResult].flatMap((result) => result.error && !MISSING.has(result.error.code) ? [result.error] : []);
+  const errors = [latestResult, briefResult].flatMap((result) => result.error && !MISSING.has(result.error.code) ? [result.error] : []);
   const latest = latestResult.data;
-  const shared = sharedMarketBrief(morningResult.data, researchResult.data ?? []);
   const date = latest?.trade_date ?? null;
   const [picksResult, signalsResult] = date ? await Promise.all([
     db.from("daily_top_picks").select("*").eq("trade_date", date).eq("is_dropped", false).order("rank"),
@@ -25,13 +21,25 @@ export async function getDashboardHome(db = supabase) {
   for (const result of [picksResult, signalsResult]) if (result.error) errors.push(result.error);
   const picks = picksResult.data;
   const signals = signalsResult.data;
-  const marketBrief = shared;
+  const brief = briefResult.data;
+  const marketBrief = brief ? {
+    headline: brief.headline,
+    summary: brief.market_summary,
+    timeline: brief.narrative_timeline ?? null,
+    indicators: brief.indicators ?? [],
+    issues: brief.key_issues ?? [],
+    themes: brief.themes ?? [],
+    watchPoints: brief.watch_points ?? [],
+    assetView: brief.asset_view ?? {},
+    sourceLabel: "모닝 브리핑 + 리서치 탭 · LLM 통합 분석",
+    model: brief.model,
+  } : null;
   const ready = Boolean(marketBrief || picks?.length);
   if (!ready && errors.length) throw errors[0];
   if (errors.length) console.warn("[dashboard/home] partial data", errors.map((error) => error.code));
   const signalByTicker = new Map((signals ?? []).map((row: any) => [row.ticker, row]));
   return {
-    ready, date: shared?.date ?? date, topPicksDate: date,
+    ready, date: brief?.trade_date ?? date, topPicksDate: date,
     warning: errors.length ? "일부 분석 결과를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요." : null,
     marketBrief,
     topPicks: (picks ?? []).map((pick: any) => {
