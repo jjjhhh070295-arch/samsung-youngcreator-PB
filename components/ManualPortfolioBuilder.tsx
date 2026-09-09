@@ -843,7 +843,7 @@ export default function ManualPortfolioBuilder({
             <p className="decision-kicker">Instrument selection</p>
             <h3 className="mt-1 text-base font-black text-fg">자산군별 종목 검색·선택</h3>
             <p className="mt-1 text-[11px] text-fg-muted">
-              직접 검색으로 편입 종목을 고르고 자산군 내 비중을 입력합니다. 추세 필터·대표 채권은 아래 별도 섹션에서 추가할 수 있습니다.
+              직접 검색으로 편입 종목을 고르고 자산군 내 비중을 입력합니다. 추세 필터·대표 채권 ETF는 아래 별도 섹션에서 추가할 수 있습니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -916,7 +916,7 @@ export default function ManualPortfolioBuilder({
                 </div>
                 {selectedForClass.length === 0 ? (
                   <p className="mt-2 text-xs text-fg-muted">
-                    직접 검색, 아래 추세 필터 확정, 또는 대표 채권 선택으로 편입 종목을 추가하세요.
+                    직접 검색, 아래 추세 필터 확정, 또는 대표 채권 ETF 선택으로 편입 종목을 추가하세요.
                   </p>
                 ) : (
                   <div className="mt-2 space-y-2">
@@ -1232,7 +1232,7 @@ export default function ManualPortfolioBuilder({
                     {asset.id === "cash" ? (
                       <div className="mt-3 flex items-center justify-between rounded-lg bg-white px-3 py-2"><div><p className="text-xs font-bold text-fg">현금성 자산</p><p className="text-[10px] text-fg-muted">비현금 신규 배분 후 자동 잔여금</p></div><span className="text-xs font-black text-fg">{formatWon(investableWon * finalAllocation.cash / 100)}</span></div>
                     ) : items.length === 0 ? (
-                      <div className="mt-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-4 text-center"><p className="text-xs font-bold text-amber-800">편입 종목 미선택</p><p className="mt-1 text-[10px] text-amber-700">검색·추세 필터·대표 채권에서 {asset.label} 종목을 선택하세요.</p></div>
+                      <div className="mt-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-4 text-center"><p className="text-xs font-bold text-amber-800">편입 종목 미선택</p><p className="mt-1 text-[10px] text-amber-700">검색·추세 필터·대표 채권 ETF에서 {asset.label} 종목을 선택하세요.</p></div>
                     ) : (
                       <div className="mt-3 space-y-2">
                         {items.map((item) => (

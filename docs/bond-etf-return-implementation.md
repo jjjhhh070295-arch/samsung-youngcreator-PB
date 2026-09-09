@@ -62,3 +62,17 @@
 
 단위 테스트: 카탈로그 정체성, 시나리오 2.9% 픽스처, 손익 50,000원 픽스처, 가중 6.6%, selection 라우팅, 레거시 재선택.  
 브라우저·인쇄·Vercel 라이브 시세는 환경·계정에 따라 부분 검증(아래 최종 보고서 참고).
+
+## 7. 프로덕션 기대수익 경로 (중요)
+
+`lib/portfolioAnalytics/bondEtfScenario.ts` 의 YTM/듀레이션 시나리오는 **단위 테스트용으로 존재**하며, 현재 `expectedReturn(...)` 런타임에는 연결되어 있지 않다.
+
+런타임 채권 ETF 기대수익 우선순위 (`lib/portfolioAnalytics/expectedReturn.ts`):
+
+1. YTM (펀더멘털에 실제로 공급된 경우)
+2. SEC yield
+3. distribution yield
+4. 충분히 긴 가격 이력 CAGR 폴백
+5. 근거 부족 시 unavailable
+
+UI는 실제 사용한 method에 맞춰 설명해야 하며, 데이터가 없으면 YTM을 날조하거나 「항상 YTM 기준」이라고 표시하면 안 된다.

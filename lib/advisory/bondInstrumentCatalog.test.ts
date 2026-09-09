@@ -46,6 +46,30 @@ describe("bondInstrumentCatalog", () => {
     assert.ok(isLegacyGenericCorpBondSymbol("BOND-GOOGL"));
   });
 
+  it("active corp IG cards are ACE 0099L0 and LQD only", () => {
+    const corp = BOND_INSTRUMENT_CATALOG.filter((b) => b.exposure === "corporate_ig" && !b.targetMaturity);
+    assert.deepEqual(
+      corp.map((b) => ({ label: b.label, name: b.name, symbol: b.symbol, kind: b.kind, quotationKind: b.quotationKind })),
+      [
+        {
+          label: "국내 우량회사채 ETF",
+          name: "ACE 우량회사채(AA-이상)액티브",
+          symbol: "0099L0.KS",
+          kind: "채권 ETF",
+          quotationKind: "share",
+        },
+        {
+          label: "미국 투자등급 회사채 ETF",
+          name: "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+          symbol: "LQD",
+          kind: "채권 ETF",
+          quotationKind: "share",
+        },
+      ],
+    );
+    assert.equal(BOND_INSTRUMENT_CATALOG.every((b) => !isLegacyGenericCorpBondSymbol(b.symbol)), true);
+  });
+
   it("maps domestic vs global counts", () => {
     assert.ok(bondsForAssetClass("domesticBond").length >= 5);
     assert.ok(bondsForAssetClass("globalBond").some((b) => b.symbol === "LQD"));
