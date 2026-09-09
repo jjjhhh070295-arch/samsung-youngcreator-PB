@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usingLocalFallback, DEMO_PB_CREDENTIALS, authenticatePb } from "@/lib/store";
 import { getLoggedInPbId, onSessionChanged, setLoggedInPbId } from "@/lib/auth";
 import HomeMarketBoard from "@/components/HomeMarketBoard";
-import DailyTopPicksDashboard from "@/components/DailyTopPicksDashboard";
 
 const valueItems = [
   { label: "데이터 기반 분석", icon: "chart" },
@@ -118,7 +117,8 @@ export default function HomePage() {
         </Link>
       </div>
       <HomeMarketBoard />
-      <DailyTopPicksDashboard />
+      {/* AI Market Intelligence(DailyTopPicksDashboard)는 Market Home 에서 숨긴다.
+          컴포넌트·API·크론은 유지하되 홈에는 마운트하지 않는다. */}
       {/* 로컬 모드 경고는 관리자 카드 안에 있었다. 데이터가 브라우저에만 저장된다는
           경고라 관리 기능과 무관하게 계속 보여야 한다. */}
       {usingLocalFallback && (

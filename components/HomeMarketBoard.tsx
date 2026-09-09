@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import IndicatorPickerModal from "@/components/IndicatorPickerModal";
+import MarketHomeMorningBriefing from "@/components/MarketHomeMorningBriefing";
 import MarketHomeTodaySchedule from "@/components/MarketHomeTodaySchedule";
 import { getLoggedInPbId } from "@/lib/auth";
 import { DEFAULT_INDICATOR_IDS, getIndicator } from "@/lib/marketIndicators";
@@ -101,9 +102,10 @@ export default function HomeMarketBoard() {
 
   return (
     <div className="mb-8 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
-      {/* 좌 — 오늘 일정 요약 */}
-      <div>
+      {/* 좌 — 오늘 일정 요약 + 오늘 모닝 브리핑 */}
+      <div className="flex flex-col gap-4">
         {pbId ? <MarketHomeTodaySchedule pbId={pbId} /> : null}
+        {pbId ? <MarketHomeMorningBriefing pbId={pbId} /> : null}
       </div>
 
       {/* 우 — 시세 전광판 */}
