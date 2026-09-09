@@ -60,6 +60,42 @@ export function hashApprovalPayload(value: unknown): string {
   return djb2Hex(stableJsonStringify(value));
 }
 
+/**
+ * 승인 비교용 금융소득 프로파일 — 파생 집계·추출 시각 등 비승인 입력은 제외.
+ * 이자·배당·급여·세액 등 실제 입력 변경은 그대로 감지한다.
+ */
+export function canonicalizeFinancialIncomeProfile(
+  profile: Client["financialIncomeProfile"] | null | undefined,
+) {
+  if (profile == null) return null;
+  const {
+    derivedDepositInterestWon: _d1,
+    derivedBondInterestWon: _d2,
+    derivedDividendWon: _d3,
+    derivedWithholdingWon: _d4,
+    extractedAt: _extractedAt,
+    ...source
+  } = profile;
+  const records = source.externalFinancialIncomeRecords;
+  return {
+    ...source,
+    externalFinancialIncomeRecords: Array.isArray(records)
+      ? [...records]
+          .map((r) => ({
+            id: r.id,
+            taxYear: r.taxYear,
+            source: r.source,
+            category: r.category,
+            amountWon: r.amountWon,
+            withholdingWon: r.withholdingWon,
+            periodStart: r.periodStart ?? null,
+            periodEnd: r.periodEnd ?? null,
+          }))
+          .sort((a, b) => a.id.localeCompare(b.id))
+      : records ?? null,
+  };
+}
+
 export function buildBasicApprovalPayload(client: Client) {
   return {
     code: client.code,
@@ -75,7 +111,7 @@ export function buildBasicApprovalPayload(client: Client) {
     cashFlows: client.cashFlows ?? [],
     cashflowPeriodType: client.cashflowPeriodType ?? null,
     financialIncomeComprehensiveTax: !!client.financialIncomeComprehensiveTax,
-    financialIncomeProfile: client.financialIncomeProfile ?? null,
+    financialIncomeProfile: canonicalizeFinancialIncomeProfile(client.financialIncomeProfile),
   };
 }
 

@@ -17,7 +17,6 @@ import {
 } from "@/lib/store";
 import {
   basicApprovalStagePatch,
-  basicUnapprovalStagePatch,
   ipsApprovalStagePatch,
   ipsUnapprovalStagePatch,
   isBasicWorkflowApproved,
@@ -30,7 +29,6 @@ import {
   MSG_PORTFOLIO_APPROVED,
   MSG_PORTFOLIO_UNAPPROVED,
   portfolioApprovalStagePatch,
-  portfolioUnapprovalStagePatch,
   validateBasicWorkflowApproval,
   validateIpsWorkflowApproval,
   validatePortfolioWorkflowApproval,
@@ -38,7 +36,6 @@ import {
 import {
   extractIpsFromClientProfile,
   ipsExtractionMissingReasons,
-  markIpsExtractionStale,
 } from "@/lib/advisory/ipsExtraction";
 import {
   syncEvidenceAfterBasicApproval,
@@ -56,6 +53,11 @@ import {
   MSG_BASIC_STALE,
   MSG_PORTFOLIO_STALE,
 } from "@/lib/advisory/approvalSnapshots";
+import {
+  isLevelApproved,
+  runApprovalUnapproval,
+  type ApprovalLevel,
+} from "@/lib/advisory/approvalTransition";
 import { loadBundle } from "@/lib/advisory/control";
 import { applyIpsHoldingsSync } from "@/lib/advisory/ipsHoldingsSync";
 import { requiresMarketQuote, type PriceSnapshot } from "@/lib/advisory/ipsPurchasePlan";
@@ -115,6 +117,27 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<Client | null>(null);
   const clientRef = useRef<Client | null>(null);
   clientRef.current = client;
+  const opGenerationRef = useRef(0);
+  const shownNoticeKeysRef = useRef<Set<string>>(new Set());
+  const [approvalNotice, setApprovalNotice] = useState<{
+    key: string;
+    message: string;
+    error?: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    opGenerationRef.current += 1;
+    shownNoticeKeysRef.current.clear();
+    setApprovalNotice(null);
+  }, [clientId]);
+
+  const showApprovalNotice = useCallback((key: string | undefined, message: string, error = false) => {
+    if (!key) return;
+    if (shownNoticeKeysRef.current.has(key)) return;
+    shownNoticeKeysRef.current.add(key);
+    setApprovalNotice({ key, message, error });
+  }, []);
+
   const [allClients, setAllClients] = useState<Client[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [pbs, setPbs] = useState<PB[]>([]);
@@ -223,7 +246,7 @@ export default function ClientDetailPage() {
       }
       if (gateToastKey.current === key) return;
       gateToastKey.current = key;
-      alert(msg);
+      showApprovalNotice(key, msg);
     };
 
     // customer 는 이 목록에서 뺀다. 승인 전에도 진입은 되게 한다 — 회의 시작과 동시에
@@ -240,7 +263,7 @@ export default function ClientDetailPage() {
       warn(MSG_NEED_PORTFOLIO, `${client.id}:need-portfolio`);
       router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
     }
-  }, [status, client, activeView, activeTab, router, pbId, clientId]);
+  }, [status, client, activeView, activeTab, router, pbId, clientId, showApprovalNotice]);
 
   // 이미 IPS까지 승인됐는데 Evidence가 오래된 blocked면 복구(PDF 게이트)
   useEffect(() => {
@@ -270,147 +293,128 @@ export default function ClientDetailPage() {
     publishClientLiveSync(clientId, reason, "pb-detail");
   };
 
-  const applyInvalidation = async (
-    current: Client,
-    level: "basic" | "portfolio",
+  const applyInvalidation = useCallback(async (
+    level: "basic" | "portfolio" | "ips",
     message: string,
   ) => {
-    if (level === "basic") {
-      const stages = { ...(current.stages ?? {}), ...basicUnapprovalStagePatch() };
-      const ips = markIpsExtractionStale(current.ips);
-      const portfolios = (current.portfolios ?? []).map((p) => ({
-        ...p,
-        confirmedAt: undefined,
-      }));
-      const approvalHashes = {};
-      await updateClient(current.id, { stages, ips, portfolios, approvalHashes });
-      const nextClient = { ...current, stages, ips, portfolios, approvalHashes };
-      setClient(nextClient);
-      syncEvidenceAfterBasicUnapproval(nextClient);
-      notifyClientUpdated();
-      skipGateToast.current = true;
-      gateToastKey.current = "";
-      if (activeView === "analysis") {
-        router.replace(`/pb/${pbId}/${clientId}?view=home`);
-      }
-      alert(message);
-      return;
+    const generation = opGenerationRef.current;
+    const targetId = clientId;
+    const result = await runApprovalUnapproval(targetId, level, message, {
+      generation,
+      getGeneration: () => opGenerationRef.current,
+      getLatest: () => clientRef.current,
+      persist: (id, patch) => updateClient(id, patch),
+      isCancelled: () => clientRef.current?.id !== targetId,
+    });
+
+    if (result.status === "superseded" || result.status === "already_unapproved") {
+      return result;
+    }
+    if (result.status === "failed") {
+      showApprovalNotice(
+        `${targetId}|${level}|fail|${generation}`,
+        `승인 해제 저장에 실패했습니다. ${result.error || "다시 시도해 주세요."}`,
+        true,
+      );
+      return result;
     }
 
-    const stages = { ...(current.stages ?? {}), ...portfolioUnapprovalStagePatch() };
-    const portfolios = (current.portfolios ?? []).map((p) => ({
-      ...p,
-      confirmedAt: undefined,
-    }));
-    const approvalHashes = {
-      basic: current.approvalHashes?.basic,
-    };
-    await updateClient(current.id, { stages, portfolios, approvalHashes });
-    const nextClient = { ...current, stages, portfolios, approvalHashes };
+    const nextClient = result.client;
+    if (!nextClient || clientRef.current?.id !== targetId) return result;
+    clientRef.current = nextClient;
     setClient(nextClient);
-    syncEvidenceAfterPortfolioUnapproval(nextClient);
-    notifyClientUpdated();
+    if (level === "basic") syncEvidenceAfterBasicUnapproval(nextClient);
+    else if (level === "portfolio") syncEvidenceAfterPortfolioUnapproval(nextClient);
+    else syncEvidenceAfterIpsUnapproval(nextClient);
+    notifyClientUpdated("approval");
     skipGateToast.current = true;
     gateToastKey.current = "";
-    if (activeView === "analysis" && activeTab === "ips") {
+    if (level === "basic" && activeView === "analysis") {
+      router.replace(`/pb/${pbId}/${clientId}?view=home`);
+    } else if (level === "portfolio" && activeView === "analysis" && activeTab === "ips") {
       router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2`);
     }
-    alert(message);
-  };
+    showApprovalNotice(result.noticeKey, message);
+    return result;
+  }, [activeTab, activeView, clientId, pbId, router, showApprovalNotice]);
 
-  /** 승인 후 입력 변경 시 스테일 승인 해제 */
-  const invalidateAfterEdit = async (
+  /** 승인 후 입력 변경 시 스테일 승인 해제 — 항상 clientRef 최신 상태 기준 */
+  const invalidateAfterEdit = useCallback(async (
     nextPartial: Partial<Client>,
     prefer: "basic" | "portfolio" | "auto" = "auto",
   ) => {
-    if (!client) return;
-    const probe: Client = { ...client, ...nextPartial };
-    if (prefer === "basic" && isBasicWorkflowApproved(client)) {
-      await applyInvalidation(probe, "basic", MSG_BASIC_STALE);
+    const latest = clientRef.current;
+    if (!latest) return;
+    const probe: Client = { ...latest, ...nextPartial };
+    clientRef.current = probe;
+    setClient(probe);
+
+    let level: ApprovalLevel | null = null;
+    let message = MSG_BASIC_STALE;
+    if (prefer === "basic" && isLevelApproved(probe, "basic")) {
+      level = "basic";
+      message = MSG_BASIC_STALE;
+    } else if (prefer === "portfolio" && isLevelApproved(probe, "portfolio")) {
+      level = "portfolio";
+      message = MSG_PORTFOLIO_STALE;
+    } else if (prefer === "auto") {
+      const hit = detectApprovalInvalidation(probe);
+      if (!hit) return;
+      level = hit.level;
+      message = hit.message;
+    } else {
       return;
     }
-    if (prefer === "portfolio" && isPortfolioWorkflowApproved(client)) {
-      await applyInvalidation(probe, "portfolio", MSG_PORTFOLIO_STALE);
-      return;
-    }
-    const hit = detectApprovalInvalidation(probe);
-    if (!hit) return;
-    if (hit.level === "ips") {
-      const stages = { ...(probe.stages ?? {}), ...hit.stages };
-      await updateClient(probe.id, { stages, approvalHashes: hit.hashes });
-      const nextClient = { ...probe, stages, approvalHashes: hit.hashes };
-      setClient(nextClient);
-      syncEvidenceAfterIpsUnapproval(nextClient);
-      notifyClientUpdated();
-      alert(hit.message);
-      return;
-    }
-    await applyInvalidation(probe, hit.level, hit.message);
-  };
+    await applyInvalidation(level, message);
+  }, [applyInvalidation]);
 
   // 새로고침 후 스테일 승인 정리 (+ 해시 없는 기존 승인 마이그레이션)
   useEffect(() => {
-    if (status !== "ready" || !client) return;
+    if (status !== "ready") return;
     let cancelled = false;
+    const generation = opGenerationRef.current;
+    const targetId = clientId;
     void (async () => {
-      // 포트폴리오 초안을 DB에서 먼저 끌어와 localStorage 캐시를 채운다.
-      //
-      //   아래 computePortfolioApprovalHash / detectApprovalInvalidation 은 초안을
-      //   localStorage 에서만 읽는다(approvalSnapshots 의 동기 체인이라 이번에도 그대로
-      //   둔다). 초안 자체는 2026-09-07 부터 portfolio_drafts 에 있고 localStorage 는
-      //   getPortfolioDraft 가 채워 주는 캐시인데, 그걸 채우는 유일한 지점이 Portfolio
-      //   Customizing 탭 마운트였다. 그래서 다른 기기에서 페이지를 열기만 하면 캐시가
-      //   비어 있어 해시가 어긋나고, 승인이 스테일로 판정돼 공유 DB 에서 해제됐다 —
-      //   포트폴리오뿐 아니라 stress·ips 와 portfolios[].confirmedAt 까지 연쇄로.
-      //   여기서 미리 한 번 읽어 두면 그 오판정이 사라진다.
-      const hydration = await getPortfolioDraft(pbId, clientId);
-      if (cancelled) return;
-
-      //   DB 를 못 읽었으면(네트워크·RLS·마이그레이션 미실행) 초안 유무를 알 수 없다.
-      //   그 상태로 판정을 돌리면 "못 읽음"을 "초안 없음"으로 오인해 멀쩡한 승인을
-      //   지운다. 판정을 건너뛴다 — 스테일 승인이 한 번 더 남는 쪽이, 남의 승인을
-      //   잘못 지우는 쪽보다 낫다. 다음 진입 때 다시 검사한다.
+      const hydration = await getPortfolioDraft(pbId, targetId);
+      if (cancelled || opGenerationRef.current !== generation) return;
       if (hydration.dbReadFailed) return;
 
-      const hashes = { ...(client.approvalHashes ?? {}) };
+      const latest = clientRef.current;
+      if (!latest || latest.id !== targetId) return;
+
+      const hashes = { ...(latest.approvalHashes ?? {}) };
       let stamped = false;
-      if (isBasicWorkflowApproved(client) && !hashes.basic) {
-        hashes.basic = computeBasicApprovalHash(client);
+      if (isBasicWorkflowApproved(latest) && !hashes.basic) {
+        hashes.basic = computeBasicApprovalHash(latest);
         stamped = true;
       }
-      if (isPortfolioWorkflowApproved(client) && !hashes.portfolio) {
-        hashes.portfolio = computePortfolioApprovalHash(client);
+      if (isPortfolioWorkflowApproved(latest) && !hashes.portfolio) {
+        hashes.portfolio = computePortfolioApprovalHash(latest);
         stamped = true;
       }
-      if (isIpsWorkflowApproved(client) && !hashes.ips) {
-        hashes.ips = computeIpsApprovalHash(client);
+      if (isIpsWorkflowApproved(latest) && !hashes.ips) {
+        hashes.ips = computeIpsApprovalHash(latest);
         stamped = true;
       }
       if (stamped) {
-        await updateClient(client.id, { stages: client.stages, approvalHashes: hashes });
-        setClient({ ...client, approvalHashes: hashes });
+        await updateClient(latest.id, { stages: latest.stages, approvalHashes: hashes });
+        if (cancelled || opGenerationRef.current !== generation) return;
+        const after = clientRef.current;
+        if (!after || after.id !== targetId) return;
+        const next = { ...after, approvalHashes: hashes };
+        clientRef.current = next;
+        setClient(next);
         return;
       }
 
-      const hit = detectApprovalInvalidation(client);
-      if (!hit) return;
-      if (hit.level === "ips") {
-        const stages = { ...(client.stages ?? {}), ...hit.stages };
-        await updateClient(client.id, { stages, approvalHashes: hit.hashes });
-        const nextClient = { ...client, stages, approvalHashes: hit.hashes };
-        setClient(nextClient);
-        syncEvidenceAfterIpsUnapproval(nextClient);
-        notifyClientUpdated();
-        alert(hit.message);
-        return;
-      }
-      await applyInvalidation(client, hit.level, hit.message);
+      const hit = detectApprovalInvalidation(latest);
+      if (!hit || cancelled || opGenerationRef.current !== generation) return;
+      await applyInvalidation(hit.level, hit.message);
     })();
-    // 초안 로드를 기다리는 동안 고객이 바뀌거나 화면을 떠나면 판정을 버린다 —
-    // 이전 고객의 초안으로 다음 고객의 승인을 판정하지 않기 위해서다.
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 로드 직후 1회 보정
-  }, [status, clientId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [status, clientId, pbId, applyInvalidation]);
 
   const saveCashFlows = async (flows: CashFlow[], periodType?: CashflowPeriodType) => {
     if (!client) return;
@@ -463,14 +467,16 @@ export default function ClientDetailPage() {
   const onBasicAssetsChanged = () => {
     bumpAssetRefresh();
     publishClientLiveSync(clientId, "assets", "holdings-or-estate");
-    if (!client || !isBasicWorkflowApproved(client)) return;
-    void invalidateAfterEdit(client, "basic");
+    const latest = clientRef.current;
+    if (!latest || !isBasicWorkflowApproved(latest)) return;
+    void invalidateAfterEdit({}, "basic");
   };
 
   const onPortfolioDraftChanged = () => {
     publishClientLiveSync(clientId, "draft", "portfolio-draft");
-    if (!client || !isPortfolioWorkflowApproved(client)) return;
-    void invalidateAfterEdit(client, "portfolio");
+    const latest = clientRef.current;
+    if (!latest || !isPortfolioWorkflowApproved(latest)) return;
+    void invalidateAfterEdit({}, "portfolio");
   };
 
   const approveBasicInfo = async () => {
@@ -484,7 +490,7 @@ export default function ClientDetailPage() {
       ) {
         return;
       }
-      await applyInvalidation(client, "basic", MSG_BASIC_UNAPPROVED);
+      await applyInvalidation("basic", MSG_BASIC_UNAPPROVED);
       return;
     }
 
@@ -506,8 +512,12 @@ export default function ClientDetailPage() {
     await updateClient(client.id, { stages, ips, approvalHashes });
     const nextClient = { ...client, stages, ips, approvalHashes };
     setClient(nextClient);
+    clientRef.current = nextClient;
     syncEvidenceAfterBasicApproval(nextClient);
     notifyClientUpdated();
+    // 재승인 후 새 편집은 다시 한 번 안내할 수 있게 알림 키를 비운다.
+    shownNoticeKeysRef.current.clear();
+    setApprovalNotice(null);
     // 해제 쪽(applyInvalidation)과 대칭. 게이트가 한 번 걸리면 gateToastKey 에 그 키가
     // 남아 이후 같은 안내가 영구히 억제된다 — 승인으로 게이트가 풀렸으니 여기서 비운다.
     gateToastKey.current = "";
@@ -525,7 +535,7 @@ export default function ClientDetailPage() {
       ) {
         return;
       }
-      await applyInvalidation(client, "portfolio", MSG_PORTFOLIO_UNAPPROVED);
+      await applyInvalidation("portfolio", MSG_PORTFOLIO_UNAPPROVED);
       return;
     }
 
@@ -879,18 +889,36 @@ export default function ClientDetailPage() {
       prev != null &&
       Object.keys(profile).every((k) => {
         const key = k as keyof FinancialIncomeProfile;
-        if (key === "derivedDepositInterestWon") return true;
+        if (
+          key === "derivedDepositInterestWon" ||
+          key === "derivedBondInterestWon" ||
+          key === "derivedDividendWon" ||
+          key === "derivedWithholdingWon"
+        ) {
+          return true;
+        }
         return prev[key] === profile[key];
       }) &&
-      prev.derivedDepositInterestWon !== profile.derivedDepositInterestWon;
+      (prev.derivedDepositInterestWon !== profile.derivedDepositInterestWon ||
+        prev.derivedBondInterestWon !== profile.derivedBondInterestWon ||
+        prev.derivedDividendWon !== profile.derivedDividendWon ||
+        prev.derivedWithholdingWon !== profile.derivedWithholdingWon);
+
+    const unchanged =
+      prev != null &&
+      JSON.stringify(prev) === JSON.stringify(profile);
+    if (unchanged) return;
 
     await updateClient(current.id, { financialIncomeProfile: profile });
-    const next = { ...current, financialIncomeProfile: profile };
+    // await 중 승인 해제가 반영됐을 수 있으므로 최신 stages 를 덮어쓰지 않는다.
+    const latest = clientRef.current;
+    if (!latest || latest.id !== current.id) return;
+    const next = { ...latest, financialIncomeProfile: profile };
     clientRef.current = next;
     setClient(next);
     if (opts?.skipInvalidation || onlyDerived) return;
-    await invalidateAfterEdit(next, "basic");
-  }, []);
+    await invalidateAfterEdit({}, "basic");
+  }, [invalidateAfterEdit]);
 
   const onDerivedDepositInterest = useCallback(
     (grossWon: number | null) => {
@@ -968,6 +996,25 @@ export default function ClientDetailPage() {
 
   return (
     <div className="pb-console mx-auto max-w-[1440px] space-y-5 px-3 py-4 sm:px-4 lg:px-8">
+      {approvalNotice && (
+        <div
+          role="status"
+          className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+            approvalNotice.error
+              ? "border-rose-300 bg-rose-50 text-rose-900"
+              : "border-amber-300 bg-amber-50 text-amber-950"
+          }`}
+        >
+          <p className="font-semibold leading-relaxed">{approvalNotice.message}</p>
+          <button
+            type="button"
+            className="shrink-0 rounded border border-current/20 px-2 py-1 text-xs font-bold"
+            onClick={() => setApprovalNotice(null)}
+          >
+            닫기
+          </button>
+        </div>
+      )}
       <section className="console-panel overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div className="flex min-w-0 items-center gap-4">

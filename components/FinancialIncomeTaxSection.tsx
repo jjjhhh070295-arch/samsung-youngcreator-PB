@@ -49,6 +49,8 @@ export default function FinancialIncomeTaxSection({
       ...patch,
       parseStatus: markManual ? "manual" : (patch.parseStatus ?? base.parseStatus),
     };
+    const same = (Object.keys(next) as (keyof FinancialIncomeProfile)[]).every((k) => next[k] === base[k]);
+    if (same) return;
     profileRef.current = next;
     await onChangeFinancialIncomeProfile(next);
   };

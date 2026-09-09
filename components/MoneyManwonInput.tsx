@@ -60,12 +60,23 @@ export default function MoneyManwonInput({
   const [draft, setDraft] = useState(() => wonToManwonDraft(valueWon));
   const [error, setError] = useState<string | null>(null);
 
+  const lastCommittedRef = useRef<number | null | undefined>(valueWon);
+  const committingRef = useRef(false);
+
   useEffect(() => {
     if (focusedRef.current) return;
     setDraft(wonToManwonDraft(valueWon));
+    lastCommittedRef.current = valueWon;
   }, [valueWon]);
 
+  const sameWon = (a: number | null | undefined, b: number | null | undefined) => {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a === b;
+  };
+
   const commit = () => {
+    if (committingRef.current) return;
     const parsed = parseManwonInput(draft, { allowSigned });
     if (!parsed.ok) {
       setError(parsed.error);
@@ -73,8 +84,20 @@ export default function MoneyManwonInput({
     }
     setError(null);
     const next = "empty" in parsed && parsed.empty ? null : parsed.won;
-    onCommitWon(next);
     setDraft(formatManwonBlur(next));
+    if (sameWon(next, lastCommittedRef.current) && sameWon(next, valueWon)) {
+      return;
+    }
+    lastCommittedRef.current = next;
+    committingRef.current = true;
+    try {
+      onCommitWon(next);
+    } finally {
+      // Enter→blur 이중 커밋 방지; 다음 틱에 해제
+      queueMicrotask(() => {
+        committingRef.current = false;
+      });
+    }
   };
 
   return (
