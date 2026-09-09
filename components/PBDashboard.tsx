@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import type { Client } from "@/lib/types";
 import type { AumWeightedReturnResult } from "@/lib/advisory/portfolioReturn";
 import { formatKRW } from "@/lib/format";
