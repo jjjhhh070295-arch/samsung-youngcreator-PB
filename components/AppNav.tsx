@@ -28,6 +28,7 @@ import {
   isPortfolioWorkflowApproved,
 } from "@/lib/advisory/workflowApprovals";
 import SessionCountdown from "@/components/SessionCountdown";
+import { isCustomerFacingPath } from "@/lib/customerFacingRoutes";
 
 /** 고객 상세 메인 워크플로 — 기본 정보 → 포트폴리오 → IPS → 고객화면 */
 const CLIENT_WORKFLOW_TABS = [
@@ -302,6 +303,13 @@ export default function AppNav() {
   }));
 
   // 헤더가 사라졌으므로 네비가 최상단(top-0)에 붙는다. 헤더의 z-40을 그대로 물려받는다.
+  // 고객 대면 화면(/view/[token], /client/[clientId])에는 상단 네비를 그리지 않는다.
+  // 루트 레이아웃이 모든 라우트에 붙는 탓에 여기까지 렌더됐고, 아래 "일반 페이지" 분기의
+  // "삼성증권" 로고와 홈·리서치 링크, 그리고 PB 세션이 살아 있으면 "고객조회"(담당 고객
+  // 목록)까지 노출됐다 — 공유 링크에서 PB 화면으로 넘어가지던 경로가 이것이다.
+  // 훅은 위에서 이미 전부 호출했으므로 여기서 빠져도 훅 순서가 흔들리지 않는다.
+  if (isCustomerFacingPath(pathname)) return null;
+
   const shell = "sticky top-0 z-40 border-b border-[#0D57BA] bg-[#1769D2] text-white";
 
   // PB Home · 티커분석 공통 상단 메뉴(고객 상세와 분리). 모바일도 동일 링크 행을 가로 스크롤한다.

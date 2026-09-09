@@ -12,13 +12,16 @@
 // 로그인 상태에서만 동작한다. 세션이 없으면 이벤트가 와도 무시한다.
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import type { PB, Client } from "@/lib/types";
 import { listPbs, listClients, createPb, updatePb, deletePb } from "@/lib/store";
 import { getLoggedInPbId, onSessionChanged } from "@/lib/auth";
 import { PB_MANAGE_OPEN_EVENT } from "@/lib/pbManage";
+import { isCustomerFacingPath } from "@/lib/customerFacingRoutes";
 import PBManageModal from "./PBManageModal";
 
 export default function PBManageHost() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [pbs, setPbs] = useState<PB[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -75,6 +78,10 @@ export default function PBManageHost() {
     await deletePb(id);
     await load();
   };
+
+  // 고객 대면 화면에서는 PB 계정 관리 모달이 뜰 자리가 아니다. 이벤트를 받을 일도
+  // 없지만(네비가 없다), 레이아웃에 붙는 컴포넌트라 경로로 한 번 더 끊는다.
+  if (isCustomerFacingPath(pathname)) return null;
 
   if (!open) return null;
 

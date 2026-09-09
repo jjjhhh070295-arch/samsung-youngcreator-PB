@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { isCustomerFacingPath } from "@/lib/customerFacingRoutes";
 import {
   IDLE_WARNING_MS,
   getSessionExpiresAt,
@@ -28,6 +30,7 @@ const WARNING_TICK_MS = 1_000;
  * 처리하므로, 책임을 한 곳에 둔다.
  */
 export default function SessionGuard() {
+  const pathname = usePathname();
   // 실효 만료까지 남은 ms. 세션이 없으면 null.
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
 
@@ -55,6 +58,11 @@ export default function SessionGuard() {
     const id = setInterval(sync, warning ? WARNING_TICK_MS : IDLE_CHECK_INTERVAL_MS);
     return () => clearInterval(id);
   }, [sync, warning]);
+
+  // 고객 대면 화면(/view/[token], /client/[clientId])에는 PB 세션 배너를 띄우지 않는다.
+  // PB 가 자기 기기에서 공유 링크를 열어 고객에게 보여 줄 때 "60초 후 자동 로그아웃"이
+  // 고객 화면 위에 뜨는 것을 막는다 — 고객에게는 뜻도 통하지 않는 안내다.
+  if (isCustomerFacingPath(pathname)) return null;
 
   if (!warning || remainingMs === null) return null;
 
