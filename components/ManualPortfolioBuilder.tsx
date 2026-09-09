@@ -651,7 +651,7 @@ export default function ManualPortfolioBuilder({
       <div
         className={paneClass(step === "allocation", "back")}
         aria-hidden={step !== "allocation"}
-        {...(step !== "allocation" ? ({ inert: "" } as HTMLAttributes<HTMLDivElement>) : {})}
+        {...(step !== "allocation" ? ({ inert: true } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
       >
       <div className="rounded-2xl bg-gradient-to-r from-[#071B4A] via-[#102B6B] to-[#1428A0] p-5 text-white shadow-md">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -825,7 +825,7 @@ export default function ManualPortfolioBuilder({
       <div
         className={paneClass(step === "instruments", "forward")}
         aria-hidden={step !== "instruments"}
-        {...(step !== "instruments" ? ({ inert: "" } as HTMLAttributes<HTMLDivElement>) : {})}
+        {...(step !== "instruments" ? ({ inert: true } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
       >
       <div>
         <p className="text-sm font-black text-fg">02 종목선택</p>
@@ -1144,7 +1144,7 @@ export default function ManualPortfolioBuilder({
       <div
         className={paneClass(step === "approval", "forward")}
         aria-hidden={step !== "approval"}
-        {...(step !== "approval" ? ({ inert: "" } as HTMLAttributes<HTMLDivElement>) : {})}
+        {...(step !== "approval" ? ({ inert: true } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
       >
       <div>
         <p className="text-sm font-black text-fg">03 포트폴리오승인</p>
