@@ -296,6 +296,29 @@ export default function ClientDetailPage() {
     }
   }, [status, client, activeView, activeTab, router, pbId, clientId, showApprovalNotice]);
 
+  // 게이트 배너는 조건이 풀리면 스스로 내려간다.
+  //
+  // 예전에는 한 번 뜨면 고객을 바꾸기 전까지 남았다(approvalNotice 는 상태이고 내리는
+  // 코드가 없었다). 그래서 승인을 끝낸 뒤에도 "포트폴리오 승인 후 IPS를 확정할 수
+  // 있습니다"가 계속 떠 있어, 현재 상태와 어긋난 문구가 화면에 박혀 있었다.
+  //
+  // 탭이 아니라 승인 상태로 판단하는 이유: 게이트는 뜨자마자 포트폴리오 탭으로
+  // 되돌리므로 탭 조건은 그 즉시 풀린다. 탭 기준으로 지우면 정작 사용자가 왜 튕겼는지
+  // 읽기도 전에 사라진다. 승인이 실제로 채워졌을 때만 내린다.
+  //
+  // 스테일 해제 알림(MSG_*_UNAPPROVED / MSG_*_STALE)은 여기서 건드리지 않는다 —
+  // 그건 조건이 아니라 "방금 일어난 일"이라 사용자가 읽고 넘어가야 한다.
+  useEffect(() => {
+    if (!client) return;
+    const clearGateNotice = (key: string) => {
+      // shownNoticeKeysRef 에서도 빼야 나중에 같은 게이트가 다시 걸렸을 때 또 뜬다.
+      shownNoticeKeysRef.current.delete(key);
+      setApprovalNotice((prev) => (prev?.key === key ? null : prev));
+    };
+    if (isBasicWorkflowApproved(client)) clearGateNotice(`${client.id}:need-basic`);
+    if (isPortfolioWorkflowApproved(client)) clearGateNotice(`${client.id}:need-portfolio`);
+  }, [client]);
+
   // 이미 IPS까지 승인됐는데 Evidence가 오래된 blocked면 복구(PDF 게이트)
   useEffect(() => {
     if (!client || typeof window === "undefined") return;
@@ -851,9 +874,24 @@ export default function ClientDetailPage() {
       ips,
       portfolios: [stampedPortfolio],
     };
+    // portfolio 해시는 저장 직전의 nextBase(= stamped 포트폴리오) 기준으로 다시 계산한다.
+    //
+    // 예전에는 `client.approvalHashes?.portfolio ?? …` 로 포트폴리오 승인 때의 해시를
+    // 그대로 들고 갔다. 그런데 바로 아래에서 portfolios[0] 을 stampedPortfolio 로
+    // 교체해 저장한다 — stampApprovedInstrumentsWithQuotes 가 종목마다 quantity 와
+    // priceSnapshot 을 채워 넣는다. simplifyPortfolio 는 그 두 필드를 해시 payload 에
+    // 포함하므로, 저장된 해시는 저장된 포트폴리오와 어긋난 채 남는다.
+    //
+    // 그 결과 다음 detectApprovalInvalidation 에서 portfolio 스테일로 잡히고,
+    // portfolioUnapprovalStagePatch 가 portfolio·stress·ips 를 한꺼번에 해제한다 —
+    // IPS 승인이 자기가 기대는 선행 승인을 무효화하는 셈이었다. 새로고침·상담 완료 저장
+    // 등으로 스테일 검사가 도는 순간마다 승인이 풀려 포트폴리오 탭으로 되돌아갔다.
+    //
+    // quantity/priceSnapshot 을 해시 payload 에서 빼는 방향은 택하지 않는다 — 승인 후
+    // 수량이 조용히 바뀌어도 감지하지 못하게 된다. 바뀐 값을 반영해 다시 찍는 쪽이 맞다.
     const approvalHashes = {
       basic: client.approvalHashes?.basic ?? computeBasicApprovalHash(client),
-      portfolio: client.approvalHashes?.portfolio ?? computePortfolioApprovalHash(client, draft),
+      portfolio: computePortfolioApprovalHash(nextBase, draft),
       ips: computeIpsApprovalHash(nextBase),
     };
 
@@ -900,8 +938,11 @@ export default function ClientDetailPage() {
       alert(
         `${MSG_IPS_APPROVED}\n보유종목 반영: ${sync.linesApplied}건 (KIS 시세 스냅샷·장부 기준, 실주문 아님)${draftNote}`,
       );
-      // 승인 직후 PB 메모 + 확정 IPS 문서를 같은 상담 ID 에 저장
-      setCompletionOpen(true);
+      // 승인 직후 완료 모달을 자동으로 띄우지 않는다. IPS 확정과 상담 종료는 별개
+      // 행위다 — 승인만 하고 상담은 계속 이어가는 경우가 있고, 자동으로 뜨면 그 자리에서
+      // 메모를 쓰고 저장할 수밖에 없다. 저장이 끝나면 load() 가 돌면서 화면이 바뀌기까지
+      // 해서, 승인 흐름과 상담 종료 흐름이 서로를 밀어냈다.
+      // 상담 종료는 아래 IPS 문서 카드의 "상담 완료 · PB 메모" 버튼에서 연다.
     } catch (e: any) {
       console.error(e);
       alert(`IPS 확정/보유 반영 오류: ${e?.message || e}\n초안은 유지됩니다.`);

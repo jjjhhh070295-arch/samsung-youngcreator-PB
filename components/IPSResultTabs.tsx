@@ -11,7 +11,6 @@ import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
 import TaxProjectionPanel from "./TaxProjectionPanel";
 import ManualPortfolioBuilder from "./ManualPortfolioBuilder";
-import ConsultationEndButton from "./ConsultationEndButton";
 import PortfolioWorkflowStepper from "./PortfolioWorkflowStepper";
 import ScoreRubricButton from "./ScoreRubricButton";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
@@ -704,9 +703,11 @@ export default function IPSResultTabs({
               )}
             </div>
           </div>
-          {/* 상담 종료 — 진행 중인 상담이 있을 때만 나타난다. PB 메모와 이 시점의 IPS 를
-              그 건에 기록한다. 컴포넌트가 스스로 열린 상담을 찾으므로 고객만 넘긴다. */}
-          <ConsultationEndButton client={client} />
+          {/* 상담 종료 경로는 위 "상담 완료 · PB 메모" 버튼 하나다. 예전에는 여기에
+              ConsultationEndButton 이 따로 있었는데, 완료 모달이 상담의 ended_at 을
+              채우면 그 버튼은 열린 상담을 못 찾아 사라졌다 — 두 경로가 같은 일을 하면서
+              한쪽이 다른 쪽을 지우는 상태였다. 확정 IPS 문서 스냅샷을 남기는 건 완료
+              모달뿐이라 그쪽을 정본으로 남긴다. */}
         </div>
       )}
     </div>
