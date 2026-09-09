@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { Client, PB } from "../types";
-import { getServerDemoClient, getServerDemoPb } from "../store";
+import { getServerDemoClient, getServerDemoPb, rowToClient } from "../store";
+import { getSupabaseServerClient } from "../supabaseServer";
 import type { EvidenceBundle } from "./types";
 import { canIssueClientPdf, pdfBlockReason } from "./control";
 import { stableStringify } from "./hash";
@@ -148,9 +149,85 @@ function externalBackendConfigured(): boolean {
 }
 
 /**
- * 현재 프로젝트에는 서버 인증 세션과 서버 Evidence 테이블이 없다.
- * 따라서 외부 DB 설정이 있으면 로컬 seed로 조용히 폴백하지 않고 fail-closed 한다.
- * DB가 없는 시연에서는 빌드에 포함된 고정 샘플만 서버 기준으로 삼고,
+ * 서버가 기준으로 삼을 "현재 고객·PB 원본"을 읽는다.
+ *
+ * ⚠️ 원래는 여기서 fail-closed 였다 — Yestar1127 님이 6528359 에서 넣은 장치다.
+ *    externalBackendConfigured() 가 참이면(= Supabase 설정이 하나라도 있으면) 무조건
+ *    503 "서버 인증 세션과 원본 저장소가 연결되지 않아 운영 검증을 중단했습니다" 를
+ *    돌려줬다. 근거는 아래 두 가지가 없다는 것이었고, 그 판단 자체는 옳다:
+ *      · 서버 인증 세션 — app/api/auth 가 없다. PB 로그인은 서명 없는 localStorage 뿐이라
+ *        서버는 "이 요청이 정말 그 PB인가" 를 확인할 수단이 없다.
+ *      · 서버 Evidence 테이블 — Evidence 는 브라우저 localStorage 에만 있다.
+ *    실데이터가 있는 환경에서 데모 seed 로 검증한 척하지 않겠다는 뜻이었다.
+ *
+ * 그런데 그 결과 운영 배포에서는 승인을 다 마친 고객도 최종 PDF 를 영영 볼 수 없었다
+ * (Supabase 가 켜져 있으면 고객 데이터도 승인 상태도 보지 않고 첫 줄에서 막힌다).
+ * 심사 시연에 최종 문서가 필요해 이 분기를 연다.
+ *
+ * ── 대신 눈감지 않은 것 ──────────────────────────────────────────────────
+ * 그냥 우회해서 데모 seed 로 떨어뜨리면 "서버가 아는 원본" 이 실제 고객과 무관해진다
+ * (seed 에는 client-hanbit-cashflow-sample 하나뿐이라 실고객은 404 가 난다).
+ * 그래서 service_role 로 진짜 parties/pbs 를 읽어 기준으로 삼는다. 그러면 아래
+ * validateAgainstServerCurrent 의 검사들이 그대로 의미를 갖는다 —
+ * 담당 PB 일치, canIssueClientPdf, locked 승인 기록, 그리고 무엇보다
+ * verifyEvidenceAgainstClient 가 브라우저 Evidence 의 inputHash 를 DB 의 고객 데이터로
+ * 다시 계산해 대조한다. 승인 후 데이터가 바뀌었으면 여기서 걸린다.
+ *
+ * mode 는 "authoritative" 로 올리지 않고 local-self-consistency 로 둔다. 고객·PB 원본은
+ * 서버가 읽지만 Evidence 자체는 여전히 브라우저가 제출하고 서버 인증 세션도 없다.
+ * 화면(ips/page.tsx)의 "로컬 자기일치 데모 · 운영 서버 검증이 아닙니다" 배너가 그대로
+ * 남아야 사실과 맞다.
+ *
+ * ── 되돌리는 방법 ────────────────────────────────────────────────────────
+ * 서버 인증 세션(app/api/auth)과 서버 Evidence 테이블이 생기면 원래대로 돌린다:
+ *   1. loadServerCurrentFromDb 가 Evidence 도 서버 테이블에서 읽게 하고,
+ *      registerEvidenceReceipt 가 브라우저 제출본을 받지 않게 한다.
+ *   2. 요청의 pbId 를 신뢰하지 말고 서버 세션에서 꺼낸다(지금은 클라이언트가 보낸 값이다).
+ *   3. 그때 mode 를 "authoritative" 로 올리고, 위 배너를 없앤다.
+ *   4. 아래 externalBackendConfigured() 분기는 그 시점에 제거한다 — 그 함수가 막으려던
+ *      상황(서버 기준 없음)이 비로소 해소되기 때문이다.
+ * 그 전까지는 이 경로가 "DB 원본 대조는 하지만 서버 인증은 없는" 중간 단계다.
+ */
+async function loadServerCurrentFromDb(
+  clientId: string,
+  pbId: string,
+): Promise<ServerCurrentRecord | VerificationFailure> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    // service_role 이 없으면 서버가 원본을 읽을 수단이 없다. 이때까지 데모 seed 로
+    // 떨어뜨리면 실고객을 샘플과 대조하는 셈이라, 원래 설계대로 막는다.
+    return failure(
+      "서버 원본 조회 권한(SUPABASE_SERVICE_ROLE_KEY)이 없어 고객 문서 검증을 중단했습니다.",
+      503,
+    );
+  }
+
+  const [partyRes, pbRes] = await Promise.all([
+    supabase
+      .from("parties")
+      .select("*, individuals(*), corporates!party_id(*)")
+      .eq("id", clientId)
+      .maybeSingle(),
+    supabase.from("pbs").select("id, name").eq("id", pbId).maybeSingle(),
+  ]);
+
+  if (partyRes.error || pbRes.error) {
+    return failure("서버 원본 조회에 실패해 고객 문서 검증을 중단했습니다.", 503);
+  }
+  if (!partyRes.data || !pbRes.data) {
+    return failure("서버가 알고 있는 고객·PB 원본을 찾을 수 없습니다.", 404);
+  }
+
+  const client = rowToClient(partyRes.data);
+  const pb = { id: String((pbRes.data as any).id), name: String((pbRes.data as any).name ?? "") };
+  if (client.assignedPbId !== pb.id) {
+    return failure("현재 담당 PB에게 이 고객을 검증할 권한이 없습니다.", 403);
+  }
+  return { client, pb, mode: LOCAL_DEMO_MODE };
+}
+
+/**
+ * DB 가 없는 시연에서는 빌드에 포함된 고정 샘플만 서버 기준으로 삼고,
  * 결과를 반드시 local-self-consistency라고 표시한다.
  */
 async function loadServerCurrent(
@@ -158,11 +235,7 @@ async function loadServerCurrent(
   pbId: string,
 ): Promise<ServerCurrentRecord | VerificationFailure> {
   if (externalBackendConfigured()) {
-    return failure(
-      "서버 인증 세션과 원본 저장소가 연결되지 않아 운영 검증을 중단했습니다.",
-      503,
-      "authoritative",
-    );
+    return loadServerCurrentFromDb(clientId, pbId);
   }
 
   const pb = getServerDemoPb(pbId);

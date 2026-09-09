@@ -247,14 +247,23 @@ describe("server Evidence verification", () => {
     assert.equal(expired.ok, false);
   });
 
-  it("외부 DB 설정만 있고 인증·영속 Evidence backend가 없으면 데모 폴백하지 않음", async () => {
+  // 폐기된 부분: "Supabase 설정이 있으면 무조건 503" 이라는 규칙 자체.
+  // 그 fail-closed 는 서버 기준 원본이 없다는 이유로 운영 배포에서 승인 완료 고객의
+  // 최종 PDF 까지 영영 막았다. 이제 service_role 로 진짜 parties/pbs 를 읽어 기준으로
+  // 삼으므로, "서버 원본이 없다" 는 전제가 그 경우에는 성립하지 않는다.
+  //
+  // 남는 불변식: 실고객을 빌드에 박힌 데모 seed 와 대조하지 않는다.
+  // 서버가 원본을 읽을 수단(service_role)이 없으면 데모로 떨어지지 않고 그대로 503 이다.
+  // 아래 테스트가 검증하는 것이 그 불변식이고, 바뀐 것은 실패 사유 문구뿐이다.
+  it("외부 DB 설정만 있고 서버 원본 조회 권한이 없으면 데모 폴백하지 않음", async () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://configured.invalid";
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     const bundle = lockedDemoBundle();
     const result = await registerEvidenceReceipt(idsFor(bundle), bundle);
-    assert.equal(result.ok, false);
+    assert.equal(result.ok, false, "데모 seed 로 폴백해 통과시키면 안 된다");
     if (!result.ok) {
       assert.equal(result.httpStatus, 503);
-      assert.match(result.reason, /운영 검증을 중단/);
+      assert.match(result.reason, /SUPABASE_SERVICE_ROLE_KEY/);
     }
   });
 });
