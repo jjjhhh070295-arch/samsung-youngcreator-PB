@@ -48,6 +48,26 @@ export function advisoryInputHash(client: Client, context: AdvisoryInputContext 
   return hashObject(advisoryInputPayload(client, context));
 }
 
+/**
+ * consultationNotes가 계산 입력에 포함되던 구형 Evidence만 식별하기 위한 호환 해시.
+ * 새 Evidence를 만들 때는 사용하지 않는다.
+ */
+export function legacyAdvisoryInputHash(client: Client, context: AdvisoryInputContext = {}): string {
+  return hashObject({
+    ...advisoryInputPayload(client, context),
+    notes: client.consultationNotes,
+  });
+}
+
+export function needsLegacyAdvisoryInputHashRefresh(
+  inputHash: string,
+  client: Client,
+  context: AdvisoryInputContext = {},
+): boolean {
+  const currentHash = advisoryInputHash(client, context);
+  return inputHash !== currentHash && inputHash === legacyAdvisoryInputHash(client, context);
+}
+
 /** 서버에서 현재 고객 원본과 검토 기록의 핵심 계산값을 다시 해시해 비교한다. */
 export function verifyEvidenceAgainstClient(
   bundle: EvidenceBundle,

@@ -53,6 +53,7 @@ import {
   MSG_BASIC_STALE,
   MSG_PORTFOLIO_STALE,
 } from "@/lib/advisory/approvalSnapshots";
+import { needsLegacyAdvisoryInputHashRefresh } from "@/lib/advisory/integrity";
 import {
   isLevelApproved,
   runApprovalUnapproval,
@@ -335,14 +336,20 @@ export default function ClientDetailPage() {
     if (!isIpsWorkflowApproved(client)) return;
     // PB 이름을 모르는 동안에는 손대지 않는다. pbs 는 load() 로 나중에 채워지는데,
     // 그 전에 돌면 inputHash 가 assignedPbId 로 폴백해 서버와 어긋난 값이 찍힌다.
-    // 게다가 이 sync 는 상태를 locked 로 올리므로 아래 조건이 다시는 참이 되지 않아
-    // 틀린 해시가 그대로 굳는다.
     if (!assignedPbDisplay) return;
     const bundle = loadBundle(client.id);
-    if (bundle.status === "blocked" || bundle.status !== "locked") {
-      syncEvidenceAfterIpsApproval(client, { assignedPbDisplay });
+    if (
+      bundle.status === "blocked" ||
+      bundle.status !== "locked" ||
+      needsLegacyAdvisoryInputHashRefresh(bundle.inputHash, client, { assignedPbDisplay })
+    ) {
+      syncEvidenceAfterIpsApproval(
+        client,
+        { assignedPbDisplay },
+        investableWon ?? undefined,
+      );
     }
-  }, [client, assignedPbDisplay]);
+  }, [assignedPbDisplay, client, investableWon]);
 
   const handleSetTab = (t: Tab) => {
     if ((t === "portfolio2" || t === "portfolio" || t === "taxProjection" || t === "stress") && client && !isBasicWorkflowApproved(client)) {
@@ -721,6 +728,11 @@ export default function ClientDetailPage() {
       return;
     }
 
+    if (!assignedPbDisplay) {
+      alert("담당 PB 정보를 확인하지 못해 IPS를 확정하지 않았습니다. 페이지를 새로고침한 뒤 다시 시도하세요.");
+      return;
+    }
+
     const bundle = loadBundle(clientId);
     const reasons = validateIpsWorkflowApproval(client, bundle);
     if (reasons.length) {
@@ -945,7 +957,11 @@ export default function ClientDetailPage() {
       setClient(nextClient);
       // nextClient.portfolios 는 [stampedPortfolio] 다(위 nextBase). Evidence 의
       // inputHash 를 여기서 찍으므로 반드시 stamping 이후 값이어야 한다.
-      syncEvidenceAfterIpsApproval(nextClient, { assignedPbDisplay });
+      syncEvidenceAfterIpsApproval(
+        nextClient,
+        { assignedPbDisplay },
+        availableFundsWon,
+      );
       notifyClientUpdated();
       bumpAssetRefresh();
       const draftNote =

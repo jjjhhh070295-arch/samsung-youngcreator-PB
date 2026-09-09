@@ -5,6 +5,7 @@
 
 import type { Client } from "../types";
 import {
+  appendRun,
   emptyBundle,
   loadBundle,
   migrateBundle,
@@ -13,11 +14,12 @@ import {
 } from "./control";
 import type { EvidenceBundle } from "./types";
 import { extractIpsFromClientProfile } from "./ipsExtraction";
-import { advisoryInputHash, type AdvisoryInputContext } from "./integrity";
+import { buildEngineSnapshot } from "./snapshot";
+import type { AdvisoryInputContext } from "./integrity";
 
 function persist(bundle: EvidenceBundle) {
   saveBundle(bundle);
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
     window.dispatchEvent(new Event("pb-evidence-updated"));
   }
   return bundle;
@@ -96,12 +98,24 @@ export function syncEvidenceAfterPortfolioApproval(client: Client): EvidenceBund
  */
 export function syncEvidenceAfterIpsApproval(
   client: Client,
-  context: AdvisoryInputContext = {},
+  inputContext: AdvisoryInputContext = {},
+  investableWon?: number,
 ): EvidenceBundle {
   clearStaleEvidenceBlock(client.id);
   let bundle = loadBundle(client.id);
   const now = new Date().toISOString();
-  const ips = bundle.ipsExtract ?? extractIpsFromClientProfile(client);
+
+  // 이미 잠긴 검토본을 제자리에서 고치지 않는다. 직전 원본을 보관하고 새 버전에서
+  // 현재 승인 입력을 다시 계산해야 상담 메모 해시 규칙 변경과 재승인을 모두 안전하게
+  // 처리할 수 있다.
+  if (bundle.status === "locked" || bundle.status === "blocked") {
+    const started = startNewReviewVersion(bundle, "PB-workflow");
+    if (!started.ok) return bundle;
+    bundle = started.bundle;
+  }
+
+  const snapshot = buildEngineSnapshot(client, inputContext, now, investableWon);
+  const ips = snapshot.ipsExtract ?? extractIpsFromClientProfile(client);
 
   // 최소 게이트 충족용 스냅샷 — 워크플로 승인으로 확정
   if (!bundle.judge?.passed) {
@@ -123,69 +137,9 @@ export function syncEvidenceAfterIpsApproval(
       ...bundle,
       citation: {
         passed: true,
-        count: 0,
+        count: snapshot.citations.length,
         incompleteIds: [],
         message: "기본정보·포트폴리오·IPS 승인으로 출처 확인",
-      },
-    };
-  }
-  // inputHash 는 조건 없이 실제 해시로 덮어쓴다.
-  //
-  // 예전에는 `if (!bundle.inputHash) … = \`workflow-input-${client.id}\`` 였다. 문제가 둘
-  // 겹쳐 있었다.
-  //   · 값이 해시가 아니라 리터럴 문자열이었다. verifyEvidenceAgainstClient 는 이것을
-  //     advisoryInputHash(client) 와 비교하므로 영원히 일치하지 않는다.
-  //   · 이미 값이 있으면 손대지 않아, 재승인을 몇 번 해도 옛 값이 그대로 남았다.
-  // 그 결과 승인을 다 마친 고객도 최종 PDF 가 "승인 후 … 입력이 변경되었습니다" 로
-  // 계속 막혔다. 진짜 해시를 만드는 경로(/api/advisory/evidence → buildEngineSnapshot)는
-  // 이를 호출하는 컴포넌트(ConsultationHub·EvidenceBundlePanel)가 현재 어디에도
-  // 마운트되지 않아 도달할 수 없다. 그래서 승인이 직접 찍는다.
-  //
-  // 덮어쓰기가 맞는 이유: 이 시점의 client 가 곧 "승인된 내용"이다. 승인할 때마다
-  // 그 시점 기준으로 다시 찍혀야 이후 변경이 정확히 탐지된다.
-  //
-  // 호출부는 stamping 이후의 client 를 넘겨야 한다 — IPS 승인이 portfolios[0] 을
-  // stampedPortfolio 로 교체하는데, 그 전 값으로 찍으면 저장된 포트폴리오와 어긋난다.
-  bundle = { ...bundle, inputHash: advisoryInputHash(client, context) };
-  // settingsHash·resultHash 는 자리표시자 그대로 둔다. verifyEvidenceAgainstClient 가
-  // 이 둘은 번들 자기 자신(calcConfig·calcResults)과 대조하므로 값이 무엇이든 일관되기만
-  // 하면 통과한다. 고객 데이터와 비교하는 건 inputHash 하나뿐이다.
-  if (!bundle.settingsHash) bundle = { ...bundle, settingsHash: `workflow-settings-${client.id}` };
-  if (!bundle.resultHash) {
-    const hash = `workflow-result-${client.id}-${now}`;
-    bundle = { ...bundle, resultHash: hash, outputHash: hash };
-  } else if (!bundle.outputHash || bundle.outputHash !== bundle.resultHash) {
-    bundle = { ...bundle, outputHash: bundle.resultHash };
-  }
-  if (!bundle.calcResults) {
-    bundle = {
-      ...bundle,
-      calcResults: {
-        risk: {
-          expectedReturn: { value: 0, unit: "%", asOf: now, source: "workflow" },
-          volatility: { value: 0, unit: "%", asOf: now, source: "workflow" },
-          sharpe: { value: 0, unit: "ratio", asOf: now, source: "workflow" },
-          mdd: { value: 0, unit: "%", asOf: now, source: "workflow" },
-          var95: { value: 0, unit: "%", asOf: now, source: "workflow" },
-          cvar95: { value: 0, unit: "%", asOf: now, source: "workflow" },
-        },
-        stress: [
-          {
-            id: "wf-1",
-            label: "워크플로 승인",
-            assumption: "포트폴리오 승인 단계 완료",
-            shockPct: { value: 0, unit: "%", asOf: now, source: "workflow" },
-            pnlWon: { value: 0, unit: "KRW", asOf: now, source: "workflow", currency: "KRW" },
-          },
-          {
-            id: "wf-2",
-            label: "워크플로 승인",
-            assumption: "세전·세후 단계 완료",
-            shockPct: { value: 0, unit: "%", asOf: now, source: "workflow" },
-            pnlWon: { value: 0, unit: "KRW", asOf: now, source: "workflow", currency: "KRW" },
-          },
-        ],
-        waterfall: null,
       },
     };
   }
@@ -204,7 +158,9 @@ export function syncEvidenceAfterIpsApproval(
   const fromStatus = bundle.status === "locked" ? "review" : bundle.status;
   bundle = {
     ...bundle,
+    ...snapshot,
     ipsExtract: ips,
+    outputHash: snapshot.resultHash,
     status: "locked",
     blockReasons: [],
     pendingReasons: [],
@@ -220,6 +176,14 @@ export function syncEvidenceAfterIpsApproval(
       },
     ],
   };
+  bundle = appendRun(bundle, {
+    at: now,
+    kind: "snapshot",
+    engine: "workflow-approval",
+    inputHash: snapshot.inputHash,
+    outputHash: snapshot.resultHash,
+    notes: "3단계 승인 완료 시점의 발행용 Evidence 재생성",
+  });
   return persist(bundle);
 }
 

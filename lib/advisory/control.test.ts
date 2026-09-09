@@ -9,7 +9,13 @@ import { JUDGE_MAX_RETRIES } from "./constants";
 import { buildPipeline, pipelineMatchesStatus } from "./pipeline";
 import { buildRecommendResult } from "./recommend";
 import { parseAdvisoryConstraints } from "./constraints";
-import { advisoryInputHash, verifyEvidenceAgainstClient } from "./integrity";
+import {
+  advisoryInputHash,
+  legacyAdvisoryInputHash,
+  needsLegacyAdvisoryInputHashRefresh,
+  verifyEvidenceAgainstClient,
+} from "./integrity";
+import { syncEvidenceAfterIpsApproval } from "./workflowEvidenceSync";
 import { hashObject } from "./hash";
 import type { CalcResults, EvidenceBundle, JudgeResult, RecommendResult } from "./types";
 import { emptyIPS } from "../types";
@@ -762,6 +768,72 @@ describe("PB approve gate", () => {
     const changedEvidence = structuredClone(locked);
     if (changedEvidence.calcResults) changedEvidence.calcResults.risk.expectedReturn.value = 99;
     assert.equal(verifyEvidenceAgainstClient(changedEvidence, client, inputContext).verified, false);
+  });
+
+  it("3단계 IPS 승인 시 현재 입력으로 Evidence를 재생성해 PDF 게이트를 연다", () => {
+    withMemoryStorage(() => {
+      const client: Client = {
+        id: "c1",
+        code: "C-1",
+        clientType: "individual",
+        name: "승인 테스트",
+        birthDate: "1980-01-01",
+        assignedPbId: "PB-001",
+        assetSize: 1_000_000_000,
+        consultationNotes: "승인 후 저장된 상담 메모",
+        ips: emptyIPS(),
+        cashFlows: [],
+        portfolios: [],
+        stages: {
+          basic: true,
+          factors: true,
+          cashflow: true,
+          portfolio: true,
+          stress: true,
+          ips: true,
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      };
+      const inputContext = { assignedPbDisplay: "김삼성 PB" };
+      const oldHash = legacyAdvisoryInputHash(client, inputContext);
+      const oldLocked = approveByPb({ ...readyBundle(), inputHash: oldHash }, "PB");
+      assert.equal(saveBundle(oldLocked), true);
+      assert.equal(needsLegacyAdvisoryInputHashRefresh(oldHash, client, inputContext), true);
+
+      const refreshed = syncEvidenceAfterIpsApproval(client, inputContext);
+
+      assert.equal(refreshed.status, "locked");
+      assert.equal(refreshed.inputHash, advisoryInputHash(client, inputContext));
+      assert.equal(refreshed.outputHash, refreshed.resultHash);
+      assert.equal(canIssueClientPdf(refreshed), true);
+      assert.equal(verifyEvidenceAgainstClient(refreshed, client, inputContext).verified, true);
+      assert.notEqual(refreshed.id, oldLocked.id);
+      assert.ok(loadArchivedBundles(client.id).some((archived) => archived.id === oldLocked.id));
+    });
+  });
+
+  it("실제 고객 입력이 바뀐 경우에는 구형 해시 마이그레이션으로 오인하지 않는다", () => {
+    const client: Client = {
+      id: "c1",
+      code: "C-1",
+      clientType: "individual",
+      name: "원래 이름",
+      birthDate: "1980-01-01",
+      assignedPbId: "PB-001",
+      assetSize: 1_000_000_000,
+      consultationNotes: "메모",
+      ips: emptyIPS(),
+      cashFlows: [],
+      portfolios: [],
+      stages: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const inputContext = { assignedPbDisplay: "김삼성 PB" };
+    const oldHash = legacyAdvisoryInputHash(client, inputContext);
+    assert.equal(
+      needsLegacyAdvisoryInputHashRefresh(oldHash, { ...client, name: "변경된 이름" }, inputContext),
+      false,
+    );
   });
 
   it("locked/blocked 원본을 정확히 보존한 뒤 새 draft 버전을 시작", () => {
