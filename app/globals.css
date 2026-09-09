@@ -227,3 +227,37 @@ body {
   }
 
 }
+
+/* 포트폴리오 3단계 페이지 전환 — 본문만, prefers-reduced-motion 시 비활성 */
+@keyframes portfolio-step-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes portfolio-step-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.portfolio-step-pane:not(.hidden) {
+  animation: portfolio-step-in-right 200ms ease-out;
+}
+.portfolio-step-pane-back:not(.hidden) {
+  animation: portfolio-step-in-left 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .portfolio-step-pane:not(.hidden),
+  .portfolio-step-pane-back:not(.hidden) {
+    animation: none;
+  }
+}

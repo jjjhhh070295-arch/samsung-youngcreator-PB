@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, FinancialIncomeProfile, Portfolio, StageKey } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
@@ -11,6 +11,7 @@ import type { PlanSummaryItem, PlanRowOrigin } from "./StockSectorPanel";
 import StressTestPanel from "./StressTestPanel";
 import TaxProjectionPanel from "./TaxProjectionPanel";
 import ManualPortfolioBuilder from "./ManualPortfolioBuilder";
+import PortfolioWorkflowStepper from "./PortfolioWorkflowStepper";
 import ScoreRubricButton from "./ScoreRubricButton";
 import IPSRadar from "./IPSRadar";
 import { buildPortfolioViewModel, type HeldAssets } from "@/lib/portfolio";
@@ -24,6 +25,7 @@ import {
   workflowPdfReady,
 } from "@/lib/advisory/workflowApprovals";
 import { ipsExtractionMissingReasons } from "@/lib/advisory/ipsExtraction";
+import type { PortfolioWorkflowStep } from "@/lib/portfolioWorkflowStep";
 
 interface Props {
   client: Client;
@@ -43,7 +45,9 @@ interface Props {
   linkedClient?: Client | null;
   onChangeComprehensiveTax?: (value: boolean) => Promise<void> | void;
   onChangeFinancialIncomeProfile?: (profile: FinancialIncomeProfile) => Promise<void> | void;
-}
+  portfolioStep?: PortfolioWorkflowStep;
+  onNavigatePortfolioStep?: (step: PortfolioWorkflowStep) => void;
+};
 
 export type Tab =
   | "basic"
@@ -75,6 +79,8 @@ export default function IPSResultTabs({
   linkedClient,
   onChangeComprehensiveTax,
   onChangeFinancialIncomeProfile,
+  portfolioStep = "allocation",
+  onNavigatePortfolioStep,
 }: Props) {
   const router = useRouter();
   const ips = client.ips;
@@ -452,49 +458,84 @@ export default function IPSResultTabs({
 
       {tab === "portfolio2" && (
         <div className="space-y-4">
+          <PortfolioWorkflowStepper step={portfolioStep} />
+
           <ManualPortfolioBuilder
             pbId={pbId}
             clientId={clientId}
             totalAssetWon={client.assetSize}
             onDraftChanged={onPortfolioDraftChanged}
+            step={portfolioStep}
+            onNavigateStep={onNavigatePortfolioStep}
           />
 
-          <div className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div
+            className={portfolioStep === "approval" ? "space-y-4 portfolio-step-pane" : "hidden"}
+            aria-hidden={portfolioStep !== "approval"}
+            {...(portfolioStep !== "approval" ? ({ inert: "" } as HTMLAttributes<HTMLDivElement>) : {})}
+          >
+            <div className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Portfolio approval</p>
+                  <h3 className="mt-1 text-base font-bold text-fg">포트폴리오 승인</h3>
+                  <p className="mt-1 text-[11px] text-fg-muted">
+                    맞춤 배분·종목·세전·세후 결과를 확인한 뒤 승인하면 상담 진행 4~6단계가 완료됩니다.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={isPortfolioWorkflowApproved(client) ? "btn-outline px-5 py-2.5 text-sm" : "btn-primary px-5 py-2.5 text-sm"}
+                  onClick={() => void onApprovePortfolioWorkflow()}
+                >
+                  {isPortfolioWorkflowApproved(client) ? "포트폴리오 승인 취소" : "포트폴리오 승인"}
+                </button>
+              </div>
+            </div>
+
+            <section id="tax-projection" className="space-y-3 border-t border-border pt-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Portfolio approval</p>
-                <h3 className="mt-1 text-base font-bold text-fg">포트폴리오 승인</h3>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Tax result</p>
+                <h3 className="mt-1 text-base font-black text-fg">세전·세후 결과</h3>
                 <p className="mt-1 text-[11px] text-fg-muted">
-                  맞춤 배분·종목·세전·세후 결과를 확인한 뒤 승인하면 상담 진행 4~6단계가 완료됩니다.
+                  세전 결과 · 세금 · 비용 · 세후 결과를 확인합니다.
                 </p>
               </div>
-              <button
-                type="button"
-                className={isPortfolioWorkflowApproved(client) ? "btn-outline px-5 py-2.5 text-sm" : "btn-primary px-5 py-2.5 text-sm"}
-                onClick={() => void onApprovePortfolioWorkflow()}
-              >
-                {isPortfolioWorkflowApproved(client) ? "포트폴리오 승인 취소" : "포트폴리오 승인"}
-              </button>
+              <TaxProjectionPanel
+                client={client}
+                baseWeights={portfolioWeights[0]}
+                principalWon={stressInvestableKrw}
+                assetBaseEstimated={stressAssetBaseEstimated}
+                onChangeComprehensiveTax={onChangeComprehensiveTax}
+                onChangeFinancialIncomeProfile={onChangeFinancialIncomeProfile}
+              />
+            </section>
+
+            <div className="sticky bottom-0 z-10 border-t border-border bg-white/95 px-1 py-3 backdrop-blur">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <button
+                  type="button"
+                  className="btn-outline px-5 py-2.5 text-sm"
+                  onClick={() => onNavigatePortfolioStep?.("instruments")}
+                >
+                  이전: 종목선택
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary px-6 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={!isPortfolioWorkflowApproved(client)}
+                  onClick={() => onSetTab("ips")}
+                >
+                  IPS로 이동
+                </button>
+              </div>
+              {!isPortfolioWorkflowApproved(client) && (
+                <p className="mt-2 text-[11px] text-fg-muted">
+                  포트폴리오 승인 완료 후 IPS로 이동할 수 있습니다.
+                </p>
+              )}
             </div>
           </div>
-
-          <section id="tax-projection" className="space-y-3 border-t border-border pt-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-[#1428A0]">Tax result</p>
-              <h3 className="mt-1 text-base font-black text-fg">세전·세후 결과</h3>
-              <p className="mt-1 text-[11px] text-fg-muted">
-                세전 결과 · 세금 · 비용 · 세후 결과를 확인합니다.
-              </p>
-            </div>
-            <TaxProjectionPanel
-              client={client}
-              baseWeights={portfolioWeights[0]}
-              principalWon={stressInvestableKrw}
-              assetBaseEstimated={stressAssetBaseEstimated}
-              onChangeComprehensiveTax={onChangeComprehensiveTax}
-              onChangeFinancialIncomeProfile={onChangeFinancialIncomeProfile}
-            />
-          </section>
         </div>
       )}
 

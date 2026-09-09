@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react";
 import { supabase } from "@/lib/supabase";
 import PortfolioAnalyticsCards from "./PortfolioAnalyticsCards";
 import KoreanStockTrendFilter from "./advisory/KoreanStockTrendFilter";
@@ -124,17 +124,27 @@ function bondEntryToInstrument(entry: BondCatalogEntry): Instrument {
   };
 }
 
+import MoneyManwonInput from "@/components/MoneyManwonInput";
+import type { PortfolioWorkflowStep } from "@/lib/portfolioWorkflowStep";
+
+export type ManualPortfolioBuilderProps = {
+  pbId: string;
+  clientId: string;
+  totalAssetWon: number;
+  onDraftChanged?: () => void;
+  /** UI 페이지만 — 마운트 유지하면서 섹션 표시 전환 */
+  step?: PortfolioWorkflowStep;
+  onNavigateStep?: (step: PortfolioWorkflowStep) => void;
+};
+
 export default function ManualPortfolioBuilder({
   pbId,
   clientId,
   totalAssetWon,
   onDraftChanged,
-}: {
-  pbId: string;
-  clientId: string;
-  totalAssetWon: number;
-  onDraftChanged?: () => void;
-}) {
+  step = "allocation",
+  onNavigateStep,
+}: ManualPortfolioBuilderProps) {
   const [allocation, setAllocation] = useState<Allocation>(EMPTY_ALLOCATION);
   const [selected, setSelected] = useState<SelectedInstrument[]>([]);
   const [existing, setExisting] = useState<ExistingHolding[]>([]);
@@ -362,7 +372,7 @@ export default function ManualPortfolioBuilder({
   }), [allocation, allocationScale, existingByClass, investableWon]);
   const finalTotal = Object.values(finalAllocation).reduce((sum, value) => sum + value, 0);
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     if (!isAllocationTotalExact100(allocation)) {
       const excess = allocationExcessPctPoints(allocation);
       const msg =
@@ -371,7 +381,7 @@ export default function ManualPortfolioBuilder({
           : `자산배분 합계가 100%가 아닙니다. (현재 ${Object.values(allocation).reduce((s, v) => s + v, 0).toFixed(1)}%)`;
       setSaveError(msg);
       allocationWarningRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
+      return false;
     }
     setSaveError(null);
     const now = new Date().toISOString();
@@ -394,10 +404,37 @@ export default function ManualPortfolioBuilder({
       setSavedAt(now);
       setSavedTo(source);
       onDraftChanged?.();
+      return true;
+    } catch (e: any) {
+      setSaveError(e?.message ? `저장 실패: ${e.message}` : "저장에 실패했습니다. 다시 시도해 주세요.");
+      return false;
     } finally {
       setSaving(false);
     }
   }, [allocation, allocatableWon, analyticsSnapshot, clientId, finalAllocation, investableWon, onDraftChanged, pbId, selected, trendChecked, trendConfirmed]);
+
+  const confirmInstruments = useCallback(async (): Promise<boolean> => {
+    if (!isAllocationTotalExact100(allocation)) {
+      setSaveError("자산배분 합계가 100%가 아닙니다. 자산배분 단계에서 조정해 주세요.");
+      return false;
+    }
+    const warnings = ASSET_CLASSES.filter((item) => item.searchable && allocation[item.id] > 0)
+      .map((item) => {
+        const items = selected.filter((row) => row.assetClass === item.id);
+        const sum = items.reduce((acc, row) => acc + row.weightWithinClass, 0);
+        if (items.length === 0) return `${item.label} 편입 종목이 없습니다.`;
+        if (Math.abs(sum - 100) >= 0.001) {
+          return `${item.label} 내 비중 합계가 100%가 아닙니다. (현재 ${sum.toFixed(1)}%)`;
+        }
+        return null;
+      })
+      .filter((msg): msg is string => Boolean(msg));
+    if (warnings.length) {
+      setSaveError(warnings.join("\n"));
+      return false;
+    }
+    return save();
+  }, [allocation, save, selected]);
 
   const updateAllocation = (assetClass: AssetClass, value: number) => {
     if (assetClass === "cash") return;
@@ -575,8 +612,47 @@ export default function ManualPortfolioBuilder({
       return items.length > 0 && Math.abs(items.reduce((sum, selectedItem) => sum + selectedItem.weightWithinClass, 0) - 100) < 0.001;
     });
 
+  // 딥링크·새로고침으로 후속 단계 URL을 열면, 초안 복원 후 접근 가능 여부를 판정한다.
+  // 저장/승인은 하지 않고 안내 후 이전 단계로만 되돌린다.
+  useEffect(() => {
+    if (!hydrated || loadingHoldings || !onNavigateStep) return;
+    if (step === "allocation") return;
+    if (!savedAt || !isComplete) {
+      setSaveError("자산배분 확정 저장 후 다음 단계로 이동할 수 있습니다. 저장된 배분이 없으면 자산배분부터 진행해 주세요.");
+      onNavigateStep("allocation");
+      return;
+    }
+    if (step === "approval" && !instrumentAllocationComplete) {
+      setSaveError(
+        classValidationWarnings.length
+          ? `종목선택 확정 후 포트폴리오승인으로 이동할 수 있습니다.\n${classValidationWarnings.join("\n")}`
+          : "종목선택 확정 후 포트폴리오승인으로 이동할 수 있습니다.",
+      );
+      onNavigateStep("instruments");
+    }
+  }, [
+    hydrated,
+    loadingHoldings,
+    step,
+    savedAt,
+    isComplete,
+    instrumentAllocationComplete,
+    classValidationWarnings,
+    onNavigateStep,
+  ]);
+
+  const paneClass = (active: boolean, direction: "forward" | "back") =>
+    active
+      ? `space-y-5 ${direction === "back" ? "portfolio-step-pane-back" : "portfolio-step-pane"}`
+      : "hidden";
+
   return (
     <section className="space-y-5 overflow-hidden rounded-2xl border border-[#1428A0]/15 bg-gradient-to-b from-[#F7F9FF] to-white p-4 shadow-sm md:p-5">
+      <div
+        className={paneClass(step === "allocation", "back")}
+        aria-hidden={step !== "allocation"}
+        {...(step !== "allocation" ? ({ inert: "" } as HTMLAttributes<HTMLDivElement>) : {})}
+      >
       <div className="rounded-2xl bg-gradient-to-r from-[#071B4A] via-[#102B6B] to-[#1428A0] p-5 text-white shadow-md">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -732,14 +808,29 @@ export default function ManualPortfolioBuilder({
         </div>
         <button
           type="button"
-          onClick={() => void save()}
+          onClick={() => {
+            void (async () => {
+              const ok = await save();
+              if (ok) onNavigateStep?.("instruments");
+            })();
+          }}
           disabled={loadingHoldings || saving}
           className="btn-primary px-6 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           {loadingHoldings ? "보유자산 확인 중…" : saving ? "저장 중…" : "배분 확정 저장"}
         </button>
       </div>
+      </div>
 
+      <div
+        className={paneClass(step === "instruments", "forward")}
+        aria-hidden={step !== "instruments"}
+        {...(step !== "instruments" ? ({ inert: "" } as HTMLAttributes<HTMLDivElement>) : {})}
+      >
+      <div>
+        <p className="text-sm font-black text-fg">02 종목선택</p>
+        <p className="mt-0.5 text-[11px] text-fg-muted">자산군별 편입 종목과 내부 비중을 확정합니다.</p>
+      </div>
       {(isComplete || overAllocated || total > 0) && (
         <div className="space-y-3 border-t border-border pt-4">
           <div>
@@ -1024,6 +1115,41 @@ export default function ManualPortfolioBuilder({
         </div>
       )}
 
+      <div className="sticky bottom-0 z-10 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:-mx-5 md:px-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={() => onNavigateStep?.("allocation")}
+            className="rounded-lg border border-border bg-white px-4 py-2.5 text-sm font-bold text-fg hover:bg-surface-2"
+          >
+            이전: 자산배분
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                const ok = await confirmInstruments();
+                if (ok) onNavigateStep?.("approval");
+              })();
+            }}
+            disabled={saving}
+            className="btn-primary px-6 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? "저장 중…" : "종목선택 확정"}
+          </button>
+        </div>
+      </div>
+      </div>
+
+      <div
+        className={paneClass(step === "approval", "forward")}
+        aria-hidden={step !== "approval"}
+        {...(step !== "approval" ? ({ inert: "" } as HTMLAttributes<HTMLDivElement>) : {})}
+      >
+      <div>
+        <p className="text-sm font-black text-fg">03 포트폴리오승인</p>
+        <p className="mt-0.5 text-[11px] text-fg-muted">미리보기·분석·세전·세후를 확인한 뒤 승인합니다.</p>
+      </div>
       {isComplete && (
         <section className="overflow-hidden rounded-2xl border border-[#1428A0]/20 bg-white shadow-sm">
           <div className="flex flex-col gap-3 bg-[#071B4A] p-5 text-white sm:flex-row sm:items-start sm:justify-between">
@@ -1088,6 +1214,7 @@ export default function ManualPortfolioBuilder({
         </section>
       )}
       <PortfolioAnalyticsCards key={clientId} allocation={finalAllocation} selected={analyticsSelected} complete={hydrated && !loadingHoldings && isComplete && instrumentAllocationComplete} onAnalyticsSnapshot={setAnalyticsSnapshot} />
+      </div>
     </section>
   );
 }

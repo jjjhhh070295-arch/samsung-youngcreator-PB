@@ -71,6 +71,11 @@ import {
   stampApprovedInstrumentsWithQuotes,
 } from "@/lib/advisory/approvedPortfolioComposition";
 import { decimalReturnToPctPoints } from "@/lib/returnAssumptions";
+import {
+  parsePortfolioWorkflowStep,
+  portfolioWorkflowHref,
+  type PortfolioWorkflowStep,
+} from "@/lib/portfolioWorkflowStep";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
@@ -114,6 +119,20 @@ export default function ClientDetailPage() {
         "customer",
       ] as const
     ).find((t) => t === searchParams?.get("tab")) ?? "portfolio2";
+  const portfolioStep = parsePortfolioWorkflowStep(searchParams?.get("portfolioStep"));
+
+  const navigatePortfolioStep = useCallback(
+    (step: PortfolioWorkflowStep) => {
+      router.push(portfolioWorkflowHref(pbId, clientId, step), { scroll: false });
+      // 단계 제목이 보이도록 스크롤
+      if (typeof window !== "undefined") {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      }
+    },
+    [router, pbId, clientId],
+  );
 
   const [client, setClient] = useState<Client | null>(null);
   const clientRef = useRef<Client | null>(null);
@@ -232,7 +251,12 @@ export default function ClientDetailPage() {
       return;
     }
     if (tab === "portfolio" || tab === "taxProjection" || tab === "stress") {
-      router.replace(`/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2${tab === "taxProjection" ? "#tax-projection" : ""}`);
+      const step = tab === "taxProjection" ? "approval" : "allocation";
+      router.replace(
+        `/pb/${pbId}/${clientId}?view=analysis&tab=portfolio2&portfolioStep=${step}${
+          tab === "taxProjection" ? "#tax-projection" : ""
+        }`,
+      );
     }
   }, [activeView, searchParams, router, pbId, clientId]);
 
@@ -287,6 +311,16 @@ export default function ClientDetailPage() {
     // customer 는 게이트하지 않는다 — AppNav 의 같은 결정과 짝이다.
     if (t === "ips" && client && !isPortfolioWorkflowApproved(client)) {
       alert(MSG_NEED_PORTFOLIO);
+      return;
+    }
+    if (t === "portfolio2" || t === "portfolio") {
+      router.push(portfolioWorkflowHref(pbId, clientId, "allocation"), { scroll: false });
+      return;
+    }
+    if (t === "taxProjection") {
+      router.push(portfolioWorkflowHref(pbId, clientId, "approval", { hash: "tax-projection" }), {
+        scroll: false,
+      });
       return;
     }
     router.push(`/pb/${pbId}/${clientId}?view=analysis&tab=${t}`, { scroll: false });
@@ -1248,6 +1282,8 @@ export default function ClientDetailPage() {
           linkedClient={linkedClient}
           onChangeComprehensiveTax={saveComprehensiveTaxFlag}
           onChangeFinancialIncomeProfile={saveFinancialIncomeProfile}
+          portfolioStep={portfolioStep}
+          onNavigatePortfolioStep={navigatePortfolioStep}
         />
       )}
 
