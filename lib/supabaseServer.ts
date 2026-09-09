@@ -32,6 +32,23 @@ export function getSupabaseServerClient(): SupabaseClient | null {
   if (!cached) {
     cached = createClient(url!, serviceRoleKey!, {
       auth: { persistSession: false, autoRefreshToken: false },
+      // 캐시를 fetch 마다 명시적으로 끈다.
+      //
+      // 실측한 증상: 공유 링크가 이기량(C-2026-1105)의 stages 를 빈 객체로 읽어
+      // basicReady/portfolioReady/factorsApproved 가 전부 false 로 내려왔다. 같은 행의
+      // 다른 필드(asset_size·birth_date·cash_flows·portfolios)는 모두 현재 값과 일치했고,
+      // 최근에 바뀐 필드 하나만 옛날 값이었다 — 승인 직전 시점의 응답이 재사용된 것이다.
+      // 배포 자체는 최신이었고(제거된 문구가 청크에 없음) CDN 도 MISS 였으므로,
+      // 남는 층은 Next 의 fetch Data Cache 다. 그 캐시는 Vercel 에서 배포를 넘어서도
+      // 유지되므로 재배포로는 지워지지 않는다.
+      //
+      // 세그먼트 설정(dynamic = "force-dynamic")이 fetch 기본값을 no-store 로 바꾸긴
+      // 하지만, supabase-js 는 자체 fetch 를 넘기므로 그 기본값이 확실히 걸린다는 보장이
+      // 없다. 여기서 못박으면 호출부의 설정과 무관하게 항상 최신을 읽는다.
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, cache: "no-store" }),
+      },
     });
   }
   return cached;

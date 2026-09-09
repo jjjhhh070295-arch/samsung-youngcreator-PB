@@ -67,6 +67,12 @@ export default function ClientFacingViewBody({ view, live, onGoPb }: Props) {
         <p className="mt-1 text-xs text-fg-muted">
           승인하면 이 화면에 내용이 바로 표시됩니다.
         </p>
+        {/* 어느 고객의 화면인지 밝힌다. 본인이 보는 화면이라 자기 코드·이름은 새 정보가
+            아니고, PB 가 링크를 잘못 만들었을 때 이 한 줄로 바로 드러난다 —
+            안내만 뜨는 화면은 그 사실을 확인할 방법이 달리 없었다. */}
+        <p className="mt-4 text-[11px] text-[#94A3B8]">
+          {profile.name} 님 · {profile.code}
+        </p>
       </div>
     );
   }
