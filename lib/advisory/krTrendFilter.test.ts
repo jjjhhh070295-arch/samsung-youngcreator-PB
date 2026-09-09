@@ -286,6 +286,8 @@ describe("direct bonds not ETF", () => {
       assert.ok(b.creditOrRisk.length > 0);
       assert.ok(b.asOf.length > 0);
       assert.ok(b.source.length > 0);
+      assert.notEqual(b.id, "kepco-bond");
+      assert.equal(/한전|KEPCO|공기업채 인컴/i.test(`${b.name} ${b.role}`), false);
     }
     assert.ok(DIRECT_BOND_CATALOG.some((b) => b.status === "blocked" && /SpaceX/i.test(b.name)));
 

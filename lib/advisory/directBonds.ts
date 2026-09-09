@@ -176,7 +176,9 @@ export function selectVerifiedDirectBonds(options?: {
       .filter((b): b is DirectBondInstrument => Boolean(b))
       .slice(0, maxCount);
   }
-  const order = ["ktb-3y-benchmark", "ktb-10y-benchmark", "msb-1y", "kepco-bond"];
+  // 한전채(kepco-bond)는 레거시 직접회사채 대표와 혼동되므로 자동 추천 순서에서 제외한다.
+  // 신규 회사채 노출은 ACE/LQD 등 실제 채권 ETF 카탈로그(ManualPortfolioBuilder)를 사용한다.
+  const order = ["ktb-3y-benchmark", "ktb-10y-benchmark", "msb-1y", "aa-corp-ladder"];
   return order
     .map((id) => verified.find((b) => b.id === id))
     .filter((b): b is DirectBondInstrument => Boolean(b))
