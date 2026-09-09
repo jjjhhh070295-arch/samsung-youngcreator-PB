@@ -7,6 +7,7 @@ import { computeRow } from "@/lib/pricing/types";
 import { identityKeyForSymbol } from "@/lib/pricing/instrumentIdentity";
 import { formatKRWShort } from "@/lib/format";
 import { pickAutoSelection, type LookupHit } from "@/lib/instruments/lookup";
+import SellHoldingModal, { type SellTargetHolding } from "./SellHoldingModal";
 
 interface Props {
   clientId: string;
@@ -115,6 +116,9 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
   const [savedLoading, setSavedLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  // 매도 대상. null 이면 모달이 닫힌다. 매도 UI 자체는 SellHoldingModal 로 분리했다 —
+  // 이 파일은 팀원 접촉이 잦아 충돌면적을 줄인다.
+  const [sellTarget, setSellTarget] = useState<SellTargetHolding | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveMsg, setResolveMsg] = useState<string | null>(null);
 
@@ -584,6 +588,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
               <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-4">
                 <p className="text-sm font-semibold text-red-700 mb-2">보유종목 전체를 삭제할까요?</p>
                 <p className="text-xs text-red-500 mb-3">저장된 {saved.length}개 종목이 모두 삭제됩니다. 되돌릴 수 없습니다.</p>
+                <p className="text-[11px] leading-relaxed text-red-500/90 mb-3">거래로 처분한 경우에는 매도를 사용하세요. 삭제는 잘못 입력한 행을 지우는 기능이며 자산 규모에 반영되지 않습니다.</p>
                 <div className="flex gap-2">
                   <button className="btn-ghost text-xs px-4 py-1.5" onClick={() => setDeleteAllOpen(false)}>취소</button>
                   <button
@@ -665,7 +670,14 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
                         {h.confidence === "high" ? "높음" : h.confidence === "low" ? "낮음" : "보통"}
                       </td>
                       <td className="px-3 py-2">
-                        <button onClick={() => deleteHolding(h.id)} disabled={deleting === h.id} className="text-red-400 hover:text-red-600 font-bold disabled:opacity-40">✕</button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSellTarget({ id: h.id, name: h.name, ticker: h.ticker, market: h.market, currency: h.currency, quantity: h.quantity, avg_price: h.avg_price })}
+                            className="rounded-md border border-border px-2 py-0.5 text-[11px] font-bold text-fg hover:bg-surface-2"
+                            title="실제 거래로 처분한 경우 — 실현손익이 거래 이력에 기록됩니다"
+                          >매도</button>
+                          <button onClick={() => deleteHolding(h.id)} disabled={deleting === h.id} className="text-red-400 hover:text-red-600 font-bold disabled:opacity-40" title="잘못 입력한 행 제거 — 기록이 남지 않습니다">✕</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1028,6 +1040,16 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
           )}
         </div>
       </div>
+      <SellHoldingModal
+        open={sellTarget !== null}
+        clientId={clientId}
+        holding={sellTarget}
+        onClose={() => setSellTarget(null)}
+        onSold={() => {
+          void loadSaved();
+          onAssetsChanged?.();
+        }}
+      />
     </div>
   );
 }

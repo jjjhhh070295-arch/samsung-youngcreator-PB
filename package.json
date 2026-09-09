@@ -7,15 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx --yes tsx --test lib/advisory/control.test.ts lib/advisory/krTrendFilter.test.ts lib/advisory/bondInstrumentCatalog.test.ts lib/advisory/mergeTrendInstruments.test.ts lib/manualPortfolioDraft.test.ts lib/portfolioAnalytics/analytics.test.ts lib/advisory/portfolioReturn.test.ts lib/investmentSurvey.test.ts lib/pricing/instrumentIdentity.test.ts lib/advisory/approvedPortfolioComposition.test.ts lib/advisory/customerViewSummary.test.ts lib/clientLiveSync.test.ts lib/ipsDocument.test.tsx lib/tax/portfolioTax.test.ts lib/tax/depositSimplify.test.ts lib/taxGating.test.ts lib/moneyManwon.test.ts lib/returnAssumptions.test.ts lib/advisory/approvalSnapshots.test.ts lib/advisory/approvalTransition.test.ts lib/moneyManwon.noopCommit.test.ts lib/financialIncomeBreakdown.test.ts",
+    "test": "npx --yes tsx --test lib/advisory/control.test.ts lib/advisory/krTrendFilter.test.ts lib/advisory/bondInstrumentCatalog.test.ts lib/advisory/mergeTrendInstruments.test.ts lib/manualPortfolioDraft.test.ts lib/portfolioAnalytics/analytics.test.ts lib/advisory/portfolioReturn.test.ts lib/investmentSurvey.test.ts lib/pricing/instrumentIdentity.test.ts lib/advisory/approvedPortfolioComposition.test.ts lib/advisory/customerViewSummary.test.ts lib/clientLiveSync.test.ts lib/ipsDocument.test.tsx lib/tax/portfolioTax.test.ts lib/tax/depositSimplify.test.ts lib/taxGating.test.ts lib/moneyManwon.test.ts lib/returnAssumptions.test.ts lib/advisory/approvalSnapshots.test.ts lib/advisory/approvalTransition.test.ts lib/moneyManwon.noopCommit.test.ts lib/financialIncomeBreakdown.test.ts lib/holdings/realizedPnl.test.ts",
     "generate:fred-snapshot": "node scripts/generate-fred-snapshot.mjs",
     "generate:cashflow-templates": "node scripts/generate-cashflow-templates.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
     "@supabase/supabase-js": "^2.45.4",
+    "@types/qrcode": "^1.5.6",
     "fast-xml-parser": "^5.9.3",
     "next": "^14.2.35",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "read-excel-file": "^9.0.10",
