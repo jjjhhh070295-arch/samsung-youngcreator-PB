@@ -750,6 +750,15 @@ describe("PB approve gate", () => {
       "PDF에 표시되는 담당 PB 이름 변경을 탐지해야 함",
     );
 
+    // 상담 메모는 계산 입력이 아니므로 무결성을 깨뜨리지 않는다. 예전에는 여기에 걸려
+    // 상담 종료 시 메모를 저장하는 것만으로 최종 PDF 가 막혔다.
+    assert.equal(
+      verifyEvidenceAgainstClient(locked, { ...client, consultationNotes: "메모만 수정" }, inputContext)
+        .verified,
+      true,
+      "상담 메모 변경은 탐지 대상이 아니어야 함",
+    );
+
     const changedEvidence = structuredClone(locked);
     if (changedEvidence.calcResults) changedEvidence.calcResults.risk.expectedReturn.value = 99;
     assert.equal(verifyEvidenceAgainstClient(changedEvidence, client, inputContext).verified, false);
