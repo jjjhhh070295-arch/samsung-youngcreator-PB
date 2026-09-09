@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ACCOUNT_SEPARATION_LABEL,
   CLIENT_TYPE_LABEL,
@@ -70,8 +70,29 @@ export default function ClientForm({
   // 오늘(로컬) — 생년월일/설립일이 미래가 되지 않도록 max 로 사용
   const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
 
+  // 이번에 "열린" 동안 폼을 이미 채웠는지. 모달이 닫힐 때 false 로 돌아간다.
+  //
+  // 초기화는 모달이 열리는 순간 한 번만 해야 한다. deps 의 initial 과 pbs 는 객체·배열이라
+  // 부모가 setClient/setPbs 를 한 번만 해도 참조가 바뀌어 이 효과가 다시 돌고, 그러면 사용자가
+  // 입력하던 값이 통째로 DB 값으로 되돌아간다 — 모달 뒤에서 조용히 일어나므로 알아채기 어렵고,
+  // 그 상태로 저장하면 옛 값이 그대로 다시 쓰인다.
+  //
+  // 예전에는 부모가 마운트 때와 저장 직후에만 갱신해서 이 창이 좁았는데, 2026-09-08 라이브
+  // 동기화(lib/clientLiveSync.ts)가 들어오면서 pb-client-updated 이벤트마다 부모가
+  // setClient 를 하게 됐다 — 보유종목·부동산·예금·초안 저장이 전부 그 이벤트를 쏜다.
+  // 그쪽 구조는 그대로 두고 여기서 막는다. 열려 있는 폼은 사용자 것이지 부모 것이 아니다.
+  //
+  // deps 는 줄이지 않는다. 값을 읽는 시점의 최신 initial/pbs 를 그대로 쓰기 위해서이고,
+  // 재실행을 막는 것은 아래 가드다.
+  const seededRef = useRef(false);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      seededRef.current = false;
+      return;
+    }
+    if (seededRef.current) return;
+    seededRef.current = true;
     if (initial) {
       setClientType(initial.clientType);
       setName(initial.name);
@@ -107,6 +128,12 @@ export default function ClientForm({
   const isCorp = clientType === "corporate";
   const isSole = clientType === "sole_proprietor";
   const assetSize = assetSizeWon ?? 0;
+  // 주소가 비면 동의는 저장되지 않는다(제출부의 trimmedEmail ? emailOptIn : false 와 같은 식).
+  // 화면도 같은 값을 보여야 한다 — 예전에는 checked={emailOptIn} 이라 주소를 지운 뒤에도
+  // 체크 표시가 남았고, 그 상태로 저장하면 "동의됨"으로 보이는데 false 가 기록됐다.
+  // 의도(emailOptIn)는 state 에 그대로 두므로 주소를 다시 넣으면 체크가 복원된다.
+  const emailFilled = email.trim() !== "";
+  const effectiveEmailOptIn = emailOptIn && emailFilled;
   const ownershipPct = ownershipText === "" ? null : Math.min(100, Math.max(0, Number(ownershipText)));
   const linkedCandidates = clients.filter(
     (client) =>
@@ -275,15 +302,22 @@ export default function ClientForm({
               <input
                 type="checkbox"
                 className="accent-gold-500"
-                checked={emailOptIn}
-                disabled={!email.trim()}
+                checked={effectiveEmailOptIn}
+                disabled={!emailFilled}
                 onChange={(e) => setEmailOptIn(e.target.checked)}
               />
               모닝 브리핑 수신 동의
             </label>
-            <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-              동의한 고객에게만 발송됩니다.
-            </p>
+            {emailOptIn && !emailFilled ? (
+              <p className="mt-1 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                이메일 주소가 비어 있어 수신 동의가 해제된 상태로 저장됩니다. 주소를 다시
+                입력하면 동의가 복원됩니다.
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+                동의한 고객에게만 발송됩니다.
+              </p>
+            )}
           </div>
 
           {isSole && (
