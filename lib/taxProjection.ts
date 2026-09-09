@@ -171,7 +171,8 @@ function normalizeWeights(weights: PortfolioOption["weights"]): PortfolioOption[
 function financialIncomeExtraTax(projectedFinancialIncomeWon: number, profile: TaxProfile, horizonYears: number) {
   const annualProjected = projectedFinancialIncomeWon / Math.max(1, horizonYears);
   const existing = Math.max(0, profile.annualFinancialIncomeWon ?? 0);
-  const otherBase = Math.max(0, profile.confirmedNonFinancialTaxableBaseWon ?? 0);
+  // confirmedNonFinancialTaxableBaseWon 은 신규 경로에서 무시(레거시 숨은 오버라이드 제거)
+  const otherBase = 0;
   const withFin = article62ComparisonTax({
     otherTaxableBaseWon: otherBase,
     eligibleFinancialIncomeWon: existing + annualProjected,

@@ -990,7 +990,22 @@ export default function ClientDetailPage() {
           </section>
         </div>
 
-        <DepositProductsSection clientId={clientId} onChanged={onBasicAssetsChanged} />
+        <DepositProductsSection
+          clientId={clientId}
+          onChanged={onBasicAssetsChanged}
+          onDerivedInterestChange={(grossWon) => {
+            if (!client) return;
+            const profile = {
+              ...(client.financialIncomeProfile ?? {
+                interestIncomeWon: null,
+                dividendIncomeWon: null,
+                parseStatus: "none" as const,
+              }),
+              derivedDepositInterestWon: grossWon,
+            };
+            void saveFinancialIncomeProfile(profile);
+          }}
+        />
 
         <FinancialIncomeTaxSection
           client={client}

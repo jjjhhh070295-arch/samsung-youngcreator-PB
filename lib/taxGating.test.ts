@@ -78,6 +78,8 @@ describe("taxProjection overseas split", () => {
         dividendIncomeWon: 0,
         parseStatus: "manual",
         confirmedNonFinancialTaxableBaseWon: 40_000_000,
+        expectedWageGrossWon: 50_000_000,
+        employmentIncomeDeductionWon: 10_000_000,
       },
       portfolios: [
         {

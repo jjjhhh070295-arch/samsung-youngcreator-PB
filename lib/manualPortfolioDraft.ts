@@ -101,25 +101,47 @@ export function deleteManualPortfolioDraft(clientId: string): void {
 }
 
 /**
- * 현금을 잔여 비중으로 취급한다. 비현금 자산을 바꿀 때마다 합계가 정확히 100%가 되며,
- * 비현금 합계가 100%를 넘지 않도록 마지막 입력값을 자동 제한한다.
+ * 현금을 잔여 비중으로 취급한다.
+ * 편집 중 비현금 합계가 100%를 넘어도 입력을 유지한다(저장 시에만 100% 검증).
+ * 개별 자산군은 0~100%, 현금은 비현금<100% 일 때만 잔여, 그 외 0(음수 금지).
  */
 export function updateAllocationWithCash(
   current: ManualAllocation,
   assetClass: Exclude<ManualAssetClass, "cash">,
   rawValue: number,
 ): ManualAllocation {
+  const value = Math.min(100, Math.max(0, Number.isFinite(rawValue) ? rawValue : 0));
+  const rounded = Math.round(value * 100) / 100;
   const otherNonCash = SEARCHABLE
     .filter((key) => key !== assetClass)
     .reduce((sum, key) => sum + (Number(current[key]) || 0), 0);
-  const available = Math.max(0, 100 - otherNonCash);
-  const value = Math.min(available, Math.max(0, Number.isFinite(rawValue) ? rawValue : 0));
-  const nonCashTotal = otherNonCash + value;
+  const nonCashTotal = otherNonCash + rounded;
+  const cash =
+    nonCashTotal >= 100 ? 0 : Math.round((100 - nonCashTotal) * 100) / 100;
   return {
     ...current,
-    [assetClass]: Math.round(value * 100) / 100,
-    cash: Math.round((100 - nonCashTotal) * 100) / 100,
+    [assetClass]: rounded,
+    cash: Math.max(0, cash),
   };
+}
+
+export function allocationTotalPct(allocation: ManualAllocation): number {
+  return (
+    SEARCHABLE.reduce((sum, key) => sum + (Number(allocation[key]) || 0), 0) +
+    (Number(allocation.cash) || 0)
+  );
+}
+
+export function allocationExcessPctPoints(allocation: ManualAllocation): number {
+  return Math.max(0, Math.round((allocationTotalPct(allocation) - 100) * 100) / 100);
+}
+
+/** 배분 확정 저장 전: 합계 100%(허용 오차 포함) */
+export function isAllocationTotalExact100(
+  allocation: ManualAllocation,
+  tolerance = 0.001,
+): boolean {
+  return Math.abs(allocationTotalPct(allocation) - 100) < tolerance;
 }
 
 /** 전체 기준 목표 비중에서 기존 고정 보유분을 제외해 잔여자산 내부 비중으로 환산한다. */

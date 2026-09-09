@@ -11,7 +11,6 @@ import {
 } from "./koreanResidentTax2026";
 import {
   calculateDepositInterest,
-  installmentSavingsInterest,
   termDepositSimpleInterest,
   type DepositProduct,
 } from "./depositInterest";
@@ -36,20 +35,31 @@ describe("deposit interest", () => {
     assert.equal(wh.totalWon, 462_000);
   });
 
-  it("installment savings uses each installment earning period", () => {
-    const dates = Array.from({ length: 12 }, (_, i) => {
-      const m = String(i + 1).padStart(2, "0");
-      return `2026-${m}-01`;
-    });
-    const fullYearWrong = 1_000_000 * 12 * 0.03; // 360_000 if wrongly applied to final balance×full year
-    const r = installmentSavingsInterest({
-      contributionAmountWon: 1_000_000,
+  it("installment savings uses balance plus future months", () => {
+    const p: DepositProduct = {
+      id: "inst",
+      institution: "",
+      productName: "",
+      productType: "installment",
+      currency: "KRW",
+      principalWon: 6_000_000,
       annualRatePct: 3,
-      contributionDates: dates,
+      openedAt: "2026-01-01",
+      termYears: 1,
       maturesAt: "2027-01-01",
-    });
-    assert.ok(r.grossInterestWon < fullYearWrong);
-    assert.ok(r.grossInterestWon > 0);
+      interestSchedule: null,
+      convention: "simple",
+      taxStatus: "taxable",
+      contributionAmountWon: 1_000_000,
+      includeInManagedPreview: true,
+      identifiedInCashBalance: false,
+      source: "test",
+      asOf: "2026-07-01",
+    };
+    const r = calculateDepositInterest(p);
+    assert.equal(r.status, "ok");
+    assert.ok((r.grossInterestWon ?? 0) > 0);
+    assert.ok((r.grossInterestWon ?? 0) < 12_000_000 * 0.03);
   });
 
   it("exempt product has zero withholding", () => {
@@ -219,7 +229,7 @@ describe("portfolio preview tax", () => {
       existingDividendWon: 0,
       expectedWageGrossWon: 50_000_000,
       otherComprehensiveIncomeWon: 0,
-      confirmedNonFinancialTaxableBaseWon: 40_000_000,
+      confirmedNonFinancialTaxableBaseWon: null,
       employmentIncomeDeductionWon: null,
       otherDeductionsWon: null,
       taxCreditsWon: null,
@@ -311,6 +321,54 @@ describe("portfolio preview tax", () => {
     assert.equal(preview.principalWon, 10_000_000_000);
   });
 
+  it("ignores legacy confirmedNonFinancial override and pending when wage missing", () => {
+    const pf = portfolio([
+      {
+        symbol: "005930",
+        name: "삼성전자",
+        assetClassKey: "domesticEquity",
+        assetClassLabel: "국내주식",
+        currency: "KRW",
+        weightWithinClass: 100,
+        totalWeightPct: 100,
+        allocationAmountWon: 100_000_000,
+        quantity: 1,
+        priceSnapshot: 1,
+        bookkeepingNote: "장부",
+      },
+    ]);
+    const preview = buildPreviewFromApprovedPortfolio({
+      client: client(),
+      portfolio: pf,
+      returnAssumptions: new Map([["005930", { priceReturnPct: 0, dividendYieldPct: 3 }]]),
+    })!;
+    const result = projectPortfolioPreviewTax({
+      preview,
+      taxContext: {
+        taxYear: 2026,
+        declaredComprehensiveHistorically: true,
+        existingInterestWon: 18_000_000,
+        existingDividendWon: 0,
+        expectedWageGrossWon: null,
+        otherComprehensiveIncomeWon: null,
+        confirmedNonFinancialTaxableBaseWon: 99_000_000,
+        employmentIncomeDeductionWon: null,
+        otherDeductionsWon: null,
+        taxCreditsWon: null,
+        withheldOrPrepaidWon: null,
+        priorYearWageGrossWon: null,
+        priorYearAssessedNationalWon: null,
+        priorYearAssessedLocalWon: null,
+        isLargeShareholderConfirmed: false,
+        majorShareholderStatus: "no",
+        cgtDeductionUsedWon: 0,
+        outsideTaxableCgtGainsWon: 0,
+      },
+    });
+    assert.equal(result.status, "pending_income");
+    assert.equal(result.estimatedTaxWon, null);
+  });
+
   it("accounting identity: after-tax ending = principal + after-tax profit", () => {
     const pf = portfolio([
       {
@@ -341,8 +399,8 @@ describe("portfolio preview tax", () => {
         existingDividendWon: 0,
         expectedWageGrossWon: 80_000_000,
         otherComprehensiveIncomeWon: 0,
-        confirmedNonFinancialTaxableBaseWon: 50_000_000,
-        employmentIncomeDeductionWon: null,
+        confirmedNonFinancialTaxableBaseWon: null,
+        employmentIncomeDeductionWon: 30_000_000,
         otherDeductionsWon: null,
         taxCreditsWon: null,
         withheldOrPrepaidWon: null,

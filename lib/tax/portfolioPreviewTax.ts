@@ -15,6 +15,7 @@ import {
   ordinaryDomesticListedShareCgtWon,
   roundWon,
 } from "./koreanResidentTax2026";
+import { deriveNonFinancialTaxableBaseWon } from "../financialIncome";
 
 export type ListingJurisdiction = "kr_listed" | "foreign_listed" | "unlisted" | "unknown";
 export type LegalProductKind =
@@ -390,11 +391,15 @@ export function projectPortfolioPreviewTax(input: {
 
   const declaredNo =
     taxContext.declaredComprehensiveHistorically === false;
+  const derivedOtherBase = deriveNonFinancialTaxableBaseWon({
+    expectedWageGrossWon: taxContext.expectedWageGrossWon,
+    employmentIncomeDeductionWon: taxContext.employmentIncomeDeductionWon,
+    otherDeductionsWon: taxContext.otherDeductionsWon,
+    otherComprehensiveIncomeWon: taxContext.otherComprehensiveIncomeWon,
+  });
   const needsIncomeForm =
     projectedComprehensiveTaxStatus === "above" &&
-    (declaredNo ||
-      (taxContext.confirmedNonFinancialTaxableBaseWon == null &&
-        taxContext.expectedWageGrossWon == null));
+    (declaredNo || derivedOtherBase == null);
 
   let comprehensiveExtraWon: number | null = 0;
   let status: ProjectionStatus = "ok";
@@ -410,15 +415,7 @@ export function projectPortfolioPreviewTax(input: {
     statusMessageKo = "법인·비거주 등은 개인 규칙을 적용하지 않습니다. 세무사 확인이 필요합니다.";
     comprehensiveExtraWon = null;
   } else if (projectedComprehensiveTaxStatus === "above") {
-    const otherBase =
-      taxContext.confirmedNonFinancialTaxableBaseWon != null
-        ? taxContext.confirmedNonFinancialTaxableBaseWon
-        : Math.max(
-            0,
-            (taxContext.expectedWageGrossWon ?? 0) -
-              (taxContext.employmentIncomeDeductionWon ?? 0) -
-              (taxContext.otherDeductionsWon ?? 0),
-          ) + Math.max(0, taxContext.otherComprehensiveIncomeWon ?? 0);
+    const otherBase = derivedOtherBase ?? 0;
 
     // 증분: preview 금융소득을 넣은 경우 vs 제외한 경우의 추가세
     const withPreview = article62ComparisonTax({
@@ -538,7 +535,8 @@ export function defaultTaxContextFromClient(client: Client, taxYear = new Date()
     existingDividendWon: profile?.dividendIncomeWon ?? null,
     expectedWageGrossWon: profile?.expectedWageGrossWon ?? null,
     otherComprehensiveIncomeWon: profile?.otherComprehensiveIncomeWon ?? null,
-    confirmedNonFinancialTaxableBaseWon: profile?.confirmedNonFinancialTaxableBaseWon ?? null,
+    /** @deprecated 신규 경로에서 무시 — 호환 필드만 유지 */
+    confirmedNonFinancialTaxableBaseWon: null,
     employmentIncomeDeductionWon: profile?.employmentIncomeDeductionWon ?? null,
     otherDeductionsWon: profile?.otherDeductionsWon ?? null,
     taxCreditsWon: profile?.taxCreditsWon ?? null,

@@ -1,9 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Client, FinancialIncomeProfile } from "@/lib/types";
 import { formatKRW } from "@/lib/format";
 import { resolveFinancialIncomeProfile } from "@/lib/financialIncome";
+import { listDepositProducts } from "@/lib/deposits/store";
+import { aggregateDerivedDepositInterest } from "@/lib/tax/depositInterest";
 
 type Props = {
   client: Client;
@@ -19,8 +21,23 @@ export default function FinancialIncomeTaxSection({
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
+  const [liveDepositInterestWon, setLiveDepositInterestWon] = useState<number | null>(null);
   const comprehensive = Boolean(client.financialIncomeComprehensiveTax);
   const profile = resolveFinancialIncomeProfile(client);
+
+  useEffect(() => {
+    let cancelled = false;
+    const year = profile.taxYear ?? new Date().getFullYear();
+    const asOf = new Date().toISOString().slice(0, 10);
+    void listDepositProducts(client.id).then((rows) => {
+      if (cancelled) return;
+      const agg = aggregateDerivedDepositInterest(rows, { asOf, projectionYear: year });
+      setLiveDepositInterestWon(agg.totalGrossWon);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client.id, client.financialIncomeProfile?.derivedDepositInterestWon, profile.taxYear]);
 
   const patchProfile = async (patch: Partial<FinancialIncomeProfile>, markManual = false) => {
     const next: FinancialIncomeProfile = {
@@ -202,41 +219,26 @@ export default function FinancialIncomeTaxSection({
                   }
                 />
               </label>
-              <label className="text-[11px] font-bold">
-                작년 결정세액(국세)
+              <label className="text-[11px] font-bold sm:col-span-2">
+                작년 총 결정세액(금융소득 제외·국세+지방세)
                 <input
                   type="number"
                   className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
-                  value={profile.priorYearAssessedNationalWon ?? ""}
+                  value={profile.priorYearNonFinancialAssessedTaxWon ?? ""}
                   placeholder="미입력"
                   onChange={(e) =>
                     void patchProfile(
                       {
-                        priorYearAssessedNationalWon:
+                        priorYearNonFinancialAssessedTaxWon:
                           e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
                       },
                       true,
                     )
                   }
                 />
-              </label>
-              <label className="text-[11px] font-bold">
-                작년 결정세액(지방)
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
-                  value={profile.priorYearAssessedLocalWon ?? ""}
-                  placeholder="미입력"
-                  onChange={(e) =>
-                    void patchProfile(
-                      {
-                        priorYearAssessedLocalWon:
-                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
-                      },
-                      true,
-                    )
-                  }
-                />
+                <span className="mt-1 block text-[10px] font-normal text-fg-muted">
+                  이자·배당 등 금융소득 관련 세액을 제외한 국세와 지방세의 합계입니다.
+                </span>
               </label>
               <label className="text-[11px] font-bold">
                 올해 예상 총급여
@@ -257,16 +259,16 @@ export default function FinancialIncomeTaxSection({
                 />
               </label>
               <label className="text-[11px] font-bold">
-                확정 비금융 과세표준(대안)
+                올해 기타 종합소득
                 <input
                   type="number"
                   className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
-                  value={profile.confirmedNonFinancialTaxableBaseWon ?? ""}
-                  placeholder="급여 분해 대신"
+                  value={profile.otherComprehensiveIncomeWon ?? ""}
+                  placeholder="미입력"
                   onChange={(e) =>
                     void patchProfile(
                       {
-                        confirmedNonFinancialTaxableBaseWon:
+                        otherComprehensiveIncomeWon:
                           e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
                       },
                       true,
@@ -299,8 +301,11 @@ export default function FinancialIncomeTaxSection({
                 기존 확정 {formatKRW(profile.interestIncomeWon ?? 0)}
               </p>
               <p className="text-fg-muted">
-                예·적금 예상 {formatKRW(profile.derivedDepositInterestWon ?? 0)} · 채권 예상{" "}
-                {formatKRW(profile.derivedBondInterestWon ?? 0)}
+                예·적금 예상{" "}
+                {formatKRW(
+                  liveDepositInterestWon ?? profile.derivedDepositInterestWon ?? 0,
+                )}{" "}
+                · 채권 예상 {formatKRW(profile.derivedBondInterestWon ?? 0)}
               </p>
               <label className="mt-2 block text-[11px] font-bold">
                 기존 확정 이자(외부·원천징수)

@@ -322,6 +322,11 @@ export interface FinancialIncomeProfile {
   priorYearOtherComprehensiveIncomeWon?: number | null;
   priorYearAssessedNationalWon?: number | null;
   priorYearAssessedLocalWon?: number | null;
+  /**
+   * 작년 총 결정세액(금융소득 제외·국세+지방세) — 단일 정본.
+   * 레거시 national/local 합산으로 한 번 초기화할 수 있으나, 존재 시 이 값이 우선.
+   */
+  priorYearNonFinancialAssessedTaxWon?: number | null;
   /** 올해 예상 총급여 */
   expectedWageGrossWon?: number | null;
   otherComprehensiveIncomeWon?: number | null;
@@ -329,7 +334,9 @@ export interface FinancialIncomeProfile {
   otherDeductionsWon?: number | null;
   taxCreditsWon?: number | null;
   withheldOrPrepaidWon?: number | null;
-  /** 확정 비금융 과세표준 — 급여 분해 대신 사용(이중합산 금지) */
+  /**
+   * @deprecated 신규 산출 경로에서 사용하지 않음. 저장된 값은 호환용으로만 보존.
+   */
   confirmedNonFinancialTaxableBaseWon?: number | null;
   zeroIncomeConfirmed?: boolean | null;
   /** 예·적금에서 산출된 이자(읽기 전용 집계 캐시) */

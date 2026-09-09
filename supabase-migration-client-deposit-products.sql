@@ -44,3 +44,6 @@ end $$;
 
 comment on table public.client_deposit_products is
   '예·적금 상품. principal_won null = 미입력(0과 구분). identified_in_cash_balance 시 AUM 이중계상 금지.';
+
+alter table public.client_deposit_products
+  add column if not exists term_years integer;

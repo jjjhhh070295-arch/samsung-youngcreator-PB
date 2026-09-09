@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { remainingPctForFinalTarget, updateAllocationWithCash, type ManualAllocation } from "./manualPortfolioDraft";
+import {
+  allocationExcessPctPoints,
+  isAllocationTotalExact100,
+  remainingPctForFinalTarget,
+  updateAllocationWithCash,
+  type ManualAllocation,
+} from "./manualPortfolioDraft";
 
 const empty: ManualAllocation = {
   domesticEquity: 0,
@@ -21,11 +27,43 @@ describe("updateAllocationWithCash", () => {
     assert.equal(Object.values(global).reduce((sum, value) => sum + value, 0), 100);
   });
 
-  it("caps the changed class so the allocation cannot exceed 100%", () => {
+  it("allows temporary totals above 100% and keeps exact inputs with cash 0", () => {
     const domestic = updateAllocationWithCash(empty, "domesticEquity", 70);
     const global = updateAllocationWithCash(domestic, "globalEquity", 50);
-    assert.equal(global.globalEquity, 30);
+    assert.equal(global.domesticEquity, 70);
+    assert.equal(global.globalEquity, 50);
     assert.equal(global.cash, 0);
+    assert.equal(allocationExcessPctPoints(global), 20);
+    assert.equal(isAllocationTotalExact100(global), false);
+  });
+
+  it("editing one class does not clamp or modify another non-cash class", () => {
+    const a = updateAllocationWithCash(empty, "domesticEquity", 70);
+    const b = updateAllocationWithCash(a, "globalEquity", 50);
+    const c = updateAllocationWithCash(b, "domesticBond", 10);
+    assert.equal(c.domesticEquity, 70);
+    assert.equal(c.globalEquity, 50);
+    assert.equal(c.domesticBond, 10);
+    assert.equal(c.cash, 0);
+  });
+
+  it("returning to exactly 100% clears excess", () => {
+    const over = updateAllocationWithCash(
+      updateAllocationWithCash(empty, "domesticEquity", 70),
+      "globalEquity",
+      50,
+    );
+    const fixed = updateAllocationWithCash(over, "globalEquity", 30);
+    assert.equal(fixed.domesticEquity, 70);
+    assert.equal(fixed.globalEquity, 30);
+    assert.equal(fixed.cash, 0);
+    assert.equal(isAllocationTotalExact100(fixed), true);
+  });
+
+  it("caps a single class at 100% but not the cross-class sum", () => {
+    const a = updateAllocationWithCash(empty, "domesticEquity", 120);
+    assert.equal(a.domesticEquity, 100);
+    assert.equal(a.cash, 0);
   });
 });
 

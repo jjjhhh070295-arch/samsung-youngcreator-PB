@@ -13,7 +13,12 @@ import {
   sameInstrument,
   type PortfolioPreviewRow,
 } from "@/lib/advisory/mergeTrendInstruments";
-import { remainingPctForFinalTarget, updateAllocationWithCash } from "@/lib/manualPortfolioDraft";
+import {
+  allocationExcessPctPoints,
+  isAllocationTotalExact100,
+  remainingPctForFinalTarget,
+  updateAllocationWithCash,
+} from "@/lib/manualPortfolioDraft";
 import type { ManualPortfolioDraft } from "@/lib/manualPortfolioDraft";
 import { getPortfolioDraft, savePortfolioDraft } from "@/lib/store";
 import { floorToIncrement, requiresMarketQuote } from "@/lib/advisory/ipsPurchasePlan";
@@ -152,6 +157,8 @@ export default function ManualPortfolioBuilder({
   const [quoteFx, setQuoteFx] = useState(1350);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const allocationWarningRef = useRef<HTMLDivElement | null>(null);
 
   /** Move a small slice from cash into a target class if that class is currently 0%. */
   const ensureClassActive = useCallback((assetClass: AssetClass, minPct = 5) => {
@@ -328,7 +335,9 @@ export default function ManualPortfolioBuilder({
   }, [selected]);
 
   const total = Object.values(allocation).reduce((sum, value) => sum + value, 0);
-  const isComplete = Math.abs(total - 100) < 0.001;
+  const isComplete = isAllocationTotalExact100(allocation);
+  const overAllocated = total > 100 + 0.001;
+  const excessPctPoints = allocationExcessPctPoints(allocation);
   const allocatedWon = allocatableWon * total / 100;
   const remainingPct = 100 - total;
   const remainingWon = allocatableWon - allocatedWon;
@@ -350,6 +359,17 @@ export default function ManualPortfolioBuilder({
   const finalTotal = Object.values(finalAllocation).reduce((sum, value) => sum + value, 0);
 
   const save = useCallback(async () => {
+    if (!isAllocationTotalExact100(allocation)) {
+      const excess = allocationExcessPctPoints(allocation);
+      const msg =
+        excess > 0
+          ? `자산배분 합계가 100%를 ${excess.toFixed(1)}%p 초과했습니다. 배분 확정 저장 전에 100%로 조정해 주세요.`
+          : `자산배분 합계가 100%가 아닙니다. (현재 ${Object.values(allocation).reduce((s, v) => s + v, 0).toFixed(1)}%)`;
+      setSaveError(msg);
+      allocationWarningRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    setSaveError(null);
     const now = new Date().toISOString();
     const draft: ManualPortfolioDraft = {
       version: 2,
@@ -667,19 +687,55 @@ export default function ManualPortfolioBuilder({
         })}
       </div>
 
-      <div className={`flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between ${isComplete ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+      {overAllocated && (
+        <div
+          ref={allocationWarningRef}
+          className="rounded-xl border border-rose-400 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800"
+          role="alert"
+        >
+          자산배분 합계가 100%를 {excessPctPoints.toFixed(1)}%p 초과했습니다. 배분 확정 저장 전에
+          100%로 조정해 주세요.
+          <span className="mt-1 block text-xs font-semibold text-rose-700">
+            현재 합계 {finalTotal.toFixed(1)}% · 초과 {excessPctPoints.toFixed(1)}%p
+          </span>
+        </div>
+      )}
+      {saveError && !overAllocated && (
+        <div
+          ref={allocationWarningRef}
+          className="rounded-xl border border-rose-400 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800"
+          role="alert"
+        >
+          {saveError}
+        </div>
+      )}
+
+      <div className={`flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between ${isComplete ? "border-emerald-200 bg-emerald-50" : overAllocated ? "border-rose-300 bg-rose-50" : "border-amber-200 bg-amber-50"}`}>
         <div>
-          <p className={`text-sm font-black ${isComplete ? "text-emerald-800" : "text-amber-800"}`}>{isComplete ? "100% 배분이 완료되었습니다." : remainingPct > 0 ? `${remainingPct.toFixed(1)}% (${formatWon(Math.max(0, remainingWon))})를 더 배분하세요.` : `${Math.abs(remainingPct).toFixed(1)}% (${formatWon(Math.abs(remainingWon))})가 초과되었습니다.`}</p>
+          <p className={`text-sm font-black ${isComplete ? "text-emerald-800" : overAllocated ? "text-rose-800" : "text-amber-800"}`}>
+            {isComplete
+              ? "100% 배분이 완료되었습니다."
+              : remainingPct > 0
+                ? `${remainingPct.toFixed(1)}% (${formatWon(Math.max(0, remainingWon))})를 더 배분하세요.`
+                : `자산배분 합계가 100%를 ${excessPctPoints.toFixed(1)}%p 초과했습니다.`}
+          </p>
           <p className="mt-0.5 text-[10px] text-fg-muted">
             {savedAt
               ? `마지막 저장 ${new Date(savedAt).toLocaleString("ko-KR")} · ${savedTo === "db" ? "다른 기기와 공유됨" : "이 브라우저에만 저장됨(DB 마이그레이션 필요)"}`
               : "아직 저장되지 않은 초안입니다."}
           </p>
         </div>
-        <button type="button" onClick={save} disabled={!isComplete || loadingHoldings || saving} className="btn-primary px-6 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40">{loadingHoldings ? "보유자산 확인 중…" : saving ? "저장 중…" : "배분 확정 저장"}</button>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={loadingHoldings || saving}
+          className="btn-primary px-6 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {loadingHoldings ? "보유자산 확인 중…" : saving ? "저장 중…" : "배분 확정 저장"}
+        </button>
       </div>
 
-      {isComplete && (
+      {(isComplete || overAllocated || total > 0) && (
         <div className="space-y-3 border-t border-border pt-4">
           <div>
             <p className="decision-kicker">Instrument selection</p>
