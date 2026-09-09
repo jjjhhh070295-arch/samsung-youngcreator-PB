@@ -43,6 +43,7 @@ import {
   loadInvestmentSurvey as loadLocalInvestmentSurvey,
 } from "./investmentSurveyStorage";
 import type { ManualPortfolioDraft } from "./manualPortfolioDraft";
+import { patchConsultationNotesOnly } from "./pbHomeConsultationPanels";
 import {
   loadManualPortfolioDraft,
   saveManualPortfolioDraft as saveManualPortfolioDraftLocal,
@@ -1359,6 +1360,53 @@ export async function updateConsultation(
   if (patch.ipsSnapshot !== undefined) row.ips_snapshot = patch.ipsSnapshot;
   const { error } = await supabase!.from("consultations").update(row).eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * PB Home 빠른 메모 — notes 만 갱신. ipsSnapshot 은 절대 건드리지 않는다.
+ * 소유권: consultation id + pbId + clientId 가 모두 일치해야 한다.
+ */
+export async function updateConsultationNote(opts: {
+  id: string;
+  pbId: string;
+  clientId: string;
+  notes: string;
+}): Promise<Consultation> {
+  const { id, pbId, clientId } = opts;
+
+  if (usingLocalFallback || localConsultationExists(id)) {
+    const db = loadLocal();
+    const found = db.consultations.find((c) => c.id === id);
+    if (!found) throw new Error("상담 기록을 찾을 수 없습니다.");
+    const patched = patchConsultationNotesOnly(found, { pbId, clientId, notes: opts.notes });
+    found.notes = patched.notes;
+    saveLocal(db);
+    return { ...found };
+  }
+
+  const notes = opts.notes.replace(/^\s+|\s+$/g, "");
+  // DB: id + pb + client 로 제약. notes 만 갱신해 ips_snapshot 을 덮어쓰지 않는다.
+  const { data, error } = await supabase!
+    .from("consultations")
+    .update({ notes })
+    .eq("id", id)
+    .eq("pb_id", pbId)
+    .eq("client_id", clientId)
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    const db = loadLocal();
+    const local = db.consultations.find((c) => c.id === id);
+    if (local) {
+      const patched = patchConsultationNotesOnly(local, { pbId, clientId, notes: opts.notes });
+      local.notes = patched.notes;
+      saveLocal(db);
+      return { ...local };
+    }
+    throw new Error("상담 기록을 찾을 수 없거나 권한이 없습니다.");
+  }
+  return rowToConsultation(data);
 }
 
 // ───────────────────────── PB 일정 (pb_schedules) ─────────────────────────

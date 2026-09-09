@@ -26,7 +26,7 @@ import BookDashboard from "@/components/advisory/BookDashboard";
 import { PbTodayTodos } from "@/components/advisory/PbTodayTodos";
 import ConsultationScheduleModal from "@/components/advisory/ConsultationScheduleModal";
 import ExtraEventModal from "@/components/advisory/ExtraEventModal";
-import ClientAvatar from "@/components/ClientAvatar";
+import PbCustomerConsultationPanels from "@/components/PbCustomerConsultationPanels";
 import { buildClientBookRow } from "@/lib/advisory/book";
 import { listBookHoldings, enrichBookHoldingsWithQuotes } from "@/lib/advisory/holdingsStore";
 import { resolveHeritageInputsBulk } from "@/lib/heritage";
@@ -198,32 +198,13 @@ export default function PBPage() {
 
       <BookDashboard pbId={pbId} rows={bookRows} />
 
-      <div className="grid border border-border bg-white md:grid-cols-2">
-          <section className="relative border-b border-border p-4 md:border-b-0 md:border-r">
-            <span className="absolute left-4 top-2 h-[3px] w-16 rounded bg-[#1769D2]" aria-hidden="true" />
-            <div className="flex items-center justify-between">
-              <div><p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#1428A0]">Book Insight</p><h2 className="mt-0.5 text-sm font-black text-fg">고객 구성</h2></div>
-              <span className="badge-muted">총 {myClients.length}명</span>
-            </div>
-            <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-slate-100" aria-label="고객 유형 구성">
-              {myClients.length > 0 && <>
-                <span className="bg-[#1769D2]" style={{ width: `${myClients.filter((c) => c.clientType === "individual").length / myClients.length * 100}%` }} />
-                <span className="bg-[#84B2EE]" style={{ width: `${myClients.filter((c) => c.clientType === "corporate").length / myClients.length * 100}%` }} />
-                <span className="bg-slate-400" style={{ width: `${myClients.filter((c) => c.clientType === "sole_proprietor").length / myClients.length * 100}%` }} />
-              </>}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600">
-              <span><i className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#1428A0]" />개인 {myClients.filter((c) => c.clientType === "individual").length}명</span>
-              <span><i className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#2563EB]" />법인 {myClients.filter((c) => c.clientType === "corporate").length}명</span>
-              <span><i className="mr-1.5 inline-block h-2 w-2 rounded-full bg-slate-400" />개인사업자 {myClients.filter((c) => c.clientType === "sole_proprietor").length}명</span>
-            </div>
-          </section>
-          <section className="relative p-4">
-            <span className="absolute left-4 top-2 h-1.5 w-1.5 rounded-full bg-[#1769D2]" aria-hidden="true" />
-            <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-fg">최근 상담 고객</h2><span className="text-[11px] text-fg-muted">최근 {Math.min(5, myConsultations.length)}건</span></div>
-            {myConsultations.length > 0 ? <ul className="mt-3 space-y-2">{myConsultations.slice().sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1)).slice(0, 5).map((consultation) => { const target = myClients.find((client) => client.id === consultation.clientId); return target ? <li key={consultation.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"><button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => router.push(`/pb/${pbId}/${target.id}?view=consultation`)}><ClientAvatar name={target.name} type={target.clientType} size="sm" /><span className="min-w-0"><span className="block truncate text-xs font-bold text-fg">{target.name}</span><span className="text-[10px] text-fg-muted">{new Date(consultation.createdAt).toLocaleDateString("ko-KR")}</span></span></button><span className="badge-muted">상담 보기</span></li> : null; })}</ul> : <p className="mt-3 rounded-lg bg-slate-50 px-3 py-4 text-xs text-fg-muted">아직 기록된 상담이 없습니다.</p>}
-          </section>
-      </div>
+      <PbCustomerConsultationPanels
+        pbId={pbId}
+        clients={myClients}
+        consultations={consultations}
+        onConsultationsChange={setConsultations}
+        onRequestReload={load}
+      />
 
       {/* 모달들 */}
       <ClientForm
