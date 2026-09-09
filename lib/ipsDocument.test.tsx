@@ -47,11 +47,15 @@ describe("customer IPS document", () => {
     client.portfolios[0].expectedReturn = 0;
     assert.ok(render(client).includes("0.0%"));
   });
-  it("only shows tax estimates when the portfolio has matching calculation weights", () => {
+  it("only shows tax estimates for approved portfolio preview with instruments", () => {
     const client = ipsDocumentFixture();
-    assert.ok(!render(client).includes("세후 기말자산"));
-    client.portfolios[0].id = "stable";
+    // 기본 fixture: 포트폴리오 승인 + 종목 → preview 세전·세후 표시
     assert.ok(render(client).includes("세후 기말자산"));
+    // 종목 없으면 숫자 미표시
+    client.portfolios[0].instruments = [];
+    assert.ok(!render(client).includes("세후 기말자산"));
+    client.portfolios[0].instruments = ipsDocumentFixture().portfolios[0].instruments;
+    // 포트폴리오 미승인 시 미표시
     client.stages = { ...client.stages, portfolio: false };
     assert.ok(!render(client).includes("세후 기말자산"));
   });

@@ -8,10 +8,13 @@ import { formatPercent1 } from "@/lib/formatPercent";
 import { buildPortfolioViewModel, resolvePortfolioDisplayAllocations } from "@/lib/portfolio";
 import { isLegacyIncompletePortfolio, portfolioHasDisplayableMetrics } from "@/lib/advisory/approvedPortfolioComposition";
 import { HONESTY_LIMITS } from "@/lib/advisory/constants";
-import { mergeTaxProfile, projectTax } from "@/lib/taxProjection";
-import { DEFAULT_HORIZON_YEARS } from "@/lib/taxProjectionRules";
 import { isPortfolioWorkflowApproved } from "@/lib/advisory/workflowApprovals";
 import { isFinancialIncomeReadyForTax } from "@/lib/financialIncome";
+import {
+  buildPreviewFromApprovedPortfolio,
+  defaultTaxContextFromClient,
+  projectPortfolioPreviewTax,
+} from "@/lib/tax/portfolioPreviewTax";
 
 const ALLOCATION_COLORS = ["#1769d2", "#159caa", "#1428a0", "#5c8874", "#8592a6", "#b39960"];
 const HOLDINGS_PER_PAGE = 8;
@@ -97,18 +100,26 @@ export default function IpsA4Document({ documentClient, documentPbDisplay, inves
   const totalPages = 1 + holdingPages.length;
   const legacyIncomplete = isLegacyIncompletePortfolio(pf);
   const metricsOk = portfolioHasDisplayableMetrics(pf);
-  const taxReady = isPortfolioWorkflowApproved(documentClient) && isFinancialIncomeReadyForTax(documentClient) && metricsOk && pf?.expectedReturn != null && !!confirmedWeights;
-  const mergedTax = taxReady ? mergeTaxProfile(documentClient) : null;
-  const taxWaterfall = taxReady && mergedTax && confirmedWeights ? projectTax({
-    principalWon: investableWon ?? documentClient.assetSize,
-    horizonYears: DEFAULT_HORIZON_YEARS,
-    weights: confirmedWeights,
-    expectedReturnPct: pf!.expectedReturn!,
-    taxProfile: mergedTax.profile,
-    cashFlows: documentClient.cashFlows,
-    cashflowTaxSummary: mergedTax.cashflowSummary,
-    label: pf?.label ?? "기준안",
-  }) : null;
+  const taxReady =
+    isPortfolioWorkflowApproved(documentClient) &&
+    isFinancialIncomeReadyForTax(documentClient) &&
+    metricsOk &&
+    !!pf?.instruments?.length;
+  const preview = taxReady && pf
+    ? buildPreviewFromApprovedPortfolio({
+        client: documentClient,
+        portfolio: pf,
+        horizonYears: 1,
+      })
+    : null;
+  const taxWaterfall =
+    taxReady && preview && preview.principalWon > 0
+      ? projectPortfolioPreviewTax({
+          preview,
+          taxContext: defaultTaxContextFromClient(documentClient),
+          assumeForeignShareSaleAfterHorizon: true,
+        })
+      : null;
 
   return (
     <article className="ips-document" aria-label="투자정책서">
@@ -169,12 +180,23 @@ export default function IpsA4Document({ documentClient, documentPbDisplay, inves
             <section className="ips-section ips-outlook-section">
               <SectionTitle number="04" note="상담용 추정">수익·위험 및 비용</SectionTitle>
               <dl className="ips-outlook"><div><dt>예상 연수익률</dt><dd>{metricLabel(pf, "return")}</dd></div><div><dt>예상 변동성</dt><dd>{metricLabel(pf, "risk")}</dd></div></dl>
-              {taxWaterfall ? <div className="ips-tax-summary"><p>{DEFAULT_HORIZON_YEARS}년 기준 · 세전·세후 예상</p><dl>
-                <div><dt>세전 기말자산</dt><dd>{formatKRW(taxWaterfall.principalWon + taxWaterfall.grossReturnWon)}</dd></div>
-                <div><dt>예상 세금</dt><dd>{formatKRW(taxWaterfall.taxes.totalTaxWon)}</dd></div>
-                <div><dt>상품·거래 비용</dt><dd>{formatKRW(taxWaterfall.feesWon)}</dd></div>
-                <div><dt>세후 기말자산</dt><dd>{formatKRW(taxWaterfall.netEndingWon)}</dd></div>
-              </dl></div> : <p className="ips-note">세전·세후 예상은 계산 조건 확인 후 제공됩니다.</p>}
+              {taxWaterfall && taxWaterfall.status !== "pending_income" && taxWaterfall.afterTaxEndingAssetsWon != null ? (
+                <div className="ips-tax-summary">
+                  <p>1년 · Portfolio preview 기준 · 세전·세후 예상</p>
+                  <dl>
+                    <div><dt>세전 예상 수익</dt><dd>{formatKRW(taxWaterfall.preTaxExpectedProfitWon ?? 0)}</dd></div>
+                    <div><dt>추정 세금</dt><dd>{formatKRW(taxWaterfall.estimatedTaxWon ?? 0)}</dd></div>
+                    <div><dt>비용</dt><dd>{formatKRW(taxWaterfall.costsWon ?? 0)}</dd></div>
+                    <div><dt>세후 기말자산</dt><dd>{formatKRW(taxWaterfall.afterTaxEndingAssetsWon)}</dd></div>
+                  </dl>
+                </div>
+              ) : (
+                <p className="ips-note">
+                  {taxWaterfall?.status === "pending_income"
+                    ? taxWaterfall.statusMessageKo
+                    : "세전·세후 예상은 Portfolio preview·소득 정보 확인 후 제공됩니다."}
+                </p>
+              )}
               <p className="ips-note">수익률·변동성은 참고 추정치이며 미래 성과를 보장하지 않습니다.</p>
             </section>
 

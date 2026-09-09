@@ -1,7 +1,11 @@
 import type { Client } from "../types";
 import { calculateSimulatedMetrics, buildPortfolioViewModel } from "../portfolio";
-import { mergeTaxProfile, projectTax } from "../taxProjection";
 import { DEFAULT_HORIZON_YEARS } from "../taxProjectionRules";
+import {
+  buildPreviewFromApprovedPortfolio,
+  defaultTaxContextFromClient,
+  projectPortfolioPreviewTax,
+} from "../tax/portfolioPreviewTax";
 import { ENGINE_ASSUMPTION, ENGINE_CURRENCY, ENGINE_SOURCE } from "./constants";
 import { defaultCalcConfig } from "./control";
 import { sha256HexSync, stableStringify } from "./hash";
@@ -81,27 +85,60 @@ export function buildEngineSnapshot(
     clientType: client.clientType,
   });
 
-  const merged = mergeTaxProfile(client);
-  const taxReady = isPortfolioWorkflowApproved(client) && isFinancialIncomeReadyForTax(client);
+  const taxReady =
+    isPortfolioWorkflowApproved(client) &&
+    isFinancialIncomeReadyForTax(client) &&
+    !!pf?.instruments?.length;
   let waterfall: TaxWaterfall | null = null;
-  if (taxReady) {
-    const tax = projectTax({
-      principalWon,
+  if (taxReady && pf) {
+    const preview = buildPreviewFromApprovedPortfolio({
+      client,
+      portfolio: pf,
       horizonYears: DEFAULT_HORIZON_YEARS,
-      weights,
-      expectedReturnPct,
-      taxProfile: merged.profile,
-      cashFlows: client.cashFlows,
-      cashflowTaxSummary: merged.cashflowSummary,
-      label: pf?.label ?? "기준안",
     });
-    const pretaxEnding = tax.principalWon + tax.grossReturnWon;
-    waterfall = {
-      pretaxEnding: measured(pretaxEnding, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-      expectedTax: measured(tax.taxes.totalTaxWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-      productCost: measured(tax.feesWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-      afterTaxEnding: measured(tax.netEndingWon, "KRW", asOf, ENGINE_SOURCE, ENGINE_ASSUMPTION, ENGINE_CURRENCY),
-    };
+    if (preview && preview.principalWon > 0) {
+      const tax = projectPortfolioPreviewTax({
+        preview,
+        taxContext: defaultTaxContextFromClient(client),
+        assumeForeignShareSaleAfterHorizon: true,
+      });
+      if (tax.status !== "pending_income" && tax.afterTaxEndingAssetsWon != null) {
+        waterfall = {
+          pretaxEnding: measured(
+            tax.principalWon + (tax.preTaxExpectedProfitWon ?? 0),
+            "KRW",
+            asOf,
+            ENGINE_SOURCE,
+            ENGINE_ASSUMPTION,
+            ENGINE_CURRENCY,
+          ),
+          expectedTax: measured(
+            tax.estimatedTaxWon ?? 0,
+            "KRW",
+            asOf,
+            ENGINE_SOURCE,
+            ENGINE_ASSUMPTION,
+            ENGINE_CURRENCY,
+          ),
+          productCost: measured(
+            tax.costsWon ?? 0,
+            "KRW",
+            asOf,
+            ENGINE_SOURCE,
+            ENGINE_ASSUMPTION,
+            ENGINE_CURRENCY,
+          ),
+          afterTaxEnding: measured(
+            tax.afterTaxEndingAssetsWon,
+            "KRW",
+            asOf,
+            ENGINE_SOURCE,
+            ENGINE_ASSUMPTION,
+            ENGINE_CURRENCY,
+          ),
+        };
+      }
+    }
   }
 
   const calcConfig = defaultCalcConfig();

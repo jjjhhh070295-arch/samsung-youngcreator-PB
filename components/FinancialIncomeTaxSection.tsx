@@ -115,12 +115,12 @@ export default function FinancialIncomeTaxSection({
         </p>
       </div>
 
-      {comprehensive && (
-        <div className="space-y-3 rounded-md border border-border bg-[#F2F6FC] p-4">
+      <div className="space-y-3 rounded-md border border-border bg-[#F2F6FC] p-4">
           <div>
             <p className="text-sm font-bold text-fg">원천징수영수증 PDF 첨부</p>
             <p className="mt-1 text-[11px] text-fg-muted">
               PDF에서 이자·배당을 읽습니다. 실패 시 자동 추정하지 않으며 수동 입력이 필요합니다.
+              선언이 「아니오」여도 예상 금융소득이 기준을 넘으면 소득 입력이 필요합니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -167,54 +167,187 @@ export default function FinancialIncomeTaxSection({
           </div>
           {message && <p className="text-xs font-semibold text-amber-800">{message}</p>}
 
+          <div className="rounded-lg border border-border bg-white p-3">
+            <p className="text-xs font-bold text-fg">소득·납부세액 입력</p>
+            <p className="mt-1 text-[10px] text-fg-muted">
+              작년 값은 참고입니다. 「작년과 동일」은 올해 가정을 초기화할 뿐, 작년을 사실로 쓰지 않습니다.
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className="text-[11px] font-bold">
+                귀속연도
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
+                  value={profile.taxYear ?? new Date().getFullYear()}
+                  onChange={(e) =>
+                    void patchProfile({ taxYear: Number(e.target.value) || null }, true)
+                  }
+                />
+              </label>
+              <label className="text-[11px] font-bold">
+                작년 총급여
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
+                  value={profile.priorYearWageGrossWon ?? ""}
+                  placeholder="미입력"
+                  onChange={(e) =>
+                    void patchProfile(
+                      {
+                        priorYearWageGrossWon:
+                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
+                      },
+                      true,
+                    )
+                  }
+                />
+              </label>
+              <label className="text-[11px] font-bold">
+                작년 결정세액(국세)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
+                  value={profile.priorYearAssessedNationalWon ?? ""}
+                  placeholder="미입력"
+                  onChange={(e) =>
+                    void patchProfile(
+                      {
+                        priorYearAssessedNationalWon:
+                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
+                      },
+                      true,
+                    )
+                  }
+                />
+              </label>
+              <label className="text-[11px] font-bold">
+                작년 결정세액(지방)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
+                  value={profile.priorYearAssessedLocalWon ?? ""}
+                  placeholder="미입력"
+                  onChange={(e) =>
+                    void patchProfile(
+                      {
+                        priorYearAssessedLocalWon:
+                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
+                      },
+                      true,
+                    )
+                  }
+                />
+              </label>
+              <label className="text-[11px] font-bold">
+                올해 예상 총급여
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
+                  value={profile.expectedWageGrossWon ?? ""}
+                  placeholder="미입력"
+                  onChange={(e) =>
+                    void patchProfile(
+                      {
+                        expectedWageGrossWon:
+                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
+                      },
+                      true,
+                    )
+                  }
+                />
+              </label>
+              <label className="text-[11px] font-bold">
+                확정 비금융 과세표준(대안)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded border border-border px-2 py-1.5 text-sm"
+                  value={profile.confirmedNonFinancialTaxableBaseWon ?? ""}
+                  placeholder="급여 분해 대신"
+                  onChange={(e) =>
+                    void patchProfile(
+                      {
+                        confirmedNonFinancialTaxableBaseWon:
+                          e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0),
+                      },
+                      true,
+                    )
+                  }
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              className="btn-outline mt-2 text-xs"
+              onClick={() =>
+                void patchProfile(
+                  {
+                    expectedWageGrossWon: profile.priorYearWageGrossWon ?? null,
+                    otherComprehensiveIncomeWon: profile.priorYearOtherComprehensiveIncomeWon ?? null,
+                  },
+                  true,
+                )
+              }
+            >
+              작년과 동일(올해 가정 초기화)
+            </button>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs font-bold text-fg">
-              이자소득 (원)
-              {profile.extractedInterestIncomeWon != null && (
-                <span className="ml-2 font-semibold text-fg-muted">
-                  추출값 {formatKRW(profile.extractedInterestIncomeWon)}
-                </span>
-              )}
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm font-bold"
-                value={profile.interestIncomeWon ?? ""}
-                placeholder="수동 입력 가능"
-                onChange={(event) => {
-                  const raw = event.target.value;
-                  void patchProfile(
-                    { interestIncomeWon: raw === "" ? null : Math.max(0, Number(raw) || 0) },
-                    true,
-                  );
-                }}
-              />
-            </label>
-            <label className="block text-xs font-bold text-fg">
-              배당소득 (원)
-              {profile.extractedDividendIncomeWon != null && (
-                <span className="ml-2 font-semibold text-fg-muted">
-                  추출값 {formatKRW(profile.extractedDividendIncomeWon)}
-                </span>
-              )}
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm font-bold"
-                value={profile.dividendIncomeWon ?? ""}
-                placeholder="수동 입력 가능"
-                onChange={(event) => {
-                  const raw = event.target.value;
-                  void patchProfile(
-                    { dividendIncomeWon: raw === "" ? null : Math.max(0, Number(raw) || 0) },
-                    true,
-                  );
-                }}
-              />
-            </label>
+            <div className="rounded-lg border border-dashed border-border bg-white p-3 text-xs">
+              <p className="font-bold text-fg">이자소득 (총액·읽기전용 집계)</p>
+              <p className="mt-1 text-fg-muted">
+                기존 확정 {formatKRW(profile.interestIncomeWon ?? 0)}
+              </p>
+              <p className="text-fg-muted">
+                예·적금 예상 {formatKRW(profile.derivedDepositInterestWon ?? 0)} · 채권 예상{" "}
+                {formatKRW(profile.derivedBondInterestWon ?? 0)}
+              </p>
+              <label className="mt-2 block text-[11px] font-bold">
+                기존 확정 이자(외부·원천징수)
+                <input
+                  type="number"
+                  min={0}
+                  className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm font-bold"
+                  value={profile.interestIncomeWon ?? ""}
+                  placeholder="미입력"
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    void patchProfile(
+                      { interestIncomeWon: raw === "" ? null : Math.max(0, Number(raw) || 0) },
+                      true,
+                    );
+                  }}
+                />
+              </label>
+            </div>
+            <div className="rounded-lg border border-dashed border-border bg-white p-3 text-xs">
+              <p className="font-bold text-fg">배당소득 (총액·읽기전용 집계)</p>
+              <p className="mt-1 text-fg-muted">
+                기존 확정 {formatKRW(profile.dividendIncomeWon ?? 0)}
+              </p>
+              <p className="text-fg-muted">
+                주식·ETF 예상 {formatKRW(profile.derivedDividendWon ?? 0)}
+              </p>
+              <label className="mt-2 block text-[11px] font-bold">
+                기존 확정 배당(외부·원천징수)
+                <input
+                  type="number"
+                  min={0}
+                  className="mt-1 w-full rounded-lg border border-border px-3 py-2 text-sm font-bold"
+                  value={profile.dividendIncomeWon ?? ""}
+                  placeholder="미입력"
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    void patchProfile(
+                      { dividendIncomeWon: raw === "" ? null : Math.max(0, Number(raw) || 0) },
+                      true,
+                    );
+                  }}
+                />
+              </label>
+            </div>
           </div>
         </div>
-      )}
     </section>
   );
 }

@@ -7,7 +7,6 @@ import {
 } from "./financialIncome";
 import { emptyIPS } from "./types";
 import type { Client } from "./types";
-import { projectTax, mergeTaxProfile } from "./taxProjection";
 
 function clientBase(overrides: Partial<Client> = {}): Client {
   return {
@@ -69,34 +68,58 @@ describe("financialIncome readiness", () => {
 });
 
 describe("taxProjection overseas split", () => {
-  it("해외주식 양도세를 종합과세와 분리한다", () => {
+  it("해외주식 양도세를 종합과세와 분리한다 (preview 경로)", async () => {
+    const { buildPreviewFromApprovedPortfolio, defaultTaxContextFromClient, projectPortfolioPreviewTax } =
+      await import("./tax/portfolioPreviewTax");
     const client = clientBase({
       financialIncomeComprehensiveTax: true,
       financialIncomeProfile: {
         interestIncomeWon: 25_000_000,
         dividendIncomeWon: 0,
         parseStatus: "manual",
+        confirmedNonFinancialTaxableBaseWon: 40_000_000,
       },
+      portfolios: [
+        {
+          id: "p1",
+          label: "t",
+          allocations: [{ assetClass: "해외주식", weight: 100 }],
+          instruments: [
+            {
+              symbol: "AAPL",
+              name: "Apple",
+              assetClassKey: "globalEquity",
+              assetClassLabel: "해외주식",
+              currency: "USD",
+              weightWithinClass: 100,
+              totalWeightPct: 100,
+              allocationAmountWon: 100_000_000,
+              quantity: 1,
+              priceSnapshot: 1,
+              bookkeepingNote: "장부",
+            },
+          ],
+          metricsStatus: "ok",
+          expectedReturn: 10,
+          expectedRisk: 15,
+          taxNote: "",
+          rationale: "",
+          editedByPb: true,
+        },
+      ],
     });
-    const merged = mergeTaxProfile(client);
-    const result = projectTax({
-      principalWon: 1_000_000_000,
-      horizonYears: 1,
-      weights: { etf: 80, bond: 10, els: 0, mmf: 10, gold: 0, dollar: 0, raw: 0 },
-      expectedReturnPct: 10,
-      taxProfile: {
-        ...merged.profile,
-        domesticEquityPct: 40,
-        overseasEquityPct: 60,
-      },
-      cashFlows: [],
-      label: "t",
+    const preview = buildPreviewFromApprovedPortfolio({
+      client,
+      portfolio: client.portfolios[0],
+      returnAssumptions: new Map([["AAPL", { priceReturnPct: 10, dividendYieldPct: 0 }]]),
+    })!;
+    const result = projectPortfolioPreviewTax({
+      preview,
+      taxContext: defaultTaxContextFromClient(client),
+      assumeForeignShareSaleAfterHorizon: true,
     });
-    assert.ok(result.taxes.overseasCapitalGainTaxWon >= 0);
-    assert.ok(
-      result.taxes.totalTaxWon >=
-        result.taxes.overseasCapitalGainTaxWon + result.taxes.comprehensiveTaxWon,
-    );
-    assert.ok(result.taxSources.some((s) => s.item.includes("해외주식")));
+    assert.ok((result.taxes.foreignStockCgtWon ?? 0) > 0);
+    assert.ok((result.taxes.comprehensiveExtraWon ?? 0) >= 0);
+    assert.equal(result.taxes.domesticListedShareCgtWon, 0);
   });
 });

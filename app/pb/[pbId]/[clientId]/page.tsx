@@ -78,6 +78,7 @@ import ConsultationHistory from "@/components/ConsultationHistory";
 import { LoadingView, ErrorView } from "@/components/StateViews";
 import HoldingsExtractor from "@/components/HoldingsExtractor";
 import RealEstateModule from "@/components/RealEstateModule";
+import DepositProductsSection from "@/components/DepositProductsSection";
 import AssetAllocationBar from "@/components/AssetAllocationBar";
 import FinancialIncomeTaxSection from "@/components/FinancialIncomeTaxSection";
 import ClientAvatar from "@/components/ClientAvatar";
@@ -989,6 +990,8 @@ export default function ClientDetailPage() {
           </section>
         </div>
 
+        <DepositProductsSection clientId={clientId} onChanged={onBasicAssetsChanged} />
+
         <FinancialIncomeTaxSection
           client={client}
           onChangeComprehensiveTax={saveComprehensiveTaxFlag}
@@ -1097,6 +1100,8 @@ export default function ClientDetailPage() {
           onApproveIpsWorkflow={approveIpsWorkflow}
           onPortfolioDraftChanged={onPortfolioDraftChanged}
           linkedClient={linkedClient}
+          onChangeComprehensiveTax={saveComprehensiveTaxFlag}
+          onChangeFinancialIncomeProfile={saveFinancialIncomeProfile}
         />
       )}
 

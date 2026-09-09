@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Client, Portfolio, StageKey } from "@/lib/types";
+import type { Client, FinancialIncomeProfile, Portfolio, StageKey } from "@/lib/types";
 import { ACCOUNT_SEPARATION_LABEL, CLIENT_TYPE_LABEL, FACTOR_META, computeStages } from "@/lib/types";
 import { formatKRW } from "@/lib/format";
 import { loadSimpleCashflowRows, summarizeSimpleCashflowRows } from "@/lib/simpleCashflow";
@@ -41,6 +41,8 @@ interface Props {
   onApproveIpsWorkflow: () => Promise<void> | void;
   onPortfolioDraftChanged?: () => void;
   linkedClient?: Client | null;
+  onChangeComprehensiveTax?: (value: boolean) => Promise<void> | void;
+  onChangeFinancialIncomeProfile?: (profile: FinancialIncomeProfile) => Promise<void> | void;
 }
 
 export type Tab =
@@ -71,6 +73,8 @@ export default function IPSResultTabs({
   onApproveIpsWorkflow,
   onPortfolioDraftChanged,
   linkedClient,
+  onChangeComprehensiveTax,
+  onChangeFinancialIncomeProfile,
 }: Props) {
   const router = useRouter();
   const ips = client.ips;
@@ -487,6 +491,8 @@ export default function IPSResultTabs({
               baseWeights={portfolioWeights[0]}
               principalWon={stressInvestableKrw}
               assetBaseEstimated={stressAssetBaseEstimated}
+              onChangeComprehensiveTax={onChangeComprehensiveTax}
+              onChangeFinancialIncomeProfile={onChangeFinancialIncomeProfile}
             />
           </section>
         </div>

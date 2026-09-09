@@ -315,7 +315,43 @@ export interface FinancialIncomeProfile {
   /** PDF에서 읽힌 원본(추출값) — PB 수정 전 대비 */
   extractedInterestIncomeWon?: number | null;
   extractedDividendIncomeWon?: number | null;
+  /** 귀속연도 */
+  taxYear?: number | null;
+  /** 작년 총급여 */
+  priorYearWageGrossWon?: number | null;
+  priorYearOtherComprehensiveIncomeWon?: number | null;
+  priorYearAssessedNationalWon?: number | null;
+  priorYearAssessedLocalWon?: number | null;
+  /** 올해 예상 총급여 */
+  expectedWageGrossWon?: number | null;
+  otherComprehensiveIncomeWon?: number | null;
+  employmentIncomeDeductionWon?: number | null;
+  otherDeductionsWon?: number | null;
+  taxCreditsWon?: number | null;
+  withheldOrPrepaidWon?: number | null;
+  /** 확정 비금융 과세표준 — 급여 분해 대신 사용(이중합산 금지) */
+  confirmedNonFinancialTaxableBaseWon?: number | null;
+  zeroIncomeConfirmed?: boolean | null;
+  /** 예·적금에서 산출된 이자(읽기 전용 집계 캐시) */
+  derivedDepositInterestWon?: number | null;
+  derivedBondInterestWon?: number | null;
+  derivedDividendWon?: number | null;
+  derivedWithholdingWon?: number | null;
+  cgtDeductionUsedWon?: number | null;
+  outsideTaxableCgtGainsWon?: number | null;
+  /** 외부 금융소득 개별 기록 */
+  externalFinancialIncomeRecords?: Array<{
+    id: string;
+    taxYear: number;
+    source: string;
+    category: "interest" | "dividend" | "other";
+    amountWon: number;
+    withholdingWon: number | null;
+    periodStart?: string | null;
+    periodEnd?: string | null;
+  }> | null;
 }
+
 
 // ── 상담 단계 (PB가 단계별로 확정) ──
 export type StageKey = "basic" | "factors" | "cashflow" | "portfolio" | "stress" | "ips";
