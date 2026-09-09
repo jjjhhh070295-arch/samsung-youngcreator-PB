@@ -69,7 +69,10 @@ function rowToPb(r: any): PB {
 }
 
 // parties join 결과(individuals/corporates 포함) → Client
-function rowToClient(r: any): Client {
+// export 인 이유: 고객 공유 링크의 서버 라우트(lib/clientView/server.ts)가 service_role 로
+// 같은 parties 행을 읽어 같은 Client 를 만들어야 한다. 매핑을 복사하면 승인 해시 계산이
+// 두 경로에서 어긋난다 — 한 곳에서만 만든다.
+export function rowToClient(r: any): Client {
   const ind = Array.isArray(r.individuals) ? r.individuals[0] : r.individuals;
   const corp = Array.isArray(r.corporates) ? r.corporates[0] : r.corporates;
 

@@ -1,13 +1,10 @@
-// 예전 고객 화면 주소 — 이제 서명 토큰 없이는 열리지 않는다.
+// 고객 공유 링크 화면 — PB 계정 없이 고객 본인 화면만 연다.
 //
-// 이 라우트에는 로그인 가드가 없었다(app/client 에 layout 이 없고 SessionGuard 는
-// 리다이렉트를 하지 않는다). clientId 는 UUID 라 추측하기 어렵지만 parties 가 anon 으로
-// 통째로 읽히는 동안에는 사실상 공개 URL 이었다. 링크를 아는 사람만 열 수 있게 바꾼다.
+// 서버 컴포넌트다. 토큰을 여기서 검증하고 service_role 로 payload 를 조립해
+// ClientFacingViewBody 에 props 로 넘긴다. 브라우저가 데이터를 다시 조회하지 않는다.
 //
-// 라우트를 지우지 않고 남긴 이유: 이미 나간 주소가 있을 수 있고, 그때 404 보다
-// "PB 에게 새 링크를 요청하라"는 안내가 낫다.
-//
-// 새 링크는 /view/[token] 을 쓴다. 이 주소는 ?t= 로 같은 토큰을 받아 처리한다.
+// API 라우트(/api/client-view?t=)를 거치지 않는 이유: 한 번 더 왕복할 이유가 없고,
+// 토큰이 브라우저 → 서버로 다시 나갈 필요도 없다. 그 라우트는 점검용으로 남겨 둔다.
 
 import type { Metadata } from "next";
 import ClientFacingViewBody from "@/components/ClientFacingViewBody";
@@ -17,6 +14,7 @@ import { loadClientViewPayload } from "@/lib/clientView/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// 링크가 어디에 붙어도 색인되지 않게 한다. 헤더(X-Robots-Tag)는 API 라우트 쪽에 있다.
 export const metadata: Metadata = {
   title: "상담 요약",
   robots: { index: false, follow: false },
@@ -33,17 +31,10 @@ function Notice({ title, body }: { title: string; body: string }) {
   );
 }
 
-const NEED_LINK = {
-  title: "직접 열 수 없는 주소입니다",
-  body: "고객 화면은 담당 PB가 보낸 공유 링크로만 열 수 있습니다. 링크를 다시 받아 주세요.",
-};
-
-export default async function ClientViewLegacyPage({
+export default async function ClientViewTokenPage({
   params,
-  searchParams,
 }: {
-  params: { clientId: string };
-  searchParams?: { t?: string };
+  params: { token: string };
 }) {
   const secret = clientViewSecret();
   if (!secret) {
@@ -55,24 +46,22 @@ export default async function ClientViewLegacyPage({
     );
   }
 
-  const token = searchParams?.t?.trim() ?? "";
-  if (!token) return <Notice {...NEED_LINK} />;
-
-  const verified = verifyClientViewToken(token, secret);
+  const verified = verifyClientViewToken(decodeURIComponent(params.token ?? ""), secret);
   if (!verified.ok) {
+    // 만료만 따로 안내한다. 서명 실패·형식 오류를 나눠 알려 주면 토큰을 맞춰 보는 데
+    // 단서가 되므로 한 문장으로 묶는다.
     return verified.reason === "expired" ? (
       <Notice
         title="링크가 만료되었습니다"
         body="보안을 위해 공유 링크에는 유효기간이 있습니다. 담당 PB에게 새 링크를 요청해 주세요."
       />
     ) : (
-      <Notice {...NEED_LINK} />
+      <Notice
+        title="열 수 없는 링크입니다"
+        body="주소가 잘못되었거나 더 이상 사용할 수 없는 링크입니다. 담당 PB에게 문의해 주세요."
+      />
     );
   }
-
-  // 주소의 clientId 와 토큰이 가리키는 고객이 달라도 열리면 안 된다. 토큰만 유효하면
-  // 통과시키면 A 의 토큰으로 B 의 주소를 열어 놓고 A 의 화면을 보는 혼동이 생긴다.
-  if (verified.clientId !== params.clientId) return <Notice {...NEED_LINK} />;
 
   const loaded = await loadClientViewPayload(verified.clientId, verified.expiresAt);
   if (!loaded.ok) {
@@ -90,6 +79,9 @@ export default async function ClientViewLegacyPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
+      {/* live 를 넘기지 않는다 — 공유 링크에는 동기화도, 새로고침 버튼도 없다.
+          onGoPb 도 없다. 고객은 PB 화면으로 갈 일이 없다.
+          lockWithoutPortfolioApproval 은 외부 공유 화면의 기존 정책 그대로. */}
       <ClientFacingViewBody view={loaded.payload} lockWithoutPortfolioApproval />
     </div>
   );

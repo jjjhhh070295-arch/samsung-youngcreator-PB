@@ -77,6 +77,7 @@ import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import IPSResultTabs, { type Tab } from "@/components/IPSResultTabs";
 import ClientFacingView from "@/components/ClientFacingView";
+import ClientViewLinkPanel from "@/components/ClientViewLinkPanel";
 import TrendChart from "@/components/TrendChart";
 import ConsultationHistory from "@/components/ConsultationHistory";
 import { LoadingView, ErrorView } from "@/components/StateViews";
@@ -1214,6 +1215,11 @@ export default function ClientDetailPage() {
       </>)}
 
       {/* 분석 */}
+      {activeView === "analysis" && activeTab === "customer" && client && (
+        <div className="mb-3">
+          <ClientViewLinkPanel clientId={clientId} pbId={pbId} clientName={client.name} />
+        </div>
+      )}
       {activeView === "analysis" && activeTab === "customer" && client && (
         <ClientFacingView
           client={client}
