@@ -527,12 +527,33 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
     </div>
   );
 
+  // 매도 모달. tabBar 와 같이 변수로 뽑아 각 분기에 끼워 넣는다.
+  //
+  // 이 컴포넌트는 탭마다 조기 반환(early return)한다 — saved / manual / review / extract 로
+  // return 이 넷이다. 매도 버튼은 saved 분기에 있는데 모달을 마지막 return 에만 두면,
+  // 버튼이 setSellTarget 으로 상태는 바꾸지만 그 분기 트리에 모달이 없어 아무것도 그려지지
+  // 않는다. 클릭해도 반응이 없는 것처럼 보이고 에러도 나지 않는다 — 실제로 그렇게 나갔다.
+  // 닫힌 상태에서는 null 을 반환하므로 모든 분기에 넣어 두는 편이 안전하다.
+  const sellModal = (
+    <SellHoldingModal
+      open={sellTarget !== null}
+      clientId={clientId}
+      holding={sellTarget}
+      onClose={() => setSellTarget(null)}
+      onSold={() => {
+        void loadSaved();
+        onAssetsChanged?.();
+      }}
+    />
+  );
+
   // ── 저장된 종목 탭 ──
   if (tab === "saved") {
     const kisStatus = kisConnected === null ? null : kisConnected;
     return (
       <div>
         {tabBar}
+        {sellModal}
         {savedLoading ? (
           <p className="py-8 text-center text-sm text-fg-muted">불러오는 중…</p>
         ) : saved.length === 0 ? (
@@ -710,6 +731,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
     return (
       <div>
         {tabBar}
+        {sellModal}
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -867,6 +889,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
     return (
       <div>
         {tabBar}
+        {sellModal}
         <div className="flex flex-col md:flex-row gap-5 items-start">
           {imagePanel}
           <div className="w-full md:flex-1 md:min-w-0 space-y-3">
@@ -1003,6 +1026,7 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
   return (
     <div>
       {tabBar}
+      {sellModal}
       <div className="flex flex-col md:flex-row gap-5 items-start">
         {imagePanel}
         <div className="w-full md:flex-1 flex flex-col gap-4 justify-center" style={{ minHeight: "300px" }}>
@@ -1040,16 +1064,6 @@ export default function HoldingsExtractor({ clientId, onAssetsChanged }: Props) 
           )}
         </div>
       </div>
-      <SellHoldingModal
-        open={sellTarget !== null}
-        clientId={clientId}
-        holding={sellTarget}
-        onClose={() => setSellTarget(null)}
-        onSold={() => {
-          void loadSaved();
-          onAssetsChanged?.();
-        }}
-      />
     </div>
   );
 }
