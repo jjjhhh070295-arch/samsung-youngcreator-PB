@@ -9,15 +9,15 @@ import { generateResearchStructured } from './geminiResearch';
 
 const text = { type: 'string' };
 const texts = { type: 'array', items: text };
-const briefSchema = { type: 'object', properties: {
+const briefSchema = (reportIds: string[]) => ({ type: 'object', properties: {
   headline: text, marketSummary: text,
   timeline: { type: 'object', properties: { twoWeeks: text, threeDays: text, today: text }, required: ['twoWeeks', 'threeDays', 'today'] },
-  keyIssues: { type: 'array', items: { type: 'object', properties: { reportId: text, title: text, summary: text,
+  keyIssues: { type: 'array', items: { type: 'object', properties: { reportId: { type: 'string', enum: reportIds }, title: text, summary: text,
     whatChanged: text, marketImpact: text, watchPoint: text }, required: ['reportId', 'title', 'summary', 'whatChanged', 'marketImpact', 'watchPoint'] } },
   themes: { type: 'array', items: { type: 'object', properties: { theme: text, themeCode: text,
     score: { type: 'number' }, reason: text }, required: ['theme', 'themeCode', 'score', 'reason'] } },
   watchPoints: texts, assetView: { type: 'object', properties: { equity: text, bond: text, usd: text, oil: text }, required: ['equity', 'bond', 'usd', 'oil'] },
-}, required: ['headline', 'marketSummary', 'timeline', 'keyIssues', 'themes', 'watchPoints', 'assetView'] };
+}, required: ['headline', 'marketSummary', 'timeline', 'keyIssues', 'themes', 'watchPoints', 'assetView'] });
 const explanationSchema = { type: 'object', properties: { explanations: { type: 'array', items: { type: 'object', properties: {
   ticker: text, summary: text, keyReasons: texts, risks: texts,
 }, required: ['ticker', 'summary', 'keyReasons', 'risks'] } } }, required: ['explanations'] };
@@ -65,7 +65,7 @@ function stringList(value: unknown): string[] {
 
 export async function buildMarketBrief(reports: ResearchInput[], tradeDate: string, generate: StructuredGenerator = generateResearchStructured) {
   if (!reports.length) throw new Error('원문 또는 정상 요약이 있는 리서치가 없습니다. 리서치 수집·분석 상태를 확인해 주세요.');
-  const result = await generate(buildMarketIntelligencePrompt({ tradeDate, reports }), briefSchema);
+  const result = await generate(buildMarketIntelligencePrompt({ tradeDate, reports }), briefSchema(reports.map((report) => report.id)));
   const raw = record(result.value), timeline = record(raw.timeline), assetView = record(raw.assetView);
   if (!Array.isArray(raw.keyIssues) || raw.keyIssues.length < 1 || raw.keyIssues.length > 3) throw new Error('Invalid research issue count');
   const sources = new Map(reports.map((r) => [r.id, r]));

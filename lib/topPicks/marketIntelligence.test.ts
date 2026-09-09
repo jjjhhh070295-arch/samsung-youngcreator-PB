@@ -73,8 +73,10 @@ describe('리서치 전용 Market Intelligence 입력·생성', () => {
     assert.equal(called, false);
   });
   it('모델이 각 영역을 생성하고 출처 URL·날짜는 입력 ID로 확정한다', async () => {
-    const result = await buildMarketBrief(inputs(), '2026-09-10', async (prompt) => {
+    const result = await buildMarketBrief(inputs(), '2026-09-10', async (prompt, schema) => {
       assert.match(prompt, /현재|기준일/);
+      const reportIds = (schema as any).properties.keyIssues.items.properties.reportId.enum;
+      assert.deepEqual(reportIds, [report.report_id]);
       return { model: 'test-model', value: { ...output(), keyIssues: [{ ...output().keyIssues[0], url: 'https://invented.example', date: '2030-01-01' }] } };
     });
     assert.equal(result.value.keyIssues[0].url, report.url);
