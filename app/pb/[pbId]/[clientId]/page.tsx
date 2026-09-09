@@ -78,6 +78,7 @@ import {
 } from "@/lib/portfolioWorkflowStep";
 import { formatKRW, formatDate, formatDateTime } from "@/lib/format";
 import ConsultationModal from "@/components/ConsultationModal";
+import ConsultationCompletionModal from "@/components/ConsultationCompletionModal";
 import ClientForm, { type ClientFormValue } from "@/components/ClientForm";
 import ConfirmModal from "@/components/ConfirmModal";
 import IPSResultTabs, { type Tab } from "@/components/IPSResultTabs";
@@ -97,6 +98,7 @@ import SimpleCashflowPanel from "@/components/SimpleCashflowPanel";
 import type { InvestmentSurveyResult } from "@/lib/investmentSurvey";
 import { resolveAssetBreakdown } from "@/lib/assets";
 import { publishClientLiveSync } from "@/lib/clientLiveSync";
+import { readActiveConsultationId } from "@/lib/advisory/consultationIpsDocument";
 
 const MSG_NEED_BASIC = "기본정보 승인 후 포트폴리오를 진행할 수 있습니다.";
 const MSG_NEED_PORTFOLIO = "포트폴리오 승인 후 IPS를 확정할 수 있습니다.";
@@ -166,6 +168,7 @@ export default function ClientDetailPage() {
   const [pbs, setPbs] = useState<PB[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [modalOpen, setModalOpen] = useState(false);
+  const [completionOpen, setCompletionOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [investableWon, setInvestableWon] = useState<number | null>(null);
@@ -897,6 +900,8 @@ export default function ClientDetailPage() {
       alert(
         `${MSG_IPS_APPROVED}\n보유종목 반영: ${sync.linesApplied}건 (KIS 시세 스냅샷·장부 기준, 실주문 아님)${draftNote}`,
       );
+      // 승인 직후 PB 메모 + 확정 IPS 문서를 같은 상담 ID 에 저장
+      setCompletionOpen(true);
     } catch (e: any) {
       console.error(e);
       alert(`IPS 확정/보유 반영 오류: ${e?.message || e}\n초안은 유지됩니다.`);
@@ -1278,6 +1283,7 @@ export default function ClientDetailPage() {
           onToggleStage={toggleStage}
           onApprovePortfolioWorkflow={approvePortfolioWorkflow}
           onApproveIpsWorkflow={approveIpsWorkflow}
+          onRequestConsultationComplete={() => setCompletionOpen(true)}
           onPortfolioDraftChanged={onPortfolioDraftChanged}
           linkedClient={linkedClient}
           onChangeComprehensiveTax={saveComprehensiveTaxFlag}
@@ -1294,6 +1300,21 @@ export default function ClientDetailPage() {
         pbId={pbId}
         onClose={() => setModalOpen(false)}
         onSaved={async () => { setModalOpen(false); await load(); }}
+      />
+      <ConsultationCompletionModal
+        open={completionOpen && !!client}
+        client={client!}
+        pbId={pbId}
+        pbDisplayName={pbs.find((p) => p.id === pbId)?.name || "담당 PB"}
+        investableWon={investableWon}
+        initialNotes={client?.consultationNotes || ""}
+        consultationId={client ? readActiveConsultationId(client.id) : null}
+        ipsSnapshot={client?.ips}
+        onClose={() => setCompletionOpen(false)}
+        onCompleted={async () => {
+          setCompletionOpen(false);
+          await load();
+        }}
       />
       <ClientForm
         open={editOpen}

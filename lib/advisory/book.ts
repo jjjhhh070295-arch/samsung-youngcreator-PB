@@ -221,15 +221,9 @@ export function buildClientBookRow(
       ? {
           at: latest.createdAt || latest.endedAt || latest.startedAt,
           label: latest.endedAt ? "상담완료" : "진행기록",
-          notesPreview: notesPreview(latest.notes || client.consultationNotes || ""),
+          notesPreview: notesPreview(latest.notes || ""),
         }
-      : client.consultationNotes
-        ? {
-            at: client.createdAt,
-            label: "메모만",
-            notesPreview: notesPreview(client.consultationNotes),
-          }
-        : null,
+      : null,
     flags,
     cashNeed12m: need,
     heritagePriority,

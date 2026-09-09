@@ -41,6 +41,7 @@ interface Props {
   onToggleStage: (key: StageKey) => Promise<void> | void;
   onApprovePortfolioWorkflow: () => Promise<void> | void;
   onApproveIpsWorkflow: () => Promise<void> | void;
+  onRequestConsultationComplete?: () => void;
   onPortfolioDraftChanged?: () => void;
   linkedClient?: Client | null;
   onChangeComprehensiveTax?: (value: boolean) => Promise<void> | void;
@@ -75,6 +76,7 @@ export default function IPSResultTabs({
   onToggleStage,
   onApprovePortfolioWorkflow,
   onApproveIpsWorkflow,
+  onRequestConsultationComplete,
   onPortfolioDraftChanged,
   linkedClient,
   onChangeComprehensiveTax,
@@ -691,6 +693,15 @@ export default function IPSResultTabs({
               >
                 PDF 발행
               </button>
+              {consultationComplete && onRequestConsultationComplete && (
+                <button
+                  type="button"
+                  className="btn-gold px-6 py-2.5"
+                  onClick={() => onRequestConsultationComplete()}
+                >
+                  상담 완료 · PB 메모
+                </button>
+              )}
             </div>
           </div>
           {/* 상담 종료 — 진행 중인 상담이 있을 때만 나타난다. PB 메모와 이 시점의 IPS 를

@@ -20,7 +20,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Client, Consultation } from "@/lib/types";
 import { isIpsWorkflowApproved } from "@/lib/advisory/workflowApprovals";
-import { FACTOR_META } from "@/lib/types";
 import ClientAvatar from "@/components/ClientAvatar";
 import ConsultationHistory from "@/components/ConsultationHistory";
 import StartConsultationButton from "@/components/StartConsultationButton";
@@ -166,25 +165,37 @@ export default function ClientConsultationLog({
           </div>
         ) : (
           <>
-            {/* 최종 확정 IPS — consultation.ipsSnapshot 은 그 상담 시점 값이지 확정본이
-                아니다. 승인된 IPS 를 따로 보관하는 곳이 없고, 승인 상태에서는 IPS 가
-                바뀌면 해시가 어긋나 승인이 풀리므로 client.ips 가 곧 확정본이다.
-                승인 전에는 확정본이 없다고 분명히 말한다 — 작성 중인 값을 확정본처럼
-                보여주면 안 된다. */}
+            {/* 최신 확정 IPS 문서가 있는 상담이 있으면 안내만. 현재 7요인 요약으로 대체하지 않는다. */}
             <div className="mt-3 rounded-lg border border-border bg-surface-2 px-3 py-2">
-              <p className="text-[10px] font-bold text-fg-muted">최종 확정 IPS</p>
-              {isIpsWorkflowApproved(selected) ? (
-                <p className="mt-1 text-[11px] leading-relaxed text-fg">
-                  {FACTOR_META.map((m) => {
-                    const v = selected.ips?.[m.key]?.value;
-                    return `${m.label} ${v ? v : "—"}`;
-                  }).join(" · ")}
-                </p>
-              ) : (
-                <p className="mt-1 text-[11px] text-fg-muted">
-                  아직 IPS 가 확정되지 않았습니다 — 아래는 각 상담 시점의 7요인입니다.
-                </p>
-              )}
+              <p className="text-[10px] font-bold text-fg-muted">확정 IPS (상담 이력)</p>
+              {(() => {
+                const withDoc = mine
+                  .slice()
+                  .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+                  .find((c) => c.ipsDocumentSnapshot);
+                if (withDoc?.ipsDocumentSnapshot) {
+                  return (
+                    <p className="mt-1 text-[11px] leading-relaxed text-fg">
+                      최근 확정본:{" "}
+                      {new Date(withDoc.ipsDocumentSnapshot.capturedAt).toLocaleString("ko-KR")} ·
+                      상세 보기에서 A4 문서를 확인하세요.
+                    </p>
+                  );
+                }
+                if (isIpsWorkflowApproved(selected)) {
+                  return (
+                    <p className="mt-1 text-[11px] text-fg-muted">
+                      IPS는 승인됐지만 이 고객의 상담 이력에 저장된 확정 문서가 없습니다. 상담 완료
+                      시 PB 메모와 함께 저장됩니다.
+                    </p>
+                  );
+                }
+                return (
+                  <p className="mt-1 text-[11px] text-fg-muted">
+                    아직 저장된 확정 IPS 문서가 없습니다 — 아래는 각 상담 시점의 기록입니다.
+                  </p>
+                );
+              })()}
             </div>
             <div className="mt-3">
               <ConsultationHistory

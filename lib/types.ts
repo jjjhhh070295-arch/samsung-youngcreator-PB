@@ -493,6 +493,9 @@ export interface MacroFactorMeta {
 // 사용자가 슬라이더로 설정한 요인별 충격 (단위는 MacroFactorMeta.unit 기준)
 export type ScenarioShock = Record<MacroFactorId, number>;
 
+/** 상담 완료 시 동결한 확정 IPS 문서 — IpsA4Document 입력. 상세는 consultationIpsDocument.ts */
+export type { IpsDocumentSnapshot } from "./advisory/consultationIpsDocument";
+
 export interface Consultation {
   id: string;
   clientId: string;
@@ -502,9 +505,17 @@ export interface Consultation {
   durationSeconds: number;
   /** 상담 전문(고객 발화). 새 흐름에서는 쓰지 않고 빈 문자열로 둔다 — PB 메모는 pbMemo. */
   notes: string;
-  /** PB 개인 메모. 상담 종료 시 입력한다. 마이그레이션 전 행은 null. */
-  pbMemo: string | null;
+  /**
+   * PB 개인 메모(consultations.pb_memo). "상담 종료" 흐름이 채운다.
+   *
+   * 선택 필드인 이유: 상담 완료 흐름(ConsultationCompletionModal)은 메모를 notes 에
+   * 담고 consultationHasPbMemo 로 판정한다 — 그쪽 경로로 만든 객체에는 이 필드가 없다.
+   * 마이그레이션 전 행도 null 이다. 읽는 쪽은 두 경로를 모두 확인해야 한다.
+   */
+  pbMemo?: string | null;
   ipsSnapshot: IPS; // 종료 시점 7요인(점수 포함) → 성향 변화 그래프 소스
+  /** 확정 IPS A4 문서 스냅샷. 레거시 행은 null — 현재 고객 데이터로 재구성하지 않는다. */
+  ipsDocumentSnapshot?: import("./advisory/consultationIpsDocument").IpsDocumentSnapshot | null;
   createdAt: string;
 }
 

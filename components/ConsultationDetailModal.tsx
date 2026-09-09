@@ -1,25 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { Consultation, Client, IPS, IPSFactor, FactorKey } from "@/lib/types";
 import { FACTOR_KEYS } from "@/lib/types";
 import { updateConsultation } from "@/lib/store";
-import { formatDateTime, formatDurationKo, formatKRW } from "@/lib/format";
+import { formatDateTime, formatDurationKo } from "@/lib/format";
+import { consultationHasPbMemo } from "@/lib/advisory/consultationIpsDocument";
+import { packIpsSnapshotPayload } from "@/lib/advisory/consultationIpsDocument";
 import IPSForm from "./IPSForm";
+import IpsA4Document from "./ips/IpsA4Document";
 
 interface Props {
   consultation: Consultation | null;
-  client?: Client | null; // 현재 현금흐름·포트폴리오 참고 표시용
+  client?: Client | null;
   index?: number;
   onClose: () => void;
-  onSaved: () => void; // 저장 후 상위 새로고침
+  onSaved: () => void;
 }
 
 function cloneIps(ips: IPS): IPS {
   return JSON.parse(JSON.stringify(ips)) as IPS;
 }
 
-// 개별 상담 상세 — 조회 + 수정 + 검토 확정.
+// 개별 상담 상세 — 메모 전문 + 확정 IPS(A4). 선택 시 props 의 최신 행을 그대로 읽는다.
 export default function ConsultationDetailModal({
   consultation,
   client,
@@ -28,15 +32,21 @@ export default function ConsultationDetailModal({
   onSaved,
 }: Props) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<IPS | null>(null);
-  const [notes, setNotes] = useState("");
+  const [draft, setDraft] = useState<IPS | null>(() =>
+    consultation ? cloneIps(consultation.ipsSnapshot) : null,
+  );
+  const [notes, setNotes] = useState(() => consultation?.notes ?? "");
   const [saving, setSaving] = useState(false);
+  const [docExpanded, setDocExpanded] = useState(false);
 
   useEffect(() => {
     if (consultation) {
       setDraft(cloneIps(consultation.ipsSnapshot));
-      setNotes(consultation.notes);
+      setNotes(consultation.notes ?? "");
       setEditing(false);
+    } else {
+      setDraft(null);
+      setNotes("");
     }
   }, [consultation]);
 
@@ -47,8 +57,15 @@ export default function ConsultationDetailModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [consultation, onClose]);
 
+  const documentSnap = consultation?.ipsDocumentSnapshot ?? null;
+  const documentClient = useMemo(
+    () => (documentSnap ? documentSnap.documentClient : null),
+    [documentSnap],
+  );
+
   if (!consultation || !draft) return null;
   const c = consultation;
+  const hasMemo = consultationHasPbMemo(c);
 
   const filledKeys = FACTOR_KEYS.filter((k) => {
     const f = draft[k];
@@ -77,7 +94,15 @@ export default function ConsultationDetailModal({
   const save = async () => {
     setSaving(true);
     try {
-      await updateConsultation(c.id, { notes, ipsSnapshot: draft });
+      // 메모·7요인만 갱신. 확정 IPS 문서 스냅샷(__ipsDocument)은 updateConsultation 이 보존.
+      await updateConsultation(c.id, {
+        notes,
+        ipsSnapshot: draft,
+        // 명시적으로 기존 문서 유지
+        ipsDocumentSnapshot: c.ipsDocumentSnapshot ?? null,
+      });
+      // pack 검증 — 문서 키가 factors 와 함께 직렬화될 수 있는지 확인(로컬 개발 안전망)
+      void packIpsSnapshotPayload(draft, c.ipsDocumentSnapshot ?? null);
       onSaved();
       onClose();
     } catch (e) {
@@ -94,10 +119,11 @@ export default function ConsultationDetailModal({
       onClick={onClose}
     >
       <div
-        className="flex w-full max-w-2xl flex-col overflow-hidden bg-surface shadow-2xl sm:max-h-[92vh] sm:rounded-2xl"
+        className={`flex w-full flex-col overflow-hidden bg-surface shadow-2xl sm:max-h-[94vh] sm:rounded-2xl ${
+          docExpanded ? "max-w-5xl" : "max-w-3xl"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 헤더 */}
         <div className="flex items-center justify-between border-b border-border bg-navy-800 px-5 py-3 text-white dark:bg-navy-900">
           <div>
             <p className="text-sm font-bold">{index != null ? `상담 #${index}` : "상담 상세"}</p>
@@ -111,12 +137,10 @@ export default function ConsultationDetailModal({
                 className="rounded-md bg-white/10 px-3 py-1 text-xs font-medium hover:bg-white/20"
                 onClick={() => setEditing(true)}
               >
-                수정 / 확정
+                메모 수정
               </button>
             ) : (
-              <span className="text-[11px] text-gold-300">
-                검토 확정 {reviewedCount}/{filledKeys.length}
-              </span>
+              <span className="text-[11px] text-gold-300">메모·7요인 편집 중</span>
             )}
             <button
               className="rounded-full px-3 py-1 text-white/70 hover:bg-white/10 hover:text-white"
@@ -127,19 +151,18 @@ export default function ConsultationDetailModal({
           </div>
         </div>
 
-        {/* 본문 */}
-        <div className="flex-1 space-y-4 overflow-y-auto p-5">
-          {/* 메모 */}
+        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          {/* 1) 상담 메모 (전문) — consultation.notes 단일 소스 */}
           <div>
             <p className="mb-1 text-sm font-semibold text-fg-muted">상담 메모 (전문)</p>
             {editing ? (
               <textarea
-                className="input min-h-[100px] resize-y text-sm"
+                className="input min-h-[120px] resize-y whitespace-pre-wrap text-sm"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
               />
-            ) : c.notes ? (
-              <p className="whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-sm text-fg">
+            ) : hasMemo ? (
+              <p className="whitespace-pre-wrap break-words rounded-lg bg-surface-2 p-3 text-sm text-fg">
                 {c.notes}
               </p>
             ) : (
@@ -147,109 +170,84 @@ export default function ConsultationDetailModal({
             )}
           </div>
 
-          {/* 검토 확정 바 (편집 시) */}
-          {editing && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gold-400/60 bg-gold-50 px-4 py-2.5 dark:bg-gold-900/20">
-              <span className="text-sm text-fg">
-                검토 확정{" "}
-                <b className="text-gold-700 dark:text-gold-200">
-                  {reviewedCount} / {filledKeys.length}
-                </b>
-                <span className="ml-1 text-xs text-fg-muted">(확정 점수만 추세 반영)</span>
-              </span>
-              <button
-                className="btn-gold text-xs"
-                onClick={() => setAllReviewed(!allReviewed)}
-                disabled={filledKeys.length === 0}
-              >
-                {allReviewed ? "전체 확정 해제" : "모두 검토 확정"}
-              </button>
-            </div>
-          )}
-
-          {/* 7요인 */}
+          {/* 2) 확정 IPS — IpsA4Document. 레거시는 정직한 안내. */}
           <div>
-            <p className="mb-2 text-sm font-semibold text-fg-muted">
-              이 상담 시점의 RRTTLLU 7요인
-            </p>
-            {editing && (
-              <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-                이 편집은 이 상담 기록(스냅샷)만 바꿉니다. 고객의 현재 7요인 프로필(기본 정보 화면)에는
-                반영되지 않습니다 — 현재 프로필을 바꾸려면 새 상담에서 저장하세요.
-              </p>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-fg-muted">확정 IPS</p>
+              {documentSnap && (
+                <button
+                  type="button"
+                  className="btn-outline text-[11px]"
+                  onClick={() => setDocExpanded((v) => !v)}
+                >
+                  {docExpanded ? "미리보기 축소" : "원본 크게 보기"}
+                </button>
+              )}
+            </div>
+
+            {documentClient && documentSnap ? (
+              <div className="-mx-1 overflow-x-auto rounded-lg border border-border bg-[#F7F8FA] p-2 sm:mx-0 sm:p-3">
+                <div className="min-w-[210mm]">
+                  <IpsA4Document
+                    documentClient={documentClient}
+                    documentPbDisplay={documentSnap.pbDisplayName}
+                    investableWon={documentSnap.investableWon}
+                    dateStr={documentSnap.dateStr}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-surface-2 px-4 py-5">
+                <p className="text-sm font-semibold text-fg">
+                  이 상담에는 저장된 확정 IPS가 없습니다.
+                </p>
+                <p className="mt-1 text-xs text-fg-muted">
+                  상담 완료 시점에 포트폴리오·IPS 승인이 없었던 기록이거나, 이전 버전에서 저장된
+                  이력입니다. 현재 고객 데이터로 문서를 만들어 보여 주지 않습니다.
+                </p>
+                {client && (
+                  <Link
+                    href={`/pb/${client.assignedPbId}/${client.id}/ips?mode=draft`}
+                    className="mt-3 inline-block text-xs font-semibold text-[#0D57BA] underline"
+                  >
+                    현재 IPS 보기 (참고 · 이 상담의 확정본이 아님)
+                  </Link>
+                )}
+              </div>
             )}
-            <IPSForm ips={draft} readOnly={!editing} onChange={factorChange} />
           </div>
 
-          {/* 현재 현금흐름·포트폴리오 (참고용 — 고객 단위 현재값) */}
-          {client && (
+          {/* 편집 시에만 7요인 — 확정 IPS 대체가 아님을 명시 */}
+          {editing && (
             <div>
               <p className="mb-2 text-sm font-semibold text-fg-muted">
-                현재 현금흐름 · 포트폴리오{" "}
-                <span className="font-normal text-[11px]">(참고 · 고객 현재값)</span>
+                이 상담 시점의 RRTTLLU 7요인{" "}
+                <span className="font-normal text-[11px]">(추세 그래프용 · 확정 IPS 아님)</span>
               </p>
-
-              {/* 현금흐름 */}
-              <div className="mb-3 rounded-lg border border-border p-3">
-                <p className="mb-1 text-xs font-medium text-fg">현금흐름</p>
-                {client.cashFlows.length === 0 ? (
-                  <p className="text-xs text-fg-muted">입력된 현금흐름 없음</p>
-                ) : (
-                  <ul className="space-y-1 text-xs">
-                    {client.cashFlows.map((cf) => (
-                      <li key={cf.id} className="flex justify-between">
-                        <span className="text-fg-muted">
-                          {cf.label || "(항목)"} · {cf.date || "시점 미정"}
-                          {cf.recurring && " · 정기"}
-                        </span>
-                        <span className={cf.amount < 0 ? "text-red-500" : "text-gold-600 dark:text-gold-300"}>
-                          {cf.amount < 0 ? "−" : "+"}
-                          {formatKRW(Math.abs(cf.amount))}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gold-400/60 bg-gold-50 px-4 py-2.5 dark:bg-gold-900/20">
+                <span className="text-sm text-fg">
+                  검토 확정{" "}
+                  <b className="text-gold-700 dark:text-gold-200">
+                    {reviewedCount} / {filledKeys.length}
+                  </b>
+                </span>
+                <button
+                  className="btn-gold text-xs"
+                  onClick={() => setAllReviewed(!allReviewed)}
+                  disabled={filledKeys.length === 0}
+                >
+                  {allReviewed ? "전체 확정 해제" : "모두 검토 확정"}
+                </button>
               </div>
-
-              {/* 포트폴리오 */}
-              <div className="rounded-lg border border-border p-3">
-                <p className="mb-1 text-xs font-medium text-fg">포트폴리오 후보</p>
-                {client.portfolios.length === 0 ? (
-                  <p className="text-xs text-fg-muted">생성된 포트폴리오 없음</p>
-                ) : (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    {client.portfolios.map((p) => (
-                      <div key={p.id} className="rounded-md bg-surface-2 p-2">
-                        <p className="text-xs font-bold text-fg">{p.label}</p>
-                        <p className="text-[11px] text-fg-muted">
-                          수익{" "}
-                          {p.expectedReturn == null || !Number.isFinite(p.expectedReturn)
-                            ? "산출 전"
-                            : `${(Math.round(p.expectedReturn * 10) / 10).toFixed(1)}%`}{" "}
-                          · 변동성{" "}
-                          {p.expectedRisk == null || !Number.isFinite(p.expectedRisk)
-                            ? "산출 전"
-                            : `${(Math.round(p.expectedRisk * 10) / 10).toFixed(1)}%`}
-                        </p>
-                        <p className="mt-1 text-[11px] text-fg-muted">
-                          {p.allocations
-                            .map(
-                              (a) =>
-                                `${a.assetClass} ${(Math.round(a.weight * 10) / 10).toFixed(1)}%`,
-                            )
-                            .join(" · ")}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+                이 편집은 상담 기록의 7요인 스냅샷만 바꿉니다. 위에 표시된 확정 IPS 문서는 바뀌지
+                않습니다.
+              </p>
+              <IPSForm ips={draft} readOnly={false} onChange={factorChange} />
             </div>
           )}
         </div>
 
-        {/* 푸터 */}
         <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
           {editing ? (
             <>
