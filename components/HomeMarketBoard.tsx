@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import IndicatorPickerModal from "@/components/IndicatorPickerModal";
+import MarketHomeMorningBriefing from "@/components/MarketHomeMorningBriefing";
 import MarketHomeTodaySchedule from "@/components/MarketHomeTodaySchedule";
 import { getLoggedInPbId } from "@/lib/auth";
 import { DEFAULT_INDICATOR_IDS, getIndicator } from "@/lib/marketIndicators";
@@ -100,50 +101,60 @@ export default function HomeMarketBoard() {
   }, [indicatorIds]);
 
   return (
-    <div className="mb-8 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
-      {/* 좌 — 오늘 일정 요약 */}
-      <div>
+    <div className="mb-2 grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[1.12fr_0.88fr]">
+      {/* 좌 — 오늘 일정 요약 + 오늘 모닝 브리핑 */}
+      <div className="flex min-h-0 flex-col gap-5">
         {pbId ? <MarketHomeTodaySchedule pbId={pbId} /> : null}
+        {pbId ? <MarketHomeMorningBriefing pbId={pbId} /> : null}
       </div>
 
-      {/* 우 — 시세 전광판 */}
-        <div className="rounded-md border border-border bg-surface p-4 shadow-none">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex gap-1">
+      {/* 우 — 시세 전광판 (좌측 두 카드 합 높이에 맞춤) */}
+        <div className="flex h-full min-h-[360px] flex-col rounded-lg border border-[#E4EBF5] bg-white p-4 shadow-[0_1px_3px_rgba(16,42,86,0.04)] sm:p-5">
+          <div className="mb-1 flex items-center justify-between gap-2 border-b border-[#EEF3F9]">
+            <div className="flex gap-0">
               <button
+                type="button"
                 onClick={() => setRightTab("market")}
-                className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
-                  rightTab === "market" ? "bg-surface-2 text-fg" : "text-fg-muted hover:text-fg"
+                className={`relative px-3 pb-2.5 pt-0.5 text-[13px] font-bold transition-colors ${
+                  rightTab === "market"
+                    ? "text-[#0D57BA] after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-[#0D57BA]"
+                    : "text-[#8A97AB] hover:text-[#5B6B82]"
                 }`}
               >
                 증시 · 금리
               </button>
               <button
+                type="button"
                 onClick={() => setRightTab("etf")}
-                className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
-                  rightTab === "etf" ? "bg-surface-2 text-fg" : "text-fg-muted hover:text-fg"
+                className={`relative px-3 pb-2.5 pt-0.5 text-[13px] font-bold transition-colors ${
+                  rightTab === "etf"
+                    ? "text-[#0D57BA] after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-[#0D57BA]"
+                    : "text-[#8A97AB] hover:text-[#5B6B82]"
                 }`}
               >
                 KODEX ETF
               </button>
             </div>
             {rightTab === "market" ? (
-              <div className="flex items-center gap-1">
+              <div className="mb-2 flex items-center gap-1.5">
                 <span
-                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${
-                    marketLive ? "bg-green-500/15 text-green-500" : "bg-surface-2 text-fg-muted"
+                  className={`flex items-center gap-1 text-[11px] font-medium ${
+                    marketLive ? "text-[#16A34A]" : "text-[#8A97AB]"
                   }`}
                 >
                   {marketLive ? (
                     <>
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> 실시간
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" />
+                      실시간
                       {marketAt && (
-                        <span className="ml-1 opacity-70">
+                        <span className="text-[#8A97AB]">
                           {marketAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                         </span>
                       )}
                     </>
-                  ) : "예시"}
+                  ) : (
+                    "예시"
+                  )}
                 </span>
                 {/* 지표 선택 진입점 */}
                 <button
@@ -151,54 +162,59 @@ export default function HomeMarketBoard() {
                   aria-label="전광판 지표 선택"
                   title="전광판 지표 선택"
                   onClick={() => setPickerOpen(true)}
-                  className="rounded px-1.5 py-0.5 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1769D2]/30"
+                  className="rounded p-1 text-[#8A97AB] transition-colors hover:bg-[#F3F7FD] hover:text-[#5B6B82] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1769D2]/30"
                 >
-                  ⚙
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-none stroke-current" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.42 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.42H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .42-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.24.3.44.64.6 1 .14.34.24.7.24 1.08s-.1.74-.24 1.08c-.16.36-.36.7-.6 1Z" />
+                  </svg>
                 </button>
               </div>
             ) : (
-              <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-fg-muted">
+              <span className="mb-2 rounded-md bg-[#F3F6FA] px-2 py-0.5 text-[10px] font-medium text-[#8A97AB]">
                 순자산 상위
               </span>
             )}
           </div>
 
           {rightTab === "market" && (
-            <div className="space-y-0.5">
-              {market.map((m) => (
-                <div
-                  key={m.id ?? m.label}
-                  className="flex items-center justify-between border-b border-border px-2 py-2 transition-colors last:border-b-0 hover:bg-surface-2"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-fg">{m.label}</p>
-                    <p className="text-[11px] text-fg-muted">{m.sub}</p>
+            <div className="flex flex-1 flex-col justify-between">
+              <div>
+                {market.map((m) => (
+                  <div
+                    key={m.id ?? m.label}
+                    className="flex items-center justify-between border-b border-[#EEF3F9] py-3.5 last:border-b-0"
+                  >
+                    <div className="min-w-0 pr-3">
+                      <p className="text-[14px] font-semibold text-[#111827]">{m.label}</p>
+                      <p className="text-[11px] text-[#8A97AB]">{m.sub}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="flex items-center justify-end gap-1 text-[15px] font-bold tabular-nums text-[#111827]">
+                        {/* FRED 스냅샷 폴백 — 실시간이 아니라는 걸 값 옆에서 바로 알 수 있어야 한다.
+                            로컬은 FRED_API_KEY 가 자리표시자라 항상 이 배지가 뜬다. */}
+                        {m.fallback && (
+                          <span
+                            title="실시간 조회 실패 — 동봉 스냅샷 값입니다"
+                            className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-800"
+                          >
+                            스냅샷
+                          </span>
+                        )}
+                        {m.value}
+                      </p>
+                      <p className={`text-[12px] font-semibold tabular-nums ${m.up ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
+                        {m.change}
+                        {/* 관측일이 있는 지표(FRED)는 기준일을 함께 보여준다 — 월별 지표를
+                            오늘 값으로 오해하지 않게. */}
+                        {m.asOf && <span className="ml-1 font-normal text-[#8A97AB]">{m.asOf.slice(2)}</span>}
+                      </p>
+                    </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="flex items-center justify-end gap-1 text-sm font-semibold text-fg">
-                      {/* FRED 스냅샷 폴백 — 실시간이 아니라는 걸 값 옆에서 바로 알 수 있어야 한다.
-                          로컬은 FRED_API_KEY 가 자리표시자라 항상 이 배지가 뜬다. */}
-                      {m.fallback && (
-                        <span
-                          title="실시간 조회 실패 — 동봉 스냅샷 값입니다"
-                          className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                        >
-                          스냅샷
-                        </span>
-                      )}
-                      {m.value}
-                    </p>
-                    <p className={`text-[11px] font-medium ${m.up ? "text-green-500" : "text-red-500"}`}>
-                      {m.change}
-                      {/* 관측일이 있는 지표(FRED)는 기준일을 함께 보여준다 — 월별 지표를
-                          오늘 값으로 오해하지 않게. */}
-                      {m.asOf && <span className="ml-1 text-fg-muted/70">{m.asOf.slice(2)}</span>}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
               {failedIds.length > 0 && (
-                <p className="px-2 pt-1 text-[10px] leading-relaxed text-fg-muted">
+                <p className="pt-2 text-[10px] leading-relaxed text-[#8A97AB]">
                   {failedIds
                     .map((id) => getIndicator(id)?.label ?? id)
                     .join(", ")}{" "}
@@ -210,21 +226,21 @@ export default function HomeMarketBoard() {
 
           {rightTab === "etf" &&
             (etfs.length === 0 ? (
-              <p className="py-8 text-center text-sm text-fg-muted">불러오는 중…</p>
+              <p className="flex flex-1 items-center justify-center py-8 text-center text-sm text-[#8A97AB]">불러오는 중…</p>
             ) : (
-              <div className="space-y-0.5">
+              <div className="flex-1">
                 {etfs.map((e) => (
                   <a
                     key={e.code}
                     href={`https://finance.naver.com/item/main.naver?code=${e.code}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center justify-between gap-2 border-b border-border px-2 py-2 transition-colors last:border-b-0 hover:bg-surface-2"
+                    className="flex items-center justify-between gap-2 border-b border-[#EEF3F9] py-3.5 transition-colors last:border-b-0 hover:bg-[#F8FBFF]"
                   >
-                    <p className="min-w-0 truncate text-sm font-semibold text-fg">{e.name}</p>
+                    <p className="min-w-0 truncate text-[14px] font-semibold text-[#111827]">{e.name}</p>
                     <div className="shrink-0 text-right">
-                      <p className="text-sm font-semibold text-fg">{e.price.toLocaleString()}원</p>
-                      <p className={`text-[11px] font-medium ${e.flat ? "text-fg-muted" : e.up ? "text-green-500" : "text-red-500"}`}>
+                      <p className="text-[15px] font-bold tabular-nums text-[#111827]">{e.price.toLocaleString()}원</p>
+                      <p className={`text-[12px] font-semibold tabular-nums ${e.flat ? "text-[#8A97AB]" : e.up ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
                         {e.changeRate}
                       </p>
                     </div>

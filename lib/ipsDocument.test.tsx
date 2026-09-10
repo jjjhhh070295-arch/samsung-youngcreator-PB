@@ -10,33 +10,68 @@ function render(client = ipsDocumentFixture()) {
   return renderToStaticMarkup(<IpsA4Document documentClient={client} documentPbDisplay="박담당" investableWon={3_000_000_000} dateStr="2026년 9월 8일" />);
 }
 
+/** Split rendered sheets by ips-sheet sections for pagination assertions. */
+function sheets(html: string): string[] {
+  return html.split(/class="ips-sheet(?: |")/).slice(1);
+}
+
 describe("customer IPS document", () => {
-  it("renders two sheets without cash-flow sections or internal revision IDs", () => {
+  it("renders intro, holdings, and agreement sheets without cash-flow sections or internal revision IDs", () => {
     const html = render();
-    assert.equal((html.match(/class="ips-sheet(?: |")/g) ?? []).length, 2);
+    assert.equal((html.match(/class="ips-sheet(?: |")/g) ?? []).length, 3);
     assert.ok(html.includes("자산배분 계획") && html.includes("편입 상품 명세"));
     assert.ok(!html.includes("현금흐름"));
     assert.ok(!html.includes("sample-private-revision"));
     assert.ok(!html.includes("fallback") && !html.includes("proxy"));
     assert.ok(html.includes("5.7%") && html.includes("9.3%"));
+    assert.ok(html.includes("01 / 03") && html.includes("02 / 03") && html.includes("03 / 03"));
   });
-  it("keeps every existing warning and both signature fields", () => {
+  it("keeps every existing warning and both signature fields on the final sheet only", () => {
     const html = render();
     for (const line of HONESTY_LIMITS) assert.ok(html.includes(line), line);
     assert.ok(html.includes("투자 권유가 아닙니다."));
     assert.equal((html.match(/class="ips-sign-line"/g) ?? []).length, 2);
+    const parts = sheets(html);
+    assert.equal(parts.length, 3);
+    assert.ok(!parts[1].includes("수익·위험 및 비용"));
+    assert.ok(!parts[1].includes("투자 유의사항 및 확인"));
+    assert.ok(parts[2].includes("수익·위험 및 비용"));
+    assert.ok(parts[2].includes("투자 유의사항 및 확인"));
+    assert.ok(parts[2].includes("ips-sign-line"));
+    assert.ok(!parts[2].includes("ips-holdings-table"));
+  });
+  it("keeps seven instruments entirely on the Section 03 sheet", () => {
+    const client = ipsDocumentFixture(7);
+    const pages = paginateIpsInstruments(client.portfolios[0].instruments!);
+    assert.deepEqual(pages.map((p) => p.length), [7]);
+    const html = render(client);
+    assert.equal((html.match(/class="ips-sheet(?: |")/g) ?? []).length, 3);
+    const parts = sheets(html);
+    assert.ok(parts[1].includes("편입 상품 명세"));
+    for (const row of client.portfolios[0].instruments!) {
+      const encoded = row.name.replace(/&/g, "&amp;");
+      assert.ok(parts[1].includes(encoded), row.name);
+      assert.ok(!parts[2].includes(encoded), `final sheet must not list ${row.name}`);
+    }
+    assert.ok(parts[2].includes("수익·위험 및 비용") && parts[2].includes("투자 유의사항 및 확인"));
+    assert.ok(!parts[1].includes("수익·위험 및 비용") && !parts[1].includes("투자 유의사항 및 확인"));
   });
   it("paginates all holdings without mutating the approved data", () => {
     const client = ipsDocumentFixture(19);
     const before = JSON.stringify(client);
     const pages = paginateIpsInstruments(client.portfolios[0].instruments!);
-    assert.deepEqual(pages.map((p) => p.length), [8, 7, 4]);
+    assert.deepEqual(pages.map((p) => p.length), [8, 8, 3]);
     assert.deepEqual(pages.flat(), client.portfolios[0].instruments);
     const html = render(client);
-    assert.equal((html.match(/class="ips-sheet(?: |")/g) ?? []).length, 4);
+    // 표지 + 3 보유 시트 + 최종 확인 = 5
+    assert.equal((html.match(/class="ips-sheet(?: |")/g) ?? []).length, 5);
     assert.ok(html.includes("추가 편입 상품 19"));
     assert.equal(JSON.stringify(client), before);
     assert.ok(html.indexOf("추가 편입 상품 19") < html.indexOf("투자 유의사항 및 확인"));
+    const parts = sheets(html);
+    assert.ok(!parts[parts.length - 1].includes("ips-holdings-table"));
+    assert.ok(parts[parts.length - 1].includes("수익·위험 및 비용"));
+    assert.ok(html.includes("01 / 05") && html.includes("05 / 05"));
   });
   it("shows unavailable metrics honestly but preserves a genuine zero", () => {
     const client = ipsDocumentFixture();
