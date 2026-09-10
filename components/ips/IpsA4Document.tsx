@@ -17,20 +17,15 @@ import {
 } from "@/lib/tax/portfolioPreviewTax";
 
 const ALLOCATION_COLORS = ["#1769d2", "#159caa", "#1428a0", "#5c8874", "#8592a6", "#b39960"];
+/** Section 03 holdings-only sheets — full capacity; Sections 04–05 use a separate final sheet. */
 const HOLDINGS_PER_PAGE = 8;
-const HOLDINGS_WITH_AGREEMENT = 4;
 
 export function paginateIpsInstruments(instruments: ApprovedInstrument[]): ApprovedInstrument[][] {
   if (!instruments.length) return [[]];
   const pages: ApprovedInstrument[][] = [];
-  let offset = 0;
-  // Reserve room for the full warnings and signatures on the final sheet.
-  while (instruments.length - offset > HOLDINGS_WITH_AGREEMENT) {
-    const count = Math.min(HOLDINGS_PER_PAGE, instruments.length - offset - HOLDINGS_WITH_AGREEMENT);
-    pages.push(instruments.slice(offset, offset + count));
-    offset += count;
+  for (let offset = 0; offset < instruments.length; offset += HOLDINGS_PER_PAGE) {
+    pages.push(instruments.slice(offset, offset + HOLDINGS_PER_PAGE));
   }
-  pages.push(instruments.slice(offset));
   return pages;
 }
 
@@ -102,7 +97,8 @@ export default function IpsA4Document({ documentClient, documentPbDisplay, inves
   const allocations = pf ? resolvePortfolioDisplayAllocations(pf, confirmedWeights) : [];
   const allocationTotal = allocations.reduce((sum, row) => sum + row.weight, 0);
   const holdingPages = paginateIpsInstruments(pf?.instruments ?? []);
-  const totalPages = 1 + holdingPages.length;
+  // 표지(01–02) + Section 03 전용 시트(들) + 최종 확인 시트(04–05)
+  const totalPages = 1 + holdingPages.length + 1;
   const legacyIncomplete = isLegacyIncompletePortfolio(pf);
   const metricsOk = portfolioHasDisplayableMetrics(pf);
   const taxReady =
@@ -169,56 +165,62 @@ export default function IpsA4Document({ documentClient, documentPbDisplay, inves
       </section>
 
       {holdingPages.map((rows, pageIndex) => {
-        const isLast = pageIndex === holdingPages.length - 1;
-        return <section className={`ips-sheet ips-portfolio-sheet${isLast && taxWaterfall ? " ips-with-tax" : ""}`} aria-label={`포트폴리오 상세 ${pageIndex + 1}`} key={pageIndex}>
-          <Masthead client={documentClient} dateStr={dateStr} compact />
-          <div className="ips-detail-title"><p className="ips-eyebrow">PORTFOLIO & AGREEMENT</p><h2>{pageIndex === 0 ? "포트폴리오와 고객 확인" : "포트폴리오 상세 (계속)"}</h2><p>{documentClient.name} 고객님 · {pf?.label ?? "포트폴리오 미확정"}</p></div>
+        const hasMoreHoldings = pageIndex < holdingPages.length - 1;
+        return (
+          <section className="ips-sheet ips-portfolio-sheet" aria-label={`포트폴리오 상세 ${pageIndex + 1}`} key={pageIndex}>
+            <Masthead client={documentClient} dateStr={dateStr} compact />
+            <div className="ips-detail-title"><p className="ips-eyebrow">PORTFOLIO & AGREEMENT</p><h2>{pageIndex === 0 ? "포트폴리오와 고객 확인" : "포트폴리오 상세 (계속)"}</h2><p>{documentClient.name} 고객님 · {pf?.label ?? "포트폴리오 미확정"}</p></div>
 
-          <section className="ips-section ips-instruments-section">
-            <SectionTitle number="03" note={`총 ${pf?.instruments?.length ?? 0}개 상품`}>편입 상품 명세{pageIndex > 0 ? " (계속)" : ""}</SectionTitle>
-            {legacyIncomplete && !pf?.instruments?.length ? <p className="ips-empty">편입 상품 상세가 없는 이전 승인 기록입니다. 담당 PB의 재확인이 필요합니다.</p> : <InstrumentTable rows={rows} />}
-            <p className="ips-note">비중·수량은 승인 시점 장부 기준이며 증권사 주문·체결 내역이 아닙니다. 배정금액은 만원 단위로 반올림했습니다.</p>
-            {!isLast && <p className="ips-continuation">편입 상품 명세와 유의사항·서명란은 다음 페이지에 이어집니다.</p>}
+            <section className="ips-section ips-instruments-section">
+              <SectionTitle number="03" note={`총 ${pf?.instruments?.length ?? 0}개 상품`}>편입 상품 명세{pageIndex > 0 ? " (계속)" : ""}</SectionTitle>
+              {legacyIncomplete && !pf?.instruments?.length ? <p className="ips-empty">편입 상품 상세가 없는 이전 승인 기록입니다. 담당 PB의 재확인이 필요합니다.</p> : <InstrumentTable rows={rows} />}
+              <p className="ips-note">비중·수량은 승인 시점 장부 기준이며 증권사 주문·체결 내역이 아닙니다. 배정금액은 만원 단위로 반올림했습니다.</p>
+              {hasMoreHoldings && <p className="ips-continuation">편입 상품 명세와 유의사항·서명란은 다음 페이지에 이어집니다.</p>}
+            </section>
+            <Footer page={pageIndex + 2} total={totalPages} name={documentClient.name} />
           </section>
-
-          {isLast && <>
-            <section className="ips-section ips-outlook-section">
-              <SectionTitle number="04" note="상담용 추정">수익·위험 및 비용</SectionTitle>
-              <dl className="ips-outlook"><div><dt>예상 연수익률</dt><dd>{metricLabel(pf, "return")}</dd></div><div><dt>예상 변동성</dt><dd>{metricLabel(pf, "risk")}</dd></div></dl>
-              {taxWaterfall && taxWaterfall.status !== "pending_income" && taxWaterfall.status !== "incomplete" && taxWaterfall.afterTaxEndingAssetsWon != null ? (
-                <div className="ips-tax-summary">
-                  <p>1년 · Portfolio preview 기준 · 세전·세후 예상</p>
-                  <dl>
-                    <div><dt>세전 예상 수익</dt><dd>{formatKRW(taxWaterfall.preTaxExpectedProfitWon ?? 0)}</dd></div>
-                    <div><dt>추정 세금</dt><dd>{formatKRW(taxWaterfall.estimatedTaxWon ?? 0)}</dd></div>
-                    <div><dt>비용</dt><dd>{formatKRW(taxWaterfall.costsWon ?? 0)}</dd></div>
-                    <div><dt>세후 기말자산</dt><dd>{formatKRW(taxWaterfall.afterTaxEndingAssetsWon)}</dd></div>
-                  </dl>
-                </div>
-              ) : (
-                <p className="ips-note">
-                  {taxWaterfall?.status === "pending_income" || taxWaterfall?.status === "incomplete"
-                    ? taxWaterfall.statusMessageKo
-                    : "세전·세후 예상은 Portfolio preview·소득 정보 확인 후 제공됩니다."}
-                </p>
-              )}
-              <p className="ips-note">수익률·변동성은 참고 추정치이며 미래 성과를 보장하지 않습니다.</p>
-            </section>
-
-            <section className="ips-section ips-agreement">
-              <SectionTitle number="05">투자 유의사항 및 확인</SectionTitle>
-              <div className="ips-disclaimer">
-                <p>※ 본 투자정책서는 PB 상담 내용을 구조화한 <b>참고용 문서</b>이며 투자 권유가 아닙니다. 포트폴리오·스트레스 결과는 통계적 추정치로 미래 수익을 보장하지 않으며, 실제 투자 결정 및</p>
-                <ul>{HONESTY_LIMITS.map((line) => <li key={line}>{line}</li>)}</ul>
-              </div>
-              <p className="ips-acknowledgement">투자 목적, 자산배분 계획 및 위 유의사항을 확인합니다.</p>
-              <div className="ips-signatures"><div><span>담당 PB</span><strong>{documentPbDisplay}</strong><span className="ips-sign-line">서명</span></div><div><span>고객</span><strong>{documentClient.name}</strong><span className="ips-sign-line">서명</span></div></div>
-              <p className="ips-sign-date">확인일 <span>년</span><span>월</span><span>일</span></p>
-            </section>
-          </>}
-          <Footer page={pageIndex + 2} total={totalPages} name={documentClient.name} />
-        </section>;
+        );
       })}
+
+      <section className={`ips-sheet ips-portfolio-sheet${taxWaterfall ? " ips-with-tax" : ""}`} aria-label="수익·위험 및 확인">
+        <Masthead client={documentClient} dateStr={dateStr} compact />
+        <div className="ips-detail-title"><p className="ips-eyebrow">PORTFOLIO & AGREEMENT</p><h2>포트폴리오와 고객 확인</h2><p>{documentClient.name} 고객님 · {pf?.label ?? "포트폴리오 미확정"}</p></div>
+
+        <section className="ips-section ips-outlook-section">
+          <SectionTitle number="04" note="상담용 추정">수익·위험 및 비용</SectionTitle>
+          <dl className="ips-outlook"><div><dt>예상 연수익률</dt><dd>{metricLabel(pf, "return")}</dd></div><div><dt>예상 변동성</dt><dd>{metricLabel(pf, "risk")}</dd></div></dl>
+          {taxWaterfall && taxWaterfall.status !== "pending_income" && taxWaterfall.status !== "incomplete" && taxWaterfall.afterTaxEndingAssetsWon != null ? (
+            <div className="ips-tax-summary">
+              <p>1년 · Portfolio preview 기준 · 세전·세후 예상</p>
+              <dl>
+                <div><dt>세전 예상 수익</dt><dd>{formatKRW(taxWaterfall.preTaxExpectedProfitWon ?? 0)}</dd></div>
+                <div><dt>추정 세금</dt><dd>{formatKRW(taxWaterfall.estimatedTaxWon ?? 0)}</dd></div>
+                <div><dt>비용</dt><dd>{formatKRW(taxWaterfall.costsWon ?? 0)}</dd></div>
+                <div><dt>세후 기말자산</dt><dd>{formatKRW(taxWaterfall.afterTaxEndingAssetsWon)}</dd></div>
+              </dl>
+            </div>
+          ) : (
+            <p className="ips-note">
+              {taxWaterfall?.status === "pending_income" || taxWaterfall?.status === "incomplete"
+                ? taxWaterfall.statusMessageKo
+                : "세전·세후 예상은 Portfolio preview·소득 정보 확인 후 제공됩니다."}
+            </p>
+          )}
+          <p className="ips-note">수익률·변동성은 참고 추정치이며 미래 성과를 보장하지 않습니다.</p>
+        </section>
+
+        <section className="ips-section ips-agreement">
+          <SectionTitle number="05">투자 유의사항 및 확인</SectionTitle>
+          <div className="ips-disclaimer">
+            <p>※ 본 투자정책서는 PB 상담 내용을 구조화한 <b>참고용 문서</b>이며 투자 권유가 아닙니다. 포트폴리오·스트레스 결과는 통계적 추정치로 미래 수익을 보장하지 않으며, 실제 투자 결정 및</p>
+            <ul>{HONESTY_LIMITS.map((line) => <li key={line}>{line}</li>)}</ul>
+          </div>
+          <p className="ips-acknowledgement">투자 목적, 자산배분 계획 및 위 유의사항을 확인합니다.</p>
+          <div className="ips-signatures"><div><span>담당 PB</span><strong>{documentPbDisplay}</strong><span className="ips-sign-line">서명</span></div><div><span>고객</span><strong>{documentClient.name}</strong><span className="ips-sign-line">서명</span></div></div>
+          <p className="ips-sign-date">확인일 <span>년</span><span>월</span><span>일</span></p>
+        </section>
+        <Footer page={totalPages} total={totalPages} name={documentClient.name} />
+      </section>
     </article>
   );
 }
