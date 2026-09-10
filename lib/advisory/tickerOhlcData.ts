@@ -2,7 +2,6 @@ import type { OhlcDaily } from "./ohlcTypes";
 import { fetchKisDailyOhlc, isKisConfigured } from "@/lib/pricing/kis-chart";
 import {
   domesticCodeFromSymbol,
-  fetchNaverProfile,
   fetchNaverQuote,
   searchNaverStock,
   yahooSymbolFromNaverMatch,
@@ -12,6 +11,7 @@ import {
   fetchYahooQuote,
   resolveYahooSymbol,
 } from "./yahoo";
+import { fetchWiseReportProfile } from "./wisereport";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
@@ -223,7 +223,10 @@ export async function fetchTickerDaily(resolved: ResolvedTicker) {
 }
 
 export async function fetchTickerProfile(resolved: ResolvedTicker) {
-  if (resolved.domesticCode) return fetchNaverProfile(resolved.domesticCode);
+  // 국내는 WiseReport 에서 읽는다. 네이버 종목 페이지가 개편돼 fetchNaverProfile 로는
+  // 기업개요가 비어서 온다. fetchNaverProfile 자체는 kr-trend 가 계속 쓰므로 그대로
+  // 두고, 티커분석 경로인 여기만 바꾼다 — 경위는 wisereport.ts 머리말.
+  if (resolved.domesticCode) return fetchWiseReportProfile(resolved.domesticCode);
   return fetchYahooProfile(resolved.symbol);
 }
 
