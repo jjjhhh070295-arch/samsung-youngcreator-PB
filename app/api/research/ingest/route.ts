@@ -201,7 +201,9 @@ export async function GET(req: Request) {
         repaired: canonicalResults.filter((result) => result.status === "repaired").length,
         cached: canonicalResults.filter((result) => result.status === "cached").length,
         skippedOrFailed: canonicalResults.filter((result) => !["ingested", "repaired", "cached"].includes(result.status)).length,
-        failures: canonicalResults.filter((result) => ["failed", "skipped-empty"].includes(result.status)),
+        // 적재·복구·캐시가 아닌 건 전부 사유와 함께 싣는다. 예전 필터는 "failed"·"skipped-empty" 만 봐서
+        // skipped-too-short·skipped-pdf-no-text-layer 는 개수(skippedOrFailed)에만 잡히고 이유가 사라졌다.
+        failures: canonicalResults.filter((result) => !["ingested", "repaired", "cached"].includes(result.status)),
       },
     });
   } catch (e: any) {

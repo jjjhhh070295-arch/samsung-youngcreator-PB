@@ -25,11 +25,15 @@ export default function PortfolioAnalyticsCards({
   selected,
   complete,
   onAnalyticsSnapshot,
+  evidencePromptEnabled = true,
 }: {
   allocation: Parameters<typeof selectionToHoldings>[0];
   selected: Parameters<typeof selectionToHoldings>[1];
   complete: boolean;
   onAnalyticsSnapshot?: (snapshot: PortfolioAnalyticsSnapshot | null) => void;
+  /** 근거 부족 모달 자동 오픈 여부. 카드는 단계와 무관하게 붙어 있어 분석은 미리 돌지만,
+   *  모달은 PB 가 종목을 고르는 단계부터만 띄운다. */
+  evidencePromptEnabled?: boolean;
 }) {
   const [years, setYears] = useState<Period>(5);
   const [rebalance, setRebalance] = useState<Rebalance>("quarterly");
@@ -248,6 +252,7 @@ export default function PortfolioAnalyticsCards({
               coverage={result.portfolio.expectedReturnCoverage}
               assumptions={pbAssumptions}
               onApply={setPBAssumptions}
+              promptEnabled={evidencePromptEnabled}
             />
           )}
           {scenario && scenario.assumedWeight > 0 && (

@@ -473,7 +473,7 @@ export default function IPSResultTabs({
           <div
             className={portfolioStep === "approval" ? "space-y-4 portfolio-step-pane" : "hidden"}
             aria-hidden={portfolioStep !== "approval"}
-            {...(portfolioStep !== "approval" ? ({ inert: true } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
+            {...(portfolioStep !== "approval" ? ({ inert: "" } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
           >
             <div className="rounded-2xl border border-[#1428A0]/20 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">

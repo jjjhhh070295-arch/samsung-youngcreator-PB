@@ -647,6 +647,8 @@ export default function ManualPortfolioBuilder({
     onNavigateStep,
   ]);
 
+  // 숨긴 단계에 inert 를 건다. React 18.3 은 inert 를 모르는 속성으로 취급해 inert={true} 같은
+  // boolean 값은 DOM 에 쓰지 않고 버린다(개발 콘솔 경고만 남는다). 빈 문자열이어야 inert="" 로 붙는다.
   const paneClass = (active: boolean, direction: "forward" | "back") =>
     active
       ? `space-y-5 ${direction === "back" ? "portfolio-step-pane-back" : "portfolio-step-pane"}`
@@ -657,7 +659,7 @@ export default function ManualPortfolioBuilder({
       <div
         className={paneClass(step === "allocation", "back")}
         aria-hidden={step !== "allocation"}
-        {...(step !== "allocation" ? ({ inert: true } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
+        {...(step !== "allocation" ? ({ inert: "" } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
       >
       <div className="rounded-2xl bg-gradient-to-r from-[#071B4A] via-[#102B6B] to-[#1428A0] p-5 text-white shadow-md">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -831,7 +833,7 @@ export default function ManualPortfolioBuilder({
       <div
         className={paneClass(step === "instruments", "forward")}
         aria-hidden={step !== "instruments"}
-        {...(step !== "instruments" ? ({ inert: true } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
+        {...(step !== "instruments" ? ({ inert: "" } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
       >
       <div>
         <p className="text-sm font-black text-fg">02 종목선택</p>
@@ -1184,7 +1186,7 @@ export default function ManualPortfolioBuilder({
       <div
         className={paneClass(step === "approval", "forward")}
         aria-hidden={step !== "approval"}
-        {...(step !== "approval" ? ({ inert: true } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
+        {...(step !== "approval" ? ({ inert: "" } as unknown as HTMLAttributes<HTMLDivElement>) : {})}
       >
       <div>
         <p className="text-sm font-black text-fg">03 포트폴리오승인</p>
@@ -1253,7 +1255,7 @@ export default function ManualPortfolioBuilder({
           </div>
         </section>
       )}
-      <PortfolioAnalyticsCards key={clientId} allocation={finalAllocation} selected={analyticsSelected} complete={hydrated && !loadingHoldings && isComplete && instrumentAllocationComplete} onAnalyticsSnapshot={setAnalyticsSnapshot} />
+      <PortfolioAnalyticsCards key={clientId} allocation={finalAllocation} selected={analyticsSelected} complete={hydrated && !loadingHoldings && isComplete && instrumentAllocationComplete} onAnalyticsSnapshot={setAnalyticsSnapshot} evidencePromptEnabled={step !== "allocation"} />
       </div>
     </section>
   );
