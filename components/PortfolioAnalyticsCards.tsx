@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PortfolioEvidenceWarning from "./PortfolioEvidenceWarning";
 import { calculatePBScenario, type PBAssumptions } from "@/lib/portfolioAnalytics/pbScenario";
 import { selectionToHoldings } from "@/lib/portfolioAnalytics/selection";
@@ -85,8 +85,14 @@ export default function PortfolioAnalyticsCards({
 
   const current = state.key === requestKey && requestKey ? state : null;
   const result = current?.result;
-  const scenario =
-    result && Object.keys(pbAssumptions).length ? calculatePBScenario(result, pbAssumptions) : null;
+  // PB 입력값이 있으면 calculatePBScenario 가 렌더마다 새 객체를 만든다. 이 값이 아래 스냅샷 effect 의
+  // 의존성이라 effect → 부모 setAnalyticsSnapshot → 재렌더 → 새 scenario → effect … 로 끝없이 돌았고,
+  // 그 루프가 router.push(transition)를 굶겨 "종목선택 확정" 후 3단계로 넘어가지 못했다.
+  // 입력값·분석 결과가 바뀔 때만 다시 계산한다.
+  const scenario = useMemo(
+    () => (result && Object.keys(pbAssumptions).length ? calculatePBScenario(result, pbAssumptions) : null),
+    [result, pbAssumptions],
+  );
   const effectiveExpectedReturn = scenario?.value ?? result?.portfolio.expectedReturn;
   const effectiveRisk = result?.portfolio.annualizedVolatility ?? null;
   const period = result?.portfolio.analysisPeriod;

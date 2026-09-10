@@ -647,6 +647,15 @@ export default function ManualPortfolioBuilder({
     onNavigateStep,
   ]);
 
+  // 2·3단계용 저장·검증 오류 표시. 1단계 배너(allocationWarningRef)는 1단계 영역 안에 있어서
+  // 다른 단계에서는 display:none 이라, "종목선택 확정" 검증 실패가 화면에 안 보이고 묻혔다.
+  // 비활성 단계는 숨겨지므로 지금 보이는 단계에서만 한 번 나타난다. 경고는 줄바꿈으로 이어져 온다.
+  const stepSaveError = saveError ? (
+    <div className="whitespace-pre-line rounded-xl border border-rose-400 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800" role="alert">
+      {saveError}
+    </div>
+  ) : null;
+
   // 숨긴 단계에 inert 를 건다. React 18.3 은 inert 를 모르는 속성으로 취급해 inert={true} 같은
   // boolean 값은 DOM 에 쓰지 않고 버린다(개발 콘솔 경고만 남는다). 빈 문자열이어야 inert="" 로 붙는다.
   const paneClass = (active: boolean, direction: "forward" | "back") =>
@@ -1157,6 +1166,8 @@ export default function ManualPortfolioBuilder({
         </div>
       )}
 
+      {stepSaveError}
+
       <div className="sticky bottom-0 z-10 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:-mx-5 md:px-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <button
@@ -1192,6 +1203,7 @@ export default function ManualPortfolioBuilder({
         <p className="text-sm font-black text-fg">03 포트폴리오승인</p>
         <p className="mt-0.5 text-[11px] text-fg-muted">미리보기·분석·세전·세후를 확인한 뒤 승인합니다.</p>
       </div>
+      {stepSaveError}
       {isComplete && (
         <section className="overflow-hidden rounded-2xl border border-[#1428A0]/20 bg-white shadow-sm">
           <div className="flex flex-col gap-3 bg-[#071B4A] p-5 text-white sm:flex-row sm:items-start sm:justify-between">
